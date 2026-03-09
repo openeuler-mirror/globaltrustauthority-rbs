@@ -1,0 +1,50 @@
+# RBS (Resource Broker Service) Dockerfile
+FROM rust:1.75 as builder
+
+WORKDIR /build
+
+# Copy workspace config
+COPY Cargo.toml ./
+COPY Cargo.lock* ./
+
+# Copy all workspace members (required for workspace resolve; only rbs binary is built)
+COPY rbc/Cargo.toml ./rbc/
+COPY rbc/src ./rbc/src/
+COPY rbs/Cargo.toml ./rbs/
+COPY rbs/src ./rbs/src/
+COPY rbs/api-types/Cargo.toml ./rbs/api-types/
+COPY rbs/api-types/src ./rbs/api-types/src/
+COPY rbs/core/Cargo.toml ./rbs/core/
+COPY rbs/core/src ./rbs/core/src/
+COPY rbs/rest/Cargo.toml ./rbs/rest/
+COPY rbs/rest/src ./rbs/rest/src/
+COPY tools/Cargo.toml ./tools/
+COPY tools/src ./tools/src/
+COPY tools/rbs-admin-client/Cargo.toml ./tools/rbs-admin-client/
+COPY tools/rbs-admin-client/src ./tools/rbs-admin-client/src/
+
+# Build rbs (dependencies built automatically)
+RUN cargo build --release --bin rbs
+
+# Runtime image (OpenEuler)
+FROM openeuler/openeuler:24.03-lts
+
+RUN dnf install -y ca-certificates && dnf clean all
+
+WORKDIR /app
+
+# Copy binary
+COPY --from=builder /build/target/release/rbs /usr/local/bin/rbs
+
+# Copy config files
+COPY rbs/conf /etc/rbs/
+
+# Create runtime user
+RUN useradd -r -s /bin/false rbs && \
+    chown -R rbs:rbs /etc/rbs
+
+USER rbs
+
+EXPOSE 8080
+
+CMD ["rbs"]

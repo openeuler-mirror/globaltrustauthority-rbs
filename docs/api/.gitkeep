@@ -1,0 +1,22 @@
+# GTA-RBS API documentation index
+
+This directory holds API and CLI documentation for RBS (Key Broker Service) and RBC (Key Broker Client). **The authoritative spec is [rbs.yaml](./rbs.yaml)** (OpenAPI 3.0); Markdown docs are human-readable narrative and examples, kept in sync with rbs.yaml—in case of conflict, rbs.yaml wins.
+
+## Documents and audience
+
+| Document | Description | Audience |
+|----------|-------------|----------|
+| [rbs_api.md](./rbs_api.md) | RBS REST API: auth, resources, Admin, config, system, error codes | Server dev, integrators |
+| [rbs.yaml](./rbs.yaml) | OpenAPI 3.0 spec, machine-readable full API definition | Codegen, automation, authoritative spec |
+| [rbc_interface.md](./rbc_interface.md) | RBC client interface: C (sync/async callback), Rust (sync/async), CLI subset | Client/embedded dev, SDK implementers |
+| [rbs_cli.md](./rbs_cli.md) | rbs-cli: token, user, client, policy and resource management subcommands | Ops, scripts, manual use |
+
+## Recommended reading order
+
+- **Server / integrating with RBS**: read [rbs_api.md](./rbs_api.md) first, then [rbs.yaml](./rbs.yaml) as needed.
+- **Client / embedding RBC**: read [rbc_interface.md](./rbc_interface.md) first; it depends on auth and resource semantics in [rbs_api.md](./rbs_api.md).
+- **Ops / scripts**: use [rbs_cli.md](./rbs_cli.md); the client subcommand matches the CLI section of [rbc_interface.md](./rbc_interface.md).
+
+## Versioning and sync
+
+- Docs and rbs.yaml share the same version (e.g. 0.1.0). When the API changes, update rbs.yaml and the corresponding Markdown together and keep paths, methods, status codes, and error bodies consistent.
