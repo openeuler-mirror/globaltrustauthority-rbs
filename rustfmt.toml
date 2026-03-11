@@ -1,0 +1,17 @@
+# Formatting style (stable options only; avoids contributor local config drift)
+edition = "2021"
+use_small_heuristics = "Max"
+max_width = 120
+newline_style = "Unix"
+tab_spaces = 4
+hard_tabs = false
+
+# Imports & modules
+reorder_imports = true
+reorder_modules = true
+
+# Other
+merge_derives = false
+match_block_trailing_comma = true
+use_field_init_shorthand = true
+

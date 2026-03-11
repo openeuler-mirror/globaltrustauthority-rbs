@@ -1,0 +1,85 @@
+# RBS Configuration File
+# Resource Broker Service — runtime configuration
+# Format and field descriptions: docs/design/rbs_config.md
+# Override path via -c/--config or env RBS_CONFIG
+
+# REST server TLS
+tls:
+  enabled: false
+  cert_file: ""
+  key_file: ""
+
+# Logging
+logging:
+  level: info
+  format: json
+
+# Optional: external call timeouts and retry
+runtime:
+  gta_timeout_secs: 30
+  storage_timeout_secs: 10
+
+# Deployment mode: background (supports both Background and Passport)
+deployment_mode: background
+
+# REST server (required when rest feature is enabled)
+rest:
+  listen_addr: "0.0.0.0:8080"
+  workers: 4
+
+# Attestation service (GTA and other backends)
+attestation:
+  default_as_provider: gta
+  backends:
+    gta:
+      mode: rest
+      rest:
+        base_url: "https://gta-server:8080"
+        timeout_secs: 30
+      # built-in mode example (alternative to rest):
+      # mode: built-in
+      # built-in: {}
+
+# Storage: users, resource policies, and default resource persistence
+storage:
+  type: sqlite
+  sqlite:
+    path: "/var/lib/rbs/rbs.db"
+# PostgreSQL example:
+# storage:
+#   type: postgres
+#   postgres:
+#     url: "${DATABASE_URL}"
+#     max_connections: 10
+
+# Resource backends (for multiple backends; omit when using single storage)
+# Reserved names for res_provider: admin, attestation, resource, health
+resource:
+  default_provider: local
+  backends:
+    local:
+      type: local
+    # vault:
+    #   type: vault
+    #   url: "https://vault:8200"
+    #   token: "${VAULT_TOKEN}"
+    #   mount: "secret"
+    # ca:
+    #   type: ca
+    #   url: "https://ca-server:8443"
+    #   token: "${CA_TOKEN}"
+    #   default_profile: "server"
+
+# Bearer auth (JWT)
+# Default admin: system-built-in user (e.g. administrator) JWT verified by this public key, created at bootstrap.
+# New admins: registered via Admin API (POST /rbs/v0/admin/users); their public_key/jwks_uri stored in user data, not here.
+auth:
+  bearer:
+    jwt:
+      # Default (built-in) admin public key (PEM), supports env placeholder
+      public_key: "${RBS_ADMIN_PUBLIC_KEY}"
+      # Or inline PEM using YAML literal block: |
+      # public_key: |
+      #   -----BEGIN PUBLIC KEY-----
+      #   ...
+      #   -----END PUBLIC KEY-----

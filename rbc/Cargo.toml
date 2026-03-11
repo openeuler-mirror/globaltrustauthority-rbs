@@ -1,0 +1,27 @@
+[package]
+name = "rbc"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lib]
+name = "rbc"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rbc"
+path = "src/bin/main.rs"
+
+[dependencies]
+# Aligned with RBS protocol; Request/Response shared with rbs-api-types (design 10.5, rbc_interface)
+rbs-api-types = { path = "../rbs/api-types" }
+# tokio not needed for now; RBC is currently synchronous
+# tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+clap.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

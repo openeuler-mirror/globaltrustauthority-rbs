@@ -1,0 +1,18 @@
+[package]
+name = "rbs-rest"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "RBS RESTful HTTP service"
+
+[dependencies]
+rbs-api-types = { path = "../api-types" }
+rbs-core = { path = "../core" }
+axum = { version = "0.7", features = ["json", "macros"] }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tower-http = { version = "0.5", features = ["trace"] }
+anyhow.workspace = true

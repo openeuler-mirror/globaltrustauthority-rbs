@@ -1,0 +1,14 @@
+target/
+.git/
+.gitignore
+*.md
+docs/
+rpm/
+scripts/
+service/
+*.spec
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

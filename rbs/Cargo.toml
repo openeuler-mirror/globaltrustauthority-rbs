@@ -1,0 +1,24 @@
+[package]
+name = "rbs"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lib]
+name = "rbs"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rbs"
+path = "src/bin/main.rs"
+
+[features]
+default = []
+rest = ["dep:rbs-rest"]
+lib = []
+
+[dependencies]
+rbs-api-types = { path = "api-types" }
+rbs-core = { path = "core" }
+rbs-rest = { path = "rest", optional = true }

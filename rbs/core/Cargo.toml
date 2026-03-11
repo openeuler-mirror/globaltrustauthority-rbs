@@ -1,0 +1,13 @@
+[package]
+name = "rbs-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "RBS core business logic"
+
+[dependencies]
+rbs-api-types = { path = "../api-types" }
+tokio.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
