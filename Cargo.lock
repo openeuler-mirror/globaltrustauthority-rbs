@@ -1461,6 +1461,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "flate2",
+ "libc",
  "log",
  "rbs-api-types",
  "serde",
