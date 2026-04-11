@@ -24,8 +24,9 @@ use std::sync::Arc;
     operation_id = "rbsVersion",
     summary = "Get service name, API version, and build metadata",
     tags = ["System"],
+    security(()),
     responses(
-        (status = 200, description = "OK", body = RbsVersion),
+        (status = 200, description = "Version payload: service name, API contract version, and build metadata (JSON).", body = RbsVersion),
     )
 )]
 pub async fn version(core: web::Data<Arc<RbsCore>>) -> HttpResponse {
@@ -56,14 +57,12 @@ mod tests {
         assert_eq!(json.get("service_name").and_then(|v| v.as_str()), Some(SERVICE_NAME));
         assert_eq!(json.get("api_version").and_then(|v| v.as_str()), Some(API_VERSION));
         let build = json.get("build").expect("response must contain build object");
-        for key in ["version", "git_hash", "build_date"] {
-            let s = build
-                .get(key)
-                .and_then(|v| v.as_str())
-                .unwrap_or_default();
+        let v = build.get("version").and_then(|x| x.as_str()).unwrap_or_default();
+        assert!(!v.is_empty(), "build.version must be non-empty (Cargo release)");
+        for key in ["git_hash", "build_date"] {
             assert!(
-                !s.is_empty(),
-                "build.{key} must be a non-empty string"
+                build.get(key).and_then(|x| x.as_str()).is_some(),
+                "build.{key} must be a string (may be empty when not embedded at build)"
             );
         }
     }

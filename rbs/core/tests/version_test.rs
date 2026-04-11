@@ -27,11 +27,9 @@ fn version_returns_expected_service_and_api_version() {
 }
 
 #[test]
-fn version_build_has_non_empty_fields() {
+fn version_build_release_version_is_always_set() {
     let info = version_info();
-    assert!(!info.build.version.is_empty(), "build.version must be set");
-    assert!(!info.build.git_hash.is_empty(), "build.git_hash must be set");
-    assert!(!info.build.build_date.is_empty(), "build.build_date must be set");
+    assert!(!info.build.version.is_empty(), "build.version must come from Cargo");
 }
 
 #[test]
@@ -42,8 +40,8 @@ fn version_serializes_to_json_with_expected_keys() {
     assert_eq!(json.get("api_version").and_then(|v| v.as_str()), Some(API_VERSION));
     let build = json.get("build").expect("build must be present");
     assert!(!build.get("version").and_then(|v| v.as_str()).unwrap_or("").is_empty());
-    assert!(!build.get("git_hash").and_then(|v| v.as_str()).unwrap_or("").is_empty());
-    assert!(!build.get("build_date").and_then(|v| v.as_str()).unwrap_or("").is_empty());
+    assert!(build.get("git_hash").and_then(|v| v.as_str()).is_some());
+    assert!(build.get("build_date").and_then(|v| v.as_str()).is_some());
 }
 
 #[test]

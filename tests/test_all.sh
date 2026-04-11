@@ -19,6 +19,9 @@
 # Environment toggles (default: all enabled):
 #   ENABLE_CARGO_TESTS=0 ./tests/test_all.sh   # skip Cargo tests
 #   ENABLE_E2E_TESTS=0   ./tests/test_all.sh   # skip e2e/interface tests
+#
+# After workspace Cargo tests or `--suite rbs` Cargo tests, verifies
+# docs/proto/rbs_rest_api.yaml matches `cargo build -p rbs --features rest` (committed tree vs build output).
 
 set -euo pipefail
 
@@ -66,11 +69,39 @@ EOF
 array_push_unique() {
   local -n _arr=$1
   local val=$2
-  local x
-  for x in "${_arr[@]:-}"; do
-    [[ "$x" == "$val" ]] && return 0
-  done
+  if [[ ${#_arr[@]} -gt 0 ]]; then
+    local x
+    for x in "${_arr[@]}"; do
+      [[ "$x" == "$val" ]] && return 0
+    done
+  fi
   _arr+=("$val")
+}
+
+# True when `--suite rbs` was selected (only called from suite mode; suites is non-empty).
+# rbs-e2e is excluded: it adds no Cargo packages, so the OpenAPI check does not apply there.
+suites_include_rbs() {
+  local s
+  for s in "${suites[@]}"; do
+    if [[ "$s" == "rbs" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Fail if checked-in OpenAPI YAML drifts from rbs/build.rs emission (same invariant as CI doc generation).
+check_openapi_yaml_matches_build() {
+  echo ""
+  echo "=== OpenAPI: docs/proto/rbs_rest_api.yaml matches rbs build output ==="
+  cargo build -p rbs --features rest -q
+  if ! git diff --quiet -- docs/proto/rbs_rest_api.yaml; then
+    echo "error: docs/proto/rbs_rest_api.yaml differs from \`cargo build -p rbs --features rest\`." >&2
+    echo "Regenerate: (from repo root) cargo build -p rbs --features rest && git add docs/proto/rbs_rest_api.yaml" >&2
+    git diff -- docs/proto/rbs_rest_api.yaml >&2 || true
+    exit 1
+  fi
+  echo "OpenAPI YAML is in sync with the rbs crate build."
 }
 
 main() {
@@ -138,8 +169,10 @@ main() {
     if [[ "$ENABLE_CARGO_TESTS" == "1" ]]; then
       echo "=== Cargo tests (workspace) ==="
       cargo test --workspace
+      check_openapi_yaml_matches_build
     else
       echo "=== Cargo tests (workspace) SKIPPED (ENABLE_CARGO_TESTS=$ENABLE_CARGO_TESTS) ==="
+      echo "(OpenAPI YAML drift check also skipped; requires Cargo build)"
     fi
 
     echo ""
@@ -193,11 +226,17 @@ main() {
           args+=(-p "$p")
         done
         cargo test "${args[@]}"
+        if suites_include_rbs; then
+          check_openapi_yaml_matches_build
+        fi
       else
         echo "=== Cargo tests SKIPPED (no Cargo packages for selected suite(s); use rbs/rbc/tools for unit tests) ==="
       fi
     else
       echo "=== Cargo tests SKIPPED (ENABLE_CARGO_TESTS=$ENABLE_CARGO_TESTS) ==="
+      if suites_include_rbs; then
+        echo "(OpenAPI YAML drift check also skipped; requires Cargo build)"
+      fi
     fi
 
     echo ""

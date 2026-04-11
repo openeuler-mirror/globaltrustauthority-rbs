@@ -1,6 +1,6 @@
 <!-- Generator: Widdershins v4.0.1 -->
 
-<h1 id="rbs-rest-api">RBS REST API v0.1.0</h1>
+<h1 id="rbs-rest-api">RBS REST API v0</h1>
 
 > Scroll down for code samples, example requests and responses. Select a language for code samples from the tabs above or the mobile navigation menu.
 
@@ -15,7 +15,7 @@ License: <a href="http://license.coscl.org.cn/MulanPSL2">Mulan Permissive Softwa
 
 <h1 id="rbs-rest-api-system">System</h1>
 
-`RbsCore::system` — service identity, API/build version via `GET /rbs/version` (system metadata; no VerifiedAuth).
+`RbsCore::system` — service identity and API/build version via `GET /rbs/version` (system metadata). Does not require authentication.
 
 ## rbsVersion
 
@@ -168,13 +168,13 @@ func main() {
 
 ```json
 {
-  "api_version": "0.1.0",
+  "service_name": "globaltrustauthority-rbs",
+  "api_version": "0",
   "build": {
-    "build_date": "unknown",
-    "git_hash": "unknown",
-    "version": "0.1.0"
-  },
-  "service_name": "globaltrustauthority-rbs"
+    "version": "0.1.0",
+    "git_hash": "",
+    "build_date": ""
+  }
 }
 ```
 
@@ -182,10 +182,11 @@ func main() {
 
 |Status|Meaning|Description|Schema|
 |---|---|---|---|
-|200|[OK](https://tools.ietf.org/html/rfc7231#section-6.3.1)|OK|[RbsVersion](#schemarbsversion)|
+|200|[OK](https://tools.ietf.org/html/rfc7231#section-6.3.1)|Version payload: service name, API contract version, and build metadata (JSON).|[RbsVersion](#schemarbsversion)|
 
-<aside class="success">
-This operation does not require authentication
+<aside class="warning">
+To perform this operation, you must be authenticated by means of one of the following methods:
+None
 </aside>
 
 # Schemas
@@ -199,9 +200,9 @@ This operation does not require authentication
 
 ```json
 {
-  "build_date": "unknown",
-  "git_hash": "unknown",
-  "version": "0.1.0"
+  "version": "0.1.0",
+  "git_hash": "",
+  "build_date": ""
 }
 
 ```
@@ -212,9 +213,9 @@ Build-time identity for the running binary.
 
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
-|build_date|string|true|none|Build timestamp (UTC), implementation-defined format.|
-|git_hash|string|true|none|Git commit hash at build time (or placeholder when unknown).|
 |version|string|true|none|Cargo package / release version (semver).|
+|git_hash|string|true|none|Git commit hash at build time (hex), or empty when not embedded at build.|
+|build_date|string|true|none|Build timestamp (UTC), typically RFC 3339, or empty when not embedded at build.|
 
 <h2 id="tocS_ErrorBody">ErrorBody</h2>
 <!-- backwards compatibility -->
@@ -247,13 +248,13 @@ Error payload for HTTP error responses (e.g. 500).
 
 ```json
 {
-  "api_version": "0.1.0",
+  "service_name": "globaltrustauthority-rbs",
+  "api_version": "0",
   "build": {
-    "build_date": "unknown",
-    "git_hash": "unknown",
-    "version": "0.1.0"
-  },
-  "service_name": "globaltrustauthority-rbs"
+    "version": "0.1.0",
+    "git_hash": "",
+    "build_date": ""
+  }
 }
 
 ```
@@ -264,7 +265,7 @@ JSON emitted by `GET /rbs/version` (`service_name`, `api_version`, structured `b
 
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
+|service_name|string|true|none|Logical service display name.|
 |api_version|string|true|none|Published API contract version string.|
 |build|[BuildMetadata](#schemabuildmetadata)|true|none|Build-time identity for the running binary.|
-|service_name|string|true|none|Logical service display name.|
 

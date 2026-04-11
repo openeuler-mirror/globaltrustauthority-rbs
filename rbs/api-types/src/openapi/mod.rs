@@ -14,4 +14,7 @@
 
 pub mod system;
 
-pub use system::{API_VERSION, BuildMetadata, ErrorBody, RbsVersion, SERVICE_NAME};
+pub use system::{
+    API_VERSION, BUILD_DATE_PLACEHOLDER, BuildMetadata, ErrorBody, GIT_HASH_PLACEHOLDER, RbsVersion,
+    SERVICE_NAME,
+};

@@ -28,7 +28,7 @@ use utoipa::OpenApi;
         (url = "http://localhost:6666", description = "Default local development (see `rbs.yaml` `rest.listen_addr`)"),
     ),
     tags(
-        (name = "System", description = "`RbsCore::system` — service identity, API/build version via `GET /rbs/version` (system metadata; no VerifiedAuth)."),
+        (name = "System", description = "`RbsCore::system` — service identity and API/build version via `GET /rbs/version` (system metadata). Does not require authentication."),
     ),
     paths(
         crate::routes::version::version,
@@ -51,6 +51,19 @@ mod tests {
             v.pointer("/info/version").and_then(|x| x.as_str()),
             Some(API_VERSION),
             "OpenAPI info.version must match published API_VERSION"
+        );
+        let sec = v
+            .pointer("/paths/~1rbs~1version/get/security")
+            .and_then(|x| x.as_array())
+            .expect("GET /rbs/version must declare security (empty requirement = no auth)");
+        assert_eq!(
+            sec.len(),
+            1,
+            "single empty security requirement marks the operation as requiring no schemes"
+        );
+        assert!(
+            sec[0].as_object().map(|o| o.is_empty()).unwrap_or(false),
+            "empty security requirement object must serialize as {{}} in OpenAPI"
         );
     }
 }

@@ -12,7 +12,9 @@
 
 //! Integration test: `RbsVersion` serde JSON round-trip (shape for `GET /rbs/version`).
 
-use rbs_api_types::{API_VERSION, RbsVersion, SERVICE_NAME};
+use rbs_api_types::{
+    API_VERSION, BUILD_DATE_PLACEHOLDER, GIT_HASH_PLACEHOLDER, RbsVersion, SERVICE_NAME,
+};
 
 #[test]
 fn rbs_version_json_roundtrip_preserves_fixture() {
@@ -21,8 +23,8 @@ fn rbs_version_json_roundtrip_preserves_fixture() {
         "api_version": API_VERSION,
         "build": {
             "version": "9.8.7",
-            "git_hash": "unknown",
-            "build_date": "unknown"
+            "git_hash": GIT_HASH_PLACEHOLDER,
+            "build_date": BUILD_DATE_PLACEHOLDER
         }
     });
     let decoded: RbsVersion = serde_json::from_value(fixture.clone()).expect("deserialize");

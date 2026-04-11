@@ -39,14 +39,17 @@ fn openapi_generate() -> anyhow::Result<()> {
 
     let manifest_dir_str = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR");
     let manifest_dir = Path::new(&manifest_dir_str);
-    println!("cargo:rerun-if-changed={}", manifest_dir.join("build.rs").display());
     let workspace_root =
         manifest_dir.parent().expect("rbs crate manifest should have a parent (workspace root)");
 
-    let rest = manifest_dir.join("../rest");
-    println!("cargo:rerun-if-changed={}", rest.join("src/api_doc/document.rs").display());
-    println!("cargo:rerun-if-changed={}", rest.join("src/api_doc/mod.rs").display());
-    println!("cargo:rerun-if-changed={}", rest.join("src/routes/version.rs").display());
+    // rbs-rest: OpenAPI document definition and every route that contributes to it.
+    let rest = workspace_root.join("rest");
+    println!("cargo:rerun-if-changed={}", rest.join("src").display());
+
+    // rbs-api-types: `utoipa::ToSchema` types included in `ApiDoc`; without these, Cargo may skip
+    // rerunning this script when only api-types changes, leaving `docs/proto/rbs_rest_api.yaml` stale.
+    let api_types = workspace_root.join("api-types");
+    println!("cargo:rerun-if-changed={}", api_types.join("src").display());
 
     let yaml_path = workspace_root.join("docs/proto/rbs_rest_api.yaml");
 

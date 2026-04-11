@@ -23,8 +23,20 @@ use utoipa::ToSchema;
 /// Public service name for APIs, logs, and the exported `OpenAPI` document.
 pub const SERVICE_NAME: &str = "globaltrustauthority-rbs";
 
-/// Published REST API contract version string.
-pub const API_VERSION: &str = "0.1.0";
+/// Published REST API contract version string (HTTP `api_version`; independent of Cargo package version).
+pub const API_VERSION: &str = "0";
+
+/// Placeholder for `build.git_hash` when no VCS revision is embedded at build time.
+///
+/// Empty string follows common API practice (e.g. metadata fields where “unset” is represented as
+/// `""`); clients should treat a non-empty value as an embedded hex commit hash.
+pub const GIT_HASH_PLACEHOLDER: &str = "";
+
+/// Placeholder for `build.build_date` when no timestamp is embedded at build time.
+///
+/// Empty string follows the same convention as [`GIT_HASH_PLACEHOLDER`]; non-empty values should
+/// be RFC 3339 timestamps when provided by the build.
+pub const BUILD_DATE_PLACEHOLDER: &str = "";
 
 /// Value written to the exported `OpenAPI` document for `service_name` (same as [`SERVICE_NAME`]).
 /// Required by [`utoipa`] as the argument to `#[schema(example = …)]` (`OpenAPI` spec keyword).
@@ -50,14 +62,14 @@ fn open_api_schema_build_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
-/// Value written to the exported `OpenAPI` document for `git_hash` when no VCS info is available.
+/// OpenAPI `example` for `git_hash` (same string as [`GIT_HASH_PLACEHOLDER`] at runtime when unset).
 fn open_api_schema_git_hash() -> &'static str {
-    "unknown"
+    GIT_HASH_PLACEHOLDER
 }
 
-/// Value written to the exported `OpenAPI` document for `build_date` when no build timestamp is available.
+/// OpenAPI `example` for `build_date` (same string as [`BUILD_DATE_PLACEHOLDER`] at runtime when unset).
 fn open_api_schema_build_date() -> &'static str {
-    "unknown"
+    BUILD_DATE_PLACEHOLDER
 }
 
 /// Error payload for HTTP error responses (e.g. 500).
@@ -74,10 +86,10 @@ pub struct BuildMetadata {
     /// Cargo package / release version (semver).
     #[schema(example = open_api_schema_build_version)]
     pub version: String,
-    /// Git commit hash at build time (or placeholder when unknown).
+    /// Git commit hash at build time (hex), or empty when not embedded at build.
     #[schema(example = open_api_schema_git_hash)]
     pub git_hash: String,
-    /// Build timestamp (UTC), implementation-defined format.
+    /// Build timestamp (UTC), typically RFC 3339, or empty when not embedded at build.
     #[schema(example = open_api_schema_build_date)]
     pub build_date: String,
 }

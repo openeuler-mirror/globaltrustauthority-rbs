@@ -12,4 +12,7 @@
 
 pub mod version;
 
-pub use version::{API_VERSION, BuildMetadata, ErrorBody, RbsVersion, SERVICE_NAME};
+pub use version::{
+    API_VERSION, BUILD_DATE_PLACEHOLDER, BuildMetadata, ErrorBody, GIT_HASH_PLACEHOLDER, RbsVersion,
+    SERVICE_NAME,
+};

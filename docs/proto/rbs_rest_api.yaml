@@ -8,7 +8,7 @@ info:
   license:
     name: Mulan Permissive Software License, Version 2
     url: http://license.coscl.org.cn/MulanPSL2
-  version: 0.1.0
+  version: '0'
 servers:
 - url: http://localhost:6666
   description: Default local development (see `rbs.yaml` `rest.listen_addr`)
@@ -21,11 +21,13 @@ paths:
       operationId: rbsVersion
       responses:
         '200':
-          description: OK
+          description: 'Version payload: service name, API contract version, and build metadata (JSON).'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/RbsVersion'
+      security:
+      - {}
 components:
   schemas:
     BuildMetadata:
@@ -36,18 +38,18 @@ components:
       - git_hash
       - build_date
       properties:
-        build_date:
-          type: string
-          description: Build timestamp (UTC), implementation-defined format.
-          example: unknown
-        git_hash:
-          type: string
-          description: Git commit hash at build time (or placeholder when unknown).
-          example: unknown
         version:
           type: string
           description: Cargo package / release version (semver).
           example: 0.1.0
+        git_hash:
+          type: string
+          description: Git commit hash at build time (hex), or empty when not embedded at build.
+          example: ''
+        build_date:
+          type: string
+          description: Build timestamp (UTC), typically RFC 3339, or empty when not embedded at build.
+          example: ''
     ErrorBody:
       type: object
       description: Error payload for HTTP error responses (e.g. 500).
@@ -67,16 +69,16 @@ components:
       - api_version
       - build
       properties:
-        api_version:
-          type: string
-          description: Published API contract version string.
-          example: 0.1.0
-        build:
-          $ref: '#/components/schemas/BuildMetadata'
         service_name:
           type: string
           description: Logical service display name.
           example: globaltrustauthority-rbs
+        api_version:
+          type: string
+          description: Published API contract version string.
+          example: '0'
+        build:
+          $ref: '#/components/schemas/BuildMetadata'
 tags:
 - name: System
-  description: '`RbsCore::system` — service identity, API/build version via `GET /rbs/version` (system metadata; no VerifiedAuth).'
+  description: '`RbsCore::system` — service identity and API/build version via `GET /rbs/version` (system metadata). Does not require authentication.'
