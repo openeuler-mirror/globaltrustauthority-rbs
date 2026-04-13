@@ -1,21 +1,12 @@
-# RBC 客户端默认配置（以 gta_agent 为 evidence/token 提供方）
-# 供 rbc_client_new(config_path) / rbc_client_set_config_file 或 rbc binary 加载
-# Override path via -c/--config or env RBC_CONFIG
-
-# rbc 侧
-rbs_base_url: "http://localhost:8080"
+rbs_base_url: "https://rbs.example.com"
+timeout_secs: 30
+# ca_cert: /path/to/ca.crt
 
 evidence_provider:
-  type: gta_agent
-  mode: built_in   # built-in 时不在配置里写 url，由代码注入 AgentLib
+  type: native
+  config_path: /etc/gta/agent_config.yaml
 
 token_provider:
-  type: gta_agent
-  mode: built_in
-
-# GTA Agent 侧（同文件或独立 agent.yaml，用于 load_plugins + AgentLibConfig）
-gta_agent:
-  plugin_dir: "/usr/lib/attestation_agent/plugins"
-  server_url: "https://gta-server:8443"   # get_token 需要
-  attester_types: ["tpm_boot", "tpm_ima"]
-  token_fmt: "eat"
+  type: rbs
+  # type: native
+  # config_path: /etc/gta/agent_config.yaml

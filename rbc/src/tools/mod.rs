@@ -10,23 +10,6 @@
  * See the Mulan PSL v2 for more details.
  */
 
-//! Token Provider trait and implementations.
+//! Utility modules for RBC.
 
-mod native_token;
-mod rbs_token;
-
-pub use native_token::NativeTokenProvider;
-pub use rbs_token::RbsAttestTokenProvider;
-
-use crate::error::RbcError;
-use rbs_api_types::api::AttesterData;
-use serde_json::Value;
-
-/// Token acquisition trait.
-pub trait TokenProvider: Send + Sync {
-    fn get_token(
-        &self,
-        evidence: Option<&Value>,
-        attester_data: Option<&AttesterData>,
-    ) -> Result<String, RbcError>;
-}
+pub mod tee_key;
