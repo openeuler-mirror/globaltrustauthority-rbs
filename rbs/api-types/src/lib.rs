@@ -28,3 +28,4 @@ pub mod openapi;
 pub use openapi::*;
 
 pub mod config;
+pub mod api;

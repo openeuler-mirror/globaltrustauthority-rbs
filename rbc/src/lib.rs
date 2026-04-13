@@ -17,9 +17,10 @@ pub mod client;
 pub mod evidence;
 pub mod sdk;
 pub mod token;
+pub mod tools;
+pub mod error;
 
-// Re-export here when implemented so users can: use rbc::rbcClient; use rbc::EvidenceProvider;
-// pub use sdk::rbcClient;
-// pub use client::RbsRestClient;
-// pub use evidence::EvidenceProvider;
-// pub use token::TokenProvider;
+pub use error::RbcError;
+pub use sdk::{Client, Config, ConfigBuilder, ProviderRawConfig, Session, GetResourceRequest, Resource};
+pub use evidence::EvidenceProvider;
+pub use token::TokenProvider;
