@@ -100,14 +100,17 @@ logging:
 # #     max_connections: 10
 # #     timeout_secs: 10
 # #
-# # MySQL / MariaDB:
-# # storage:
-# #   type: mysql
-# #   mysql:
-# #     url: "mysql://user:pass@host:3306/rbs"
-# #     max_connections: 10
-# #     timeout_secs: 30
-
+# Database configuration
+storage:
+  db_type: sqlite
+  # #  max_connections secs
+  max_connections: 10
+  # #  timeout secs
+  timeout: 30
+  # # url: "mysql://user:pass@host:3306/rbs"
+  url: "sqlite:///root/rbs.db"
+  sql_file_path: "rbs/conf/sqlite_rbs.sql"
+  
 # # Resource backends (for multiple backends; omit when using single storage)
 # # Reserved names for res_provider: admin, attestation, resource
 # resource:

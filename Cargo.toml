@@ -34,6 +34,7 @@ base64 = "0.22.1"
 openssl = "0.10.15"
 zeroize = { version = "1.6", features = ["derive"] }
 rpassword = "7"
+sea-orm = { version = "1.1.12", features = ["sqlx-postgres", "sqlx-mysql", "sqlx-sqlite", "runtime-tokio-native-tls", "debug-print", "mock"] }
 log4rs = { version = "1.2.0", features = ["gzip"] }
 rand = "0.9"
 josekit = "0.10.3"

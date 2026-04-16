@@ -21,6 +21,8 @@ mod infra;
 pub mod system;
 
 pub use infra::logging::init_logging;
+pub use infra::init_database;
+pub use infra::rdb;
 pub use rbs_api_types::config::{CoreConfig, LogRotationConfig, LoggingConfig, RotationCompression};
 pub use system::{BuildMetadata, RbsVersion, API_VERSION, SERVICE_NAME};
 

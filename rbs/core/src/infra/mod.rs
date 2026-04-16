@@ -13,3 +13,6 @@
 //! Infrastructure: logging and future cross-cutting concerns.
 
 pub mod logging;
+pub mod rdb;
+
+pub use rdb::init_database;

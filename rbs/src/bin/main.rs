@@ -18,6 +18,8 @@ use anyhow::Context;
 use clap::Parser;
 use rbs::load_config;
 use rbs_core::init_logging;
+use rbs_core::init_database;
+use rbs_core::rdb::execute_sql_file_path;
 
 /// RBS (Resource Broker Service) binary.
 #[derive(Parser)]
@@ -36,6 +38,15 @@ async fn main() -> anyhow::Result<()> {
 
     init_logging(&config.logging).context("init logging")?;
     log::info!("RBS config loaded from {}", Path::new(&config_path).display());
+
+    if let Some(ref database) = config.storage {
+        init_database(database).await.context("init database")?;
+        log::info!("Database initialized successfully");
+
+        let db_conn = rbs_core::rdb::get_db_connection()?;
+        execute_sql_file_path(&*db_conn, &database.sql_file_path).await.map_err(|e| anyhow::anyhow!("execute sql: {}", e))?;
+        log::info!("init table executed successfully");
+    }
 
     #[allow(unused_variables)]
     let core = std::sync::Arc::new(rbs_core::RbsCore::new(rbs_core::CoreConfig { logging: config.logging.clone() }));

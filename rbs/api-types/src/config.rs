@@ -78,7 +78,44 @@ fn default_rest_option() -> Option<RestConfig> {
     None
 }
 
-/// Top-level run configuration (`rbs.yaml`). Only **`rest`** and **`logging`** are deserialized;
+fn default_db_type() -> String {
+    "mysql".to_string()
+}
+
+fn default_max_connections() -> u32 {
+    20
+}
+
+fn default_timeout() -> u64 {
+    30
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Database {
+    #[serde(default = "default_db_type")]
+    pub db_type: String,
+    #[serde(default = "default_max_connections")]
+    pub max_connections: u32,
+    #[serde(default = "default_timeout")]
+    pub timeout: u64,
+    pub url: String,
+    pub sql_file_path: String,
+}
+
+impl Default for Database {
+    fn default() -> Self {
+        Self {
+            db_type: default_db_type(),
+            max_connections: default_max_connections(),
+            timeout: default_timeout(),
+            url: String::new(),
+            sql_file_path: String::new(),
+        }
+    }
+}
+
+/// Top-level run configuration (`rbs.yaml`). Only **`rest`**, **`logging`**, and **`database`** are deserialized;
 /// any other top-level key is rejected (`deny_unknown_fields`).
 ///
 /// In YAML, `rest` may be omitted or null (deserializes as `None`). The `rbs` binary's `load_config`
@@ -89,12 +126,14 @@ pub struct RbsConfig {
     #[serde(default = "default_rest_option")]
     pub rest: Option<RestConfig>,
     pub logging: LoggingConfig,
+    #[serde(default)]
+    pub storage: Option<Database>,
 }
 
 /// For programmatic use; YAML omitting `rest` deserializes to `None` via `default_rest_option`.
 impl Default for RbsConfig {
     fn default() -> Self {
-        Self { rest: Some(RestConfig::default()), logging: LoggingConfig::default() }
+        Self { rest: Some(RestConfig::default()), logging: LoggingConfig::default(), storage: None }
     }
 }
 
