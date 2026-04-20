@@ -8,7 +8,7 @@ license.workspace = true
 [lib]
 name = "rbc"
 path = "src/lib.rs"
-crate-type = ["lib", "cdylib"]
+crate-type = ["lib", "cdylib", "staticlib"]
 
 [[bin]]
 name = "rbc"
@@ -26,8 +26,12 @@ zeroize.workspace = true
 base64.workspace = true
 serde_yaml.workspace = true
 josekit.workspace = true
+async-trait.workspace = true
 attestation_client = { git = "https://gitcode.com/openeuler/global-trust-authority", package = "attestation_client" }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
 wiremock.workspace = true
+
+[build-dependencies]
+cbindgen.workspace = true

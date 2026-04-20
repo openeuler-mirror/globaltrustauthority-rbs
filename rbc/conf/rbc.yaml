@@ -3,10 +3,12 @@ timeout_secs: 30
 # ca_cert: /path/to/ca.crt
 
 evidence_provider:
+  enabled: false
   type: native
   config_path: /etc/gta/agent_config.yaml
 
 token_provider:
+  enabled: false
   type: rbs
   # type: native
   # config_path: /etc/gta/agent_config.yaml

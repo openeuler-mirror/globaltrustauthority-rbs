@@ -19,12 +19,14 @@ pub use native_token::NativeTokenProvider;
 pub use rbs_token::RbsAttestTokenProvider;
 
 use crate::error::RbcError;
+use async_trait::async_trait;
 use rbs_api_types::AttesterData;
 use serde_json::Value;
 
 /// Token acquisition trait.
+#[async_trait]
 pub trait TokenProvider: Send + Sync {
-    fn get_token(
+    async fn get_token(
         &self,
         evidence: Option<&Value>,
         attester_data: Option<&AttesterData>,

@@ -12,6 +12,7 @@
 
 //! Token provider that submits evidence to the RBS `/attest` endpoint (UC-01).
 
+use async_trait::async_trait;
 use rbs_api_types::{AttestRequest, AttesterData, RbcEvidencesPayload};
 use serde::Deserialize;
 use serde_json::Value;
@@ -24,7 +25,7 @@ use crate::token::TokenProvider;
 /// Deserialized from the `token_provider` block in `rbc.yaml` (excluding the `type` field).
 /// Currently no extra fields — reserved for future extension (e.g. custom timeouts).
 #[derive(Debug, Deserialize)]
-pub struct RbsTokenProviderConfig;
+pub struct RbsTokenProviderConfig{}
 
 /// Obtains a token by posting evidence to the RBS `/attest` endpoint.
 pub struct RbsAttestTokenProvider {
@@ -44,8 +45,9 @@ impl RbsAttestTokenProvider {
     }
 }
 
+#[async_trait]
 impl TokenProvider for RbsAttestTokenProvider {
-    fn get_token(
+    async fn get_token(
         &self,
         evidence: Option<&Value>,
         _attester_data: Option<&AttesterData>,
@@ -63,14 +65,7 @@ impl TokenProvider for RbsAttestTokenProvider {
             attester_data: None,
         };
 
-        let rt = tokio::runtime::Handle::try_current()
-            .map_err(|_| RbcError::AttestError("no tokio runtime available".into()))?;
-
-        let client = self.rest_client.clone();
-        let resp = std::thread::scope(|_| {
-            tokio::task::block_in_place(|| rt.block_on(client.post_attest(&req)))
-        })?;
-
+        let resp = self.rest_client.post_attest(&req).await?;
         Ok(resp.token)
     }
 }

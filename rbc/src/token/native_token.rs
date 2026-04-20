@@ -12,6 +12,7 @@
 
 //! Native token provider: performs a full attestation flow locally via the attestation_client crate (UC-02).
 
+use async_trait::async_trait;
 use attestation_client::{AttestationClient, TokenRequest};
 use rbs_api_types::AttesterData;
 use serde::Deserialize;
@@ -46,11 +47,12 @@ impl NativeTokenProvider {
     }
 }
 
+#[async_trait]
 impl TokenProvider for NativeTokenProvider {
     /// Run the full GTA attestation flow and return the token JSON string.
     ///
     /// `evidence` is unused — `attestation_client` collects evidence internally.
-    fn get_token(
+    async fn get_token(
         &self,
         _evidence: Option<&Value>,
         attester_data: Option<&AttesterData>,
@@ -67,14 +69,9 @@ impl TokenProvider for NativeTokenProvider {
             token_fmt: None,
         };
 
-        let rt = tokio::runtime::Handle::try_current()
-            .map_err(|_| RbcError::ProviderError("no tokio runtime available".into()))?;
-
-        std::thread::scope(|_| {
-            tokio::task::block_in_place(|| {
-                rt.block_on(self.client.get_token(req))
-                    .map_err(|e| RbcError::ProviderError(e.to_string()))
-            })
-        })
+        self.client
+            .get_token(req)
+            .await
+            .map_err(|e|RbcError::ProviderError(e.to_string()))        
     }
 }

@@ -17,6 +17,7 @@ mod native_evidence;
 pub use native_evidence::NativeEvidenceProvider;
 
 use crate::error::RbcError;
+use async_trait::async_trait;
 use rbs_api_types::{AttesterData, AuthChallengeResponse};
 use serde_json::Value;
 
@@ -25,8 +26,9 @@ use serde_json::Value;
 /// Uses `AuthChallengeResponse` from `rbs_api_types` directly (avoids duplicating the nonce wrapper).
 /// Uses `AttesterData` from `rbs_api_types`; the ephemeral RSA public key is carried inside
 /// `runtime_data["tee_pubkey"]` as a JWK string (per OpenAPI `AttesterData` description).
+#[async_trait]
 pub trait EvidenceProvider: Send + Sync {
-    fn collect_evidence(
+    async fn collect_evidence(
         &self,
         challenge: &AuthChallengeResponse,
         attester_data: Option<&AttesterData>,

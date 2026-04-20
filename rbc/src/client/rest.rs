@@ -32,7 +32,7 @@ pub struct RbsRestClient {
 }
 
 impl RbsRestClient {
-    pub fn new(base_url: &str, tls: Option<&TlsConfig>) -> Result<Self, RbcError> {
+    pub fn new(base_url: &str, tls: Option<&TlsConfig>, timeout_secs: Option<u64>) -> Result<Self, RbcError> {
         let mut builder = HttpClient::builder();
 
         if let Some(tls_cfg) = tls {
@@ -43,6 +43,10 @@ impl RbsRestClient {
                     .map_err(|e| RbcError::TlsError(format!("parse CA cert: {e}")))?;
                 builder = builder.add_root_certificate(cert);
             }
+        }
+
+        if let Some(secs) = timeout_secs {
+            builder = builder.timeout(std::time::Duration::from_secs(secs));
         }
 
         let http = builder
