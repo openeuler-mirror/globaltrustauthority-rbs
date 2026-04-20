@@ -14,12 +14,24 @@
 
 use actix_web::web;
 
-pub(crate) mod error;
-pub(crate) mod version;
+pub mod auth;
+pub mod error;
+pub mod resource;
+pub mod version;
 
 pub use error::not_found;
 
 /// Configures routes under /rbs/v0 (scope is already /v0 when called from server).
 pub fn config(cfg: &mut web::ServiceConfig) {
-    cfg.default_service(web::to(not_found));
+    cfg.service(
+        web::scope("/challenge")
+            .route("", web::get().to(auth::get_challenge)),
+    )
+    .route("/attest", web::post().to(auth::attest))
+    .route("/{uri:.+}/info", web::get().to(resource::get_resource_info))
+    .route("/{uri:.+}/retrieve", web::post().to(resource::retrieve_resource))
+    .route("/{uri:.+}", web::get().to(resource::get_resource))
+    .route("/{uri:.+}", web::put().to(resource::upsert_resource))
+    .route("/{uri:.+}", web::delete().to(resource::delete_resource))
+    .default_service(web::to(not_found));
 }

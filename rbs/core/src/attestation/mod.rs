@@ -10,14 +10,10 @@
  * See the Mulan PSL v2 for more details.
  */
 
-//! RBS REST service library.
-//!
-//! HTTP REST API implementation based on actix-web.
-//! Uses the `log` crate for logging; ensure the binary has called `rbs_core::init_logging` before starting the server.
+//! Attestation Manager and Provider management.
 
-mod api_doc;
-pub mod routes;
-pub mod server;
+pub mod manager;
+pub mod provider;
 
-pub use api_doc::ApiDoc;
-pub use server::{BoundServer, Server};
+pub use manager::AttestationManager;
+pub use provider::AttestationProvider;

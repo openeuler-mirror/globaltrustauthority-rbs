@@ -25,7 +25,7 @@ use serde_json::Map;
 ///
 /// `runtime_data` must not duplicate the challenge nonce (nonce lives only under
 /// `rbc_evidences.measurements[].nonce`).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct AttesterData {
     /// Key/value runtime fields (e.g. attester_pubkey as JWK for encrypted resource return);
@@ -36,7 +36,7 @@ pub struct AttesterData {
 }
 
 /// Single attestation artifact within a measurement (backend-specific detail).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct RbcEvidenceItem {
     /// Plugin or attester kind (e.g. tpm_boot).
@@ -52,7 +52,7 @@ pub struct RbcEvidenceItem {
 }
 
 /// One node or attestation unit inside the evidence bundle.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct RbcMeasurement {
     /// Must equal the `nonce` field from GET /rbs/v0/auth (same string, no transformation).
@@ -79,7 +79,7 @@ pub struct RbcMeasurement {
 ///
 /// Typical GTA-oriented shape includes a non-empty `measurements` array;
 /// deployments may add other keys or per-backend wrappers.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct RbcEvidencesPayload {
     /// Optional agent or collector version string.
@@ -92,7 +92,7 @@ pub struct RbcEvidencesPayload {
 }
 
 /// Request body for POST /rbs/v0/attest.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct AttestRequest {
     /// Optional attestation backend id (e.g. gta); default is deployment-specific.
@@ -107,7 +107,7 @@ pub struct AttestRequest {
 }
 
 /// Response for POST /rbs/v0/attest.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct AttestResponse {
     /// AttestToken or session JWT for subsequent Bearer resource access.
@@ -115,7 +115,7 @@ pub struct AttestResponse {
 }
 
 /// Response for GET /rbs/v0/challenge (attestation challenge).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct AuthChallengeResponse {
     /// Challenge value for binding attestation (opaque; often Base64).

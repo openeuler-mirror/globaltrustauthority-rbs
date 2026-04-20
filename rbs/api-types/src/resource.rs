@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use super::auth::AttestRequest;
 
 /// Resource content returned by GET and POST .../retrieve.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct ResourceContentResponse {
     /// Canonical resource URI for the returned object.
@@ -32,7 +32,7 @@ pub struct ResourceContentResponse {
 }
 
 /// Request body for PUT /rbs/v0/{...}/{resource_name}.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct ResourceUpsertRequest {
     /// Resource payload (plain or Base64 per deployment convention;
@@ -48,7 +48,7 @@ pub struct ResourceUpsertRequest {
 ///
 /// Returned by GET .../info. Field presence depends on provider and deployment;
 /// clients must tolerate omitted keys.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct ResourceInfoResponse {
     /// Canonical URI of the resource.
@@ -85,7 +85,7 @@ pub struct ResourceInfoResponse {
 /// Metadata returned after create/update.
 ///
 /// Additional fields allowed per provider.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct ResourceMetadataResponse {
     /// Canonical URI of the resource.

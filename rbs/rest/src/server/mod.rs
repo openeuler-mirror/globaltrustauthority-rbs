@@ -15,6 +15,6 @@
 #[cfg(feature = "per-ip-rate-limit")]
 pub mod rate_limit;
 
-mod http;
+pub mod http;
 
 pub use http::{BoundServer, Server};

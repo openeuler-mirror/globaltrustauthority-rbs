@@ -10,14 +10,11 @@
  * See the Mulan PSL v2 for more details.
  */
 
-//! RBS REST service library.
+//! File / stderr logging for `log` with optional size-based rotation and gzip archives.
 //!
-//! HTTP REST API implementation based on actix-web.
-//! Uses the `log` crate for logging; ensure the binary has called `rbs_core::init_logging` before starting the server.
+//! On **Unix**, `logging.file_mode` and `rotation.file_mode` are applied with `chmod`-style
+//! semantics after creating or rotating files. On other platforms those fields are ignored.
 
-mod api_doc;
-pub mod routes;
-pub mod server;
+pub mod init;
 
-pub use api_doc::ApiDoc;
-pub use server::{BoundServer, Server};
+pub use init::init_logging;

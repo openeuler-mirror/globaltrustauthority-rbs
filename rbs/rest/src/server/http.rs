@@ -201,7 +201,7 @@ impl BoundServer {
 }
 
 /// Rejects requests whose path + query string exceeds configured max with 414 URI Too Long.
-async fn uri_length_guard_middleware<B>(
+pub async fn uri_length_guard_middleware<B>(
     req: actix_web::dev::ServiceRequest,
     next: actix_web::middleware::Next<B>,
 ) -> Result<actix_web::dev::ServiceResponse<actix_web::body::BoxBody>, actix_web::Error>
@@ -219,65 +219,4 @@ where
     }
     let res = next.call(req).await?;
     Ok(res.map_body(|_, b| actix_web::body::BoxBody::new(b)))
-}
-
-#[cfg(test)]
-mod tests {
-    use actix_web::{test, web, App, HttpResponse};
-    use rbs_api_types::config::RestConfig;
-    use serde_json::Value;
-
-    use super::*;
-
-    #[actix_web::test]
-    async fn uri_length_guard_returns_414_json_error_body() {
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(20usize))
-                .wrap(from_fn(uri_length_guard_middleware))
-                .route("/x", web::get().to(|| async { HttpResponse::Ok().body("ok") })),
-        )
-        .await;
-        let long = format!("/{}", "a".repeat(25));
-        let req = test::TestRequest::get().uri(&long).to_request();
-        let resp = test::call_service(&app, req).await;
-        assert_eq!(resp.status(), actix_web::http::StatusCode::URI_TOO_LONG);
-        let body = test::read_body(resp).await;
-        let v: Value = serde_json::from_slice(&body).expect("body must be JSON");
-        assert_eq!(v.get("error").and_then(|x| x.as_str()), Some("URI Too Long"));
-    }
-
-    #[actix_web::test]
-    async fn bind_fails_when_https_enabled_but_cert_file_empty() {
-        let mut rest = RestConfig::default();
-        rest.https.enabled = true;
-        rest.https.cert_file = String::new();
-        rest.https.key_file = rbs_api_types::config::Sensitive::new("/dev/null".to_string());
-        let server = Server::new(Arc::new(RbsCore::default()), rest);
-        let result = server.bind().await;
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(
-            err_msg.contains("cert_file") && err_msg.contains("empty"),
-            "error should mention empty cert_file, got: {}",
-            err_msg
-        );
-    }
-
-    #[actix_web::test]
-    async fn bind_fails_when_https_enabled_but_key_file_empty() {
-        let mut rest = RestConfig::default();
-        rest.https.enabled = true;
-        rest.https.cert_file = "/dev/null".to_string();
-        rest.https.key_file = rbs_api_types::config::Sensitive::new(String::new());
-        let server = Server::new(Arc::new(RbsCore::default()), rest);
-        let result = server.bind().await;
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(
-            err_msg.contains("key_file") && err_msg.contains("empty"),
-            "error should mention empty key_file, got: {}",
-            err_msg
-        );
-    }
 }

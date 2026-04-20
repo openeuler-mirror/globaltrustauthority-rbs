@@ -1,6 +1,6 @@
 <!-- Generator: Widdershins v4.0.1 -->
 
-<h1 id="rbs-rest-api">RBS REST API v0</h1>
+<h1 id="rbs-rest-api">RBS REST API v0.1.0</h1>
 
 > Scroll down for code samples, example requests and responses. Select a language for code samples from the tabs above or the mobile navigation menu.
 
@@ -172,8 +172,8 @@ func main() {
   "api_version": "0",
   "build": {
     "version": "0.1.0",
-    "git_hash": "",
-    "build_date": ""
+    "git_hash": "0123456789abcdef0123456789abcdef",
+    "build_date": "2026-04-20T00:00:00Z"
   }
 }
 ```
@@ -201,8 +201,8 @@ None
 ```json
 {
   "version": "0.1.0",
-  "git_hash": "",
-  "build_date": ""
+  "git_hash": "0123456789abcdef0123456789abcdef",
+  "build_date": "2026-04-20T00:00:00Z"
 }
 
 ```
@@ -252,8 +252,8 @@ Error payload for HTTP error responses (e.g. 500).
   "api_version": "0",
   "build": {
     "version": "0.1.0",
-    "git_hash": "",
-    "build_date": ""
+    "git_hash": "0123456789abcdef0123456789abcdef",
+    "build_date": "2026-04-20T00:00:00Z"
   }
 }
 

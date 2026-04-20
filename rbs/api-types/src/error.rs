@@ -55,6 +55,8 @@ pub enum StableCode {
     ParamMissing,
     ParamInvalid,
     ParamMalformed,
+    InvalidParameter,
+    NotImplemented,
     // Resource errors
     ResourceNotFound,
     ResourceConflict,
@@ -80,6 +82,7 @@ pub enum HttpStatus {
     Unauthorized = 401,
     Forbidden = 403,
     NotFound = 404,
+    NotImplemented = 501,
     Conflict = 409,
     TooManyRequests = 429,
     InternalServerError = 500,
@@ -95,9 +98,11 @@ impl From<StableCode> for HttpStatus {
             StableCode::AuthzDenied | StableCode::AuthzInsufficientPermissions => {
                 HttpStatus::Forbidden
             }
-            StableCode::ParamMissing | StableCode::ParamInvalid | StableCode::ParamMalformed => {
+            StableCode::ParamMissing | StableCode::ParamInvalid | StableCode::ParamMalformed
+            | StableCode::InvalidParameter => {
                 HttpStatus::BadRequest
             }
+            StableCode::NotImplemented => HttpStatus::NotImplemented,
             StableCode::ResourceNotFound | StableCode::ResourceGone => HttpStatus::NotFound,
             StableCode::ResourceConflict => HttpStatus::Conflict,
             StableCode::RateLimitExceeded => HttpStatus::TooManyRequests,
@@ -143,6 +148,8 @@ impl From<StableCode> for Retryable {
             | StableCode::ParamMissing
             | StableCode::ParamInvalid
             | StableCode::ParamMalformed
+            | StableCode::InvalidParameter
+            | StableCode::NotImplemented
             | StableCode::ResourceConflict
             | StableCode::AuthzInsufficientPermissions => Retryable::No,
             StableCode::RateLimitExceeded
@@ -191,6 +198,12 @@ pub enum RbsError {
     #[error("malformed request body")]
     ParamMalformed,
 
+    #[error("invalid parameter: {0}")]
+    InvalidParameter(String),
+
+    #[error("not implemented")]
+    NotImplemented,
+
     // Resource errors
     #[error("resource not found")]
     ResourceNotFound,
@@ -210,6 +223,9 @@ pub enum RbsError {
 
     #[error("provider timeout")]
     ProviderTimeout,
+
+    #[error("provider not found: {0}")]
+    ProviderNotFound(String),
 
     // Dependency errors
     #[error("dependency unavailable: {service}")]
@@ -237,13 +253,16 @@ impl RbsError {
             Self::AuthzDenied | Self::AuthzInsufficientPermissions => ErrorClass::Authz,
             Self::ParamMissing { .. }
             | Self::ParamInvalid { .. }
-            | Self::ParamMalformed => ErrorClass::Param,
+            | Self::ParamMalformed
+            | Self::InvalidParameter(_)
+            | Self::NotImplemented => ErrorClass::Param,
             Self::ResourceNotFound | Self::ResourceConflict | Self::ResourceGone => {
                 ErrorClass::Resource
             }
             Self::AttestationProviderUnavailable
             | Self::ResourceProviderUnavailable
-            | Self::ProviderTimeout => ErrorClass::Provider,
+            | Self::ProviderTimeout
+            | Self::ProviderNotFound(_) => ErrorClass::Provider,
             Self::DependencyUnavailable { .. } => ErrorClass::Dependency,
             Self::RateLimitExceeded => ErrorClass::RateLimit,
             Self::InternalError | Self::InternalUnexpected { .. } => ErrorClass::Internal,
@@ -261,12 +280,15 @@ impl RbsError {
             Self::ParamMissing { .. } => StableCode::ParamMissing,
             Self::ParamInvalid { .. } => StableCode::ParamInvalid,
             Self::ParamMalformed => StableCode::ParamMalformed,
+            Self::InvalidParameter(_) => StableCode::InvalidParameter,
+            Self::NotImplemented => StableCode::NotImplemented,
             Self::ResourceNotFound => StableCode::ResourceNotFound,
             Self::ResourceConflict => StableCode::ResourceConflict,
             Self::ResourceGone => StableCode::ResourceGone,
             Self::AttestationProviderUnavailable
-            | Self::ResourceProviderUnavailable => StableCode::ProviderUnavailable,
-            Self::ProviderTimeout => StableCode::ProviderTimeout,
+            | Self::ResourceProviderUnavailable
+            | Self::ProviderTimeout
+            | Self::ProviderNotFound(_) => StableCode::ProviderUnavailable,
             Self::DependencyUnavailable { .. } => StableCode::DependencyUnavailable,
             Self::RateLimitExceeded => StableCode::RateLimitExceeded,
             Self::InternalError => StableCode::InternalError,
@@ -298,12 +320,15 @@ impl RbsError {
             Self::ParamMissing { .. } => "missing required parameter",
             Self::ParamInvalid { .. } => "invalid parameter",
             Self::ParamMalformed => "malformed request",
+            Self::InvalidParameter(_) => "invalid parameter",
+            Self::NotImplemented => "not implemented",
             Self::ResourceNotFound => "resource not found",
             Self::ResourceConflict => "resource conflict",
             Self::ResourceGone => "resource no longer available",
             Self::AttestationProviderUnavailable
             | Self::ResourceProviderUnavailable
-            | Self::ProviderTimeout => "service temporarily unavailable",
+            | Self::ProviderTimeout
+            | Self::ProviderNotFound(_) => "service temporarily unavailable",
             Self::DependencyUnavailable { .. } => "service dependency unavailable",
             Self::RateLimitExceeded => "rate limit exceeded",
             Self::InternalError | Self::InternalUnexpected { .. } => "internal server error",
