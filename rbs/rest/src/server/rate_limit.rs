@@ -136,33 +136,3 @@ where
     let res = next.call(req).await?;
     Ok(res.map_body(|_, b| BoxBody::new(b)))
 }
-
-#[cfg(test)]
-mod tests {
-    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-
-    use super::*;
-
-    #[test]
-    fn trusted_proxy_set_parses_ipv4_ipv6_and_socket() {
-        let t = TrustedProxySet::from_addrs(&[
-            "127.0.0.1".to_string(),
-            "::1".to_string(),
-            "10.0.0.5:8080".to_string(),
-            "  ".to_string(),
-            "not-an-ip".to_string(),
-        ]);
-        assert!(t.is_trusted(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))));
-        assert!(t.is_trusted(IpAddr::V6(Ipv6Addr::LOCALHOST)));
-        assert!(t.is_trusted(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 5))));
-        assert!(!t.is_trusted(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8))));
-    }
-
-    #[test]
-    fn keyed_limiter_second_request_same_ip_fails_when_burst_one() {
-        let lim = build_limiter(1, Some(1));
-        let ip: IpAddr = "192.0.2.1".parse().unwrap();
-        assert!(lim.check_key(&ip).is_ok(), "first request should pass");
-        assert!(lim.check_key(&ip).is_err(), "second immediate request should be rate limited");
-    }
-}

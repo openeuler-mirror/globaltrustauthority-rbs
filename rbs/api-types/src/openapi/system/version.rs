@@ -64,14 +64,14 @@ fn open_api_schema_build_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
-/// OpenAPI `example` for `git_hash` (same string as [`GIT_HASH_PLACEHOLDER`] at runtime when unset).
+/// OpenAPI `example` for `git_hash` (representative hex string for documentation).
 fn open_api_schema_git_hash() -> &'static str {
-    GIT_HASH_PLACEHOLDER
+    "0123456789abcdef0123456789abcdef"
 }
 
-/// OpenAPI `example` for `build_date` (same string as [`BUILD_DATE_PLACEHOLDER`] at runtime when unset).
+/// OpenAPI `example` for `build_date` (representative RFC 3339 timestamp for documentation).
 fn open_api_schema_build_date() -> &'static str {
-    BUILD_DATE_PLACEHOLDER
+    "2026-04-20T00:00:00Z"
 }
 
 /// Error payload for HTTP error responses (e.g. 500).

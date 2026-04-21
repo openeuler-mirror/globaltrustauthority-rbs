@@ -10,10 +10,7 @@
  * See the Mulan PSL v2 for more details.
  */
 
-//! File / stderr logging for `log` with optional size-based rotation and gzip archives.
-//!
-//! On **Unix**, `logging.file_mode` and `rotation.file_mode` are applied with `chmod`-style
-//! semantics after creating or rotating files. On other platforms those fields are ignored.
+//! Logging initialization.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
@@ -28,6 +25,7 @@ use rbs_api_types::config::{LoggingConfig, RotationCompression};
 static STATE: Mutex<Option<Arc<Mutex<LoggerInner>>>> = Mutex::new(None);
 static INIT_LOGGER: Once = Once::new();
 
+/// Logger inner state.
 struct LoggerInner {
     level_filter: log::LevelFilter,
     /// Active log file when `file_path` is set; `None` means stderr only.

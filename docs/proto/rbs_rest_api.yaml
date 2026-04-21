@@ -32,7 +32,7 @@ components:
   schemas:
     BuildMetadata:
       type: object
-      description: Build metadata for version information.
+      description: Build-time identity for the running binary.
       required:
       - version
       - git_hash
@@ -40,29 +40,30 @@ components:
       properties:
         version:
           type: string
-          description: Package version (e.g., "0.1.0").
+          description: Cargo package / release version (semver).
+          example: 0.1.0
         git_hash:
           type: string
-          description: Git commit hash.
+          description: Git commit hash at build time (hex), or empty when not embedded at build.
+          example: 0123456789abcdef0123456789abcdef
         build_date:
           type: string
-          description: Build timestamp.
+          description: Build timestamp (UTC), typically RFC 3339, or empty when not embedded at build.
+          example: 2026-04-20T00:00:00Z
     ErrorBody:
       type: object
-      description: |-
-        Error body returned for all error responses.
-
-        The `error` field may be a stable code (RBS-xxx), a short machine-oriented label,
-        or a concise human-readable message. Must not include stack traces or secrets.
+      description: Error payload for HTTP error responses (e.g. 500).
       required:
       - error
       properties:
         error:
           type: string
-          description: Error string for the caller.
+          description: |-
+            Error string for the caller: may be a stable code, a short machine-oriented label,
+            or a concise human-readable message. Must not include stack traces or secrets.
     RbsVersion:
       type: object
-      description: Response for GET /rbs/version.
+      description: JSON emitted by `GET /rbs/version` (`service_name`, `api_version`, structured `build`).
       required:
       - service_name
       - api_version
@@ -70,13 +71,14 @@ components:
       properties:
         service_name:
           type: string
-          description: Logical service name (e.g. rbs).
+          description: Logical service display name.
+          example: globaltrustauthority-rbs
         api_version:
           type: string
-          description: Published API / contract version string.
+          description: Published API contract version string.
+          example: '0'
         build:
           $ref: '#/components/schemas/BuildMetadata'
-          description: Build or git metadata.
 tags:
 - name: System
   description: '`RbsCore::system` — service identity and API/build version via `GET /rbs/version` (system metadata). Does not require authentication.'
