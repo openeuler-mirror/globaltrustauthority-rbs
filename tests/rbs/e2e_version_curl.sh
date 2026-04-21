@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+# Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
+# Global Trust Authority Resource Broker Service is licensed under the Mulan PSL v2.
+# You can use this software according to the terms and conditions of the Mulan PSL v2.
+# You may obtain a copy of Mulan PSL v2 at:
+#     http://license.coscl.org.cn/MulanPSL2
+# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY OR FIT FOR A PARTICULAR
+# PURPOSE.
+# See the Mulan PSL v2 for more details.
+#
 # End-to-end test: start RBS with custom config, call /rbs/version via curl (HTTP and HTTPS), assert response, then clean up.
 # Run from workspace root: ./tests/run_e2e.sh or ./tests/rbs/e2e_version_curl.sh
 # Requires: curl, jq, openssl, cargo (with rest feature). Cleans up temp dir and server process on exit.
@@ -11,16 +21,40 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 E2E_PORT_HTTP="${E2E_PORT_HTTP:-47666}"
 E2E_PORT_HTTPS="${E2E_PORT_HTTPS:-47667}"
 MAX_WAIT=15
+# Set to 1 when RBS is started via setsid so SERVER_PID is the process-group leader (safe for kill -- -PGID).
+RBS_STARTED_WITH_SETSID=0
+
+# Stop RBS started for this script. With setsid, kill the whole process group; otherwise signal
+# direct children (pkill -P) then the main PID. Never use kill -- -PID without setsid (PGID may
+# not equal the child PID and the signal could target the wrong group).
+rbs_server_stop() {
+    if [[ -z "${SERVER_PID:-}" ]]; then
+        return 0
+    fi
+    if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+        SERVER_PID=""
+        RBS_STARTED_WITH_SETSID=0
+        return 0
+    fi
+    if [[ "${RBS_STARTED_WITH_SETSID:-0}" -eq 1 ]]; then
+        kill -TERM -- "-${SERVER_PID}" 2>/dev/null || kill -TERM "$SERVER_PID" 2>/dev/null || true
+    else
+        if command -v pkill >/dev/null 2>&1; then
+            pkill -TERM -P "$SERVER_PID" 2>/dev/null || true
+        fi
+        kill -TERM "$SERVER_PID" 2>/dev/null || true
+    fi
+    wait "$SERVER_PID" 2>/dev/null || true
+    SERVER_PID=""
+    RBS_STARTED_WITH_SETSID=0
+}
 
 # Cleanup: remove temp dir and kill server (if any). Runs on EXIT (success or failure).
 cleanup() {
     local status=$?
-    if [[ -n "${SERVER_PID:-}" ]] && kill -0 "$SERVER_PID" 2>/dev/null; then
-        kill "$SERVER_PID" 2>/dev/null || true
-        wait "$SERVER_PID" 2>/dev/null || true
-    fi
-    if [[ -n "${TMPDIR_E2E:-}" ]] && [[ -d "$TMPDIR_E2E" ]]; then
-        rm -rf "$TMPDIR_E2E"
+    rbs_server_stop
+    if [[ -n "${E2E_SCRATCH_DIR:-}" ]] && [[ -d "$E2E_SCRATCH_DIR" ]]; then
+        rm -rf "$E2E_SCRATCH_DIR"
     fi
     if [[ $status -ne 0 ]]; then
         echo "e2e_version_curl: FAILED (exit $status)"
@@ -69,11 +103,11 @@ assert_version_response() {
 }
 
 # Unique temp dir for this run (config, log, TLS cert/key)
-TMPDIR_E2E="$(mktemp -d "${TMPDIR:-/tmp}/rbs_e2e_version_XXXXXX")"
-CONFIG_PATH="$TMPDIR_E2E/rbs.yaml"
-LOG_PATH="$TMPDIR_E2E/rbs.log"
-CERT_PATH="$TMPDIR_E2E/server.pem"
-KEY_PATH="$TMPDIR_E2E/server.key"
+E2E_SCRATCH_DIR="$(mktemp -d "${TMPDIR:-/tmp}/rbs_e2e_version_XXXXXX")"
+CONFIG_PATH="$E2E_SCRATCH_DIR/rbs.yaml"
+LOG_PATH="$E2E_SCRATCH_DIR/rbs.log"
+CERT_PATH="$E2E_SCRATCH_DIR/server.pem"
+KEY_PATH="$E2E_SCRATCH_DIR/server.key"
 
 cd "$REPO_ROOT"
 echo "e2e_version_curl: building rbs (rest feature)..."
@@ -97,7 +131,13 @@ logging:
 EOF
 
 echo "e2e_version_curl: starting RBS (HTTP) on $LISTEN_HTTP ..."
-"$RBS_BIN" --config "$CONFIG_PATH" &
+RBS_STARTED_WITH_SETSID=0
+if command -v setsid >/dev/null 2>&1; then
+    setsid "$RBS_BIN" --config "$CONFIG_PATH" </dev/null &
+    RBS_STARTED_WITH_SETSID=1
+else
+    "$RBS_BIN" --config "$CONFIG_PATH" </dev/null &
+fi
 SERVER_PID=$!
 
 if ! wait_for_version "$BASE_HTTP"; then
@@ -107,9 +147,7 @@ fi
 assert_version_response "$BASE_HTTP"
 echo "e2e_version_curl: HTTP version response OK"
 
-kill "$SERVER_PID" 2>/dev/null || true
-wait "$SERVER_PID" 2>/dev/null || true
-SERVER_PID=""
+rbs_server_stop
 
 # ---- HTTPS (self-signed cert) ----
 echo "e2e_version_curl: generating self-signed cert for HTTPS test..."
@@ -117,7 +155,7 @@ openssl req -x509 -newkey rsa:2048 -keyout "$KEY_PATH" -out "$CERT_PATH" -days 1
 
 LISTEN_HTTPS="127.0.0.1:${E2E_PORT_HTTPS}"
 BASE_HTTPS="https://${LISTEN_HTTPS}"
-LOG_PATH_HTTPS="$TMPDIR_E2E/rbs_https.log"
+LOG_PATH_HTTPS="$E2E_SCRATCH_DIR/rbs_https.log"
 cat > "$CONFIG_PATH" << EOF
 rest:
   listen_addr: "${LISTEN_HTTPS}"
@@ -132,7 +170,13 @@ logging:
 EOF
 
 echo "e2e_version_curl: starting RBS (HTTPS) on $LISTEN_HTTPS ..."
-"$RBS_BIN" --config "$CONFIG_PATH" &
+RBS_STARTED_WITH_SETSID=0
+if command -v setsid >/dev/null 2>&1; then
+    setsid "$RBS_BIN" --config "$CONFIG_PATH" </dev/null &
+    RBS_STARTED_WITH_SETSID=1
+else
+    "$RBS_BIN" --config "$CONFIG_PATH" </dev/null &
+fi
 SERVER_PID=$!
 
 if ! wait_for_version "$BASE_HTTPS" "insecure"; then

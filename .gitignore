@@ -1,5 +1,7 @@
 # Node (Widdershins: OpenAPI → Markdown)
 node_modules/
+# Local Node version pin (optional; not tracked)
+.nvmrc
 
 # Rust
 target/

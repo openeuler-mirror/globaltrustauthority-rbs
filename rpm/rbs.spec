@@ -42,11 +42,17 @@ install -D -m 755 target/release/rbs %{buildroot}%{_bindir}/rbs
 install -D -m 644 rbs/conf/rbs.yaml %{buildroot}%{_sysconfdir}/rbs/rbs.yaml
 # SQLite bootstrap SQL (must match storage.sql_file_path after sed below)
 install -D -m 644 rbs/conf/sqlite_rbs.sql %{buildroot}%{_datadir}/rbs/sqlite_rbs.sql
-# Packaged defaults: use /var/lib/rbs for DB and /usr/share for schema (rbs user cannot write /root)
-sed -i \
-    -e 's|^  url: "sqlite:///root/rbs.db"$|  url: "sqlite:///var/lib/rbs/rbs.db"|' \
-    -e 's|^  sql_file_path: "rbs/conf/sqlite_rbs.sql"$|  sql_file_path: "/usr/share/rbs/sqlite_rbs.sql"|' \
-    %{buildroot}%{_sysconfdir}/rbs/rbs.yaml
+# Packaged defaults: use /var/lib/rbs for DB and /usr/share for schema (rbs user cannot write /root).
+# Match flexibly on leading/trailing whitespace; fail the build if rewrites miss (plain sed -i is silent).
+RBS_CFG=%{buildroot}%{_sysconfdir}/rbs/rbs.yaml
+sed -ri \
+    -e 's|^([[:space:]]*)url:[[:space:]]*"sqlite:///root/rbs.db"[[:space:]]*$|\1url: "sqlite:///var/lib/rbs/rbs.db"|' \
+    -e 's|^([[:space:]]*)sql_file_path:[[:space:]]*"rbs/conf/sqlite_rbs.sql"[[:space:]]*$|\1sql_file_path: "/usr/share/rbs/sqlite_rbs.sql"|' \
+    "$RBS_CFG"
+grep -Eq '^[[:space:]]*url:[[:space:]]*"sqlite:///var/lib/rbs/rbs.db"' "$RBS_CFG" || exit 1
+grep -Eq '^[[:space:]]*sql_file_path:[[:space:]]*"/usr/share/rbs/sqlite_rbs.sql"' "$RBS_CFG" || exit 1
+grep -q 'sqlite:///root/rbs.db' "$RBS_CFG" && exit 1
+grep -E '^[[:space:]]*sql_file_path:' "$RBS_CFG" | grep -q 'rbs/conf/' && exit 1
 
 # Install systemd service file
 install -D -m 644 service/rbs.service %{buildroot}/usr/lib/systemd/system/rbs.service

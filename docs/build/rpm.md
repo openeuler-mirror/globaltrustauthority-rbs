@@ -313,8 +313,7 @@ The same package names apply on other dnf-based distros (RHEL 9, Fedora). Buildi
 ```
 
 What this does:
-
-1. Ensures `cargo`, `rpmbuild`, and the C toolchain are present (on supported distros the helper may `sudo`-install missing packages; disable with `DISABLE_AUTO_INSTALL_DEPS=1` or `CI=true`).
+1. Ensures `cargo`, `rpmbuild`, and the C toolchain are present (auto-install is off by default; set `ENABLE_AUTO_INSTALL_DEPS=1` on supported distros to allow `sudo` installs when something is missing; `CI=true` or `DISABLE_AUTO_INSTALL_DEPS=1` always forbids).
 2. Runs `cargo build --release` in the workspace.
 3. Calls `rpmbuild -bb rpm/<pkg>.spec` for all three packages.
 4. Writes outputs under `rpm-build/RPMS/<arch>/` — `<arch>` is `x86_64` or `aarch64`.

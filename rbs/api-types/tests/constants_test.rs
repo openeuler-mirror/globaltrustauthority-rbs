@@ -12,7 +12,7 @@
 
 //! Integration tests for constants.
 
-use rbs_api_types::{constants::*, API_PREFIX, RESOURCE_TYPES};
+use rbs_api_types::{API_PREFIX, RESOURCE_TYPES};
 
 #[test]
 fn test_api_prefix() {

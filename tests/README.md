@@ -6,8 +6,7 @@ E2e and interface tests for the workspace: **RBS** server, **RBC** client, and *
 
 ```
 tests/
-├── test_all.sh         # Run all: shell smoke + Cargo tests + e2e (from workspace root)
-├── scripts_smoke.sh    # bash -n + scripts --help (invoked by test_all.sh)
+├── test_all.sh         # Run all: Cargo tests + OpenAPI YAML check + e2e (from workspace root)
 ├── run_e2e.sh          # Run e2e only (from workspace root)
 ├── README.md           # This file
 ├── rbs/                # RBS server e2e (REST API, curl, etc.)
@@ -26,7 +25,7 @@ The entry script runs every executable `.sh` under `rbs/`, then `rbc/`, then `to
 
 ## How to run
 
-**Run all tests** (Cargo unit/integration + e2e) from workspace root:
+**Run all tests** (Cargo unit/integration + OpenAPI YAML check + e2e) from workspace root:
 
 ```bash
 ./tests/test_all.sh
@@ -44,12 +43,6 @@ ENABLE_E2E_TESTS=0 ./tests/test_all.sh
 
 ```bash
 ENABLE_CARGO_TESTS=0 ./tests/test_all.sh
-```
-
-- Skip **shell script smoke** (`bash -n` on helper scripts + `help` / `--help`):
-
-```bash
-ENABLE_SCRIPT_SMOKE_TESTS=0 ./tests/test_all.sh
 ```
 
 - Equivalent CLI flags (CLI takes precedence over env):
@@ -109,6 +102,6 @@ To run a single script directly, invoke the file itself, for example:
 
 **Requirements:** `curl`, `jq`, `openssl`, `cargo` (with `rest` feature).
 
-Optional env: `E2E_PORT_HTTP` (default `17666`), `E2E_PORT_HTTPS` (default `17667`).
+Optional env: `E2E_PORT_HTTP` (default `47666`), `E2E_PORT_HTTPS` (default `47667`).
 
 **What is tested:** HTTP with `rest.https.enabled: false`; HTTPS with a self-signed cert generated in the temp dir, `curl -k` to `https://.../rbs/version`. Both assert 200 and JSON shape (`service_name`, `api_version`, `build`).

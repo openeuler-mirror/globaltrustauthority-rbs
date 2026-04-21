@@ -7,7 +7,7 @@ The procedures below are **sequential**: execute the commands in each block in o
 | **[§2 Quick start](#2-quick-start)** | Initial setup on a development host; minimal path from clone to HTTP and CLI verification | Release binaries under `target/release/`, service bound to **127.0.0.1:6666** with the sample configuration, automated tests executed once |
 | **[§3 From source](#3-from-source-build-run-and-test-step-by-step)** | A local tree is already available; a **documented** source-only workflow is required (no RPM install, no container run) | Same end state as §2, with explicit verification between phases |
 | **[§4 RPM](#4-rpm-build-install-run-and-test-step-by-step)** | Target host uses **RPM** and **systemd** (for example openEuler); system-wide installation is required | Installed `rbs`, `rbc`, and `rbs-cli` packages, `rbs.service` under systemd, verification against `/etc/rbs/rbs.yaml` |
-| **[§5 Container](#5-container-build-run-and-test-step-by-step)** | Deployment uses **Docker** or **Podman**; the service must accept traffic on a mapped host port without manual edits to `listen_addr` | OCI image produced, Compose-based stack reachable at **127.0.0.1:8080**, optional standalone `docker run` invocation |
+| **[§5 Container](#5-container-build-run-and-test-step-by-step)** | Deployment uses **Docker** or **Podman**; local Compose binds **REST** to **127.0.0.1:8080** using **host network on Linux** (demo/test only, not production) | OCI image produced, Compose-based stack reachable at **127.0.0.1:8080**, optional **`docker compose ... run`** one-off |
 
 **Conventions**
 
@@ -31,7 +31,7 @@ The procedures below are **sequential**: execute the commands in each block in o
 | **Git** or a **tarball/zip** of the sources | Clone or unpack the tree | `git rev-parse --show-toplevel` when using git |
 | **Disk** (~few GB) | `target/`, optional `rpm-build/`, Docker layers | `df -h .` |
 | **Network** (unless fully offline) | Crates.io, `git` remotes, `npm` when you run **`docs`** | — |
-| **Node.js** (only for **`./scripts/build.sh docs`**) | OpenAPI doc tooling needs **≥ 22.12**; **[`.nvmrc`](../../.nvmrc)** recommends **24** | `node -v` — if too old, use **nvm** / **fnm** at repo root (see **[§7](#7-further-reading-and-tooling)**) |
+| **Node.js** (only for **`./scripts/build.sh docs`**) | OpenAPI doc tooling needs **≥ 22.12** (`engines` in [`scripts/conf/openapi-docs/package.json`](../../scripts/conf/openapi-docs/package.json)); **24** is a practical local choice | `node -v` — if too old, use **nvm** / **fnm** at repo root; optional untracked **`.nvmrc`** (see **[§7](#7-further-reading-and-tooling)**) |
 
 **Out of scope for this document:** macOS and Windows as primary build hosts. Use a Linux virtual machine, **WSL2**, or the container workflow in §5.
 
@@ -46,10 +46,11 @@ The procedures below are **sequential**: execute the commands in each block in o
 # openEuler / Fedora / RHEL
 sudo dnf install -y git cargo rust rpm-build rpmdevtools gcc gcc-c++ make docker nodejs npm \
   && sudo systemctl enable --now docker
-# Debian / Ubuntu
+# Debian / Ubuntu (minimal for clone + build + tests + docs + Docker; add `rpm` only if you run ./scripts/build.sh rpm)
 sudo apt-get update && sudo apt-get install -y git build-essential pkg-config libssl-dev \
-  rpm docker.io docker-compose-v2 nodejs npm && sudo systemctl enable --now docker
-# For ./scripts/build.sh docs: Debian/Ubuntu `nodejs` may be below 22.12 — run `node -v`; use nvm/fnm + .nvmrc if needed (see §1 table and §7).
+  docker.io docker-compose-v2 nodejs npm && sudo systemctl enable --now docker
+# Optional — RPM builds on this host: sudo apt-get install -y rpm
+# For ./scripts/build.sh docs: Debian/Ubuntu `nodejs` may be below 22.12 — run `node -v`; use nvm/fnm (optional local .nvmrc) if needed (see §1 table and §7).
 # Rust too old for Cargo.lock? Use rustup instead of the distro Rust:
 # curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh && source "$HOME/.cargo/env"
 
@@ -72,6 +73,7 @@ sudo ./target/release/rbs -c rbs/conf/rbs.yaml
 
 # 6) Second terminal — service verification
 curl -sS http://127.0.0.1:6666/rbs/version
+# export RBS_BASE_URL=http://127.0.0.1:6666   # optional: omit repeated -b on rbs-cli
 ./target/release/rbs-cli -b http://127.0.0.1:6666 version
 ./target/release/rbs-cli -b http://127.0.0.1:6666 --help
 ```
@@ -82,7 +84,7 @@ curl -sS http://127.0.0.1:6666/rbs/version
 test -x target/release/rbs && test -x target/release/rbs-cli && echo 'release binaries OK'
 ```
 
-**After step 4 (tests)** — `./tests/test_all.sh` must exit with status **0**. On failure, inspect the script output, then consult **[tests/README.md](../../tests/README.md)** for selective execution and end-to-end options.
+**After step 4 (tests)** — `./tests/test_all.sh` must exit with status **0** (by default: workspace **`cargo test`**, then a check that **`docs/proto/rbs_rest_api.yaml`** matches **`cargo build -p rbs --features rest`**, then e2e). On failure, inspect the script output, then consult **[tests/README.md](../../tests/README.md)** for selective execution and skip flags.
 
 **After step 5 (server)** — keep the server process in the foreground in that terminal. The sample **`rbs/conf/rbs.yaml`** binds **`127.0.0.1:6666`** and references paths including **`/var/log/rbs`** and a SQLite URL under **`/root`**; **`sudo`** is therefore used in the example. For an unprivileged run, adjust **`logging.file_path`**, **`storage.url`**, and **`storage.sql_file_path`** in the configuration file first.
 
@@ -95,7 +97,7 @@ test -x target/release/rbs && test -x target/release/rbs-cli && echo 'release bi
 
 ## 3. From source: build, run, and test (step-by-step)
 
-Use this section when the repository tree is already present and the same end state as §2 is required, with **explicit verification** between phases. It does **not** install RPM packages or start a container unless §5 is followed separately.
+Use this section when the repository tree is already present and the same end state as §2 is required, with **explicit verification** between phases. It does **not** install RPM packages (**§4**) or start a container (**§5**) unless those sections are followed separately.
 
 ### Phase A — Confirm tree and toolchain
 
@@ -138,6 +140,7 @@ Use the same host and port as **`rest.listen_addr`** in the YAML path passed to 
 
 ```bash
 curl -sS http://127.0.0.1:6666/rbs/version
+# export RBS_BASE_URL=http://127.0.0.1:6666   # optional: omit repeated -b on rbs-cli
 ./target/release/rbs-cli -b http://127.0.0.1:6666 version
 ```
 
@@ -150,7 +153,7 @@ curl -sS http://127.0.0.1:6666/rbs/version
 **Before you start**
 
 - For upgrade behaviour, **`%config(noreplace)`**, package signing, local DNF repositories, and SELinux-related notes, refer to **[rpm.md](rpm.md#operator-guide)**. This section documents the **standard success path** only.
-- On continuous integration hosts, set **`DISABLE_AUTO_INSTALL_DEPS=1`** or **`CI=true`** so helper scripts do not invoke **`sudo`** to install distribution packages.
+- Helper scripts **do not** auto-install distribution packages by default. Set **`ENABLE_AUTO_INSTALL_DEPS=1`** only if you want non-interactive installs on supported distros. **`CI=true`** or **`DISABLE_AUTO_INSTALL_DEPS=1`** always forbids **`sudo`** package installs from those helpers.
 
 ```bash
 # 0) Repository root
@@ -175,7 +178,7 @@ sudo dnf install -y "$ARCH_DIR"/rbs-*.rpm "$ARCH_DIR"/rbc-*.rpm "$ARCH_DIR"/rbs-
 # Alternate — plain rpm
 # sudo rpm -ivh "$ARCH_DIR"/rbs-*.rpm "$ARCH_DIR"/rbc-*.rpm "$ARCH_DIR"/rbs-cli-*.rpm
 
-# 5) Confirm the daemon — first install runs %post: daemon-reload, enable, start
+# 5) Confirm the daemon — first install runs %post: chown dirs, daemon-reload, enable (every install/upgrade), start (first install only)
 sudo systemctl status rbs.service --no-pager
 # If you used rpm --noscripts or the unit did not start:
 # sudo systemctl daemon-reload && sudo systemctl enable --now rbs.service
@@ -197,14 +200,14 @@ rbs-cli -b http://127.0.0.1:6666 version
 
 ## 5. Container: build, run, and test (step-by-step)
 
-**Objective:** produce the **OCI image**, start the stack with **Docker Compose**, then invoke **`/rbs/version`** from the host on **port 8080**. Compose mounts **[`deployment/docker/rbs.compose.yaml`](../../deployment/docker/rbs.compose.yaml)**, which binds **`0.0.0.0:8080`**, so **`listen_addr`** does not require manual editing for the published port mapping.
+**Objective:** produce the **OCI image**, start the stack with **Docker Compose**, then invoke **`/rbs/version`** from the host on **port 8080**. Use **[`deployment/docker/rbs-compose.yaml`](../../deployment/docker/rbs-compose.yaml)**, which defines the service and embeds the RBS runtime config under **`configs.rbs_runtime_yaml.content`** (**`rest.listen_addr: "127.0.0.1:8080"`**) plus **`network_mode: host`** so that bind is reachable from the host on Linux. **`network_mode: host` here is for open-source demonstration or local testing only**—do not treat it as a production networking model; harden ports, networks, and secrets for real deployments. On Docker Desktop (macOS/Windows), host networking differs; switch to bridge mode by editing the embedded **`listen_addr`** to **`0.0.0.0:8080`**, removing **`network_mode: host`**, and adding **`ports: - "127.0.0.1:8080:8080"`** on the service.
 
 **Container engine**
 
 - **Docker** — **Buildx** is required (`docker buildx version`); **`./scripts/build.sh docker`** uses BuildKit.
 - **Podman** — set **`CONTAINER_ENGINE=podman`** and invoke **`./scripts/build.sh docker`** (same script entry point).
 
-**Package auto-install (scripts)** — If the Docker CLI (or other tooling used by wrappers) is missing, **`scripts/lib/build-deps.sh`** may run a **non-interactive** **`apt-get`** / **`dnf`** install (for example **`docker.io`**, **`moby-engine`**, or **`podman-docker`**). That can conflict with **Docker CE** site standards or change-managed hosts. **Production** machines should install the container engine through **your normal channel** before running these scripts. To prevent helpers from invoking **`sudo`** for package installs, set **`CI=true`** or **`DISABLE_AUTO_INSTALL_DEPS=1`** (same variables as in **[§4](#4-rpm-build-install-run-and-test-step-by-step)**).
+**Package auto-install (scripts)** — By default helpers **do not** invoke **`sudo`** for missing packages. Set **`ENABLE_AUTO_INSTALL_DEPS=1`** to allow **non-interactive** **`apt-get`** / **`dnf`** installs on supported distros (for example **`docker.io`**, **`moby-engine`**, or **`podman-docker`**). That can conflict with **Docker CE** site standards or change-managed hosts; **production** hosts should install the engine through **your normal channel** first. **`CI=true`** or **`DISABLE_AUTO_INSTALL_DEPS=1`** always forbids auto-install (same as **[§4](#4-rpm-build-install-run-and-test-step-by-step)**).
 
 **Before the first build**
 
@@ -222,22 +225,20 @@ docker compose version   # Compose v2 plugin
 ./scripts/build.sh docker
 
 # Terminal A (continued) — foreground stack (Ctrl-C terminates the stack)
-docker compose -f deployment/docker/docker-compose.yml up --build
+docker compose -f deployment/docker/rbs-compose.yaml up --build
 
-# Terminal B — host port 8080 mapped to container port 8080
+# Terminal B — Compose uses host networking; embedded config listens on 127.0.0.1:8080
 curl -sS http://127.0.0.1:8080/rbs/version
+# export RBS_BASE_URL=http://127.0.0.1:8080   # optional: omit -b on rbs-cli
 ./target/release/rbs-cli -b http://127.0.0.1:8080 version
 
-# Optional — single container without Compose (anonymous SQLite volume; Compose is recommended for persistence)
-docker run --rm -p 8080:8080 \
-  -v "$PWD/deployment/docker/rbs.compose.yaml:/etc/rbs/rbs.yaml:ro" \
-  -v "$PWD/rbs/conf/sqlite_rbs.sql:/etc/rbs/sqlite_rbs.sql:ro" \
-  -v rbs-run-data:/var/lib/rbs \
-  -e RBS_CONFIG=/etc/rbs/rbs.yaml \
-  globaltrustauthority-rbs/rbs:latest
+# Optional — one-off container using the same service definition (host network; Linux; demo/test only)
+docker compose -f deployment/docker/rbs-compose.yaml run --rm rbs
 ```
 
-**Layout reference:** **[`deployment/docker/docker-compose.yml`](../../deployment/docker/docker-compose.yml)** (bind-mounts **`rbs.compose.yaml`** + **`sqlite_rbs.sql`**, named volume **`rbs-data`** → **`/var/lib/rbs`**). Image: **[`deployment/docker/dockerfile`](../../deployment/docker/dockerfile)**; wrapper: **[`scripts/build-docker.sh`](../../scripts/build-docker.sh)**.
+**Layout reference:** **[`deployment/docker/rbs-compose.yaml`](../../deployment/docker/rbs-compose.yaml)** (Compose stack + embedded **`rbs.yaml`** via **`configs`**, bind-mount **`sqlite_rbs.sql`**, named volume **`rbs-data`** → **`/var/lib/rbs`**). Image: **[`deployment/docker/dockerfile`](../../deployment/docker/dockerfile)**; wrapper: **[`./scripts/build-docker.sh`](../../scripts/build-docker.sh)**.
+
+**Host `curl` to `127.0.0.1:8080`:** the embedded runtime block sets **`rest.listen_addr: "127.0.0.1:8080"`**. Compose uses **`network_mode: host`** so that address is the host loopback on Linux (again: **demo/test convenience**, not a production topology). For **bridge** networking instead, edit **`configs.rbs_runtime_yaml.content`**: set **`listen_addr`** to **`0.0.0.0:8080`**, remove **`network_mode: host`**, and add **`ports: - "127.0.0.1:8080:8080"`** if you only want localhost on the host side.
 
 **After modifying Rust sources** — rebuild the image and, if the same automated coverage as §2 or §3 is required, execute **`./tests/test_all.sh`** on the host. Running the container does not substitute for that test suite.
 
@@ -246,11 +247,11 @@ docker run --rm -p 8080:8080 \
 | Symptom | Likely cause | What to do |
 | ------- | ------------ | ----------- |
 | **`cargo build` / linker / `cc` not found / OpenSSL** | Missing C toolchain or `-dev` headers | Debian/Ubuntu: **`sudo apt-get install -y build-essential pkg-config libssl-dev`**. dnf: **`sudo dnf install -y gcc gcc-c++ make`** (add **`openssl-devel`** if a crate still cannot find OpenSSL). |
-| **`Cargo.lock` requires a newer Cargo** | Distro **`cargo`** older than the workspace lockfile | Install **[rustup](https://rustup.rs/)** stable, **`source ~/.cargo/env`**, re-run **`./scripts/build.sh`**. For Docker builds, the **builder stage** in **`deployment/docker/dockerfile`** must use a Rust image new enough for the lockfile. |
+| **`Cargo.lock` requires a newer Cargo** | Distro **`cargo`** older than the workspace lockfile | Install **[rustup](https://rustup.rs/)** stable, **`source ~/.cargo/env`**, re-run **`./scripts/build.sh`**. For Docker builds, the **builder stage** in **`deployment/docker/dockerfile`** must use a Rust/Cargo that accepts the workspace lock (**`Cargo.lock`** uses **`version = 4`**; **`FROM rust:1.88`** is the current baseline—raise the **`FROM`** tag if **`RUN cargo build`** fails in the image). |
 | **`docker: command not found` / Buildx missing** | Engine not installed or plugin missing | Install Docker Engine + CLI + Compose v2 + **Buildx** ([install guide](https://docs.docker.com/build/buildx/install/)). Podman users set **`CONTAINER_ENGINE=podman`**. |
-| **`curl: Connection refused`** | Host/port does not match **`rest.listen_addr`** | §2/§3 sample YAML → **`127.0.0.1:6666`**. §5 Compose + **`rbs.compose.yaml`** → **`127.0.0.1:8080`**. Run **`grep listen_addr`** on the YAML you actually mounted or passed with **`-c`**. |
+| **`curl: Connection refused`** | Host/port does not match **`rest.listen_addr`** | §2/§3 sample YAML → **`127.0.0.1:6666`**. §5 **`rbs-compose.yaml`** (embedded **`listen_addr`**) → **`127.0.0.1:8080`**. Inspect **`configs.rbs_runtime_yaml.content`** in **[`deployment/docker/rbs-compose.yaml`](../../deployment/docker/rbs-compose.yaml)**. |
 | **`permission denied` writing logs or DB** | Sample **`rbs/conf/rbs.yaml`** uses privileged paths | Use **`sudo`** for the server **or** edit **`logging.file_path`**, **`storage.url`**, **`storage.sql_file_path`** to directories your user owns. |
-| **Node / Redocly errors when running `docs`** | Node below the generator floor | Match **[`.nvmrc`](../../.nvmrc)** (`nvm install && nvm use` or **`fnm use`**), then **`./scripts/build.sh docs`**. |
+| **Node / Redocly errors when running `docs`** | Node below the generator floor | Install **≥ 22.12** (see **`engines`** in [`scripts/conf/openapi-docs/package.json`](../../scripts/conf/openapi-docs/package.json)); use **`nvm`** / **`fnm`** with an optional repo-root **`.nvmrc`**, then **`./scripts/build.sh docs`**. |
 
 ## 7. Further reading and tooling
 
@@ -259,6 +260,6 @@ Consult this section when the procedures in §2–§5 are insufficient for your 
 - **`./scripts/build.sh help`** — documents **`rpm`**, **`docker`**, **`docs`**, **`debug`**, and **`cargo`** argument forwarding (for example **`./scripts/build.sh release --bin rbs`**).
 - **Tests** — full matrix, skip flags, and end-to-end driver: **[tests/README.md](../../tests/README.md)**.
 - **RPM** — operator and packager reference: **[rpm.md](rpm.md)** (installation, upgrade, **systemd**, signing, **`createrepo_c`**).
-- **Generated REST documentation** — **`./scripts/build.sh docs`** (Node.js **≥ 22.12**; **[`.nvmrc`](../../.nvmrc)** specifies **24**). Checked-in artefacts: **[`docs/proto/rbs_rest_api.yaml`](../../docs/proto/rbs_rest_api.yaml)** and Markdown/HTML under **`docs/api/rbs/`**.
-- **Compose and image sources** — **[`deployment/docker/`](../../deployment/docker/)** (`docker-compose.yml`, `dockerfile`, `rbs.compose.yaml`).
+- **Generated REST documentation** — **`./scripts/build.sh docs`** (Node.js **≥ 22.12** per **`scripts/conf/openapi-docs/package.json`**; **24** recommended; optional local **`.nvmrc`** is not tracked). Checked-in artefacts: **[`docs/proto/rbs_rest_api.yaml`](../../docs/proto/rbs_rest_api.yaml)** and Markdown/HTML under **`docs/api/rbs/`**.
+- **Compose and image sources** — **[`deployment/docker/`](../../deployment/docker/)** (`rbs-compose.yaml`, `dockerfile`).
 - **Optional quality gates** — workspace aliases in **[`.cargo/config.toml`](../../.cargo/config.toml)** (`cargo clippy-all`, **`cargo deny-all`**, …) and **[`deny.toml`](../../deny.toml)**; install **`cargo-deny`** before using **`cargo deny-all`**.
