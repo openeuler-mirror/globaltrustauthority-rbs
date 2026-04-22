@@ -18,7 +18,9 @@ use serde::Deserialize;
 use serde_json::Value;
 use base64::Engine;
 use rbs_api_types::{AttestResponse, AttesterData, AuthChallengeResponse,
-                          ResourceContentResponse, AttestRequest, RbcEvidencesPayload};
+                    ResourceContentResponse, AttestRequest, RbcEvidencesPayload};
+
+use zeroize::Zeroizing;
 
 use crate::client::{RbsRestClient, TlsConfig};
 use crate::error::RbcError;
@@ -134,7 +136,7 @@ pub enum GetResourceRequest<'a> {
 
 pub struct Resource {
     pub uri: String,
-    pub content: Vec<u8>,
+    pub content: Zeroizing<Vec<u8>>,
     pub content_type: Option<String>,
 }
 
@@ -344,9 +346,11 @@ impl Session {
             }
         })?;
 
-        let content = base64::engine::general_purpose::STANDARD
-            .decode(&resp.content)
-            .unwrap_or_else(|_| resp.content.into_bytes());
+        let content = Zeroizing::new(
+            base64::engine::general_purpose::STANDARD
+                .decode(&resp.content)
+                .unwrap_or_else(|_| resp.content.into_bytes()),
+        );
 
         Ok(Resource { uri: resp.uri, content, content_type: resp.content_type })
     }
@@ -355,26 +359,43 @@ impl Session {
         &self,
         jwe_token: &str,
         private_key_pem: Option<&str>,
-    ) -> Result<Vec<u8>, RbcError> {
-        if self.caller_manages_key {
+    ) -> Result<Zeroizing<Vec<u8>>, RbcError> {
+        let bytes = if self.caller_manages_key {
             let pem = private_key_pem
                 .ok_or_else(|| RbcError::InvalidInput(
                     "caller manages key but no private key provided".into()
                 ))?;
             let kp = TeeKeyPair::from_private_pem(self.key_algorithm, pem)?;
-            kp.decrypt_jwe(jwe_token)
+            kp.decrypt_jwe(jwe_token)?
         } else {
             let key = self.ephemeral_key
                 .as_ref()
                 .ok_or_else(|| RbcError::DecryptError("no ephemeral key available".into()))?;
-            key.decrypt_jwe(jwe_token)
-        }
+            key.decrypt_jwe(jwe_token)?
+        };
+        Ok(Zeroizing::new(bytes))
     }
 }
 
 impl Drop for Session {
     fn drop(&mut self) {
         self.ephemeral_key.take();
+    }
+}
+
+#[cfg(test)]
+impl Client {
+    /// Construct a `Client` from a pre-built `ClientInner`.
+    pub(crate) fn new_for_test(inner: Rc<ClientInner>) -> Self {
+        Self { inner, _marker: std::marker::PhantomData }
+    }
+}
+
+#[cfg(test)]
+impl Session {
+    /// Return the ephemeral public key as a JWK JSON string.
+    pub(crate) fn test_ephemeral_public_jwk_json(&self) -> Option<String> {
+        self.ephemeral_key.as_ref().and_then(|k| k.public_jwk_json().ok())
     }
 }
 

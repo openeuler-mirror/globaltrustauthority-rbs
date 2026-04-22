@@ -19,6 +19,7 @@ pub mod sdk;
 pub mod token;
 pub mod tools;
 pub mod error;
+pub mod ffi;
 
 pub use error::RbcError;
 pub use sdk::{Client, Config, ConfigBuilder, ProviderType, ProviderRawConfig, Session, GetResourceRequest, Resource};

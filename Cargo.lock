@@ -216,7 +216,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 [[package]]
 name = "agent_utils"
 version = "0.1.0"
-source = "git+https://gitcode.com/openeuler/global-trust-authority#98ad90e81d64fd7c8e6a13bff3516deaeaa9c60d"
+source = "git+https://gitcode.com/openeuler/global-trust-authority#604d878772ecb1c560a2facdbdbcdeb55a82f3d7"
 dependencies = [
  "config",
  "log",
@@ -408,7 +408,7 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 [[package]]
 name = "attestation_client"
 version = "0.1.0"
-source = "git+https://gitcode.com/openeuler/global-trust-authority#98ad90e81d64fd7c8e6a13bff3516deaeaa9c60d"
+source = "git+https://gitcode.com/openeuler/global-trust-authority#604d878772ecb1c560a2facdbdbcdeb55a82f3d7"
 dependencies = [
  "agent_utils",
  "challenge",
@@ -671,7 +671,7 @@ checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 [[package]]
 name = "challenge"
 version = "0.1.0"
-source = "git+https://gitcode.com/openeuler/global-trust-authority#98ad90e81d64fd7c8e6a13bff3516deaeaa9c60d"
+source = "git+https://gitcode.com/openeuler/global-trust-authority#604d878772ecb1c560a2facdbdbcdeb55a82f3d7"
 dependencies = [
  "agent_utils",
  "base64 0.22.1",
@@ -770,7 +770,7 @@ dependencies = [
 [[package]]
 name = "config"
 version = "0.1.0"
-source = "git+https://gitcode.com/openeuler/global-trust-authority#98ad90e81d64fd7c8e6a13bff3516deaeaa9c60d"
+source = "git+https://gitcode.com/openeuler/global-trust-authority#604d878772ecb1c560a2facdbdbcdeb55a82f3d7"
 dependencies = [
  "config_manager",
  "cron",
@@ -783,7 +783,7 @@ dependencies = [
 [[package]]
 name = "config_manager"
 version = "0.1.0"
-source = "git+https://gitcode.com/openeuler/global-trust-authority#98ad90e81d64fd7c8e6a13bff3516deaeaa9c60d"
+source = "git+https://gitcode.com/openeuler/global-trust-authority#604d878772ecb1c560a2facdbdbcdeb55a82f3d7"
 dependencies = [
  "pem",
  "serde",
@@ -2486,7 +2486,7 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 [[package]]
 name = "plugin_manager"
 version = "0.1.0"
-source = "git+https://gitcode.com/openeuler/global-trust-authority#98ad90e81d64fd7c8e6a13bff3516deaeaa9c60d"
+source = "git+https://gitcode.com/openeuler/global-trust-authority#604d878772ecb1c560a2facdbdbcdeb55a82f3d7"
 dependencies = [
  "async-trait",
  "libloading",
@@ -4009,7 +4009,7 @@ checksum = "8df9b6e13f2d32c91b9bd719c00d1958837bc7dec474d94952798cc8e69eeec3"
 [[package]]
 name = "tpm_boot_attester"
 version = "0.1.0"
-source = "git+https://gitcode.com/openeuler/global-trust-authority#98ad90e81d64fd7c8e6a13bff3516deaeaa9c60d"
+source = "git+https://gitcode.com/openeuler/global-trust-authority#604d878772ecb1c560a2facdbdbcdeb55a82f3d7"
 dependencies = [
  "base64 0.22.1",
  "log",
@@ -4024,7 +4024,7 @@ dependencies = [
 [[package]]
 name = "tpm_common_attester"
 version = "0.1.0"
-source = "git+https://gitcode.com/openeuler/global-trust-authority#98ad90e81d64fd7c8e6a13bff3516deaeaa9c60d"
+source = "git+https://gitcode.com/openeuler/global-trust-authority#604d878772ecb1c560a2facdbdbcdeb55a82f3d7"
 dependencies = [
  "base64 0.22.1",
  "hex",
@@ -4038,7 +4038,7 @@ dependencies = [
 [[package]]
 name = "tpm_ima_attester"
 version = "0.1.0"
-source = "git+https://gitcode.com/openeuler/global-trust-authority#98ad90e81d64fd7c8e6a13bff3516deaeaa9c60d"
+source = "git+https://gitcode.com/openeuler/global-trust-authority#604d878772ecb1c560a2facdbdbcdeb55a82f3d7"
 dependencies = [
  "base64 0.22.1",
  "log",

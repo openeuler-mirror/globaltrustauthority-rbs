@@ -129,7 +129,7 @@ fn test_passport_mode_with_rbs_attest() {
         GetResourceRequest::ByAttestToken(&resp.token),
     ).unwrap();
     assert_eq!(resource.uri, "test-key");
-    assert_eq!(resource.content, b"secret-value");
+    assert_eq!(resource.content.as_slice(), b"secret-value");
 }
 
 #[test]
