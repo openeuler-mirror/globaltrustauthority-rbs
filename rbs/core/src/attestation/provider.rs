@@ -29,5 +29,5 @@ pub trait AttestationProvider: Send + Sync {
     async fn get_auth_challenge(&self, as_provider: Option<&str>) -> Result<AuthChallengeResponse>;
 
     /// Submit attestation evidence and obtain AttestToken.
-    async fn attest(&self, req: AttestRequest, user_id: &str) -> Result<AttestResponse>;
+    async fn attest(&self, req: AttestRequest) -> Result<AttestResponse>;
 }

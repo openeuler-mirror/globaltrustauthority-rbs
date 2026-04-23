@@ -22,7 +22,7 @@ pub const RESOURCE_TYPES: [&str; 3] = ["key", "secret", "cert"];
 pub const SERVICE_NAME: &str = "globaltrustauthority-rbs";
 
 /// API version string.
-pub const API_VERSION: &str = "0.1.0";
+pub const API_VERSION: &str = "0";
 
 /// Placeholder for git hash when not available at build time.
 pub const GIT_HASH_PLACEHOLDER: &str = "unknown";

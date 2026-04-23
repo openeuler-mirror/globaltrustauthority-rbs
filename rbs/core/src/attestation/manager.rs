@@ -75,14 +75,14 @@ impl AttestationManager {
     }
 
     /// Submit attestation evidence.
-    pub async fn attest(&self, req: AttestRequest, user_id: &str) -> Result<AttestResponse> {
+    pub async fn attest(&self, req: AttestRequest) -> Result<AttestResponse> {
         let as_provider = req.as_provider.as_deref();
         let provider_name = as_provider.unwrap_or(&self.default_provider);
         let provider = self
             .backends
             .get(provider_name)
             .ok_or_else(|| RbsError::ProviderNotFound(format!("attestation provider '{}' not found", provider_name)))?;
-        provider.attest(req, user_id).await
+        provider.attest(req).await
     }
 }
 

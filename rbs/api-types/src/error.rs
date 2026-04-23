@@ -235,6 +235,10 @@ pub enum RbsError {
     #[error("rate limit exceeded")]
     RateLimitExceeded,
 
+    // Policy evaluation errors
+    #[error("policy evaluation error: {0}")]
+    PolicyEvaluationError(String),
+
     // Internal errors
     #[error("internal server error")]
     InternalError,
@@ -262,7 +266,8 @@ impl RbsError {
             Self::AttestationProviderUnavailable
             | Self::ResourceProviderUnavailable
             | Self::ProviderTimeout
-            | Self::ProviderNotFound(_) => ErrorClass::Provider,
+            | Self::ProviderNotFound(_)
+            | Self::PolicyEvaluationError(_) => ErrorClass::Provider,
             Self::DependencyUnavailable { .. } => ErrorClass::Dependency,
             Self::RateLimitExceeded => ErrorClass::RateLimit,
             Self::InternalError | Self::InternalUnexpected { .. } => ErrorClass::Internal,
@@ -288,7 +293,8 @@ impl RbsError {
             Self::AttestationProviderUnavailable
             | Self::ResourceProviderUnavailable
             | Self::ProviderTimeout
-            | Self::ProviderNotFound(_) => StableCode::ProviderUnavailable,
+            | Self::ProviderNotFound(_)
+            | Self::PolicyEvaluationError(_) => StableCode::ProviderUnavailable,
             Self::DependencyUnavailable { .. } => StableCode::DependencyUnavailable,
             Self::RateLimitExceeded => StableCode::RateLimitExceeded,
             Self::InternalError => StableCode::InternalError,
@@ -328,7 +334,8 @@ impl RbsError {
             Self::AttestationProviderUnavailable
             | Self::ResourceProviderUnavailable
             | Self::ProviderTimeout
-            | Self::ProviderNotFound(_) => "service temporarily unavailable",
+            | Self::ProviderNotFound(_)
+            | Self::PolicyEvaluationError(_) => "service temporarily unavailable",
             Self::DependencyUnavailable { .. } => "service dependency unavailable",
             Self::RateLimitExceeded => "rate limit exceeded",
             Self::InternalError | Self::InternalUnexpected { .. } => "internal server error",

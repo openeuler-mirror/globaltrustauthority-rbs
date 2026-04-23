@@ -71,8 +71,7 @@ pub async fn attest(
     core: web::Data<Arc<RbsCore>>,
     body: web::Json<AttestRequest>,
 ) -> HttpResponse {
-    let user_id = "anonymous"; // TODO: extract from auth context
-    match core.attestation().attest(body.into_inner(), user_id).await {
+    match core.attestation().attest(body.into_inner()).await {
         Ok(resp) => HttpResponse::Ok().json(resp),
         Err(e) => HttpResponse::Ok().json(ErrorBody::new(e.to_string())),
     }

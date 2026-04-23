@@ -17,6 +17,10 @@ flate2.workspace = true
 tokio.workspace = true
 thiserror.workspace = true
 async-trait.workspace = true
+base64.workspace = true
+rand.workspace = true
+reqwest.workspace = true
+policy_engine = { git = "https://gitcode.com/openeuler/global-trust-authority", package = "policy_engine" }
 
 [dev-dependencies]
 tempfile = "3"

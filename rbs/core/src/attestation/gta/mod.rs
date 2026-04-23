@@ -10,13 +10,10 @@
  * See the Mulan PSL v2 for more details.
  */
 
-//! Attestation Manager and Provider management.
+//! GTA attestation providers.
 
-pub mod manager;
-pub mod provider;
+pub mod builtin;
+pub mod rest;
 
-pub use manager::AttestationManager;
-pub use provider::AttestationProvider;
-
-pub mod gta;
-pub use gta::{BuiltinAttestationProvider, GtaRestProvider};
+pub use builtin::BuiltinAttestationProvider;
+pub use rest::GtaRestProvider;
