@@ -10,9 +10,11 @@
  * See the Mulan PSL v2 for more details.
  */
 use wiremock::{Mock, MockServer, ResponseTemplate};
-use wiremock::matchers::{method, path};
+use wiremock::matchers::{method, path, header};
 use rbc::{Client, GetResourceRequest};
 use rbc::sdk::{Config, ProviderRawConfig, ProviderType};
+
+const TEST_AGENT_CONFIG: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/data/agent_config.yaml");
 
 #[test]
 fn test_config_builder() {
@@ -60,8 +62,10 @@ fn native_ep() -> ProviderRawConfig {
     ProviderRawConfig { enabled: false, provider_type: ProviderType::Native, rest: Default::default() }
 }
 
-fn rbs_tp() -> ProviderRawConfig {
-    ProviderRawConfig { enabled: true, provider_type: ProviderType::Rbs, rest: Default::default() }
+fn rbs_tp(config_path: &str) -> ProviderRawConfig {
+    let mut rest = serde_json::Map::new();
+    rest.insert("config_path".into(), config_path.into());
+    ProviderRawConfig { enabled: true, provider_type: ProviderType::Rbs, rest }
 }
 
 #[test]
@@ -79,6 +83,8 @@ fn test_passport_mode_with_rbs_attest() {
 
         Mock::given(method("POST"))
             .and(path("/rbs/v0/attest"))
+            .and(header("User-Id", "test-user"))
+            .and(header("API-Key", "test-api-key"))
             .respond_with(ResponseTemplate::new(200).set_body_json(
                 serde_json::json!({"token": "mock-jwt-token"})
             ))
@@ -105,7 +111,7 @@ fn test_passport_mode_with_rbs_attest() {
     let config = Config::builder()
         .endpoint(&mock_server.uri())
         .evidence_provider(native_ep())
-        .token_provider(rbs_tp())
+        .token_provider(rbs_tp(TEST_AGENT_CONFIG))
         .build()
         .unwrap();
 
@@ -149,7 +155,7 @@ fn test_rbs_error_mapping() {
     let config = Config::builder()
         .endpoint(&mock_server.uri())
         .evidence_provider(native_ep())
-        .token_provider(rbs_tp())
+        .token_provider(rbs_tp(TEST_AGENT_CONFIG))
         .build()
         .unwrap();
 

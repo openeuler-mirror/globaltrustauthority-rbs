@@ -12,6 +12,7 @@
 
 //! Token provider that submits evidence to the RBS `/attest` endpoint (UC-01).
 
+use std::collections::HashMap;
 use async_trait::async_trait;
 use rbs_api_types::{AttestRequest, AttesterData, RbcEvidencesPayload};
 use serde::Deserialize;
@@ -21,27 +22,55 @@ use crate::client::RbsRestClient;
 use crate::error::RbcError;
 use crate::token::TokenProvider;
 
+const DEFAULT_AGENT_CONFIG: &str = "/etc/attestation_agent/agent_config.yaml";
+const HEADER_USER_ID: &str = "User-Id";
+const HEADER_API_KEY: &str = "API-Key";
+
 /// Configuration for the RBS attest token provider.
 /// Deserialized from the `token_provider` block in `rbc.yaml` (excluding the `type` field).
-/// Currently no extra fields — reserved for future extension (e.g. custom timeouts).
 #[derive(Debug, Deserialize)]
-pub struct RbsTokenProviderConfig{}
+pub struct RbsTokenProviderConfig {
+    pub config_path: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AgentCredentials {
+    user_id: String,
+    apikey: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AgentConfig {
+    agent: AgentCredentials,
+}
+
+impl AgentConfig {
+    fn from_file(path: &str) -> Result<Self, RbcError> {
+        let content = std::fs::read_to_string(path)
+            .map_err(|e| RbcError::ConfigError(format!("read agent config {path}: {e}")))?;
+        serde_yaml::from_str(&content)
+            .map_err(|e| RbcError::ConfigError(format!("parse agent config {path}: {e}")))
+    }
+}
 
 /// Obtains a token by posting evidence to the RBS `/attest` endpoint.
 pub struct RbsAttestTokenProvider {
     rest_client: RbsRestClient,
+    user_id: String,
+    apikey: Option<String>,
 }
 
 impl RbsAttestTokenProvider {
     /// Create a new provider.
     ///
     /// `rest_client` is shared from the top-level `Client` (constructed from endpoint/TLS config).
-    /// `cfg` holds all fields from the `token_provider` block except `type`; currently unused
-    /// but parsed for forward compatibility.
+    /// `cfg` holds all fields from the `token_provider` block except `type`.
     pub fn new(rest_client: RbsRestClient, cfg: serde_json::Value) -> Result<Self, RbcError> {
-        let _config: RbsTokenProviderConfig = serde_json::from_value(cfg)
+        let config: RbsTokenProviderConfig = serde_json::from_value(cfg)
             .map_err(|e| RbcError::ConfigError(format!("RbsTokenProvider config: {e}")))?;
-        Ok(Self { rest_client })
+        let path = config.config_path.as_deref().unwrap_or(DEFAULT_AGENT_CONFIG);
+        let agent = AgentConfig::from_file(path)?.agent;
+        Ok(Self { rest_client, user_id: agent.user_id, apikey: agent.apikey })
     }
 }
 
@@ -65,7 +94,13 @@ impl TokenProvider for RbsAttestTokenProvider {
             attester_data: None,
         };
 
-        let resp = self.rest_client.post_attest(&req).await?;
+        let mut headers = HashMap::new();
+        headers.insert(HEADER_USER_ID, self.user_id.as_str());
+        if let Some(apikey) = &self.apikey {
+            headers.insert(HEADER_API_KEY, apikey);
+        }
+        let resp = self.rest_client.post_attest(&req, &headers).await?;
+
         Ok(resp.token)
     }
 }

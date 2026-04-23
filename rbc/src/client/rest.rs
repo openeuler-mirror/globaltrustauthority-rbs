@@ -12,6 +12,7 @@
 
 //! RBS REST API client and TLS configuration.
 
+use std::collections::HashMap;
 use reqwest::Client as HttpClient;
 use rbs_api_types::{
     AttestRequest, AttestResponse, AuthChallengeResponse, ResourceContentResponse,
@@ -76,12 +77,13 @@ impl RbsRestClient {
     }
 
     /// POST /rbs/v0/attest → AttestResponse
-    pub async fn post_attest(&self, req: &AttestRequest) -> Result<AttestResponse, RbcError> {
+    pub async fn post_attest(&self, req: &AttestRequest, extra_headers: &HashMap<&str, &str>) -> Result<AttestResponse, RbcError> {
         let url = format!("{}/rbs/v0/attest", self.base_url);
-        let resp = self
-            .http
-            .post(&url)
-            .json(req)
+        let mut builder = self.http.post(&url).json(req);
+        for (name, value) in extra_headers {
+            builder = builder.header(*name, *value);
+        }
+        let resp = builder
             .send()
             .await
             .map_err(|e| RbcError::NetworkError(e.to_string()))?;

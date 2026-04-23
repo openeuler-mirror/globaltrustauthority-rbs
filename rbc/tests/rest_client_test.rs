@@ -9,7 +9,7 @@
  * PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
-
+use std::collections::HashMap;
 use rbc::client::RbsRestClient;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -53,7 +53,7 @@ async fn test_post_attest_returns_token() {
         },
         attester_data: None,
     };
-    let resp = client.post_attest(&req).await.unwrap();
+    let resp = client.post_attest(&req, &HashMap::new()).await.unwrap();
     assert_eq!(resp.token, "jwt-token-abc");
 }
 
