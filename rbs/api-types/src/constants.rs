@@ -18,8 +18,8 @@ pub const API_PREFIX: &str = "/rbs/v0";
 /// Supported resource types.
 pub const RESOURCE_TYPES: [&str; 3] = ["key", "secret", "cert"];
 
-/// Service name for RBS.
-pub const SERVICE_NAME: &str = "rbs";
+/// Service name for RBS (HTTP `service_name`; same as OpenAPI `RbsVersion.service_name` example).
+pub const SERVICE_NAME: &str = "globaltrustauthority-rbs";
 
 /// API version string.
 pub const API_VERSION: &str = "0.1.0";

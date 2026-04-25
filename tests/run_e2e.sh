@@ -1,8 +1,18 @@
 #!/usr/bin/env bash
+# Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
+# Global Trust Authority Resource Broker Service is licensed under the Mulan PSL v2.
+# You can use this software according to the terms and conditions of the Mulan PSL v2.
+# You may obtain a copy of Mulan PSL v2 at:
+#     http://license.coscl.org.cn/MulanPSL2
+# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY OR FIT FOR A PARTICULAR
+# PURPOSE.
+# See the Mulan PSL v2 for more details.
+#
 # Run e2e/interface tests (RBS, RBC, tools).
 # Invoke from workspace root: ./tests/run_e2e.sh
 #
-# By default runs all executable .sh scripts under rbs/, rbc/, tools/ in order;
+# By default runs all *.sh scripts under tests/rbs, tests/rbc, tests/tools in directory order;
 # any failure exits with non-zero.
 #
 # Usage:
@@ -78,21 +88,21 @@ main() {
   cd "$REPO_ROOT"
 
   # Default suites
-  local local_default_suites=("rbs" "rbc" "tools")
+  local default_e2e_suites=("rbs" "rbc" "tools")
   local suites=()
   local patterns=()
-  # Set to 1 when the caller explicitly restricts suites or patterns via CLI or env.
-  local explicit_filter=0
+  # Set to 1 when the caller restricts suites or patterns via CLI or env (empty result is an error).
+  local filter_was_explicit=0
 
   if [[ -n "${E2E_PATTERN:-}" ]]; then
     append_patterns_from_csv patterns "${E2E_PATTERN}"
-    explicit_filter=1
+    filter_was_explicit=1
   fi
 
   # If E2E_SUITES is set, use it as initial suite list
   if [[ -n "${E2E_SUITES:-}" ]]; then
     IFS=',' read -r -a suites <<< "$E2E_SUITES"
-    explicit_filter=1
+    filter_was_explicit=1
   fi
 
   # Parse CLI flags
@@ -106,7 +116,7 @@ main() {
           exit 1
         fi
         suites+=("$1")
-        explicit_filter=1
+        filter_was_explicit=1
         ;;
       --pattern|--testcase)
         shift
@@ -116,7 +126,7 @@ main() {
           exit 1
         fi
         append_patterns_from_csv patterns "$1"
-        explicit_filter=1
+        filter_was_explicit=1
         ;;
       -h|--help)
         usage
@@ -133,12 +143,12 @@ main() {
 
   # If no suites specified anywhere, fall back to defaults
   if [[ "${#suites[@]}" -eq 0 ]]; then
-    suites=("${local_default_suites[@]}")
+    suites=("${default_e2e_suites[@]}")
   fi
 
   echo "=== E2e / interface tests (tests/run_e2e.sh) ==="
 
-  local ran=0
+  local any_e2e_script_ran=0
 
   for suite in "${suites[@]}"; do
     local dir="$SCRIPT_DIR/$suite"
@@ -155,13 +165,13 @@ main() {
 
       echo "--- $suite: $base ---"
       "$f"
-      ran=1
+      any_e2e_script_ran=1
     done
   done
 
-  if [[ $ran -eq 1 ]]; then
+  if [[ $any_e2e_script_ran -eq 1 ]]; then
     echo "=== All e2e tests passed ==="
-  elif [[ $explicit_filter -eq 1 ]]; then
+  elif [[ $filter_was_explicit -eq 1 ]]; then
     echo "run_e2e.sh: no scripts matched the requested suite/pattern filter" >&2
     exit 1
   else

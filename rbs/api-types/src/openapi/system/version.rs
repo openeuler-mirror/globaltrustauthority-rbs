@@ -1,6 +1,6 @@
 /*
  * Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
- * Global Trust Authority is licensed under the Mulan PSL v2.
+ * Global Trust Authority Resource Broker Service is licensed under the Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *     http://license.coscl.org.cn/MulanPSL2
@@ -132,5 +132,6 @@ pub struct RbsVersion {
     /// Published API contract version string.
     #[schema(example = open_api_schema_api_version)]
     pub api_version: String,
+    /// Build metadata (`version`, `git_hash`, `build_date`) for this binary; same shape as in the exported `OpenAPI` schema.
     pub build: BuildMetadata,
 }

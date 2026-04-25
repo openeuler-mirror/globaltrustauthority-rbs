@@ -1,6 +1,5 @@
 # RBS (Resource Broker Service) Dockerfile
-FROM rust:1.75 as builder
-
+FROM rust:1.88 as builder
 WORKDIR /build
 
 # Copy workspace config

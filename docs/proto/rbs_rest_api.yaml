@@ -79,6 +79,7 @@ components:
           example: '0'
         build:
           $ref: '#/components/schemas/BuildMetadata'
+          description: Build metadata (`version`, `git_hash`, `build_date`) for this binary; same shape as in the exported `OpenAPI` schema.
 tags:
 - name: System
   description: '`RbsCore::system` — service identity and API/build version via `GET /rbs/version` (system metadata). Does not require authentication.'

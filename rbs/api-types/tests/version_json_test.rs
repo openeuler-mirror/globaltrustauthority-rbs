@@ -12,9 +12,7 @@
 
 //! Integration test: `RbsVersion` serde JSON round-trip (shape for `GET /rbs/version`).
 
-use rbs_api_types::{
-    API_VERSION, BUILD_DATE_PLACEHOLDER, GIT_HASH_PLACEHOLDER, RbsVersion, SERVICE_NAME,
-};
+use rbs_api_types::{RbsVersion, API_VERSION, BUILD_DATE_PLACEHOLDER, GIT_HASH_PLACEHOLDER, SERVICE_NAME};
 
 #[test]
 fn rbs_version_json_roundtrip_preserves_fixture() {

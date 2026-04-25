@@ -12,11 +12,10 @@
 
 //! RBS core library.
 //!
-//! Core business logic modules: attestation, resource, auth, user, etc.
+//! Core business logic modules: attestation, resource, user, etc.
 //! Provider traits define the interface; concrete implementations are injected at startup.
 
 mod attestation;
-mod auth;
 mod resource;
 mod user;
 mod infra;

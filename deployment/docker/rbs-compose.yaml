@@ -1,0 +1,52 @@
+# RBS stack for Docker Compose (local smoke / dev): image build + runtime + embedded app config.
+# Compose V2 uses BuildKit for `build` when the Engine supports it.
+# On older setups: export DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 before `docker compose ... up --build`.
+#
+# RBS listens on 127.0.0.1:8080; bridge + published ports would not reach that listener, so this
+# file uses network_mode: host (Linux). Host network is for open-source demos and local testing
+# only—not a production pattern.
+
+version: "3.8"
+
+configs:
+  rbs_runtime_yaml:
+    content: |
+      # RBS runtime config (embedded in rbs-compose.yaml). Local smoke / dev.
+      # REST on 127.0.0.1:8080 with host network (see services.rbs.network_mode).
+      # Host network: open-source demos / local testing only—not production.
+      # SQLite DB on the compose volume (/var/lib/rbs in the container).
+
+      rest:
+        listen_addr: "127.0.0.1:8080"
+
+      logging:
+        level: info
+        format: text
+
+      storage:
+        db_type: sqlite
+        max_connections: 10
+        timeout: 30
+        url: "sqlite:///var/lib/rbs/rbs.db"
+        sql_file_path: "/etc/rbs/sqlite_rbs.sql"
+
+services:
+  rbs:
+    build:
+      context: ../..
+      dockerfile: deployment/docker/dockerfile
+    image: globaltrustauthority-rbs/rbs:latest
+    container_name: rbs
+    network_mode: host
+    configs:
+      - source: rbs_runtime_yaml
+        target: /etc/rbs/rbs.yaml
+    volumes:
+      - ../../rbs/conf/sqlite_rbs.sql:/etc/rbs/sqlite_rbs.sql:ro
+      - rbs-data:/var/lib/rbs
+    environment:
+      - RUST_LOG=info
+    restart: unless-stopped
+
+volumes:
+  rbs-data:

@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+# Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
+# Global Trust Authority Resource Broker Service is licensed under the Mulan PSL v2.
+# You can use this software according to the terms and conditions of the Mulan PSL v2.
+# You may obtain a copy of Mulan PSL v2 at:
+#     http://license.coscl.org.cn/MulanPSL2
+# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY OR FIT FOR A PARTICULAR
+# PURPOSE.
+# See the Mulan PSL v2 for more details.
+#
 # Run all tests: Cargo workspace unit/integration tests, then e2e/interface scripts.
 # Can be invoked from anywhere; the script cd's to the repo root.
 #
@@ -91,14 +101,14 @@ suites_include_rbs() {
 }
 
 # Fail if checked-in OpenAPI YAML drifts from rbs/build.rs emission (same invariant as CI doc generation).
-check_openapi_yaml_matches_build() {
+assert_openapi_yaml_matches_build() {
   echo ""
   echo "=== OpenAPI: docs/proto/rbs_rest_api.yaml matches rbs build output ==="
   cargo build -p rbs --features rest -q
-  if ! git diff --quiet -- docs/proto/rbs_rest_api.yaml; then
+  if ! git diff --quiet HEAD -- docs/proto/rbs_rest_api.yaml; then
     echo "error: docs/proto/rbs_rest_api.yaml differs from \`cargo build -p rbs --features rest\`." >&2
     echo "Regenerate: (from repo root) cargo build -p rbs --features rest && git add docs/proto/rbs_rest_api.yaml" >&2
-    git diff -- docs/proto/rbs_rest_api.yaml >&2 || true
+    git diff HEAD -- docs/proto/rbs_rest_api.yaml >&2 || true
     exit 1
   fi
   echo "OpenAPI YAML is in sync with the rbs crate build."
@@ -169,7 +179,7 @@ main() {
     if [[ "$ENABLE_CARGO_TESTS" == "1" ]]; then
       echo "=== Cargo tests (workspace) ==="
       cargo test --workspace
-      check_openapi_yaml_matches_build
+      assert_openapi_yaml_matches_build
     else
       echo "=== Cargo tests (workspace) SKIPPED (ENABLE_CARGO_TESTS=$ENABLE_CARGO_TESTS) ==="
       echo "(OpenAPI YAML drift check also skipped; requires Cargo build)"
@@ -227,7 +237,7 @@ main() {
         done
         cargo test "${args[@]}"
         if suites_include_rbs; then
-          check_openapi_yaml_matches_build
+          assert_openapi_yaml_matches_build
         fi
       else
         echo "=== Cargo tests SKIPPED (no Cargo packages for selected suite(s); use rbs/rbc/tools for unit tests) ==="

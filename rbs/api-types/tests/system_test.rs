@@ -12,7 +12,7 @@
 
 //! Integration tests for system types.
 
-use rbs_api_types::{BuildMetadata, ErrorBody, RbsVersion};
+use rbs_api_types::{API_VERSION, BuildMetadata, ErrorBody, RbsVersion, SERVICE_NAME};
 
 #[test]
 fn test_error_body() {
@@ -29,18 +29,18 @@ fn test_error_body_from_str() {
 #[test]
 fn test_rbs_version() {
     let json = serde_json::json!({
-        "service_name": "rbs",
-        "api_version": "0.1.0",
+        "service_name": SERVICE_NAME,
+        "api_version": API_VERSION,
         "build": {
-            "version": "0.1.0",
+            "version": API_VERSION,
             "git_hash": "abc123",
             "build_date": "2026-04-17"
         }
     });
     let resp: RbsVersion = serde_json::from_value(json).unwrap();
-    assert_eq!(resp.service_name, "rbs");
-    assert_eq!(resp.api_version, "0.1.0");
-    assert_eq!(resp.build.version, "0.1.0");
+    assert_eq!(resp.service_name, SERVICE_NAME);
+    assert_eq!(resp.api_version, API_VERSION);
+    assert_eq!(resp.build.version, API_VERSION);
     assert_eq!(resp.build.git_hash, "abc123");
 }
 

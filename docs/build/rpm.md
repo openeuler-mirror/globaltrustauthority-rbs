@@ -1,636 +1,487 @@
 # globaltrustauthority-rbs RPM Package Guide
 
-This guide provides comprehensive information about installing, using, and building RPM packages for the globaltrustauthority-rbs (Global Trust Authority Resource Broker Service) project.
+This guide covers installing, configuring, upgrading, and removing the workspace RPMs `rbs` (daemon), `rbc` (client), and `rbs-cli` (administration and client CLI), and documents how to build and self-host packages for downstream use. It assumes a systemd-based host with `dnf`. [openEuler 24.03 LTS](https://docs.openeuler.org/en/docs/24.03_LTS/) is the reference distribution: `x86_64` is the primary packaging target, and `aarch64` is supported and pinned by `ExclusiveArch` in each spec. For tarball builds, containers, and API doc generation, see [`build_and_install.md`](build_and_install.md); for a short product overview, see [`README.md`](../../README.md).
 
-## Table of Contents
+Example NEVRAs and file listings match the `Version` and `Release` defaults in [`rpm/`](../../rpm/) (currently `0.1.0` with release `1`). When those spec headers change, refresh the examples here so they stay accurate.
 
-- [Introduction](#introduction)
-- [System Requirements](#system-requirements)
-- [Package Overview](#package-overview)
-- [Installation](#installation)
-- [Usage](#usage)
-- [Service Management](#service-management)
-- [Building RPM Packages](#building-rpm-packages)
-- [Troubleshooting](#troubleshooting)
-- [Advanced Topics](#advanced-topics)
+**Draft** — RPM layout, scriptlets, and operator-facing paths are still settling. Treat this as guidance, not a frozen runbook, until packaging is explicitly declared stable.
 
-## Introduction
+## Table of contents
 
-globaltrustauthority-rbs provides resource brokering and secure resource management with attestation support. The project is distributed as RPM packages for easy installation and management on supported Linux distributions.
+- [Overview](#overview)
+- [Operator guide](#operator-guide)
+  - [1. Obtain packages](#1-obtain-packages)
+  - [2. Install](#2-install)
+  - [3. Verify](#3-verify)
+  - [4. Filesystem layout](#4-filesystem-layout)
+  - [5. Configure](#5-configure)
+  - [6. Run and observe](#6-run-and-observe)
+  - [7. Upgrade](#7-upgrade)
+  - [8. Uninstall](#8-uninstall)
+  - [9. Security posture](#9-security-posture)
+  - [10. Troubleshooting](#10-troubleshooting)
+- [Developer guide — building RPMs](#developer-guide--building-rpms)
+- [Reference](#reference)
+- [Document status](#document-status)
 
-### What You'll Find in This Guide
+## Overview
 
-- **For End Users**: Installation instructions, usage examples, and service management
-- **For System Administrators**: Service configuration, troubleshooting, and maintenance
-- **For Developers**: Build instructions, package customization, and development setup
+Three RPM packages ship from this repository. They share the workspace build but install independently; only `rbs` ships a systemd unit and a runtime user.
 
-## System Requirements
+### Package matrix
 
-### Supported Operating Systems
+| Package | Binary | Config (`%config(noreplace)`) | systemd unit | `Requires` | Purpose |
+| ---- | ---- | ---- | ---- | ---- | ---- |
+| `rbs` | `/usr/bin/rbs` | `/etc/rbs/rbs.yaml` | `/usr/lib/systemd/system/rbs.service` | `systemd` | Resource Broker Service daemon |
+| `rbc` | `/usr/bin/rbc` | `/etc/rbc/rbc.yaml` | — | — | Resource Broker Client |
+| `rbs-cli` | `/usr/bin/rbs-cli` | — | — | — | Admin + client CLI (`rbs-cli admin`, `rbs-cli client`) |
 
-**Currently Supported:**
-- **OpenEuler** (tested and recommended)
+Facts are taken verbatim from [`rpm/rbs.spec`](../../rpm/rbs.spec), [`rpm/rbc.spec`](../../rpm/rbc.spec), [`rpm/rbs-cli.spec`](../../rpm/rbs-cli.spec), and the unit [`service/rbs.service`](../../service/rbs.service).
 
-> **Note**: Support for additional operating systems may be added in future releases. The build process and package structure are designed to be extensible to other RPM-based distributions.
+### Supported platforms
 
-### System Prerequisites
+| Arch | Distro | Support | Notes |
+| ---- | ---- | ---- | ---- |
+| `x86_64` | openEuler 24.03 LTS | **Tested** | Primary packaging target |
+| `aarch64` | openEuler 24.03 LTS | **Supported** | Pinned by `ExclusiveArch` in every spec |
+| `x86_64` / `aarch64` | Other dnf-based (RHEL 9, Fedora) | Community / untested | Expect to work; no guarantees |
+| any | non-RPM distros | Out of scope | Use the container or from-source flow in [`build_and_install.md`](build_and_install.md) |
 
-Before installation, ensure your system meets the following requirements:
+## Operator guide
 
-- **Operating System**: OpenEuler 24.03 or later (latest stable release recommended)
-- **Systemd**: Required for service management
-- **Network**: Internet access for initial installation (if using package repositories)
+Use this section when you **consume** the RPMs. If you need to **build** them, jump to the [Developer guide](#developer-guide--building-rpms).
 
-## Package Overview
+### 1. Obtain packages
 
-globaltrustauthority-rbs consists of three RPM packages:
+No public `dnf` repository is published yet. Two supported sources:
 
-### rbs Package
+1. **Release artifacts** — download pre-built `rbs-*.rpm`, `rbc-*.rpm`, and `rbs-cli-*.rpm` from the project repository and copy them to the target host.
+2. **Build locally** — see the [Developer guide](#developer-guide--building-rpms); outputs land under `rpm-build/RPMS/<arch>/`.
 
-The **Resource Broker Service** (RBS) package provides the core RBS daemon and service management.
+The commands below assume all three RPM files are in the current working directory.
 
-**Components:**
-- Binary executable: `/usr/bin/rbs`
-- Configuration file: `/etc/rbs/rbs.yaml`
-- Systemd service unit: `/usr/lib/systemd/system/rbs.service`
-- Data directories:
-  - `/var/lib/rbs` - Application data and state
-  - `/var/log/rbs` - Log files
-- System user: `rbs` (created automatically)
+### 2. Install
 
-**Dependencies:**
-- systemd (for service management)
-
-### rbc Package
-
-The **Resource Broker Client** (RBC) package provides the client tool for interacting with the Resource Broker Service (RBS).
-
-**Components:**
-- Binary executable: `/usr/bin/rbc`
-- Configuration file: `/etc/rbc/rbc.yaml`
-
-**Use Cases:**
-- Connect to RBS servers
-- Request keys and resources
-- Perform attestation operations
-
-### rbs-cli Package
-
-The **RBS Command Line Tools** package provides administrative and client utilities.
-
-**Components:**
-- `/usr/bin/rbs-cli` - CLI with subcommands `admin` (management) and `client` (RBS operations)
-
-**Use Cases:**
-- System administration
-- Configuration management
-- Client operations
-
-## Installation
-
-### Obtaining RPM Packages
-
-RPM packages can be obtained from:
-
-1. **Official Releases**: Download from the project repository
-2. **Building from Source**: See [Building RPM Packages](#building-rpm-packages) section
-
-### Installation Methods
-
-#### Method 1: Install All Packages (Recommended)
-
-Install all three packages at once:
+Prefer `dnf`: it resolves dependencies, integrates with GPG verification, and is the openEuler default.
 
 ```bash
+# Recommended — dnf resolves Requires: systemd and handles signatures
+sudo dnf install ./rbs-*.rpm ./rbc-*.rpm ./rbs-cli-*.rpm
+
+# Alternate — plain rpm, all three at once
 sudo rpm -ivh rbs-*.rpm rbc-*.rpm rbs-cli-*.rpm
+
+# Subset — install only what you need
+sudo dnf install ./rbs-*.rpm        # service only
+sudo dnf install ./rbc-*.rpm        # client only
+sudo dnf install ./rbs-cli-*.rpm    # CLI only
 ```
 
-If you built from source, copy the RPMs from `rpm-build/RPMS/<arch>/` (e.g. `x86_64` or `aarch64`) to the target host, then run the command above.
+For upgrades, see [7. Upgrade](#7-upgrade). Installing the `rbs` package creates the `rbs` system user (`%pre`). In `%post` ([`rpm/rbs.spec`](../../rpm/rbs.spec)), `systemctl enable rbs.service` runs on **every** install or upgrade (idempotent); `systemctl start rbs.service` runs **only on first install** (`$1 -eq 1`).
 
-#### Method 2: Install Individual Packages
-
-Install packages based on your needs:
+### 3. Verify
 
 ```bash
-# Install RBS service only
-sudo rpm -ivh rbs-*.rpm
+# Installed NEVRA for each package (fails if any is missing)
+rpm -q rbs rbc rbs-cli
 
-# Install Resource Broker Client (rbc) only
-sudo rpm -ivh rbc-*.rpm
+# Packages registered in the RPM DB (^rbs matches rbs and rbs-cli; ^rbc matches rbc)
+rpm -qa | grep -E '^(rbs|rbc)'
 
-# Install CLI tools only
-sudo rpm -ivh rbs-cli-*.rpm
-```
+# Binaries on PATH
+command -v rbs rbc rbs-cli
 
-#### Method 3: Upgrade Existing Installation
+# Service active (rbs package only)
+systemctl is-enabled rbs.service
+systemctl is-active  rbs.service
 
-To upgrade from a previous version:
+# Config files present
+test -f /etc/rbs/rbs.yaml && echo 'rbs.yaml OK'
+test -f /etc/rbc/rbc.yaml && echo 'rbc.yaml OK'
 
-```bash
-sudo rpm -Uvh rbs-*.rpm rbc-*.rpm rbs-cli-*.rpm
-```
-
-### Post-Installation Verification
-
-After installation, verify that everything is set up correctly:
-
-```bash
-# Check installed packages
-rpm -qa | grep -E "rbs|rbc"
-
-# Verify binaries are in PATH
-which rbs rbc rbs-cli
-
-# Check service status (if rbs package installed)
-sudo systemctl status rbs.service
-
-# Verify configuration files exist
-ls -l /etc/rbs/rbs.yaml
-# If rbc is installed:
-ls -l /etc/rbc/rbc.yaml
-
-# Check system user was created (for rbs package)
+# Runtime user created
 id rbs
 ```
 
-### Initial Configuration
+### 4. Filesystem layout
 
-1. **Review Configuration**:
-   ```bash
-   sudo cat /etc/rbs/rbs.yaml
-   ```
+Every path below is created by the specs or by install-time scriptlets. Nothing else is written until the service runs.
 
-2. **Edit Configuration** (if needed):
-   ```bash
-   sudo vi /etc/rbs/rbs.yaml
-   ```
+| Path | Owner:Group | Mode | Managed by | Notes |
+| ---- | ---- | ---- | ---- | ---- |
+| `/usr/bin/rbs` | `root:root` | `0755` | `rbs` spec `%files` | Daemon binary |
+| `/usr/bin/rbc` | `root:root` | `0755` | `rbc` spec `%files` | Client binary |
+| `/usr/bin/rbs-cli` | `root:root` | `0755` | `rbs-cli` spec `%files` | Admin + client CLI |
+| `/etc/rbs/rbs.yaml` | `root:root` | `0644` | `rbs` spec `%files %config(noreplace)` | Edits survive upgrade; see [7. Upgrade](#7-upgrade) |
+| `/etc/rbc/rbc.yaml` | `root:root` | `0644` | `rbc` spec `%files %config(noreplace)` | Edits survive upgrade |
+| `/usr/lib/systemd/system/rbs.service` | `root:root` | `0644` | `rbs` spec `%files` | Unit source of truth; do not edit in place |
+| `/usr/share/rbs/sqlite_rbs.sql` | `root:root` | `0644` | `rbs` spec `%files` | SQLite bootstrap from `rbs/conf/sqlite_rbs.sql`; read at startup per `storage.sql_file_path` |
+| `/var/lib/rbs` | `rbs:rbs` | `0755` | `rbs` spec `%files %dir`, chowned in `%post` | Service state; **not** removed on uninstall |
+| `/var/log/rbs` | `rbs:rbs` | `0755` | `rbs` spec `%files %dir`, chowned in `%post` | Log directory; **not** removed on uninstall |
+| `rbs` user / group | system account, shell `/sbin/nologin`, home `/var/lib/rbs` | — | `rbs` spec `%pre` | **Not** removed on uninstall |
 
-3. **Restart Service** (if configuration changed):
-   ```bash
-   sudo systemctl restart rbs.service
-   ```
+### 5. Configure
 
-## Usage
+The unit sets `Environment=RBS_CONFIG=/etc/rbs/rbs.yaml`, so `rbs` reads that path by default. `rbc` reads `/etc/rbc/rbc.yaml`. Both are declared `%config(noreplace)`, so your edits survive upgrades.
 
-### Using the RBS Service
+Keys that matter for a packaged install (full schema in the tree: [`rbs/conf/rbs.yaml`](../../rbs/conf/rbs.yaml)). Dot notation maps table keys to YAML: `rest.listen_addr` is `listen_addr` under `rest:`; `storage.url` and `storage.sql_file_path` are the `url` and `sql_file_path` keys under `storage:`.
 
-The RBS service runs as a systemd daemon. Once installed and started, it listens for client connections.
+The **`rbs` RPM** copies [`rbs/conf/rbs.yaml`](../../rbs/conf/rbs.yaml) into `/etc/rbs/rbs.yaml` at **package build time**, then applies two **`sed`** edits in [`rpm/rbs.spec`](../../rpm/rbs.spec) so a **fresh** install matches the packaged layout: **`storage.url`** becomes **`sqlite:///var/lib/rbs/rbs.db`** and **`storage.sql_file_path`** becomes **`/usr/share/rbs/sqlite_rbs.sql`**. The SQL file is installed from [`rbs/conf/sqlite_rbs.sql`](../../rbs/conf/sqlite_rbs.sql) as **`/usr/share/rbs/sqlite_rbs.sql`** (`root:root`, `0644`). If you keep an **older edited** `%config(noreplace)` file across upgrades, merge these keys from **`*.rpmnew`** or align them manually. If the **source** YAML changes the exact `storage.url` / `storage.sql_file_path` lines, update the **`sed`** patterns in the spec so the packaged file still transforms correctly.
 
-**Check Service Status:**
+| Key | Packaged default (fresh install) | Notes |
+| ---- | ---- | ---- |
+| `rest.listen_addr` | `127.0.0.1:6666` | Set to `0.0.0.0:<port>` to expose; update firewall too |
+| `rest.https.enabled` | `false` | Flip to `true` plus `cert_file` / `key_file` before exposing |
+| `logging.file_path` | `/var/log/rbs/rbs.log` | Directory is pre-created with the correct owner |
+| `logging.enable_rotation` | `true` | See `rotation.*` block for caps |
+| `storage.url` | `sqlite:///var/lib/rbs/rbs.db` | Set at **package build** from the tree default `sqlite:///root/rbs.db` |
+| `storage.sql_file_path` | `/usr/share/rbs/sqlite_rbs.sql` | Schema shipped by the `rbs` RPM; override if you supply your own SQL bootstrap |
+
+Apply changes:
+
 ```bash
-sudo systemctl status rbs.service
+sudo vi /etc/rbs/rbs.yaml
+sudo systemctl restart rbs.service
 ```
 
-**View Service Logs:**
+The unit does not define `ExecReload`; use `restart` rather than `reload`.
+
+### 6. Run and observe
+
+| Operation | Command |
+| ---- | ---- |
+| Start | `sudo systemctl start rbs.service` |
+| Stop | `sudo systemctl stop rbs.service` |
+| Restart | `sudo systemctl restart rbs.service` |
+| Try-restart (no-op if stopped) | `sudo systemctl try-restart rbs.service` |
+| Enable at boot | `sudo systemctl enable rbs.service` |
+| Disable at boot | `sudo systemctl disable rbs.service` |
+| Status | `sudo systemctl status rbs.service --no-pager` |
+
+Logs go to **journald** (`StandardOutput=journal`, `StandardError=journal`, `SyslogIdentifier=rbs`) and, in parallel, to the file path set by `logging.file_path`:
+
 ```bash
-# View recent logs
+# Last 50 lines
 sudo journalctl -u rbs.service -n 50
 
-# Follow logs in real-time
+# Follow live
 sudo journalctl -u rbs.service -f
+
+# Errors only, since today
+sudo journalctl -u rbs.service -p err --since today
+
+# Tail the file logger
+sudo tail -F /var/log/rbs/rbs.log
 ```
 
-### Using the RBC Client
-
-Use the `rbc` binary (Resource Broker Client; server connection options may be added in future releases):
+Smoke-test against the live service (match `rest.listen_addr`):
 
 ```bash
-# Basic usage
-rbc --help
-# Or run directly (current placeholder behavior)
-rbc
+curl -sS http://127.0.0.1:6666/rbs/version
+rbs-cli -b http://127.0.0.1:6666 version
 ```
 
-### Using CLI Tools
+### 7. Upgrade
 
-**rbs-cli** - Administrative and client operations (subcommands `admin`, `client`):
 ```bash
-rbs-cli --help
-rbs-cli admin --help
-rbs-cli client --help
+sudo dnf upgrade ./rbs-*.rpm ./rbc-*.rpm ./rbs-cli-*.rpm
+# or
+sudo rpm -Uvh rbs-*.rpm rbc-*.rpm rbs-cli-*.rpm
 ```
 
-## Service Management
+What the scriptlets in [`rpm/rbs.spec`](../../rpm/rbs.spec) do:
 
-The RBS service is managed through systemd. The service is automatically enabled and started during installation.
+- `%preun` is **not** triggered on upgrade (`if [ $1 -eq 0 ]`), so the service is **not** stopped or disabled mid-upgrade.
+- `%postun` runs `systemctl daemon-reload` and then `systemctl try-restart rbs.service` when `$1 -ge 1`, so a running service picks up the new binary automatically.
+- Both yaml configs are `%config(noreplace)`:
+  - **Unedited** file → replaced with the new vendor default.
+  - **Edited** file → your copy is kept; the new vendor default is written as `*.rpmnew` next to it. Diff and merge manually, then restart the service.
 
-### Basic Service Operations
+Look for pending merges after every upgrade:
 
 ```bash
-# Start the service
-sudo systemctl start rbs.service
-
-# Stop the service
-sudo systemctl stop rbs.service
-
-# Restart the service
-sudo systemctl restart rbs.service
-
-# Reload configuration (not implemented in default unit; use restart instead)
-# sudo systemctl reload rbs.service
-
-# Check service status
-sudo systemctl status rbs.service
-
-# Enable service to start on boot
-sudo systemctl enable rbs.service
-
-# Disable service from starting on boot
-sudo systemctl disable rbs.service
+sudo find /etc/rbs /etc/rbc \( -name '*.rpmnew' -o -name '*.rpmsave' -o -name '*.rpmorig' \) 2>/dev/null
 ```
 
-### Service Logs
+### 8. Uninstall
 
 ```bash
-# View all logs
-sudo journalctl -u rbs.service
+# All packages
+sudo dnf remove rbs rbc rbs-cli
+# or
+sudo rpm -e rbs rbc rbs-cli
 
-# View logs since today
-sudo journalctl -u rbs.service --since today
-
-# View logs for a specific time range
-sudo journalctl -u rbs.service --since "2024-01-01" --until "2024-01-02"
-
-# View only error messages
-sudo journalctl -u rbs.service -p err
+# Just the service (leave rbc / rbs-cli alone)
+sudo dnf remove rbs
 ```
 
-### Service Configuration
+What stays behind by design — uninstalling must not destroy data:
 
-The service configuration is located at `/etc/rbs/rbs.yaml`. After modifying the configuration:
+- `/var/lib/rbs` (database, state) and `/var/log/rbs` (history) remain on disk.
+- The `rbs` user and group remain.
+- An edited `rbs.yaml` / `rbc.yaml` is saved as `*.rpmsave` before removal (a side-effect of `%config(noreplace)` plus prior edits); an unedited config is removed cleanly.
 
-1. Validate the configuration (if validation tools are available)
-2. Reload or restart the service:
-   ```bash
-   sudo systemctl restart rbs.service
-   ```
+Fully purge after `rpm -e`:
 
-## Building RPM Packages
-
-This section is for developers and system administrators who need to build RPM packages from source.
-
-### Prerequisites for Building
-
-#### System Requirements
-
-**Currently Supported Build Environment:**
-- **OpenEuler** (recommended for building)
-
-> **Note**: While the build process is currently optimized for OpenEuler, the build system is designed to be extensible. Future versions may support additional build environments.
-
-#### Required Build Tools
-
-Install the following packages on your build system:
-
-**On OpenEuler:**
 ```bash
-sudo yum install -y rpm-build rpmdevtools gcc gcc-c++ make
+sudo rm -rf /var/lib/rbs /var/log/rbs
+sudo userdel rbs && sudo groupdel rbs 2>/dev/null || true
+sudo rm -f /etc/rbs/rbs.yaml.rpmsave /etc/rbc/rbc.yaml.rpmsave
 ```
 
-**For other RPM-based distributions** (when support is added):
-```bash
-# RHEL/CentOS 7
-sudo yum install -y rpm-build rpmdevtools gcc gcc-c++ make
+### 9. Security posture
 
-# RHEL/CentOS 8+ or Fedora
+RBS runs as a dedicated system user with a hardened systemd unit.
+
+**Runtime identity** (created in `%pre` of [`rpm/rbs.spec`](../../rpm/rbs.spec)):
+
+- User `rbs` / group `rbs`, shell `/sbin/nologin`, home `/var/lib/rbs`, system account (no password, no login).
+
+**Systemd hardening** from [`service/rbs.service`](../../service/rbs.service):
+
+| Directive | Value | Effect |
+| ---- | ---- | ---- |
+| `User` / `Group` | `rbs` / `rbs` | Drops root before `ExecStart` |
+| `UMask` | `0027` | New files default to `0640` (group-readable to `rbs` only) |
+| `NoNewPrivileges` | `true` | `setuid` and file capabilities cannot escalate child processes |
+| `PrivateTmp` | `true` | Per-invocation private `/tmp` and `/var/tmp` |
+| `ProtectSystem` | `strict` | Whole filesystem mounted read-only except `ReadWritePaths` and `/dev` |
+| `ProtectHome` | `true` | `/home`, `/root`, `/run/user` are invisible |
+| `ReadWritePaths` | `/var/lib/rbs /var/log/rbs` | The only writable paths |
+| `LimitNOFILE` | `65536` | File-descriptor ceiling |
+| `Restart` / `RestartSec` | `always` / `10 s` | Crash-loop with back-off; pair with systemd `StartLimit*` if you need a cap |
+
+**SELinux**: RBS ships **no custom SELinux policy**; on enforcing hosts it runs in the default service domain. If the daemon fails to write `/var/log/rbs` or bind a port, inspect `ausearch -m avc -ts recent` and run `restorecon -Rv /var/lib/rbs /var/log/rbs`. A restricted domain is future work.
+
+**Network exposure**: the packaged default `rest.listen_addr` is `127.0.0.1:6666` (localhost only). Before exposing the service:
+
+1. Set `rest.listen_addr: "0.0.0.0:<port>"` in `/etc/rbs/rbs.yaml`.
+2. Enable TLS — set `rest.https.enabled: true` and point `cert_file` / `key_file` at PEM files.
+3. Open the firewall — for example `sudo firewall-cmd --add-port=6666/tcp --permanent && sudo firewall-cmd --reload`.
+
+### 10. Troubleshooting
+
+| Symptom | First check | Fix |
+| ---- | ---- | ---- |
+| `Requires: systemd` not satisfied | `rpm -qpR rbs-*.rpm` | Install on a real systemd host; minimal container bases need `dnf install systemd` first |
+| `Permission denied` during `rpm -ivh` | `whoami` | Re-run with `sudo` |
+| `systemctl status rbs.service` shows `failed` | `sudo journalctl -u rbs.service -n 100 --no-pager` | Fix the path or value the log points at, then `sudo systemctl restart rbs.service` |
+| `Unit rbs.service could not be found` | `rpm -ql rbs` | `sudo systemctl daemon-reload` (the `%post` scriptlet does this, but a manual file copy may have skipped it) |
+| Service exits with `Permission denied` writing logs | `ls -ld /var/log/rbs` | `sudo chown -R rbs:rbs /var/log/rbs && sudo chmod 0755 /var/log/rbs` |
+| `Address already in use` | `sudo ss -ltnp 'sport = :<port>'` | Change `rest.listen_addr` or free the port |
+| Service flaps (restarts every 10 s) | `sudo journalctl -u rbs.service -p err -n 200` | Almost always a config error; validate YAML and the paths in `logging.file_path` / `storage.*` |
+| Edited config seems ignored after upgrade | `ls /etc/rbs/*.rpmnew /etc/rbc/*.rpmnew` | Merge `*.rpmnew` back into the live config, then `sudo systemctl restart rbs.service` |
+| `id rbs` prints nothing after install | `grep ^rbs: /etc/passwd` | `%pre` failed; inspect with `rpm -q --scripts rbs` and re-run the `groupadd`/`useradd` lines manually |
+
+Canonical diagnostic commands — keep these bookmarked:
+
+```bash
+sudo journalctl -u rbs.service --since '15 min ago'   # recent service log
+rpm -qi rbs                                           # installed package info
+rpm -qlp rbs-*.rpm                                    # files a package would install
+rpm -qpR rbs-*.rpm                                    # declared dependencies
+rpm -V rbs                                            # verify installed files against the package
+rpm -q --scripts rbs                                  # view %pre / %post / ... as installed
+```
+
+## Developer guide — building RPMs
+
+This section is for contributors and downstream packagers. End users should read the [Operator guide](#operator-guide).
+
+### 1. Prerequisites
+
+Build host: any dnf-based Linux (openEuler 24.03 LTS is the primary target).
+
+```bash
+# RPM build toolchain + C toolchain
 sudo dnf install -y rpm-build rpmdevtools gcc gcc-c++ make
-```
 
-#### Rust Toolchain
-
-Install the Rust toolchain:
-
-```bash
+# Rust (rustup recommended so the toolchain matches the workspace Cargo.lock)
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source $HOME/.cargo/env
+source "$HOME/.cargo/env"
+rustc --version && cargo --version
 ```
 
-Verify installation:
-```bash
-cargo --version
-rustc --version
-```
+The same package names apply on other dnf-based distros (RHEL 9, Fedora). Building RPMs does **not** need Node.js or npm; those are only for `./scripts/build.sh docs`, documented in [`build_and_install.md`](build_and_install.md).
 
-#### Documentation build dependencies (optional)
-
-Building RPM packages **does not** require Node.js or npm. The `./scripts/build-rpm.sh` flow uses only Cargo and `rpmbuild`.
-
-Install the following **only when** you need to **regenerate** committed API documentation (`docs/proto/rbs_rest_api.yaml`, `docs/api/rbs/md/rbs_rest_api.md`, `docs/api/rbs/html/rbs_rest_api.html`) from the same sources as the running service:
-
-| Requirement | Purpose |
-|-------------|---------|
-| **Node.js** (LTS recommended, e.g. 20+) | Runs Widdershins and Redocly via npm |
-| **npm** | Installs dev dependencies from `scripts/conf/openapi-docs/package.json` and runs `npm run api:docs` |
-
-**On OpenEuler** (package names may vary by release):
+### 2. Quick build
 
 ```bash
-sudo dnf install -y nodejs npm
-# or: sudo yum install -y nodejs npm
-```
-
-Verify:
-
-```bash
-node --version
-npm --version
-```
-
-**One-time setup:** from the repository root, run `./scripts/generate-api-docs.sh`. It installs npm dependencies under `scripts/conf/openapi-docs/` when needed, then generates Markdown and HTML.
-
-The script runs `cargo build -p rbs` (emit OpenAPI YAML) and `npm run api:docs` (Markdown + HTML). Commit updated files under `docs/` when you change routes or OpenAPI metadata.
-
-### Quick Build
-
-The simplest way to build all RPM packages:
-
-```bash
+./scripts/build.sh rpm
+# Equivalent:
 ./scripts/build-rpm.sh
 ```
 
-This script will:
-1. Check for required tools (cargo, rpmbuild)
-2. Build the Rust project in release mode
-3. Build all three RPM packages (rbs, rbc, rbs-cli)
-4. Place the RPM files in `rpm-build/RPMS/<arch>/` (where `<arch>` is `x86_64` or `aarch64`)
+What this does:
+1. Ensures `cargo`, `rpmbuild`, and the C toolchain are present (auto-install is off by default; set `ENABLE_AUTO_INSTALL_DEPS=1` on supported distros to allow `sudo` installs when something is missing; `CI=true` or `DISABLE_AUTO_INSTALL_DEPS=1` always forbids).
+2. Runs `cargo build --release` in the workspace.
+3. Calls `rpmbuild -bb rpm/<pkg>.spec` for all three packages.
+4. Writes outputs under `rpm-build/RPMS/<arch>/` — `<arch>` is `x86_64` or `aarch64`.
 
-### Custom Version and Release
-
-Specify custom version and release numbers:
-
-```bash
-VERSION=1.0.0 RELEASE=2 ./scripts/build-rpm.sh
-```
-
-Default values:
-- `VERSION=0.1.0`
-- `RELEASE=1`
-
-### Build Output
-
-After successful build, RPM packages will be located in:
+Expected output:
 
 ```
-rpm-build/RPMS/x86_64/          # or under aarch64 for ARM build output
-├── rbs-0.1.0-1.x86_64.rpm      # ARM: rbs-0.1.0-1.aarch64.rpm
+rpm-build/RPMS/x86_64/                # aarch64/ on ARM hosts
+├── rbs-0.1.0-1.x86_64.rpm
 ├── rbc-0.1.0-1.x86_64.rpm
 └── rbs-cli-0.1.0-1.x86_64.rpm
 ```
 
-### Manual Build Process
+### 3. Versioning and release
 
-For advanced users who prefer manual control:
+Override the RPM `Version` / `Release` tags without editing specs:
 
-1. **Build Rust binaries:**
-   ```bash
-   cargo build --release
-   ```
-
-2. **Build individual RPM packages:**
-   ```bash
-   # Build RBS RPM
-   rpmbuild -bb rpm/rbs.spec \
-       --define "_topdir $(pwd)/rpm-build" \
-       --define "_project_root $(pwd)" \
-       --define "version 0.1.0" \
-       --define "release 1" \
-       --buildroot "$(pwd)/rpm-build/BUILDROOT"
-
-   # Build Resource Broker Client (rbc) RPM
-   rpmbuild -bb rpm/rbc.spec \
-       --define "_topdir $(pwd)/rpm-build" \
-       --define "_project_root $(pwd)" \
-       --define "version 0.1.0" \
-       --define "release 1" \
-       --buildroot "$(pwd)/rpm-build/BUILDROOT"
-
-   # Build RBS-CLI RPM
-   rpmbuild -bb rpm/rbs-cli.spec \
-       --define "_topdir $(pwd)/rpm-build" \
-       --define "_project_root $(pwd)" \
-       --define "version 0.1.0" \
-       --define "release 1" \
-       --buildroot "$(pwd)/rpm-build/BUILDROOT"
-   ```
-
-## Troubleshooting
-
-### Installation Issues
-
-#### Error: Package conflicts or dependencies not met
-
-**Solution**: Check for conflicting packages or missing dependencies:
 ```bash
-# Check for conflicts
-rpm -qa | grep -i rbs
-
-# Check dependencies
-rpm -qpR rbs-*.rpm
+VERSION=1.0.0 RELEASE=2 ./scripts/build.sh rpm
 ```
 
-#### Error: Permission denied
+Defaults: `VERSION=0.1.0`, `RELEASE=1`. Use `RELEASE` to encode downstream rebuilds (`1.oe2403`, `2`), matching distro conventions. The specs read both via `%define` overrides in [`scripts/build-rpm.sh`](../../scripts/build-rpm.sh).
 
-**Solution**: Ensure you're using `sudo` for installation:
-```bash
-sudo rpm -ivh rbs-*.rpm
-```
+### 4. Manual rpmbuild
 
-### Service Issues
+For packagers reproducing individual calls (for example in COPR or OBS):
 
-#### Service fails to start
-
-1. **Check service status:**
-   ```bash
-   sudo systemctl status rbs.service
-   ```
-
-2. **Check logs for errors:**
-   ```bash
-   sudo journalctl -u rbs.service -n 50
-   ```
-
-3. **Verify configuration:**
-   ```bash
-   sudo cat /etc/rbs/rbs.yaml
-   # Check for syntax errors or invalid settings
-   ```
-
-4. **Check permissions:**
-   ```bash
-   ls -la /var/lib/rbs /var/log/rbs
-   sudo chown -R rbs:rbs /var/lib/rbs /var/log/rbs
-   ```
-
-5. **Verify system user exists:**
-   ```bash
-   id rbs
-   # If missing, the service installation may have failed
-   ```
-
-#### Service stops unexpectedly
-
-1. **Check system resources:**
-   ```bash
-   free -h
-   df -h
-   ```
-
-2. **Review logs for crash information:**
-   ```bash
-   sudo journalctl -u rbs.service --since "1 hour ago"
-   ```
-
-3. **Check for system errors:**
-   ```bash
-   dmesg | tail -50
-   ```
-
-### Build Issues
-
-#### Error: `rpmbuild: command not found`
-
-**Solution**: Install RPM build tools:
-```bash
-# On OpenEuler
-sudo yum install -y rpm-build rpmdevtools gcc gcc-c++ make
-```
-
-#### Error: `linker 'cc' not found`
-
-**Solution**: Install C compiler:
-```bash
-# On OpenEuler
-sudo yum install -y gcc gcc-c++ make
-```
-
-#### Error: `cargo: command not found`
-
-**Solution**: Install Rust toolchain:
-```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source $HOME/.cargo/env
-```
-
-#### Error: `File not found: target/release/rbs` or `target/release/rbs-cli`
-
-**Solution**: Ensure the Rust project is built first (builds all workspace binaries including rbs, rbc, rbs-cli):
 ```bash
 cargo build --release
-```
 
-#### Error: `Bad exit status from %prep`
-
-**Solution**: This usually indicates a problem with the spec file. Check that:
-- All required files exist
-- Paths in the spec file are correct
-- The project root is properly defined
-
-## Advanced Topics
-
-### Package Information
-
-Query package information:
-
-```bash
-# List all files in a package
-rpm -qlp rbs-*.rpm
-
-# Show package information
-rpm -qip rbs-*.rpm
-
-# Show package dependencies
-rpm -qpR rbs-*.rpm
-
-# Verify installed package integrity
-rpm -V rbs
-```
-
-### Uninstallation
-
-To remove installed packages:
-
-```bash
-# Remove all packages
-sudo rpm -e rbs rbc rbs-cli
-
-# Remove individual package
-sudo rpm -e rbs
-```
-
-**Note**: Uninstalling the `rbs` package will stop and disable the service automatically. Back up `/etc/rbs/rbs.yaml` (and `/etc/rbc/rbc.yaml` if needed) before removal if you want to preserve custom configuration.
-
-### Package Signing
-
-For production deployments, consider signing RPM packages:
-
-```bash
-# Generate GPG key (if not exists)
-gpg --gen-key
-
-# Sign package
-rpm --addsign rbs-*.rpm rbc-*.rpm rbs-cli-*.rpm
-
-# Verify signature
-rpm --checksig rbs-*.rpm
-```
-
-### Creating Source RPMs (SRPMs)
-
-To create source RPMs for distribution:
-
-```bash
-rpmbuild -bs rpm/rbs.spec \
+for spec in rbs rbc rbs-cli; do
+  rpmbuild -bb rpm/${spec}.spec \
     --define "_topdir $(pwd)/rpm-build" \
     --define "_project_root $(pwd)" \
     --define "version 0.1.0" \
-    --define "release 1"
+    --define "release 1" \
+    --buildroot "$(pwd)/rpm-build/BUILDROOT"
+done
 ```
 
-### Building for Different Architectures
+`_project_root` is a project-local macro: the specs `cd %{_project_root}` in `%build` and `%install` because the source tree is used in place (no `%prep` tarball extraction). It must be an absolute path to the workspace root.
 
-Currently supports **x86_64** and **ARM (aarch64)**. RPMs are built for the host architecture (no spec changes needed). For cross-compilation:
+### 5. Source RPM (SRPM)
 
-1. Install the cross-compilation toolchain for the target architecture.
-2. Use `cargo build --target <arch> --release` (e.g. `x86_64-unknown-linux-gnu` or `aarch64-unknown-linux-gnu`).
-3. Run `rpmbuild` in the corresponding architecture environment or container.
+```bash
+rpmbuild -bs rpm/rbs.spec \
+  --define "_topdir $(pwd)/rpm-build" \
+  --define "_project_root $(pwd)" \
+  --define "version 0.1.0" \
+  --define "release 1"
+```
 
-### Spec File Structure
+Use SRPMs when you need to rebuild on a different host (COPR, OBS, a chroot pipeline) without shipping the full source tree.
 
-The RPM spec files are located in the `rpm/` directory:
+### 6. Cross-architecture builds
 
-- `rpm/rbs.spec` - RBS service package specification
-- `rpm/rbc.spec` - Resource Broker Client package specification
-- `rpm/rbs-cli.spec` - CLI tools package specification
+| Host arch | Target arch | Recommended method |
+| ---- | ---- | ---- |
+| `x86_64` | `x86_64` | Native `./scripts/build.sh rpm` |
+| `aarch64` | `aarch64` | Native `./scripts/build.sh rpm` |
+| `x86_64` | `aarch64` | Cross-compile Rust (`cargo build --target aarch64-unknown-linux-gnu --release`), then `rpmbuild` inside a `qemu-user-static` chroot — or use a native `aarch64` runner |
+| `aarch64` | `x86_64` | Mirror of the row above |
 
-**Key Sections:**
-- **%prep**: Preparation phase (currently uses source directly)
-- **%build**: Builds the Rust project
-- **%install**: Installs files to buildroot
-- **%pre**: Pre-installation scripts (creates user)
-- **%post**: Post-installation scripts (enables service)
-- **%preun**: Pre-uninstallation scripts (stops service)
-- **%postun**: Post-uninstallation scripts (reloads systemd)
-- **%files**: Lists files to include in the package
+Every spec pins `ExclusiveArch: x86_64 aarch64`; do not build for other architectures without updating the specs first.
 
-## Additional Resources
+### 7. Spec file reference
 
-- **Project Repository**: [globaltrustauthority-rbs](https://gitcode.com/openeuler/globaltrustauthority-rbs) on GitCode (openEuler organization).
-- **RPM packaging (openEuler)**: [Building an RPM Package](https://docs.openeuler.org/en/docs/24.03_LTS/docs/ApplicationDev/building-an-rpm-package.html) — openEuler 24.03 LTS documentation.
-- **Rust Cargo Documentation**: https://doc.rust-lang.org/cargo/
-- **systemd / `.service` units (openEuler)**: [Service Management](https://docs.openeuler.org/en/docs/24.03_LTS/docs/Administration/service-management.html) in the openEuler 24.03 LTS documentation (systemd units, `systemctl`, and unit file layout).
-- **OpenEuler Documentation**: https://docs.openeuler.org/
+All three specs live under [`rpm/`](../../rpm/) and follow the same skeleton.
 
-## Getting Help
+| Section | Behavior | Where to look |
+| ---- | ---- | ---- |
+| `%define` header | Version, release, name defaults (overridden by `--define`) | top of each spec |
+| `ExclusiveArch` | `x86_64 aarch64` only | header |
+| `%prep` | No-op; source is used in place via `_project_root` | `rpm/*.spec` |
+| `%build` | `cd %{_project_root} && cargo build --release` | `rpm/*.spec` |
+| `%install` | `install -D` for binaries / configs / unit / `%{_datadir}/rbs/sqlite_rbs.sql`; `sed` on packaged `/etc/rbs/rbs.yaml` for `storage.*`; `install -d` for state and log dirs | `rpm/rbs.spec` has the most lines |
+| `%pre` (rbs only) | `groupadd -r rbs` + `useradd -r -g rbs -d /var/lib/rbs -s /sbin/nologin` | `rpm/rbs.spec` |
+| `%post` (rbs only) | `chown` state and log dirs, `daemon-reload`, `enable` on every install/upgrade; `start` only on first install (`$1 -eq 1`) | `rpm/rbs.spec` |
+| `%preun` (rbs only) | Stop + disable **only on uninstall** (`$1 -eq 0`); no-op on upgrade | `rpm/rbs.spec` |
+| `%postun` (rbs only) | `daemon-reload` always; `try-restart` on upgrade (`$1 -ge 1`) | `rpm/rbs.spec` |
+| `%files` | Marks `%config(noreplace)` for yaml configs; `%dir` for state and log dirs | `rpm/rbs.spec`, `rpm/rbc.spec` |
+| `%changelog` | Manual RPM changelog entries | bottom of each spec |
 
-For issues, questions, or contributions:
+### 8. Signing and local dnf repo distribution
 
-- **Issue Tracker**: Create an issue in the project repository
-- **Documentation**: Check the project documentation
-- **Community**: Participate in project discussions
+**Sign** (optional but recommended for production):
+
+1. Create or reuse a GPG key for RPM signing. Interactive: `gpg --full-generate-key`. Non-interactive / CI: use a parameter file with `gpg --batch --gen-key keygen-params.txt` (see `gpg(1)`); `gpg --batch --gen-key` alone is not reliable without that file.
+2. Export the **public** key to a path you will publish and reference from `.repo` files, for example:
+
+```bash
+# Replace KEY_ID with the signing key fingerprint or UID string from gpg -K
+gpg --armor --export KEY_ID | sudo tee /etc/pki/rpm-gpg/RBS-RELEASE-KEY.asc >/dev/null
+sudo chmod 644 /etc/pki/rpm-gpg/RBS-RELEASE-KEY.asc
+```
+
+3. Point RPM at the key and sign the built packages:
+
+```bash
+echo '%_signature gpg'                         >> ~/.rpmmacros
+echo '%_gpg_name Your Signing Key <you@example>' >> ~/.rpmmacros
+
+rpm --addsign rpm-build/RPMS/*/*.rpm
+rpm --checksig rpm-build/RPMS/*/rbs-*.rpm
+```
+
+**Publish** to a local dnf repository (covers air-gapped installs and mirrors):
+
+```bash
+sudo dnf install -y createrepo_c
+
+REPO=/srv/rbs-repo
+sudo mkdir -p "$REPO"
+sudo cp rpm-build/RPMS/*/*.rpm "$REPO/"
+sudo createrepo_c "$REPO"
+# Re-run after every new upload: sudo createrepo_c --update "$REPO"
+```
+
+Consume on client hosts:
+
+```bash
+sudo tee /etc/yum.repos.d/rbs.repo <<'EOF'
+[rbs]
+name=globaltrustauthority-rbs
+baseurl=file:///srv/rbs-repo           # or https://<host>/rbs-repo
+enabled=1
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RBS-RELEASE-KEY.asc
+EOF
+
+sudo dnf install rbs rbc rbs-cli
+```
+
+No public upstream dnf repository exists yet; self-host until one is announced.
+
+### 9. Reproducibility and CI notes
+
+- Pin `VERSION` and `RELEASE` from CI metadata (git tag, build number) rather than leaving the defaults.
+- Export `SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)` before `rpmbuild` for reproducible mtimes.
+- `Cargo.lock` is committed; `cargo build --release` must not regenerate it in CI.
+- Keep the CI builder image pinned to the openEuler major listed in [Supported platforms](#supported-platforms) so `ExclusiveArch` and library versions stay aligned.
+
+## Reference
+
+### External references
+
+- openEuler — [Building an RPM Package](https://docs.openeuler.org/en/docs/24.03_LTS/docs/ApplicationDev/building-an-rpm-package.html) (openEuler 24.03 LTS).
+- openEuler — [Service Management](https://docs.openeuler.org/en/docs/24.03_LTS/docs/Administration/service-management.html) (systemd units, `systemctl`).
+- rpm.org — [RPM Packaging Guide](https://rpm-software-management.github.io/rpm/manual/) and the spec-file [reference](https://rpm-software-management.github.io/rpm/manual/spec.html).
+- Fedora — [Packaging Guidelines](https://docs.fedoraproject.org/en-US/packaging-guidelines/) and [Scriptlets](https://docs.fedoraproject.org/en-US/packaging-guidelines/Scriptlets/).
+- systemd — [`systemd.exec(5)`](https://www.freedesktop.org/software/systemd/man/systemd.exec.html) for hardening directives.
+- Rust — [Cargo Book](https://doc.rust-lang.org/cargo/).
+
+### In-tree files this guide points at
+
+- [`rpm/rbs.spec`](../../rpm/rbs.spec), [`rpm/rbc.spec`](../../rpm/rbc.spec), [`rpm/rbs-cli.spec`](../../rpm/rbs-cli.spec) — package definitions.
+- [`service/rbs.service`](../../service/rbs.service) — systemd unit.
+- [`rbs/conf/rbs.yaml`](../../rbs/conf/rbs.yaml), [`rbc/conf/rbc.yaml`](../../rbc/conf/rbc.yaml) — default configs installed to `/etc`.
+- [`scripts/build.sh`](../../scripts/build.sh), [`scripts/build-rpm.sh`](../../scripts/build-rpm.sh) — entry points for the RPM flow.
+
+### Getting help
+
+- **Issue tracker**: open the Issues tab from the repository home page you use (primary mirror: [GitCode — globaltrustauthority-rbs](https://gitcode.com/openeuler/globaltrustauthority-rbs)).
+- **Companion docs**: [`build_and_install.md`](build_and_install.md) (from-source, container, docs) and [`README.md`](../../README.md) (project overview).
 
 ## Document status
 
-This page is a **draft**. RPM packaging scope, procedures, and a formal version history are not finalized; treat all sections as work in progress until an explicit release is documented here.
+Same **draft** stance as the [introduction](#globaltrustauthority-rbs-rpm-package-guide): scope and scriptlets may change before RPMs are declared stable for production. When releases ship, keep example NEVRAs and version mentions aligned with [`rpm/*.spec`](../../rpm/). A project-wide `CHANGELOG.md` does not yet exist; when it does, link it from this section.
 
 ---
 

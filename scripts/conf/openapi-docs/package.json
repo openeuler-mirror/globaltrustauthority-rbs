@@ -2,11 +2,15 @@
   "name": "rbs-openapi-docs",
   "private": true,
   "description": "Node tooling under scripts/conf/openapi-docs for OpenAPI → Markdown / HTML (paths relative to repository root).",
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "scripts": {
     "license:check": "license-checker --excludePrivate --onlyAllow \"MIT;ISC;Apache-2.0;BSD-2-Clause;BSD-3-Clause;0BSD;Unlicense;CC0-1.0;CC-BY-3.0;CC-BY-4.0;Python-2.0;BlueOak-1.0.0;MIT*;BSD*;(MPL-2.0 OR Apache-2.0)\"",
     "api:md": "widdershins ../../../docs/proto/rbs_rest_api.yaml -o ../../../docs/api/rbs/md/rbs_rest_api.md --omitHeader",
     "api:html": "redocly build-docs ../../../docs/proto/rbs_rest_api.yaml -o ../../../docs/api/rbs/html/rbs_rest_api.html",
-    "api:docs": "npm run license:check && npm run api:md && npm run api:html"
+    "api:docs:gen": "npm run api:md && npm run api:html",
+    "api:docs": "npm run license:check && npm run api:docs:gen"
   },
   "devDependencies": {
     "@redocly/cli": "^2.25.1",
