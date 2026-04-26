@@ -17,10 +17,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use actix_web::{web, App, HttpServer};
+use rbs_core::auth::Auth;
 use anyhow::{bail, Context};
 use openssl::ssl::{SslAcceptor, SslAcceptorBuilder, SslFiletype, SslMethod};
-use rbs_api_types::config::RestConfig;
-use rbs_core::RbsCore;
+use rbs_api_types::config::{AuthConfig, RestConfig};
+use rbs_core::{auth::Authenticator, RbsCore};
 use socket2::{Domain, Socket, Type};
 
 #[cfg(feature = "per-ip-rate-limit")]
@@ -58,12 +59,13 @@ fn request_timeout_duration(secs: u32) -> Duration {
 pub struct Server {
     core: Arc<RbsCore>,
     rest_config: RestConfig,
+    auth_config: AuthConfig,
 }
 
 impl Server {
     #[must_use]
-    pub fn new(core: Arc<RbsCore>, rest_config: RestConfig) -> Self {
-        Self { core, rest_config }
+    pub fn new(core: Arc<RbsCore>, rest_config: RestConfig, auth_config: AuthConfig) -> Self {
+        Self { core, rest_config, auth_config }
     }
 
     /// Binds to the configured listen address with the configured backlog; then call `.run().await?`.
@@ -98,7 +100,7 @@ impl Server {
         socket.set_nonblocking(true).with_context(|| "set nonblocking")?;
         let std_listener: std::net::TcpListener = socket.into();
 
-        Ok(BoundServer { std_listener, core: self.core, rest_config: self.rest_config })
+        Ok(BoundServer { std_listener, core: self.core, rest_config: self.rest_config, auth_config: self.auth_config })
     }
 }
 
@@ -108,6 +110,7 @@ pub struct BoundServer {
     std_listener: std::net::TcpListener,
     core: Arc<RbsCore>,
     rest_config: RestConfig,
+    auth_config: AuthConfig,
 }
 
 impl BoundServer {
@@ -131,6 +134,7 @@ impl BoundServer {
         let key_file = rest.https.key_file.get().clone();
         let core = self.core;
         let std_listener = self.std_listener;
+        let auth_config = self.auth_config;
 
         #[cfg(feature = "per-ip-rate-limit")]
         let limiter_opt = if rest.rate_limit.enabled {
@@ -158,11 +162,17 @@ impl BoundServer {
         let max_uri_len = DEFAULT_MAX_URI_LEN as u32;
 
         let app_factory = move || {
+            // Create Authenticator for this worker
+            let authenticator = Authenticator::new(auth_config.clone());
+            let auth: Arc<dyn Auth> = Arc::new(authenticator);
+
             let app = App::new()
                 .app_data(web::Data::new(core.clone()))
+                .app_data(web::Data::new(auth))
                 .app_data(web::PayloadConfig::new(body_limit))
                 .app_data(web::Data::new(max_uri_len as usize))
-                .wrap(from_fn(uri_length_guard_middleware));
+                .wrap(from_fn(uri_length_guard_middleware))
+                .wrap(from_fn(crate::middleware::auth_middleware));
             #[cfg(feature = "per-ip-rate-limit")]
             let app = {
                 let app = app.app_data(web::Data::new(trusted_proxy_set.clone()));

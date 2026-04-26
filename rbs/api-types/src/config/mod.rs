@@ -118,7 +118,7 @@ impl Default for Database {
     }
 }
 
-/// Top-level run configuration (`rbs.yaml`). Only **`rest`**, **`logging`**, **`storage`**, and **`attestation`** are deserialized;
+/// Top-level run configuration (`rbs.yaml`). Only **`rest`**, **`logging`**, **`storage`**, **`attestation`**, and **`auth`** are deserialized;
 /// any other top-level key is rejected (`deny_unknown_fields`).
 ///
 /// In YAML, `rest` may be omitted or null (deserializes as `None`). The `rbs` binary's `load_config`
@@ -133,6 +133,8 @@ pub struct RbsConfig {
     pub storage: Option<Database>,
     #[serde(default)]
     pub attestation: AttestationConfig,
+    #[serde(default)]
+    pub auth: AuthConfig,
 }
 
 /// For programmatic use; YAML omitting `rest` deserializes to `None` via `default_rest_option`.
@@ -143,6 +145,7 @@ impl Default for RbsConfig {
             logging: LoggingConfig::default(),
             storage: None,
             attestation: AttestationConfig::default(),
+            auth: AuthConfig::default(),
         }
     }
 }
@@ -167,6 +170,8 @@ pub struct CoreConfig {
     pub logging: LoggingConfig,
     #[serde(default)]
     pub attestation: AttestationConfig,
+    #[serde(default)]
+    pub auth: AuthConfig,
 }
 
 impl Default for CoreConfig {
@@ -174,6 +179,7 @@ impl Default for CoreConfig {
         Self {
             logging: LoggingConfig::default(),
             attestation: AttestationConfig::default(),
+            auth: AuthConfig::default(),
         }
     }
 }
@@ -448,4 +454,40 @@ where
         }
     }
     deserializer.deserialize_any(OctalModeVisitor)
+}
+
+/// Bearer JWT verification configuration
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct JwtVerificationConfig {
+    /// JWKS URL for fetching public keys (mutually exclusive with public_key_path)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jwks_url: Option<String>,
+    /// Path to PEM-encoded public key file (mutually exclusive with jwks_url)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub public_key_path: Option<String>,
+    /// Expected issuer (token.iss claim, required)
+    pub issuer: String,
+}
+
+/// AttestToken verification configuration
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AttestTokenVerificationConfig {
+    /// Path to PEM-encoded public key file (required)
+    pub public_key_path: String,
+    /// Expected issuer (token.iss claim, required)
+    pub issuer: String,
+}
+
+/// Authentication configuration (top-level)
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AuthConfig {
+    /// Bearer JWT verification configuration
+    #[serde(default)]
+    pub bearer_token: JwtVerificationConfig,
+    /// AttestToken verification configuration
+    #[serde(default)]
+    pub attest_token: AttestTokenVerificationConfig,
 }

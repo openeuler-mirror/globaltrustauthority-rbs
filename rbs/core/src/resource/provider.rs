@@ -18,6 +18,8 @@ use rbs_api_types::{
     ResourceContentResponse, ResourceInfoResponse, ResourceMetadataResponse, ResourceUpsertRequest,
 };
 
+use crate::auth::AuthContext;
+
 /// Result type alias using RbsError.
 type Result<T> = std::result::Result<T, RbsError>;
 
@@ -27,16 +29,16 @@ type Result<T> = std::result::Result<T, RbsError>;
 #[async_trait]
 pub trait ResourceProvider: Send + Sync {
     /// Get resource content.
-    async fn get(&self, uri: &str) -> Result<Option<ResourceContentResponse>>;
+    async fn get(&self, uri: &str, auth_ctx: Option<AuthContext>) -> Result<Option<ResourceContentResponse>>;
 
     /// Create or update resource.
-    async fn upsert(&self, uri: &str, req: &ResourceUpsertRequest) -> Result<ResourceMetadataResponse>;
+    async fn upsert(&self, uri: &str, req: &ResourceUpsertRequest, auth_ctx: Option<AuthContext>) -> Result<ResourceMetadataResponse>;
 
     /// Delete resource.
-    async fn delete(&self, uri: &str) -> Result<()>;
+    async fn delete(&self, uri: &str, auth_ctx: Option<AuthContext>) -> Result<()>;
 
     /// Get resource metadata (no content).
-    async fn info(&self, uri: &str) -> Result<Option<ResourceInfoResponse>>;
+    async fn info(&self, uri: &str, auth_ctx: Option<AuthContext>) -> Result<Option<ResourceInfoResponse>>;
 
     /// List resources (optional, default returns 501).
     async fn list(

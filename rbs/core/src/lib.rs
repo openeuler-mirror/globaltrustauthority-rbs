@@ -26,14 +26,17 @@ use std::sync::Arc;
 pub mod system;
 
 pub use attestation::{AttestationManager, AttestationProvider, BuiltinAttestationProvider, GtaRestProvider};
-pub use auth::Claims;
+pub use auth::{
+    AdminOperation, Auth, AuthContext, Authenticator, Authz, AuthzDecision, AuthzError, AuthzFacade,
+    AttestContext, BearerContext, PolicyOperation, ResourceUri, TokenType, AuthError,
+};
 pub use resource::{ResourceManager, ResourceProvider};
 pub use infra::logging::init_logging;
 pub use infra::init_database;
 pub use infra::rdb;
 pub use rbs_api_types::config::{
     AttestationBackendConfig, AttestationBackendMode, AttestationConfig, AttestationRestConfig,
-    CoreConfig, LogRotationConfig, LoggingConfig, RotationCompression,
+    AuthConfig, CoreConfig, LogRotationConfig, LoggingConfig, RotationCompression,
 };
 pub use rbs_api_types::error::RbsError;
 pub use system::{BuildMetadata, RbsVersion, API_VERSION, SERVICE_NAME};

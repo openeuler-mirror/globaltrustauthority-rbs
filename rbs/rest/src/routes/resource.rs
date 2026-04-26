@@ -12,13 +12,15 @@
 
 //! Resource routes (`/rbs/v0/{res_provider}/{...}`).
 
-use actix_web::{web, HttpResponse, http::StatusCode};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, http::StatusCode};
 use rbs_api_types::{
     error::RbsError, ErrorBody, ResourceContentResponse, ResourceInfoResponse, ResourceMetadataResponse,
     ResourceRetrieveRequest, ResourceUpsertRequest,
 };
 use rbs_core::RbsCore;
 use std::sync::Arc;
+
+use crate::middleware::OptAuthContext;
 
 /// `GET /rbs/v0/{uri}`: Retrieve resource content.
 #[utoipa::path(
@@ -44,9 +46,13 @@ use std::sync::Arc;
 pub async fn get_resource(
     core: web::Data<Arc<RbsCore>>,
     path: web::Path<String>,
+    req: HttpRequest,
 ) -> HttpResponse {
+    let opt_ctx = req.extensions()
+        .get::<OptAuthContext>()
+        .and_then(|ctx| ctx.0.clone());
     let uri = path.into_inner();
-    match core.resource().get(&uri).await {
+    match core.resource().get(&uri, opt_ctx).await {
         Ok(Some(resp)) => HttpResponse::Ok().json(resp),
         Ok(None) => HttpResponse::NotFound().json(ErrorBody::new(RbsError::ResourceNotFound.external_message())),
         Err(e) => HttpResponse::build(StatusCode::from_u16(e.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR))
@@ -80,9 +86,13 @@ pub async fn upsert_resource(
     core: web::Data<Arc<RbsCore>>,
     path: web::Path<String>,
     body: web::Json<ResourceUpsertRequest>,
+    req: HttpRequest,
 ) -> HttpResponse {
+    let opt_ctx = req.extensions()
+        .get::<OptAuthContext>()
+        .and_then(|ctx| ctx.0.clone());
     let uri = path.into_inner();
-    match core.resource().upsert(&uri, &body.into_inner()).await {
+    match core.resource().upsert(&uri, &body.into_inner(), opt_ctx).await {
         Ok(resp) => HttpResponse::Ok().json(resp),
         Err(e) => HttpResponse::build(StatusCode::from_u16(e.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR))
             .json(ErrorBody::new(e.external_message())),
@@ -112,9 +122,13 @@ pub async fn upsert_resource(
 pub async fn delete_resource(
     core: web::Data<Arc<RbsCore>>,
     path: web::Path<String>,
+    req: HttpRequest,
 ) -> HttpResponse {
+    let opt_ctx = req.extensions()
+        .get::<OptAuthContext>()
+        .and_then(|ctx| ctx.0.clone());
     let uri = path.into_inner();
-    match core.resource().delete(&uri).await {
+    match core.resource().delete(&uri, opt_ctx).await {
         Ok(()) => HttpResponse::NoContent().finish(),
         Err(e) => HttpResponse::build(StatusCode::from_u16(e.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR))
             .json(ErrorBody::new(e.external_message())),
@@ -145,9 +159,13 @@ pub async fn delete_resource(
 pub async fn get_resource_info(
     core: web::Data<Arc<RbsCore>>,
     path: web::Path<String>,
+    req: HttpRequest,
 ) -> HttpResponse {
+    let opt_ctx = req.extensions()
+        .get::<OptAuthContext>()
+        .and_then(|ctx| ctx.0.clone());
     let uri = path.into_inner();
-    match core.resource().info(&uri).await {
+    match core.resource().info(&uri, opt_ctx).await {
         Ok(Some(resp)) => HttpResponse::Ok().json(resp),
         Ok(None) => HttpResponse::NotFound().json(ErrorBody::new(RbsError::ResourceNotFound.external_message())),
         Err(e) => HttpResponse::build(StatusCode::from_u16(e.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR))
@@ -181,10 +199,14 @@ pub async fn retrieve_resource(
     core: web::Data<Arc<RbsCore>>,
     path: web::Path<String>,
     _body: web::Json<ResourceRetrieveRequest>,
+    req: HttpRequest,
 ) -> HttpResponse {
+    let opt_ctx = req.extensions()
+        .get::<OptAuthContext>()
+        .and_then(|ctx| ctx.0.clone());
     let uri = path.into_inner();
     // TODO: Verify attestation token before retrieval
-    match core.resource().get(&uri).await {
+    match core.resource().get(&uri, opt_ctx).await {
         Ok(Some(resp)) => HttpResponse::Ok().json(resp),
         Ok(None) => HttpResponse::NotFound().json(ErrorBody::new(RbsError::ResourceNotFound.external_message())),
         Err(e) => HttpResponse::build(StatusCode::from_u16(e.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR))
