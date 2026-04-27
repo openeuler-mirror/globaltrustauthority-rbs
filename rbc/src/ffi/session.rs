@@ -297,7 +297,7 @@ mod tests {
     // ── Test helpers ────────────────────────────────────────────────────────
 
     fn make_no_provider_client_handle() -> *mut RbcClient {
-        let yaml = CString::new("endpoint: http://localhost:9999\n").unwrap();
+        let yaml = CString::new("rbs:\n  base_url: http://localhost:9999\n").unwrap();
         let mut out: *mut RbcClient = ptr::null_mut();
         let code = rbc_client_new_from_yaml(yaml.as_ptr(), &mut out);
         assert_eq!(code, RbcErrorCode::Ok, "expected Ok creating no-provider client");

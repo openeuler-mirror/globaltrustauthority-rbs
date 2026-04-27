@@ -22,6 +22,6 @@ pub mod error;
 pub mod ffi;
 
 pub use error::RbcError;
-pub use sdk::{Client, Config, ConfigBuilder, ProviderType, ProviderRawConfig, Session, GetResourceRequest, Resource};
+pub use sdk::{Client, Config, ConfigBuilder, RbsConfig, ProviderType, ProviderRawConfig, Session, GetResourceRequest, Resource};
 pub use evidence::EvidenceProvider;
 pub use token::TokenProvider;

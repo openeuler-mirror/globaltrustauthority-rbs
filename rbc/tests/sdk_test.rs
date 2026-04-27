@@ -19,53 +19,55 @@ const TEST_AGENT_CONFIG: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/data
 #[test]
 fn test_config_builder() {
     let config = Config::builder()
-        .endpoint("https://rbs.example.com")
+        .base_url("https://rbs.example.com")
         .timeout_secs(60)
-        .evidence_provider(ProviderRawConfig {
+        .evidence_provider(vec![ProviderRawConfig {
             enabled: true,
             provider_type: ProviderType::Native,
             rest: Default::default(),
-        })
-        .token_provider(ProviderRawConfig {
+        }])
+        .token_provider(vec![ProviderRawConfig {
             enabled: true,
             provider_type: ProviderType::Rbs,
             rest: Default::default(),
-        })
+        }])
         .build()
         .unwrap();
 
-    assert_eq!(config.endpoint, "https://rbs.example.com");
-    assert_eq!(config.timeout_secs, Some(60));
-    assert_eq!(config.evidence_provider.unwrap().provider_type, ProviderType::Native);
-    assert_eq!(config.token_provider.unwrap().provider_type, ProviderType::Rbs);
+    assert_eq!(config.rbs.base_url, "https://rbs.example.com");
+    assert_eq!(config.rbs.timeout_secs, Some(60));
+    assert!(config.evidence_provider.as_ref().unwrap()
+        .iter().any(|p| p.provider_type == ProviderType::Native));
+    assert!(config.token_provider.as_ref().unwrap()
+        .iter().any(|p| p.provider_type == ProviderType::Rbs));
 }
 
 #[test]
-fn test_config_builder_requires_endpoint() {
+fn test_config_builder_requires_base_url() {
     let result = Config::builder()
-        .evidence_provider(ProviderRawConfig {
+        .evidence_provider(vec![ProviderRawConfig {
             enabled: false,
             provider_type: ProviderType::Native,
             rest: Default::default(),
-        })
-        .token_provider(ProviderRawConfig {
+        }])
+        .token_provider(vec![ProviderRawConfig {
             enabled: false,
             provider_type: ProviderType::Rbs,
             rest: Default::default(),
-        })
+        }])
         .build();
 
     assert!(result.is_err());
 }
 
-fn native_ep() -> ProviderRawConfig {
-    ProviderRawConfig { enabled: false, provider_type: ProviderType::Native, rest: Default::default() }
+fn native_ep() -> Vec<ProviderRawConfig> {
+    vec![ProviderRawConfig { enabled: false, provider_type: ProviderType::Native, rest: Default::default() }]
 }
 
-fn rbs_tp(config_path: &str) -> ProviderRawConfig {
+fn rbs_tp(config_path: &str) -> Vec<ProviderRawConfig> {
     let mut rest = serde_json::Map::new();
     rest.insert("config_path".into(), config_path.into());
-    ProviderRawConfig { enabled: true, provider_type: ProviderType::Rbs, rest }
+    vec![ProviderRawConfig { enabled: true, provider_type: ProviderType::Rbs, rest }]
 }
 
 #[test]
@@ -109,7 +111,7 @@ fn test_passport_mode_with_rbs_attest() {
     });
 
     let config = Config::builder()
-        .endpoint(&mock_server.uri())
+        .base_url(&mock_server.uri())
         .evidence_provider(native_ep())
         .token_provider(rbs_tp(TEST_AGENT_CONFIG))
         .build()
@@ -153,7 +155,7 @@ fn test_rbs_error_mapping() {
     });
 
     let config = Config::builder()
-        .endpoint(&mock_server.uri())
+        .base_url(&mock_server.uri())
         .evidence_provider(native_ep())
         .token_provider(rbs_tp(TEST_AGENT_CONFIG))
         .build()
