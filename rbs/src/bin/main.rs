@@ -35,6 +35,7 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let config_path = &cli.config;
     let config = load_config(config_path).with_context(|| format!("load config from {}", config_path))?;
+    config.validate();
 
     init_logging(&config.logging).context("init logging")?;
     log::info!("RBS config loaded from {}", Path::new(&config_path).display());
@@ -49,7 +50,11 @@ async fn main() -> anyhow::Result<()> {
     }
 
     #[allow(unused_variables)]
-    let core = std::sync::Arc::new(rbs_core::RbsCore::new(rbs_core::CoreConfig { logging: config.logging.clone() }));
+    let core_config = rbs_core::CoreConfig {
+        logging: config.logging.clone(),
+        attestation: config.attestation.clone(),
+    };
+    let core = std::sync::Arc::new(rbs_core::RbsCoreBuilder::new(core_config).build());
 
     #[cfg(feature = "rest")]
     {

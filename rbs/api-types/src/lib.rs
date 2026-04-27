@@ -53,8 +53,10 @@ pub use auth::{
 
 // Re-export types from config module
 pub use config::{
-    CoreConfig, Database, LogRotationConfig, LoggingConfig, PerIpRateLimitConfig, RestConfig,
-    RestHttpsConfig, RbsConfig, RotationCompression, Sensitive, TrustedProxyConfig,
+    AttestationBackendConfig, AttestationBackendMode, AttestationBuiltinConfig, AttestationConfig,
+    AttestationRestConfig, CoreConfig, Database, LogRotationConfig, LoggingConfig,
+    PerIpRateLimitConfig, RestConfig, RestHttpsConfig, RbsConfig, RotationCompression, Sensitive,
+    TrustedProxyConfig,
 };
 
 // Re-export constants from constants module

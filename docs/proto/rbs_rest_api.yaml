@@ -8,7 +8,7 @@ info:
   license:
     name: Mulan Permissive Software License, Version 2
     url: http://license.coscl.org.cn/MulanPSL2
-  version: 0.1.0
+  version: '0'
 servers:
 - url: http://localhost:6666
   description: Default local development (see `rbs.yaml` `rest.listen_addr`)
@@ -45,7 +45,7 @@ components:
         git_hash:
           type: string
           description: Git commit hash at build time (hex), or empty when not embedded at build.
-          example: 0123456789abcdef0123456789abcdef
+          example: ''
         build_date:
           type: string
           description: Build timestamp (UTC), typically RFC 3339, or empty when not embedded at build.

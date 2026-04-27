@@ -10,10 +10,12 @@
  * See the Mulan PSL v2 for more details.
  */
 
-//! User management module.
+//! Authentication module.
 
-pub mod manager;
-pub mod provider;
-
-pub use manager::UserManager;
-pub use provider::UserProvider;
+/// Authentication claims extracted from Bearer token.
+#[derive(Debug, Clone)]
+pub struct Claims {
+    pub user_id: String,
+    pub roles: Vec<String>,
+    pub exp: i64,
+}

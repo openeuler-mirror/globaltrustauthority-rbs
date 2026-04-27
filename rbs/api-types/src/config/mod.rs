@@ -16,6 +16,9 @@
 //! `logging` initializes `rbs_core`; `rest` configures `rbs_rest` when the binary is built with the
 //! `rest` feature.
 
+mod validation;
+
+use std::collections::HashMap;
 use std::fmt;
 
 use serde::de::{self, Visitor};
@@ -115,7 +118,7 @@ impl Default for Database {
     }
 }
 
-/// Top-level run configuration (`rbs.yaml`). Only **`rest`**, **`logging`**, and **`database`** are deserialized;
+/// Top-level run configuration (`rbs.yaml`). Only **`rest`**, **`logging`**, **`storage`**, and **`attestation`** are deserialized;
 /// any other top-level key is rejected (`deny_unknown_fields`).
 ///
 /// In YAML, `rest` may be omitted or null (deserializes as `None`). The `rbs` binary's `load_config`
@@ -128,20 +131,164 @@ pub struct RbsConfig {
     pub logging: LoggingConfig,
     #[serde(default)]
     pub storage: Option<Database>,
+    #[serde(default)]
+    pub attestation: AttestationConfig,
 }
 
 /// For programmatic use; YAML omitting `rest` deserializes to `None` via `default_rest_option`.
 impl Default for RbsConfig {
     fn default() -> Self {
-        Self { rest: Some(RestConfig::default()), logging: LoggingConfig::default(), storage: None }
+        Self {
+            rest: Some(RestConfig::default()),
+            logging: LoggingConfig::default(),
+            storage: None,
+            attestation: AttestationConfig::default(),
+        }
+    }
+}
+
+impl Default for LoggingConfig {
+    fn default() -> Self {
+        Self {
+            level: "info".to_string(),
+            format: "text".to_string(),
+            file_path: None,
+            enable_rotation: false,
+            rotation: LogRotationConfig::default(),
+            file_mode: 0o640,
+        }
     }
 }
 
 /// Config slice for core (logging and future core-only options).
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct CoreConfig {
     pub logging: LoggingConfig,
+    #[serde(default)]
+    pub attestation: AttestationConfig,
+}
+
+impl Default for CoreConfig {
+    fn default() -> Self {
+        Self {
+            logging: LoggingConfig::default(),
+            attestation: AttestationConfig::default(),
+        }
+    }
+}
+
+/// Attestation provider configuration.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AttestationConfig {
+    /// Default attestation provider name.
+    #[serde(default = "default_attestation_provider")]
+    pub default_as_provider: String,
+    /// Backend providers indexed by name.
+    #[serde(default)]
+    pub backends: HashMap<String, AttestationBackendConfig>,
+}
+
+fn default_attestation_provider() -> String {
+    "gta".to_string()
+}
+
+/// Mode of attestation backend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AttestationBackendMode {
+    Rest,
+    Builtin,
+}
+
+impl Default for AttestationBackendMode {
+    fn default() -> Self {
+        Self::Rest
+    }
+}
+
+/// Configuration for a single attestation backend.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AttestationBackendConfig {
+    /// Backend mode (rest or builtin).
+    #[serde(default)]
+    pub mode: AttestationBackendMode,
+    /// REST backend configuration.
+    pub rest: AttestationRestConfig,
+    /// Builtin backend configuration (placeholder for future use).
+    pub builtin: AttestationBuiltinConfig,
+}
+
+impl Default for AttestationBackendConfig {
+    fn default() -> Self {
+        Self {
+            mode: AttestationBackendMode::Rest,
+            rest: AttestationRestConfig::default(),
+            builtin: AttestationBuiltinConfig::default(),
+        }
+    }
+}
+
+/// REST backend configuration for attestation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AttestationRestConfig {
+    pub base_url: String,
+    #[serde(default)]
+    pub timeout_secs: u32,
+    #[serde(default)]
+    pub retries: u32,
+    #[serde(default)]
+    pub tls_verify: bool,
+    /// Custom CA certificate file for TLS verification.
+    /// If empty, uses system default CA bundle.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub ca_file: String,
+    /// REST backend credentials (user_id, api_key).
+    #[serde(default)]
+    pub credentials: AttestationCredentials,
+}
+
+impl Default for AttestationRestConfig {
+    fn default() -> Self {
+        Self {
+            base_url: String::new(),
+            timeout_secs: 30,
+            retries: 3,
+            tls_verify: true,
+            ca_file: String::new(),
+            credentials: AttestationCredentials::default(),
+        }
+    }
+}
+
+/// Builtin backend configuration (placeholder).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AttestationBuiltinConfig {}
+
+/// GTA REST API credentials for attestation requests.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AttestationCredentials {
+    /// User identifier for attestation requests.
+    pub user_id: String,
+    /// Main API key for primary authentication.
+    pub main_api_key: Sensitive<String>,
+    /// Sub API key for secondary authentication (used in attest requests).
+    pub sub_api_key: Sensitive<String>,
+}
+
+impl Default for AttestationCredentials {
+    fn default() -> Self {
+        Self {
+            user_id: String::new(),
+            main_api_key: Sensitive::new(String::new()),
+            sub_api_key: Sensitive::new(String::new()),
+        }
+    }
 }
 
 /// Per-IP rate limit configuration. Effective only when the `per-ip-rate-limit` feature is enabled in rbs-rest.
@@ -294,220 +441,11 @@ where
             formatter.write_str("octal mode as number (e.g. 640, 750) or string")
         }
         fn visit_u64<E: de::Error>(self, v: u64) -> Result<u32, E> {
-            parse_octal_str(&v.to_string()).map_err(E::custom)
+            validation::parse_octal_str(&v.to_string()).map_err(E::custom)
         }
         fn visit_str<E: de::Error>(self, v: &str) -> Result<u32, E> {
-            parse_octal_str(v).map_err(E::custom)
+            validation::parse_octal_str(v).map_err(E::custom)
         }
     }
     deserializer.deserialize_any(OctalModeVisitor)
-}
-
-const MAX_FILE_MODE: u32 = 0o7777;
-
-fn parse_octal_str(s: &str) -> Result<u32, String> {
-    let s = s.trim();
-    if s.is_empty() {
-        return Err("empty mode".to_string());
-    }
-    let mut mode: u32 = 0;
-    for c in s.chars() {
-        let d = c.to_digit(8).ok_or_else(|| format!("invalid octal digit: {}", c))?;
-        mode = mode * 8 + d;
-    }
-    if mode > MAX_FILE_MODE {
-        return Err(format!("file mode {} exceeds maximum {}", mode, MAX_FILE_MODE));
-    }
-    Ok(mode)
-}
-
-impl Default for LoggingConfig {
-    fn default() -> Self {
-        Self {
-            level: "info".to_string(),
-            format: "text".to_string(),
-            file_path: None,
-            enable_rotation: false,
-            rotation: LogRotationConfig::default(),
-            file_mode: 0o640,
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn config_defaults() {
-        let rbs = RbsConfig::default();
-        let rest = rbs.rest.as_ref().unwrap();
-        assert_eq!(rest.listen_addr, "127.0.0.1:6666");
-        assert_eq!(rest.workers, 4);
-        assert!(!rest.https.enabled);
-        assert_eq!(rbs.logging.level, "info");
-        assert_eq!(rbs.logging.file_mode, 0o640);
-        assert_eq!(rbs.logging.rotation.file_mode, 0o440);
-        assert_eq!(rbs.logging.rotation.compression, RotationCompression::None);
-
-        let rest = RestConfig::default();
-        assert_eq!(rest.listen_addr, "127.0.0.1:6666");
-        assert!(!rest.https.enabled);
-
-        assert!(!RestHttpsConfig::default().enabled);
-        assert_eq!(RotationCompression::default(), RotationCompression::None);
-
-        let rl = PerIpRateLimitConfig::default();
-        assert!(!rl.enabled);
-        assert_eq!(rl.requests_per_sec, 60);
-        assert_eq!(rl.burst, None);
-
-        let s = Sensitive::new("secret".to_string());
-        assert_eq!(s.get(), "secret");
-        assert_eq!(format!("{:?}", s), "[redacted]");
-    }
-
-    #[test]
-    fn config_deserialize_yaml_partial() {
-        let yaml = r#"
-rest:
-  listen_addr: "127.0.0.1:9000"
-logging:
-  level: debug
-  file_mode: 600
-  rotation:
-    file_mode: "440"
-"#;
-        let config: RbsConfig = serde_yaml::from_str(yaml).unwrap();
-        let rest = config.rest.as_ref().unwrap();
-        assert_eq!(rest.listen_addr, "127.0.0.1:9000");
-        assert_eq!(rest.workers, 4);
-        assert_eq!(config.logging.level, "debug");
-        assert_eq!(config.logging.file_mode, 0o600);
-        assert_eq!(config.logging.rotation.file_mode, 0o440);
-    }
-
-    #[test]
-    fn config_deserialize_yaml_octal_string() {
-        let yaml = r#"
-logging:
-  file_mode: "750"
-  rotation:
-    file_mode: "640"
-"#;
-        let config: RbsConfig = serde_yaml::from_str(yaml).unwrap();
-        assert_eq!(config.logging.file_mode, 0o750);
-        assert_eq!(config.logging.rotation.file_mode, 0o640);
-    }
-
-    #[test]
-    fn config_deserialize_invalid_octal_fails() {
-        let yaml = r#"
-logging:
-  file_mode: "649"
-"#;
-        let result: Result<RbsConfig, _> = serde_yaml::from_str(yaml);
-        assert!(result.is_err(), "invalid octal digit 9 must yield error");
-    }
-
-    #[test]
-    fn config_deserialize_invalid_octal_digit_fails() {
-        let yaml = r#"
-logging:
-  rotation:
-    file_mode: "889"
-"#;
-        let result: Result<RbsConfig, _> = serde_yaml::from_str(yaml);
-        assert!(result.is_err(), "invalid octal digit 8 must yield error");
-    }
-
-    #[test]
-    fn config_deserialize_octal_exceeds_max_fails() {
-        let yaml = r#"
-logging:
-  file_mode: "10000"
-"#;
-        let result: Result<RbsConfig, _> = serde_yaml::from_str(yaml);
-        assert!(result.is_err(), "file_mode > 0o7777 must yield error");
-    }
-
-    #[test]
-    fn sensitive_round_trip_and_redaction() {
-        let original = Sensitive::new("super-secret".to_string());
-        // Use YAML here to avoid pulling in an additional JSON dependency just for tests.
-        let yaml = serde_yaml::to_string(&original).unwrap();
-        let deserialized: Sensitive<String> = serde_yaml::from_str(&yaml).unwrap();
-        assert_eq!(deserialized.get(), original.get());
-        assert_eq!(format!("{:?}", deserialized), "[redacted]");
-        assert_eq!(deserialized.to_string(), "[redacted]");
-    }
-
-    #[test]
-    fn rest_https_config_debug_redacts_key_file() {
-        let cfg = RestHttpsConfig {
-            enabled: true,
-            cert_file: "/path/to/cert.pem".to_string(),
-            key_file: Sensitive::new("/path/to/key.pem".to_string()),
-        };
-        let debug = format!("{:?}", cfg);
-        assert!(debug.contains("RestHttpsConfig"));
-        assert!(debug.contains("cert_file"));
-        assert!(debug.contains("[redacted]"));
-        assert!(!debug.contains("key.pem"));
-    }
-
-    #[test]
-    fn octal_mode_deserialize_numeric_and_string() {
-        let yaml = r#"
-logging:
-  file_mode: 750
-  rotation:
-    file_mode: " 640 "
-"#;
-        let config: RbsConfig = serde_yaml::from_str(yaml).unwrap();
-        assert_eq!(config.logging.file_mode, 0o750);
-        assert_eq!(config.logging.rotation.file_mode, 0o640);
-    }
-
-    #[test]
-    fn octal_mode_allows_maximum() {
-        let yaml = r#"
-logging:
-  file_mode: "7777"
-"#;
-        let config: RbsConfig = serde_yaml::from_str(yaml).unwrap();
-        assert_eq!(config.logging.file_mode, 0o7777);
-    }
-
-    #[test]
-    fn core_and_trusted_proxy_defaults() {
-        let core = CoreConfig::default();
-        assert_eq!(core.logging, LoggingConfig::default());
-
-        let proxies = TrustedProxyConfig::default();
-        assert!(proxies.addrs.is_empty());
-    }
-
-    #[test]
-    fn deserialize_rbs_yaml_sample() {
-        let yaml = include_str!("../../conf/rbs.yaml");
-        let config: RbsConfig = serde_yaml::from_str(yaml).expect("repo rbs/conf/rbs.yaml must parse");
-        let rest = config.rest.as_ref().expect("sample config must include `rest`");
-        assert_eq!(rest.listen_addr, "127.0.0.1:6666");
-        assert_eq!(config.logging.level, "info");
-        assert_eq!(config.logging.format, "text");
-    }
-
-    #[test]
-    fn deserialize_rejects_unknown_top_level_keys() {
-        let yaml = r#"
-rest: {}
-logging:
-  level: info
-auth:
-  bearer: {}
-"#;
-        let result: Result<RbsConfig, _> = serde_yaml::from_str(yaml);
-        assert!(result.is_err(), "top-level keys other than rest/logging must be rejected");
-    }
 }

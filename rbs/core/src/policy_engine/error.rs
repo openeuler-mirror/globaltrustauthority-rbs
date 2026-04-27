@@ -10,13 +10,12 @@
  * See the Mulan PSL v2 for more details.
  */
 
-//! Attestation Manager and Provider management.
+//! Policy Engine error types.
 
-pub mod manager;
-pub mod provider;
+use rbs_api_types::RbsError;
 
-pub use manager::AttestationManager;
-pub use provider::AttestationProvider;
-
-pub mod gta;
-pub use gta::{BuiltinAttestationProvider, GtaRestProvider};
+/// Error type for policy engine operations.
+///
+/// This is a type alias for `RbsError` to provide a cleaner API
+/// at the policy engine module level.
+pub type PolicyEngineError = RbsError;

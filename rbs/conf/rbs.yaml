@@ -52,23 +52,22 @@ logging:
     file_mode: 440                 # rotated file permission. Unix only
   file_mode: 640
 
-# # Attestation service (GTA and other backends). Timeout per backend under rest.*.
-# attestation:
-#   default_as_provider: gta
-#   backends:
-#     gta:
-#       mode: rest
-#       rest:
-#         base_url: "https://gta-server:8080"
-#         timeout_secs: 30   # external call timeout for this backend
-#         retries: 3         # max retries on transient failure
-#         backoff_secs: 2    # initial backoff between retries (exponential or fixed per impl)
-#         tls_verify: true  # verify server TLS cert; set false only for dev/testing
-#         # ca_file: ""     # optional: custom CA bundle for verification (omit = system default)
-#         api_key: ""       # optional: API key / bearer secret for GTA REST; prefer "${GTA_API_KEY}" in production
-#       # built-in mode example (alternative to rest):
-#       # mode: built-in
-#       # built-in: {}
+# Attestation service (GTA and other backends). Timeout per backend under rest.*.
+attestation:
+  default_as_provider: gta
+  backends:
+    gta:
+      mode: rest
+      rest:
+        base_url: "https://127.0.0.1:8080"
+        timeout_secs: 30
+        retries: 3
+        tls_verify: true
+        ca_file: ""   # custom CA bundle path; empty = use system default
+        credentials:
+          user_id: "rbs-service"   # required
+          main_api_key: "${MAIN_API_KEY}"   # optional (reserved for future use)
+          sub_api_key: "${SUB_API_KEY}"   # optional
 
 # # Storage: users, resource policies, and default resource persistence.
 # #
@@ -109,8 +108,8 @@ storage:
   timeout: 30
   # # url: "mysql://user:pass@host:3306/rbs"
   url: "sqlite:///root/rbs.db"
-  sql_file_path: "rbs/conf/sqlite_rbs.sql"
-  
+  sql_file_path: "rbs/rdb_sql/sqlite_rbs.sql"
+
 # # Resource backends (for multiple backends; omit when using single storage)
 # # Reserved names for res_provider: admin, attestation, resource
 # resource:

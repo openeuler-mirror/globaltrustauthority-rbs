@@ -22,15 +22,16 @@ use utoipa::ToSchema;
 
 use crate::RbsError;
 
+// Re-export API_VERSION from constants module to avoid duplicate definition.
+// All code should reference this single source of truth.
+pub use crate::constants::API_VERSION;
+
 /// Public service name for APIs, logs, and the exported `OpenAPI` document.
 pub const SERVICE_NAME: &str = "globaltrustauthority-rbs";
 
-/// Published REST API contract version string (HTTP `api_version`; independent of Cargo package version).
-pub const API_VERSION: &str = "0";
-
 /// Placeholder for `build.git_hash` when no VCS revision is embedded at build time.
 ///
-/// Empty string follows common API practice (e.g. metadata fields where “unset” is represented as
+/// Empty string follows common API practice (e.g. metadata fields where "unset" is represented as
 /// `""`); clients should treat a non-empty value as an embedded hex commit hash.
 pub const GIT_HASH_PLACEHOLDER: &str = "";
 
@@ -38,10 +39,10 @@ pub const GIT_HASH_PLACEHOLDER: &str = "";
 ///
 /// Empty string follows the same convention as [`GIT_HASH_PLACEHOLDER`]; non-empty values should
 /// be RFC 3339 timestamps when provided by the build.
-pub const BUILD_DATE_PLACEHOLDER: &str = "";
+pub const BUILD_DATE_PLACEHOLDER: &str = "2026-04-20T00:00:00Z";
 
 /// Value written to the exported `OpenAPI` document for `service_name` (same as [`SERVICE_NAME`]).
-/// Required by [`utoipa`] as the argument to `#[schema(example = …)]` (`OpenAPI` spec keyword).
+/// Required by [`utoipa`] as the argument to `#[schema(example = ...)]` (`OpenAPI` spec keyword).
 fn open_api_schema_service_name() -> &'static str {
     SERVICE_NAME
 }
@@ -66,12 +67,12 @@ fn open_api_schema_build_version() -> &'static str {
 
 /// OpenAPI `example` for `git_hash` (representative hex string for documentation).
 fn open_api_schema_git_hash() -> &'static str {
-    "0123456789abcdef0123456789abcdef"
+    GIT_HASH_PLACEHOLDER
 }
 
 /// OpenAPI `example` for `build_date` (representative RFC 3339 timestamp for documentation).
 fn open_api_schema_build_date() -> &'static str {
-    "2026-04-20T00:00:00Z"
+    BUILD_DATE_PLACEHOLDER
 }
 
 /// Error payload for HTTP error responses (e.g. 500).
