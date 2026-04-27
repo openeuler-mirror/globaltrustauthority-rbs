@@ -14,4 +14,4 @@
 
 pub mod auth;
 
-pub use auth::{auth_middleware, AuthError, OptAuthContext};
+pub use auth::{auth_middleware, OptAuthContext};

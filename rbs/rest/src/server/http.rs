@@ -163,7 +163,8 @@ impl BoundServer {
 
         let app_factory = move || {
             // Create Authenticator for this worker
-            let authenticator = Authenticator::new(auth_config.clone());
+            let authenticator = Authenticator::new(auth_config.clone())
+                .expect("failed to initialize authenticator: invalid auth configuration");
             let auth: Arc<dyn Auth> = Arc::new(authenticator);
 
             let app = App::new()

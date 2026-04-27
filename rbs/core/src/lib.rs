@@ -12,12 +12,13 @@
 
 //! RBS core library.
 //!
-//! Core business logic modules: attestation, resource, auth, user, etc.
+//! Core business logic modules: attestation, resource, auth, policy, etc.;
 //! Provider traits define the interface; concrete implementations are injected at startup.
 
 mod attestation;
 pub mod auth;
 mod infra;
+pub mod policy;
 mod policy_engine;
 mod resource;
 
@@ -27,9 +28,10 @@ pub mod system;
 
 pub use attestation::{AttestationManager, AttestationProvider, BuiltinAttestationProvider, GtaRestProvider};
 pub use auth::{
-    AdminOperation, Auth, AuthContext, Authenticator, Authz, AuthzDecision, AuthzError, AuthzFacade,
-    AttestContext, BearerContext, PolicyOperation, ResourceUri, TokenType, AuthError,
+    AdminAction, Auth, AuthContext, Authenticator, AuthzDecision, AuthzError, AuthzFacade,
+    AttestContext, BearerContext, RequiredRole, TokenType, AuthError,
 };
+pub use policy::PolicyManager;
 pub use resource::{ResourceManager, ResourceProvider};
 pub use infra::logging::init_logging;
 pub use infra::init_database;
@@ -47,6 +49,7 @@ pub use system::{BuildMetadata, RbsVersion, API_VERSION, SERVICE_NAME};
 pub struct RbsCore {
     attestation: AttestationManager,
     resource: ResourceManager,
+    policy: PolicyManager,
 }
 
 impl std::fmt::Debug for RbsCore {
@@ -54,6 +57,7 @@ impl std::fmt::Debug for RbsCore {
         f.debug_struct("RbsCore")
             .field("attestation", &self.attestation)
             .field("resource", &self.resource)
+            .field("policy", &self.policy)
             .finish()
     }
 }
@@ -66,10 +70,12 @@ impl RbsCore {
     pub fn new(
         attestation: AttestationManager,
         resource: ResourceManager,
+        policy: PolicyManager,
     ) -> Self {
         Self {
             attestation,
             resource,
+            policy,
         }
     }
 
@@ -85,7 +91,13 @@ impl RbsCore {
         &self.resource
     }
 
-    /// System metadata API (version, build info).
+    /// Returns the policy manager.
+    #[must_use]
+    pub fn policy(&self) -> &PolicyManager {
+        &self.policy
+    }
+
+    /// System metadata API (version, etc.).
     #[must_use]
     pub fn system(&self) -> System {
         System
@@ -125,14 +137,19 @@ impl RbsCoreBuilder {
         }
 
         let resource = ResourceManager::new();
+        let policy = PolicyManager::new();
 
-        RbsCore::new(attestation, resource)
+        RbsCore::new(attestation, resource, policy)
     }
 }
 
 impl Default for RbsCore {
     fn default() -> Self {
-        Self::new(AttestationManager::default(), ResourceManager::default())
+        Self::new(
+            AttestationManager::default(),
+            ResourceManager::default(),
+            PolicyManager::default(),
+        )
     }
 }
 

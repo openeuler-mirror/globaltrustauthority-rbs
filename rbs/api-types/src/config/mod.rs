@@ -460,10 +460,10 @@ where
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct JwtVerificationConfig {
-    /// JWKS URL for fetching public keys (mutually exclusive with public_key_path)
+    /// Path to local JWKS file (mutually exclusive with public_key_path)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub jwks_url: Option<String>,
-    /// Path to PEM-encoded public key file (mutually exclusive with jwks_url)
+    pub jwks_file: Option<String>,
+    /// Path to PEM-encoded public key file (mutually exclusive with jwks_file)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_key_path: Option<String>,
     /// Expected issuer (token.iss claim, required)
@@ -474,10 +474,17 @@ pub struct JwtVerificationConfig {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AttestTokenVerificationConfig {
-    /// Path to PEM-encoded public key file (required)
-    pub public_key_path: String,
+    /// Path to local JWKS file (mutually exclusive with public_key_path)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jwks_file: Option<String>,
+    /// Path to PEM-encoded public key file (mutually exclusive with jwks_file)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub public_key_path: Option<String>,
     /// Expected issuer (token.iss claim, required)
     pub issuer: String,
+    /// Expected audience (token.aud claim, optional)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audience: Option<String>,
 }
 
 /// Authentication configuration (top-level)

@@ -529,34 +529,37 @@ impl Database {
 
 impl JwtVerificationConfig {
     fn validate(&self) {
-        // jwks_url and public_key_path are mutually exclusive (at least one must be set)
-        let has_jwks = self.jwks_url.is_some();
+        // jwks_file and public_key_path are mutually exclusive (at least one must be set)
+        let has_jwks_file = self.jwks_file.is_some();
         let has_public_key_path = self.public_key_path.is_some();
-        if !has_jwks && !has_public_key_path {
-            panic!("auth.bearer_token must have either jwks_url or public_key_path configured");
+
+        let count = has_jwks_file as usize + has_public_key_path as usize;
+        if count == 0 {
+            panic!("auth.bearer_token must have either jwks_file or public_key_path configured");
         }
-        if has_jwks && has_public_key_path {
-            panic!("auth.bearer_token jwks_url and public_key_path are mutually exclusive");
+        if count > 1 {
+            panic!("auth.bearer_token jwks_file and public_key_path are mutually exclusive");
         }
 
         // issuer is required
         if self.issuer.is_empty() {
-            panic!("auth.bearer.issuer must not be empty");
+            panic!("auth.bearer_token.issuer must not be empty");
         }
     }
 }
 
 impl AttestTokenVerificationConfig {
     fn validate(&self) {
-        // public_key_path is required
-        if self.public_key_path.is_empty() {
-            panic!("auth.attest_token.public_key_path must not be empty");
+        // jwks_file and public_key_path are mutually exclusive (at least one must be set)
+        let has_jwks_file = self.jwks_file.is_some();
+        let has_public_key_path = self.public_key_path.is_some();
+
+        let count = has_jwks_file as usize + has_public_key_path as usize;
+        if count == 0 {
+            panic!("auth.attest_token must have either jwks_file or public_key_path configured");
         }
-        if self.public_key_path.len() > FILE_PATH_MAX_LEN {
-            panic!(
-                "auth.attest_token.public_key_path length {} exceeds maximum {}",
-                self.public_key_path.len(), FILE_PATH_MAX_LEN
-            );
+        if count > 1 {
+            panic!("auth.attest_token jwks_file and public_key_path are mutually exclusive");
         }
 
         // issuer is required

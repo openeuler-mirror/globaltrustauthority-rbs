@@ -26,6 +26,9 @@ pub enum AuthError {
     #[error("token has expired")]
     TokenExpired,
 
+    #[error("token is not yet valid")]
+    TokenNotYetValid,
+
     #[error("token issuer is unknown")]
     TokenUnknown,
 
