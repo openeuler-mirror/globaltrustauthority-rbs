@@ -105,7 +105,7 @@ mod tests {
     use std::ptr;
 
     fn make_no_provider_client_handle() -> *mut RbcClient {
-        let yaml = CString::new("endpoint: http://localhost:9999\n").unwrap();
+        let yaml = CString::new("rbs:\n  base_url: http://localhost:9999\n").unwrap();
         let mut out: *mut RbcClient = ptr::null_mut();
         let code = rbc_client_new_from_yaml(yaml.as_ptr(), &mut out);
         assert_eq!(code, RbcErrorCode::Ok, "expected Ok creating no-provider client");
@@ -139,15 +139,15 @@ mod tests {
 
     #[test]
     fn client_new_from_yaml_null_out_returns_invalid_arg() {
-        let yaml = CString::new("endpoint: http://localhost:9999\n").unwrap();
+        let yaml = CString::new("rbs:\n  base_url: http://localhost:9999\n").unwrap();
         let code = rbc_client_new_from_yaml(yaml.as_ptr(), ptr::null_mut());
         assert_eq!(code, RbcErrorCode::InvalidArg);
     }
 
     #[test]
     fn client_new_from_yaml_bad_yaml_returns_config_error() {
-        // Missing required `endpoint` field → serde_yaml deserialization fails
-        let yaml = CString::new("not_endpoint_field: http://localhost:9999\n").unwrap();
+        // Missing required `rbs` section → serde_yaml deserialization fails
+        let yaml = CString::new("not_rbs: http://localhost:9999\n").unwrap();
         let mut out: *mut RbcClient = ptr::null_mut();
         let code = rbc_client_new_from_yaml(yaml.as_ptr(), &mut out);
         assert_eq!(code, RbcErrorCode::Config);
@@ -156,7 +156,7 @@ mod tests {
 
     #[test]
     fn client_new_from_yaml_valid_config_returns_ok() {
-        let yaml = CString::new("endpoint: http://localhost:9999\n").unwrap();
+        let yaml = CString::new("rbs:\n  base_url: http://localhost:9999\n").unwrap();
         let mut out: *mut RbcClient = ptr::null_mut();
         let code = rbc_client_new_from_yaml(yaml.as_ptr(), &mut out);
         assert_eq!(code, RbcErrorCode::Ok);

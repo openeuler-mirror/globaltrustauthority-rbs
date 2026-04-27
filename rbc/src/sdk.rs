@@ -19,7 +19,6 @@ use serde_json::Value;
 use base64::Engine;
 use rbs_api_types::{AttestResponse, AttesterData, AuthChallengeResponse,
                     ResourceContentResponse, AttestRequest, RbcEvidencesPayload};
-
 use zeroize::Zeroizing;
 
 use crate::client::{RbsRestClient, TlsConfig};
@@ -28,24 +27,23 @@ use crate::evidence::{EvidenceProvider, NativeEvidenceProvider};
 use crate::token::{TokenProvider, RbsAttestTokenProvider, NativeTokenProvider};
 use crate::tools::tee_key::{KeyType, TeeKeyPair, TeePublicKey};
 
-
-// Captures the full provider config block from YAML:
-//   - provider_type: routes to the correct Provider implementation
-//   - rest: all remaining fields, passed as-is to Provider::new() (no `type` key)
-
+/// Selects the evidence or token provider implementation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ProviderType {
+    /// Built-in provider running in the same process.
     Native,
+    /// Remote provider accessed via the RBS REST API.
     Rbs,
 }
 
+/// Raw provider configuration entry as deserialized from `rbc.yaml`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ProviderRawConfig {
-    #[serde(default = "ProviderRawConfig::default_enabled")]
-    pub enabled: bool,
     #[serde(rename = "type")]
     pub provider_type: ProviderType,
+    #[serde(default = "ProviderRawConfig::default_enabled")]
+    pub enabled: bool,
     #[serde(flatten)]
     pub rest: serde_json::Map<String, Value>,
 }
@@ -54,19 +52,26 @@ impl ProviderRawConfig {
     fn default_enabled() -> bool { true }
 }
 
+/// RBS connection parameters, mapped from the `rbs:` block in `rbc.yaml`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RbsConfig {
+    pub base_url: String,
+    pub timeout_secs: Option<u64>,
+    pub ca_cert: Option<String>,
+}
+
+/// Full RBC configuration, directly mirrors the structure of `rbc.yaml`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
-    #[serde(rename = "rbs_base_url", alias = "endpoint")]
-    pub endpoint: String,
-    pub ca_cert: Option<String>,
-    pub timeout_secs: Option<u64>,
-    pub evidence_provider: Option<ProviderRawConfig>,
-    pub token_provider: Option<ProviderRawConfig>,
+    pub rbs: RbsConfig,
+    pub evidence_provider: Option<Vec<ProviderRawConfig>>,
+    pub token_provider: Option<Vec<ProviderRawConfig>>,
     #[serde(default)]
     pub key_algorithm: KeyType,
 }
 
 impl Config {
+    /// Load configuration from a YAML file at `path`.
     pub fn from_file(path: &str) -> Result<Self, RbcError> {
         let content = std::fs::read_to_string(path)
             .map_err(|e| RbcError::ConfigError(format!("read {path}: {e}")))?;
@@ -74,68 +79,83 @@ impl Config {
             .map_err(|e| RbcError::ConfigError(format!("parse {path}: {e}")))
     }
 
+    /// Return a [`ConfigBuilder`] for constructing a [`Config`] programmatically.
     pub fn builder() -> ConfigBuilder {
         ConfigBuilder::default()
     }
 }
 
+/// Builder for [`Config`]; obtain one via [`Config::builder`].
 #[derive(Default)]
 pub struct ConfigBuilder {
-    endpoint: Option<String>,
+    base_url: Option<String>,
     ca_cert: Option<String>,
     timeout_secs: Option<u64>,
-    evidence_provider: Option<ProviderRawConfig>,
-    token_provider: Option<ProviderRawConfig>,
+    evidence_provider: Option<Vec<ProviderRawConfig>>,
+    token_provider: Option<Vec<ProviderRawConfig>>,
     key_algorithm: Option<KeyType>,
 }
 
 impl ConfigBuilder {
-    pub fn endpoint(mut self, url: &str) -> Self {
-        self.endpoint = Some(url.to_string());
+    /// Set the RBS base URL (required).
+    pub fn base_url(mut self, url: &str) -> Self {
+        self.base_url = Some(url.to_string());
         self
     }
+    /// Set the path to a custom CA certificate for TLS verification.
     pub fn ca_cert(mut self, path: &str) -> Self {
         self.ca_cert = Some(path.to_string());
         self
     }
+    /// Set the request timeout in seconds.
     pub fn timeout_secs(mut self, secs: u64) -> Self {
         self.timeout_secs = Some(secs);
         self
     }
-    pub fn evidence_provider(mut self, ep: ProviderRawConfig) -> Self {
+    /// Set the evidence provider configuration list.
+    pub fn evidence_provider(mut self, ep: Vec<ProviderRawConfig>) -> Self {
         self.evidence_provider = Some(ep);
         self
     }
-    pub fn token_provider(mut self, tp: ProviderRawConfig) -> Self {
+    /// Set the token provider configuration list.
+    pub fn token_provider(mut self, tp: Vec<ProviderRawConfig>) -> Self {
         self.token_provider = Some(tp);
         self
     }
+    /// Set the key algorithm used for ephemeral TEE key generation.
     pub fn key_algorithm(mut self, alg: KeyType) -> Self {
         self.key_algorithm = Some(alg);
         self
     }
 
+    /// Build the [`Config`], returning an error if `base_url` was not set.
     pub fn build(self) -> Result<Config, RbcError> {
-        let endpoint = self.endpoint
-            .ok_or_else(|| RbcError::ConfigError("endpoint is required".into()))?;
+        let base_url = self.base_url
+            .ok_or_else(|| RbcError::ConfigError("base_url is required".into()))?;
         Ok(Config {
-            endpoint,
-            ca_cert: self.ca_cert,
-            timeout_secs: self.timeout_secs,
-            key_algorithm: self.key_algorithm.unwrap_or(KeyType::Rsa),
+            rbs: RbsConfig {
+                base_url,
+                ca_cert: self.ca_cert,
+                timeout_secs: self.timeout_secs,
+            },
             evidence_provider: self.evidence_provider,
             token_provider: self.token_provider,
+            key_algorithm: self.key_algorithm.unwrap_or(KeyType::Rsa),
         })
     }
 }
 
+/// Specifies the authorization mode when calling [`Session::get_resource`].
 pub enum GetResourceRequest<'a> {
+    /// Authorize with a pre-obtained attest token.
     ByAttestToken(&'a str),
+    /// Authorize by submitting raw evidence for inline attestation.
     ByEvidence { value: &'a Value },
 }
 
 pub struct Resource {
     pub uri: String,
+    /// Raw content, possibly a JWE ciphertext; zeroed on `Drop`.
     pub content: Zeroizing<Vec<u8>>,
     pub content_type: Option<String>,
 }
@@ -149,17 +169,24 @@ pub(crate) struct ClientInner {
     pub(crate) runtime: tokio::runtime::Runtime,
 }
 
+/// SDK entry point. Holds the RBS connection and provider state; not thread-safe (uses `Rc` internally).
+/// Create one instance per thread.
 pub struct Client {
     inner: Rc<ClientInner>,
     _marker: std::marker::PhantomData<*mut ()>,
 }
 
 impl Client {
+    /// Create a `Client` from a [`Config`].
     pub fn new(config: Config) -> Result<Self, RbcError> {
-        let tls = config.ca_cert.as_ref().map(|ca| TlsConfig {
+        let tls = config.rbs.ca_cert.as_ref().map(|ca| TlsConfig {
             ca_cert: Some(ca.clone()),
         });
-        let rest_client = RbsRestClient::new(&config.endpoint, tls.as_ref(), config.timeout_secs)?;
+        let rest_client = RbsRestClient::new(
+            &config.rbs.base_url,
+            tls.as_ref(),
+            config.rbs.timeout_secs,
+        )?;
 
         let evidence_provider =
             Self::build_evidence_provider(config.evidence_provider)?;
@@ -178,33 +205,36 @@ impl Client {
                 evidence_provider,
                 token_provider,
                 key_type: config.key_algorithm,
-                timeout_secs: config.timeout_secs,
+                timeout_secs: config.rbs.timeout_secs,
                 runtime,
             }),
             _marker: std::marker::PhantomData,
         })
     }
 
-    fn build_evidence_provider(cfg: Option<ProviderRawConfig>) -> Result<Option<Arc<dyn EvidenceProvider>>, RbcError> {
-        let cfg = match cfg {
-            None | Some(ProviderRawConfig { enabled: false, .. }) => return Ok(None),
-            Some(c) => c,
-        };
+    /// Iterate the provider list and instantiate the first enabled entry.
+    fn build_evidence_provider(
+        providers: Option<Vec<ProviderRawConfig>>,
+    ) -> Result<Option<Arc<dyn EvidenceProvider>>, RbcError> {
+        let Some(providers) = providers else { return Ok(None) };
+        let Some(cfg) = providers.into_iter().find(|p| p.enabled) else { return Ok(None) };
         let ep_cfg = Value::Object(cfg.rest);
         let provider: Arc<dyn EvidenceProvider> = match cfg.provider_type {
             ProviderType::Native => Arc::new(NativeEvidenceProvider::new(ep_cfg)?),
             ProviderType::Rbs => return Err(RbcError::ConfigError(
-                "evidence_provider does not support type 'rbs'".into()
+                "evidence_provider does not support type 'rbs'".into(),
             )),
         };
         Ok(Some(provider))
     }
 
-    fn build_token_provider(cfg: Option<ProviderRawConfig>, rest_client: &RbsRestClient) -> Result<Option<Arc<dyn TokenProvider>>, RbcError> {
-        let cfg = match cfg {
-            None | Some(ProviderRawConfig { enabled: false, .. }) => return Ok(None),
-            Some(c) => c,
-        };
+    /// Iterate the provider list and instantiate the first enabled entry.
+    fn build_token_provider(
+        providers: Option<Vec<ProviderRawConfig>>,
+        rest_client: &RbsRestClient,
+    ) -> Result<Option<Arc<dyn TokenProvider>>, RbcError> {
+        let Some(providers) = providers else { return Ok(None) };
+        let Some(cfg) = providers.into_iter().find(|p| p.enabled) else { return Ok(None) };
         let tp_cfg = Value::Object(cfg.rest);
         let provider: Arc<dyn TokenProvider> = match cfg.provider_type {
             ProviderType::Rbs => Arc::new(RbsAttestTokenProvider::new(rest_client.clone(), tp_cfg)?),
@@ -213,15 +243,19 @@ impl Client {
         Ok(Some(provider))
     }
 
+    /// Create a `Client` by loading configuration from the YAML file at `path`.
     pub fn from_config(path: &str) -> Result<Self, RbcError> {
         Self::new(Config::from_file(path)?)
     }
 
+    /// Request an authentication challenge (nonce) from RBS.
     pub fn get_auth_challenge(&self) -> Result<AuthChallengeResponse, RbcError> {
         let rest = self.inner.rest_client.clone();
         self.inner.runtime.block_on(rest.get_nonce(None))
     }
 
+    /// Begin a new session. If `attester_data` does not contain `tee_pubkey`, an ephemeral
+    /// key pair is generated automatically; otherwise the caller is responsible for the key.
     pub fn new_session(
         &self,
         attester_data: Option<&AttesterData>,
@@ -230,6 +264,7 @@ impl Client {
     }
 }
 
+/// Represents a single attestation session. Not thread-safe (uses `Rc` internally).
 pub struct Session {
     client: Rc<ClientInner>,
     ephemeral_key: Option<TeeKeyPair>,
@@ -290,6 +325,7 @@ impl Session {
         }
     }
 
+    /// Collect TEE evidence for the given challenge using the configured evidence provider.
     pub fn collect_evidence(
         &self,
         challenge: &AuthChallengeResponse,
@@ -307,6 +343,7 @@ impl Session {
         })
     }
 
+    /// Obtain an attest token from the configured token provider, optionally passing raw evidence.
     pub fn attest(&self, evidence: Option<&Value>) -> Result<AttestResponse, RbcError> {
         let provider = self.client.token_provider.as_ref()
             .ok_or_else(|| RbcError::ProviderError("token provider not configured".into()))?;
@@ -322,6 +359,7 @@ impl Session {
         Ok(AttestResponse { token })
     }
 
+    /// Fetch the resource at `uri`, authorized via `request`.
     pub fn get_resource(
         &self,
         uri: &str,
@@ -355,6 +393,8 @@ impl Session {
         Ok(Resource { uri: resp.uri, content, content_type: resp.content_type })
     }
 
+    /// Decrypt a JWE-encrypted resource content. Pass `private_key_pem` when the caller manages
+    /// the TEE key; omit it to use the session's ephemeral key.
     pub fn decrypt_content(
         &self,
         jwe_token: &str,
@@ -439,11 +479,7 @@ mod tests {
     }
 
     fn make_raw_cfg(typ: ProviderType) -> ProviderRawConfig {
-        ProviderRawConfig {
-            enabled: true,
-            provider_type: typ,
-            rest: Default::default(),
-        }
+        ProviderRawConfig { provider_type: typ, enabled: true, rest: Default::default() }
     }
 
     fn make_test_client() -> Client {
@@ -499,57 +535,67 @@ mod tests {
     }
 
     #[test]
-    fn config_yaml_accepts_rbs_base_url_field() {
+    fn config_yaml_parses_rbs_section() {
         let yaml = "\
-rbs_base_url: http://rbs.example.com
+rbs:
+  base_url: http://rbs.example.com
 evidence_provider:
-  type: native
+  - type: native
+    enabled: true
 token_provider:
-  type: rbs
+  - type: rbs
+    enabled: true
 ";
         let cfg: Config = serde_yaml::from_str(yaml).unwrap();
-        assert_eq!(cfg.endpoint, "http://rbs.example.com");
+        assert_eq!(cfg.rbs.base_url, "http://rbs.example.com");
         assert_eq!(cfg.key_algorithm, KeyType::Rsa, "default algorithm should be RSA");
-        assert!(cfg.ca_cert.is_none());
-        assert!(cfg.timeout_secs.is_none());
-    }
-
-    #[test]
-    fn config_yaml_accepts_endpoint_alias() {
-        let yaml = "\
-endpoint: http://rbs.example.com
-evidence_provider:
-  type: native
-token_provider:
-  type: rbs
-";
-        let cfg: Config = serde_yaml::from_str(yaml).unwrap();
-        assert_eq!(cfg.endpoint, "http://rbs.example.com");
+        assert!(cfg.rbs.ca_cert.is_none());
+        assert!(cfg.rbs.timeout_secs.is_none());
     }
 
     #[test]
     fn config_yaml_deserializes_optional_fields() {
         let yaml = "\
-endpoint: http://rbs.example.com
-ca_cert: /etc/ssl/ca.pem
-timeout_secs: 30
+rbs:
+  base_url: http://rbs.example.com
+  ca_cert: /etc/ssl/ca.pem
+  timeout_secs: 30
 key_algorithm: ec
 evidence_provider:
-  type: native
+  - type: native
+    enabled: true
 token_provider:
-  type: rbs
+  - type: rbs
+    enabled: true
 ";
         let cfg: Config = serde_yaml::from_str(yaml).unwrap();
-        assert_eq!(cfg.ca_cert.as_deref(), Some("/etc/ssl/ca.pem"));
-        assert_eq!(cfg.timeout_secs, Some(30));
+        assert_eq!(cfg.rbs.ca_cert.as_deref(), Some("/etc/ssl/ca.pem"));
+        assert_eq!(cfg.rbs.timeout_secs, Some(30));
         assert_eq!(cfg.key_algorithm, KeyType::Ec);
     }
 
     #[test]
-    fn config_builder_missing_endpoint_returns_error() {
+    fn config_yaml_first_enabled_provider_wins() {
+        let yaml = "\
+rbs:
+  base_url: http://rbs.example.com
+token_provider:
+  - type: rbs
+    enabled: false
+  - type: native
+    enabled: true
+";
+        let cfg: Config = serde_yaml::from_str(yaml).unwrap();
+        let tp = cfg.token_provider.unwrap();
+        let first_enabled = tp.iter().find(|p| p.enabled).unwrap();
+        assert_eq!(first_enabled.provider_type, ProviderType::Native);
+    }
+
+    #[test]
+    fn config_builder_missing_base_url_returns_error() {
         let err = Config::builder()
-            .evidence_provider(make_raw_cfg(ProviderType::Native))
-            .token_provider(make_raw_cfg(ProviderType::Rbs))
+            .evidence_provider(vec![make_raw_cfg(ProviderType::Native)])
+            .token_provider(vec![make_raw_cfg(ProviderType::Rbs)])
             .build()
             .unwrap_err();
         assert!(matches!(err, RbcError::ConfigError(_)));
@@ -575,28 +621,28 @@ token_provider:
     #[test]
     fn config_builder_default_key_algorithm_is_rsa() {
         let cfg = Config::builder()
-            .endpoint("http://rbs.test")
-            .evidence_provider(make_raw_cfg(ProviderType::Native))
-            .token_provider(make_raw_cfg(ProviderType::Rbs))
+            .base_url("http://rbs.test")
+            .evidence_provider(vec![make_raw_cfg(ProviderType::Native)])
+            .token_provider(vec![make_raw_cfg(ProviderType::Rbs)])
             .build()
             .unwrap();
         assert_eq!(cfg.key_algorithm, KeyType::Rsa);
     }
 
     #[test]
-    fn config_builder_sets_all_optional_fields() {
+    fn config_builder_sets_all_fields() {
         let cfg = Config::builder()
-            .endpoint("http://rbs.test")
+            .base_url("http://rbs.test")
             .ca_cert("/path/to/ca.pem")
             .timeout_secs(60)
             .key_algorithm(KeyType::Ec)
-            .evidence_provider(make_raw_cfg(ProviderType::Native))
-            .token_provider(make_raw_cfg(ProviderType::Rbs))
+            .evidence_provider(vec![make_raw_cfg(ProviderType::Native)])
+            .token_provider(vec![make_raw_cfg(ProviderType::Rbs)])
             .build()
             .unwrap();
-        assert_eq!(cfg.endpoint, "http://rbs.test");
-        assert_eq!(cfg.ca_cert.as_deref(), Some("/path/to/ca.pem"));
-        assert_eq!(cfg.timeout_secs, Some(60));
+        assert_eq!(cfg.rbs.base_url, "http://rbs.test");
+        assert_eq!(cfg.rbs.ca_cert.as_deref(), Some("/path/to/ca.pem"));
+        assert_eq!(cfg.rbs.timeout_secs, Some(60));
         assert_eq!(cfg.key_algorithm, KeyType::Ec);
     }
 
