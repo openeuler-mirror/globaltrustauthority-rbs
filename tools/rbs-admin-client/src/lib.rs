@@ -9,6 +9,7 @@
  * PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
+pub mod attestation;
 mod client;
 mod error;
 pub mod user;
