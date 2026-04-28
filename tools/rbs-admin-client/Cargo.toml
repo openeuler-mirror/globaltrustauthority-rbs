@@ -12,3 +12,13 @@ path = "src/lib.rs"
 
 [dependencies]
 rbs-api-types = { path = "../../rbs/api-types" }
+reqwest = { workspace = true, features = ["json"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+async-trait.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+serde_json.workspace = true
+wiremock.workspace = true
