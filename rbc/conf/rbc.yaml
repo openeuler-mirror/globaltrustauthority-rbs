@@ -1,5 +1,5 @@
 rbs:
-  rbs_base_url: "https://rbs.example.com"
+  base_url: "https://rbs.example.com"
   timeout_secs: 30
   ca_cert: /path/to/ca.crt
 

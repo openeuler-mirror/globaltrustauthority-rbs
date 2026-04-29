@@ -21,6 +21,7 @@ use josekit::jwk::alg::rsa::RsaKeyPair;
 use josekit::jwk::Jwk;
 use josekit::jwe::{self, JweHeader};
 use josekit::jwk::KeyPair;
+use openssl::pkey::PKey;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 use base64::Engine as _;
@@ -110,17 +111,40 @@ impl TeeKeyPair {
     }
 
     /// Load a key pair from a PEM-encoded private key.
-    pub fn from_private_pem(key_type: KeyType, pem: &str) -> Result<Self, RbcError> {
+    ///
+    /// `passphrase` — required when the PEM is encrypted; caller is responsible for
+    /// zeroizing this slice after the call returns.
+    pub fn from_private_pem(
+        key_type: KeyType,
+        pem: &str,
+        passphrase: Option<&[u8]>,
+    ) -> Result<Self, RbcError> {
+        let plain_pem_buf: Option<Zeroizing<Vec<u8>>> = if let Some(pw) = passphrase {
+            let pkey = PKey::private_key_from_pem_passphrase(pem.as_bytes(), pw)
+                .map_err(|e| RbcError::KeyGenError(format!("PEM decrypt: {e}")))?;
+            Some(Zeroizing::new(
+                pkey.private_key_to_pem_pkcs8()
+                    .map_err(|e| RbcError::KeyGenError(format!("PEM export: {e}")))?
+            ))
+        } else {
+            None
+        };
+
+        let pem_bytes: &[u8] = match &plain_pem_buf {
+            Some(buf) => buf.as_slice(),
+            None      => pem.as_bytes(),
+        };
+
         match key_type {
             KeyType::Rsa => {
-                let kp = RsaKeyPair::from_pem(pem.as_bytes())
+                let kp = RsaKeyPair::from_pem(pem_bytes)
                     .map_err(|e| RbcError::KeyGenError(format!("RSA PEM parse: {e}")))?;
                 let private_der = Zeroizing::new(kp.to_der_private_key());
                 let public_jwk = kp.to_jwk_public_key();
                 Ok(Self { key_type, ec_curve: None, private_der, public_jwk })
             }
             KeyType::Ec => {
-                let kp = EcKeyPair::from_pem(pem.as_bytes(), None)
+                let kp = EcKeyPair::from_pem(pem_bytes, None)
                     .map_err(|e| RbcError::KeyGenError(format!("EC PEM parse: {e}")))?;
                 let private_der = Zeroizing::new(kp.to_der_private_key());
                 let public_jwk = kp.to_jwk_public_key();

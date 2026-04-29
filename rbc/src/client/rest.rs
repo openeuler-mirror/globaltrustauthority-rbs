@@ -100,7 +100,7 @@ impl RbsRestClient {
         let resp = self
             .http
             .get(&url)
-            .header("Authorization", format!("AttestToken {token}"))
+            .header("Authorization", format!("Attest {token}"))
             .send()
             .await
             .map_err(|e| RbcError::NetworkError(e.to_string()))?;

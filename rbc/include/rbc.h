@@ -173,10 +173,15 @@ RbcErrorCode RbcSessionGetResourceByEvidence(RbcSession *session,
  *
  * On success `*out_plaintext` is a newly allocated buffer of `*out_len` bytes
  * owned by the caller; release with `RbcBufferFree(buf, len)`.
+ * `passphrase` / `passphrase_len` — pass a non-NULL pointer and byte length when
+ * `private_key_pem` is encrypted; pass NULL / 0 otherwise. Caller is responsible
+ * for zeroizing the passphrase buffer after this call returns.
  */
 RbcErrorCode RbcSessionDecryptContent(RbcSession *session,
                                       const char *jwe,
                                       const char *private_key_pem,
+                                      const uint8_t *passphrase,
+                                      size_t passphrase_len,
                                       uint8_t **out_plaintext,
                                       size_t *out_len);
 

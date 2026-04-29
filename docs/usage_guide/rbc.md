@@ -338,6 +338,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let plaintext = session.decrypt_content(
         std::str::from_utf8(&resource.content)?,
         None,
+        None,
     )?;
 
     println!("resource: {}  ({} bytes)", resource.uri, plaintext.len());
@@ -365,6 +366,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let plaintext = session.decrypt_content(
         std::str::from_utf8(&resource.content)?,
+        None,
         None,
     )?;
 
@@ -410,6 +412,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let plaintext = session.decrypt_content(
         std::str::from_utf8(&resource.content)?,
         Some(&private_key_pem),
+        None,
     )?;
 
     println!("{} bytes", plaintext.len());
@@ -479,7 +482,7 @@ int main(int argc, char **argv) {
     /* 8. Optionally decrypt JWE-encrypted content */
     // uint8_t *pt = NULL; size_t pt_len = 0;
     // rc = RbcSessionDecryptContent(session, (const char *)content,
-    //                               NULL, &pt, &pt_len);
+    //                               NULL, NULL, 0, &pt, &pt_len);
     // if (rc != RBC_ERROR_CODE_OK) die("RbcSessionDecryptContent", rc);
     // printf("plaintext: %.*s\n", (int)pt_len, (const char *)pt);
     // RbcBufferFree(pt, pt_len);
