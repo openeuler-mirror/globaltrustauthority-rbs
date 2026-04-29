@@ -12,6 +12,8 @@
 pub mod attestation;
 mod client;
 mod error;
+pub mod resource;
+pub mod resource_policy;
 pub mod user;
 
 use reqwest::{Method, StatusCode, Url};
