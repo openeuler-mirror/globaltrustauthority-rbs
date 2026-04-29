@@ -53,7 +53,7 @@ impl FromStr for OutputFormat {
 pub struct GlobalOptions {
     pub base_url: String,
     pub token: Option<String>,
-    pub cert: Option<String>,
+    pub cert: Option<Vec<u8>>,
     pub format: OutputFormat,
     pub output_file: Option<String>,
     pub verbose: bool,
