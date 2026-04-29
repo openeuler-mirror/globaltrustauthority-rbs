@@ -11,8 +11,20 @@
  */
 
 use base64::Engine as _;
+use openssl::pkey::PKey;
+use openssl::symm::Cipher;
 use rbc::error::RbcError;
 use rbc::tools::tee_key::{KeyType, TeeKeyPair, TeePublicKey};
+
+fn encrypted_ec_pem(passphrase: &[u8]) -> (TeeKeyPair, String) {
+    let kp = TeeKeyPair::generate(KeyType::Ec).unwrap();
+    let plain_pem = kp.to_private_pem().unwrap();
+    let pkey = PKey::private_key_from_pem(plain_pem.as_bytes()).unwrap();
+    let enc_bytes = pkey
+        .private_key_to_pem_pkcs8_passphrase(Cipher::aes_256_cbc(), passphrase)
+        .unwrap();
+    (kp, String::from_utf8(enc_bytes).unwrap())
+}
 
 #[test]
 fn test_rsa_generate_and_public_jwk_json() {
@@ -122,7 +134,7 @@ fn test_rsa_from_private_pem_round_trip() {
     // Export private key as PEM via josekit internals (for test only)
     let priv_pem = kp.to_private_pem().unwrap();
 
-    let kp2 = TeeKeyPair::from_private_pem(KeyType::Rsa, &priv_pem).unwrap();
+    let kp2 = TeeKeyPair::from_private_pem(KeyType::Rsa, &priv_pem, None).unwrap();
     let decrypted = kp2.decrypt_jwe(&jwe_token).unwrap();
     assert_eq!(decrypted, b"pem test");
 }
@@ -135,7 +147,7 @@ fn test_ec_from_private_pem_round_trip() {
 
     let priv_pem = kp.to_private_pem().unwrap();
 
-    let kp2 = TeeKeyPair::from_private_pem(KeyType::Ec, &priv_pem).unwrap();
+    let kp2 = TeeKeyPair::from_private_pem(KeyType::Ec, &priv_pem, None).unwrap();
     let decrypted = kp2.decrypt_jwe(&jwe_token).unwrap();
     assert_eq!(decrypted, b"pem test");
 }
@@ -258,6 +270,44 @@ fn validate_params_rejects_ec_wrong_coordinate_length_for_curve() {
     let pub_key = TeePublicKey::from_jwk_json(&json).unwrap();
     let err = pub_key.validate_params().unwrap_err();
     assert!(matches!(err, RbcError::InvalidInput(_)), "expected InvalidInput, got {err:?}");
+}
+
+// ── encrypted PEM: from_private_pem with passphrase ──
+
+#[test]
+fn encrypted_ec_pem_correct_passphrase_roundtrip() {
+    let (kp, enc_pem) = encrypted_ec_pem(b"correct-pass");
+    let loaded = TeeKeyPair::from_private_pem(KeyType::Ec, &enc_pem, Some(b"correct-pass")).unwrap();
+    let plaintext = b"enc pem roundtrip";
+    let jwe = kp.public_key().encrypt_jwe(plaintext).unwrap();
+    assert_eq!(loaded.decrypt_jwe(&jwe).unwrap(), plaintext);
+}
+
+#[test]
+fn encrypted_ec_pem_wrong_passphrase_returns_error() {
+    let (_kp, enc_pem) = encrypted_ec_pem(b"correct-pass");
+    let err = TeeKeyPair::from_private_pem(KeyType::Ec, &enc_pem, Some(b"wrong"))
+        .err()
+        .unwrap();
+    assert!(matches!(err, RbcError::KeyGenError(_)));
+}
+
+#[test]
+fn encrypted_ec_pem_no_passphrase_returns_error() {
+    let (_kp, enc_pem) = encrypted_ec_pem(b"secret");
+    let err = TeeKeyPair::from_private_pem(KeyType::Ec, &enc_pem, None)
+        .err()
+        .unwrap();
+    assert!(matches!(err, RbcError::KeyGenError(_)));
+}
+
+#[test]
+fn encrypted_ec_pem_decrypt_jwe_end_to_end() {
+    let (kp, enc_pem) = encrypted_ec_pem(b"jwe-pass");
+    let plaintext = b"secret payload";
+    let jwe = kp.public_key().encrypt_jwe(plaintext).unwrap();
+    let loaded = TeeKeyPair::from_private_pem(KeyType::Ec, &enc_pem, Some(b"jwe-pass")).unwrap();
+    assert_eq!(loaded.decrypt_jwe(&jwe).unwrap(), plaintext);
 }
 
 // ── from_jwk_json: error type ──

@@ -236,9 +236,9 @@ Fetch the resource at `uri`, authorized via `request`.
 #### `decrypt_content`
 
 ```rust
-pub fn decrypt_content( &self, jwe_token: &str, private_key_pem: Option<&str>, ) -> Result<Zeroizing<Vec<u8>>, RbcError>
+pub fn decrypt_content( &self, jwe_token: &str, private_key_pem: Option<&str>, passphrase: Option<&[u8]>, ) -> Result<Zeroizing<Vec<u8>>, RbcError>
 ```
 
-Decrypt a JWE-encrypted resource content. Pass `private_key_pem` when the caller manages the TEE key; omit it to use the session's ephemeral key.
+Decrypt a JWE-encrypted resource content. Pass `private_key_pem` when the caller manages the TEE key; omit it to use the session's ephemeral key. Pass `passphrase` when the PEM is encrypted; caller is responsible for zeroizing the slice after this call returns.
 
 ---

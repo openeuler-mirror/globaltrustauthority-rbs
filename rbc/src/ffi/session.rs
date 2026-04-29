@@ -206,11 +206,16 @@ pub extern "C" fn rbc_session_get_resource_by_evidence(
 ///
 /// On success `*out_plaintext` is a newly allocated buffer of `*out_len` bytes
 /// owned by the caller; release with `RbcBufferFree(buf, len)`.
+/// `passphrase` / `passphrase_len` — pass a non-NULL pointer and byte length when
+/// `private_key_pem` is encrypted; pass NULL / 0 otherwise. Caller is responsible
+/// for zeroizing the passphrase buffer after this call returns.
 #[export_name = "RbcSessionDecryptContent"]
 pub extern "C" fn rbc_session_decrypt_content(
     session: *mut RbcSession,
     jwe: *const c_char,
     private_key_pem: *const c_char,
+    passphrase: *const u8,
+    passphrase_len: usize,
     out_plaintext: *mut *mut u8,
     out_len: *mut usize,
 ) -> RbcErrorCode {
@@ -220,8 +225,13 @@ pub extern "C" fn rbc_session_decrypt_content(
         Ok(o) => o,
         Err(e) => return e,
     };
+    let pw_opt: Option<&[u8]> = if passphrase.is_null() {
+        None
+    } else {
+        Some(unsafe { std::slice::from_raw_parts(passphrase, passphrase_len) })
+    };
     let session = unsafe { session_ref(session) };
-    match session.decrypt_content(jwe_s, pem_opt) {
+    match session.decrypt_content(jwe_s, pem_opt, pw_opt) {
         Ok(bytes) => {
             // Extract inner Vec without triggering Zeroizing::drop; memory
             // ownership transfers to C and is released (with zeroing) by RbcBufferFree.
@@ -548,7 +558,7 @@ mod tests {
         let mut out: *mut u8 = ptr::null_mut();
         let mut len: usize = 0;
         let code = rbc_session_decrypt_content(
-            ptr::null_mut(), jwe.as_ptr(), ptr::null(), &mut out, &mut len,
+            ptr::null_mut(), jwe.as_ptr(), ptr::null(), ptr::null(), 0, &mut out, &mut len,
         );
         assert_eq!(code, RbcErrorCode::InvalidArg);
     }
@@ -560,7 +570,7 @@ mod tests {
         let jwe = CString::new("a.b.c.d.e").unwrap();
         let mut len: usize = 0;
         let code = rbc_session_decrypt_content(
-            session, jwe.as_ptr(), ptr::null(), ptr::null_mut(), &mut len,
+            session, jwe.as_ptr(), ptr::null(), ptr::null(), 0, ptr::null_mut(), &mut len,
         );
         assert_eq!(code, RbcErrorCode::InvalidArg);
         rbc_session_free(session);
@@ -574,7 +584,7 @@ mod tests {
         let jwe = CString::new("a.b.c.d.e").unwrap();
         let mut out: *mut u8 = ptr::null_mut();
         let code = rbc_session_decrypt_content(
-            session, jwe.as_ptr(), ptr::null(), &mut out, ptr::null_mut(),
+            session, jwe.as_ptr(), ptr::null(), ptr::null(), 0, &mut out, ptr::null_mut(),
         );
         assert_eq!(code, RbcErrorCode::InvalidArg);
         rbc_session_free(session);
@@ -599,7 +609,7 @@ mod tests {
         let mut out_ptr: *mut u8 = ptr::null_mut();
         let mut out_len: usize = 0;
         let code = rbc_session_decrypt_content(
-            session, jwe_c.as_ptr(), ptr::null(), &mut out_ptr, &mut out_len,
+            session, jwe_c.as_ptr(), ptr::null(), ptr::null(), 0, &mut out_ptr, &mut out_len,
         );
         assert_eq!(code, RbcErrorCode::Ok);
         assert!(!out_ptr.is_null());
@@ -611,4 +621,59 @@ mod tests {
         rbc_session_free(session);
         rbc_client_free(client);
     }
+
+    #[test]
+    fn decrypt_content_roundtrip_with_encrypted_pem_via_ffi() {
+        use openssl::pkey::PKey;
+        use openssl::symm::Cipher;
+        use crate::tools::tee_key::TeeKeyPair;
+
+        let kp = TeeKeyPair::generate(KeyType::Ec).unwrap();
+        let plain_pem = kp.to_private_pem().unwrap();
+        let pubkey = kp.public_key();
+        let pubkey_json = kp.public_jwk_json().unwrap();
+
+        let pkey = PKey::private_key_from_pem(plain_pem.as_bytes()).unwrap();
+        let enc_pem_bytes = pkey
+            .private_key_to_pem_pkcs8_passphrase(Cipher::aes_256_cbc(), b"ffi-passphrase")
+            .unwrap();
+        let enc_pem_str = std::str::from_utf8(&enc_pem_bytes).unwrap();
+
+        let plaintext = b"ffi encrypted pem roundtrip";
+        let jwe = pubkey.encrypt_jwe(plaintext).unwrap();
+
+        // Session must be created with the caller's tee_pubkey so caller_manages_key = true.
+        let attester_data_json = format!(r#"{{"runtime_data":{{"tee_pubkey":{pubkey_json}}}}}"#);
+        let attester_data_c = CString::new(attester_data_json).unwrap();
+        let client = make_mock_client_handle();
+        let mut session: *mut RbcSession = ptr::null_mut();
+        let code = rbc_session_new(client, attester_data_c.as_ptr(), &mut session);
+        assert_eq!(code, RbcErrorCode::Ok, "expected Ok creating session with tee_pubkey");
+
+        let jwe_c = CString::new(jwe).unwrap();
+        let pem_c = CString::new(enc_pem_str).unwrap();
+        let passphrase = b"ffi-passphrase";
+
+        let mut out_ptr: *mut u8 = ptr::null_mut();
+        let mut out_len: usize = 0;
+        let code = rbc_session_decrypt_content(
+            session,
+            jwe_c.as_ptr(),
+            pem_c.as_ptr(),
+            passphrase.as_ptr(),
+            passphrase.len(),
+            &mut out_ptr,
+            &mut out_len,
+        );
+        assert_eq!(code, RbcErrorCode::Ok);
+        assert!(!out_ptr.is_null());
+        assert_eq!(out_len, plaintext.len());
+        let got = unsafe { std::slice::from_raw_parts(out_ptr, out_len) };
+        assert_eq!(got, plaintext.as_ref());
+
+        rbc_buffer_free(out_ptr, out_len);
+        rbc_session_free(session);
+        rbc_client_free(client);
+    }
+
 }

@@ -67,7 +67,7 @@ int main(int argc, char **argv) {
 
     /* If the content is a JWE envelope, decrypt it here:
      *   uint8_t *pt = NULL; size_t pt_len = 0;
-     *   rc = RbcSessionDecryptContent(session, (const char *)content, NULL,
+     *   rc = RbcSessionDecryptContent(session, (const char *)content, NULL, NULL, 0,
      *                                 &pt, &pt_len);
      *   ...
      *   RbcBufferFree(pt, pt_len);

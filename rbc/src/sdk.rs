@@ -394,18 +394,20 @@ impl Session {
     }
 
     /// Decrypt a JWE-encrypted resource content. Pass `private_key_pem` when the caller manages
-    /// the TEE key; omit it to use the session's ephemeral key.
+    /// the TEE key; omit it to use the session's ephemeral key. Pass `passphrase` when the PEM
+    /// is encrypted; caller is responsible for zeroizing the slice after this call returns.
     pub fn decrypt_content(
         &self,
         jwe_token: &str,
         private_key_pem: Option<&str>,
+        passphrase: Option<&[u8]>,
     ) -> Result<Zeroizing<Vec<u8>>, RbcError> {
         let bytes = if self.caller_manages_key {
             let pem = private_key_pem
                 .ok_or_else(|| RbcError::InvalidInput(
                     "caller manages key but no private key provided".into()
                 ))?;
-            let kp = TeeKeyPair::from_private_pem(self.key_algorithm, pem)?;
+            let kp = TeeKeyPair::from_private_pem(self.key_algorithm, pem, passphrase)?;
             kp.decrypt_jwe(jwe_token)?
         } else {
             let key = self.ephemeral_key
@@ -737,7 +739,7 @@ token_provider:
             key_algorithm: KeyType::Ec,
             _marker: std::marker::PhantomData,
         };
-        let err = session.decrypt_content("fake.jwe.token", None).unwrap_err();
+        let err = session.decrypt_content("fake.jwe.token", None, None).unwrap_err();
         assert!(matches!(err, RbcError::InvalidInput(_)));
     }
 
@@ -752,7 +754,7 @@ token_provider:
             key_algorithm: KeyType::Ec,
             _marker: std::marker::PhantomData,
         };
-        let err = session.decrypt_content("fake.jwe.token", None).unwrap_err();
+        let err = session.decrypt_content("fake.jwe.token", None, None).unwrap_err();
         assert!(matches!(err, RbcError::DecryptError(_)));
     }
 
@@ -771,8 +773,138 @@ token_provider:
 
         let plaintext = b"hello secret resource";
         let jwe = pubkey.encrypt_jwe(plaintext).unwrap();
-        let decrypted = session.decrypt_content(&jwe, None).unwrap();
+        let decrypted = session.decrypt_content(&jwe, None, None).unwrap();
 
+        assert_eq!(decrypted.as_slice(), plaintext.as_ref());
+    }
+
+    #[test]
+    fn decrypt_content_roundtrip_with_encrypted_ec_pem() {
+        use openssl::pkey::PKey;
+        use openssl::symm::Cipher;
+
+        let kp = TeeKeyPair::generate(KeyType::Ec).unwrap();
+        let plain_pem = kp.to_private_pem().unwrap();
+        let pubkey = kp.public_key();
+
+        let pkey = PKey::private_key_from_pem(plain_pem.as_bytes()).unwrap();
+        let enc_pem_bytes = pkey
+            .private_key_to_pem_pkcs8_passphrase(Cipher::aes_256_cbc(), b"test-passphrase")
+            .unwrap();
+        let enc_pem = std::str::from_utf8(&enc_pem_bytes).unwrap();
+
+        let plaintext = b"encrypted pem roundtrip";
+        let jwe = pubkey.encrypt_jwe(plaintext).unwrap();
+
+        let client = make_test_client();
+        let session = Session {
+            client: Rc::clone(&client.inner),
+            ephemeral_key: None,
+            enriched_attester_data: None,
+            caller_manages_key: true,
+            key_algorithm: KeyType::Ec,
+            _marker: std::marker::PhantomData,
+        };
+        let decrypted = session
+            .decrypt_content(&jwe, Some(enc_pem), Some(b"test-passphrase"))
+            .unwrap();
+        assert_eq!(decrypted.as_slice(), plaintext.as_ref());
+    }
+
+    #[test]
+    fn decrypt_content_encrypted_pem_wrong_passphrase_returns_error() {
+        use openssl::pkey::PKey;
+        use openssl::symm::Cipher;
+
+        let kp = TeeKeyPair::generate(KeyType::Ec).unwrap();
+        let plain_pem = kp.to_private_pem().unwrap();
+        let pubkey = kp.public_key();
+
+        let pkey = PKey::private_key_from_pem(plain_pem.as_bytes()).unwrap();
+        let enc_pem_bytes = pkey
+            .private_key_to_pem_pkcs8_passphrase(Cipher::aes_256_cbc(), b"correct")
+            .unwrap();
+        let enc_pem = std::str::from_utf8(&enc_pem_bytes).unwrap();
+
+        let jwe = pubkey.encrypt_jwe(b"data").unwrap();
+
+        let client = make_test_client();
+        let session = Session {
+            client: Rc::clone(&client.inner),
+            ephemeral_key: None,
+            enriched_attester_data: None,
+            caller_manages_key: true,
+            key_algorithm: KeyType::Ec,
+            _marker: std::marker::PhantomData,
+        };
+        let err = session
+            .decrypt_content(&jwe, Some(enc_pem), Some(b"wrong"))
+            .unwrap_err();
+        assert!(matches!(err, RbcError::KeyGenError(_)));
+    }
+
+    #[test]
+    fn decrypt_content_encrypted_pem_missing_passphrase_returns_error() {
+        use openssl::pkey::PKey;
+        use openssl::symm::Cipher;
+
+        let kp = TeeKeyPair::generate(KeyType::Ec).unwrap();
+        let plain_pem = kp.to_private_pem().unwrap();
+        let pubkey = kp.public_key();
+
+        let pkey = PKey::private_key_from_pem(plain_pem.as_bytes()).unwrap();
+        let enc_pem_bytes = pkey
+            .private_key_to_pem_pkcs8_passphrase(Cipher::aes_256_cbc(), b"secret")
+            .unwrap();
+        let enc_pem = std::str::from_utf8(&enc_pem_bytes).unwrap();
+
+        let jwe = pubkey.encrypt_jwe(b"data").unwrap();
+
+        let client = make_test_client();
+        let session = Session {
+            client: Rc::clone(&client.inner),
+            ephemeral_key: None,
+            enriched_attester_data: None,
+            caller_manages_key: true,
+            key_algorithm: KeyType::Ec,
+            _marker: std::marker::PhantomData,
+        };
+        let err = session
+            .decrypt_content(&jwe, Some(enc_pem), None)
+            .unwrap_err();
+        assert!(matches!(err, RbcError::KeyGenError(_)));
+    }
+
+    #[test]
+    fn decrypt_content_roundtrip_with_encrypted_rsa_pem() {
+        use openssl::pkey::PKey;
+        use openssl::symm::Cipher;
+
+        let kp = TeeKeyPair::generate(KeyType::Rsa).unwrap();
+        let plain_pem = kp.to_private_pem().unwrap();
+        let pubkey = kp.public_key();
+
+        let pkey = PKey::private_key_from_pem(plain_pem.as_bytes()).unwrap();
+        let enc_pem_bytes = pkey
+            .private_key_to_pem_pkcs8_passphrase(Cipher::aes_256_cbc(), b"rsa-passphrase")
+            .unwrap();
+        let enc_pem = std::str::from_utf8(&enc_pem_bytes).unwrap();
+
+        let plaintext = b"encrypted rsa pem roundtrip";
+        let jwe = pubkey.encrypt_jwe(plaintext).unwrap();
+
+        let client = make_test_client();
+        let session = Session {
+            client: Rc::clone(&client.inner),
+            ephemeral_key: None,
+            enriched_attester_data: None,
+            caller_manages_key: true,
+            key_algorithm: KeyType::Rsa,
+            _marker: std::marker::PhantomData,
+        };
+        let decrypted = session
+            .decrypt_content(&jwe, Some(enc_pem), Some(b"rsa-passphrase"))
+            .unwrap();
         assert_eq!(decrypted.as_slice(), plaintext.as_ref());
     }
 }
