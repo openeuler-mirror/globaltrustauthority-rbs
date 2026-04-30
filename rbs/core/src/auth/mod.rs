@@ -10,12 +10,15 @@
  * See the Mulan PSL v2 for more details.
  */
 
-//! Authentication module.
+//! Authentication and Authorization module.
 
-/// Authentication claims extracted from Bearer token.
-#[derive(Debug, Clone)]
-pub struct Claims {
-    pub user_id: String,
-    pub roles: Vec<String>,
-    pub exp: i64,
-}
+pub mod authn;
+pub mod authz;
+pub mod context;
+pub mod error;
+
+// Re-export auth module types
+pub use authn::{Auth, Authenticator, AttestTokenVerifier, JwtVerifier};
+pub use authz::{AdminAction, AuthzDecision, AuthzError, AuthzFacade, RequiredRole};
+pub use context::{AttestContext, AuthContext, BearerContext, TokenType};
+pub use error::AuthError;

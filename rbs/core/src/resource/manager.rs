@@ -20,6 +20,7 @@ use rbs_api_types::{
     ResourceContentResponse, ResourceInfoResponse, ResourceMetadataResponse, ResourceUpsertRequest,
 };
 
+use crate::auth::AuthContext;
 use super::provider::ResourceProvider;
 
 /// Result type alias using RbsError.
@@ -65,47 +66,47 @@ impl ResourceManager {
     }
 
     /// Get resource content.
-    pub async fn get(&self, uri: &str) -> Result<Option<ResourceContentResponse>> {
+    pub async fn get(&self, uri: &str, auth_ctx: Option<AuthContext>) -> Result<Option<ResourceContentResponse>> {
         let res_provider = Self::parse_res_provider(uri)
             .ok_or_else(|| RbsError::InvalidParameter("uri".into()))?;
         let provider = self
             .backends
             .get(res_provider)
             .ok_or_else(|| RbsError::ProviderNotFound(format!("resource provider '{}' not found", res_provider)))?;
-        provider.get(uri).await
+        provider.get(uri, auth_ctx).await
     }
 
     /// Create or update resource.
-    pub async fn upsert(&self, uri: &str, req: &ResourceUpsertRequest) -> Result<ResourceMetadataResponse> {
+    pub async fn upsert(&self, uri: &str, req: &ResourceUpsertRequest, auth_ctx: Option<AuthContext>) -> Result<ResourceMetadataResponse> {
         let res_provider = Self::parse_res_provider(uri)
             .ok_or_else(|| RbsError::InvalidParameter("uri".into()))?;
         let provider = self
             .backends
             .get(res_provider)
             .ok_or_else(|| RbsError::ProviderNotFound(format!("resource provider '{}' not found", res_provider)))?;
-        provider.upsert(uri, req).await
+        provider.upsert(uri, req, auth_ctx).await
     }
 
     /// Delete resource.
-    pub async fn delete(&self, uri: &str) -> Result<()> {
+    pub async fn delete(&self, uri: &str, auth_ctx: Option<AuthContext>) -> Result<()> {
         let res_provider = Self::parse_res_provider(uri)
             .ok_or_else(|| RbsError::InvalidParameter("uri".into()))?;
         let provider = self
             .backends
             .get(res_provider)
             .ok_or_else(|| RbsError::ProviderNotFound(format!("resource provider '{}' not found", res_provider)))?;
-        provider.delete(uri).await
+        provider.delete(uri, auth_ctx).await
     }
 
     /// Get resource metadata.
-    pub async fn info(&self, uri: &str) -> Result<Option<ResourceInfoResponse>> {
+    pub async fn info(&self, uri: &str, auth_ctx: Option<AuthContext>) -> Result<Option<ResourceInfoResponse>> {
         let res_provider = Self::parse_res_provider(uri)
             .ok_or_else(|| RbsError::InvalidParameter("uri".into()))?;
         let provider = self
             .backends
             .get(res_provider)
             .ok_or_else(|| RbsError::ProviderNotFound(format!("resource provider '{}' not found", res_provider)))?;
-        provider.info(uri).await
+        provider.info(uri, auth_ctx).await
     }
 
     /// List resources.

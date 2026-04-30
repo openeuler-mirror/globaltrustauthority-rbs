@@ -14,8 +14,9 @@
 
 use super::{
     AttestationBackendConfig, AttestationBackendMode, AttestationConfig, AttestationCredentials,
-    AttestationRestConfig, Database, LogRotationConfig, LoggingConfig, PerIpRateLimitConfig,
-    RestConfig, RbsConfig,
+    AttestationRestConfig, AttestTokenVerificationConfig, AuthConfig, Database,
+    JwtVerificationConfig, LogRotationConfig, LoggingConfig, PerIpRateLimitConfig, RestConfig,
+    RbsConfig,
 };
 
 /// Maximum allowed file mode (octal). Files cannot have permissions beyond 0o7777
@@ -526,6 +527,55 @@ impl Database {
     }
 }
 
+impl JwtVerificationConfig {
+    fn validate(&self) {
+        // jwks_file and public_key_path are mutually exclusive (at least one must be set)
+        let has_jwks_file = self.jwks_file.is_some();
+        let has_public_key_path = self.public_key_path.is_some();
+
+        let count = has_jwks_file as usize + has_public_key_path as usize;
+        if count == 0 {
+            panic!("auth.bearer_token must have either jwks_file or public_key_path configured");
+        }
+        if count > 1 {
+            panic!("auth.bearer_token jwks_file and public_key_path are mutually exclusive");
+        }
+
+        // issuer is required
+        if self.issuer.is_empty() {
+            panic!("auth.bearer_token.issuer must not be empty");
+        }
+    }
+}
+
+impl AttestTokenVerificationConfig {
+    fn validate(&self) {
+        // jwks_file and public_key_path are mutually exclusive (at least one must be set)
+        let has_jwks_file = self.jwks_file.is_some();
+        let has_public_key_path = self.public_key_path.is_some();
+
+        let count = has_jwks_file as usize + has_public_key_path as usize;
+        if count == 0 {
+            panic!("auth.attest_token must have either jwks_file or public_key_path configured");
+        }
+        if count > 1 {
+            panic!("auth.attest_token jwks_file and public_key_path are mutually exclusive");
+        }
+
+        // issuer is required
+        if self.issuer.is_empty() {
+            panic!("auth.attest_token.issuer must not be empty");
+        }
+    }
+}
+
+impl AuthConfig {
+    fn validate(&self) {
+        self.bearer_token.validate();
+        self.attest_token.validate();
+    }
+}
+
 impl RbsConfig {
     /// Validates all configuration fields and panics if any constraint is violated.
     /// Called at startup before building the core to fail-fast on bad configuration.
@@ -535,6 +585,7 @@ impl RbsConfig {
         }
         self.logging.validate();
         self.attestation.validate();
+        self.auth.validate();
         if let Some(ref storage) = self.storage {
             storage.validate();
         }
@@ -710,10 +761,9 @@ logging:
 rest: {}
 logging:
   level: info
-auth:
-  bearer: {}
+unknown_field: {}
 "#;
         let result: Result<RbsConfig, _> = serde_yaml::from_str(yaml);
-        assert!(result.is_err(), "top-level keys other than rest/logging must be rejected");
+        assert!(result.is_err(), "top-level keys other than rest/logging/attestation/storage/auth must be rejected");
     }
 }

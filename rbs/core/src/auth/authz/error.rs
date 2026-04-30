@@ -10,16 +10,24 @@
  * See the Mulan PSL v2 for more details.
  */
 
-//! RBS REST service library.
-//!
-//! HTTP REST API implementation based on actix-web.
-//! Uses the `log` crate for logging; ensure the binary has called `rbs_core::init_logging` before starting the server.
+//! Authorization errors.
 
-mod api_doc;
-pub mod middleware;
-pub mod routes;
-pub mod server;
+/// Authorization errors
+#[derive(Debug, thiserror::Error)]
+pub enum AuthzError {
+    #[error("access denied")]
+    Denied,
 
-pub use api_doc::ApiDoc;
-pub use middleware::{auth_middleware, OptAuthContext};
-pub use server::{BoundServer, Server};
+    #[error("missing required field: {0}")]
+    MissingField(&'static str),
+
+    #[error("policy evaluation failed: {0}")]
+    PolicyEvaluationFailed(String),
+}
+
+/// Authorization decision
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AuthzDecision {
+    Allow,
+    Deny,
+}

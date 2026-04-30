@@ -53,6 +53,7 @@ async fn main() -> anyhow::Result<()> {
     let core_config = rbs_core::CoreConfig {
         logging: config.logging.clone(),
         attestation: config.attestation.clone(),
+        auth: config.auth.clone(),
     };
     let core = std::sync::Arc::new(rbs_core::RbsCoreBuilder::new(core_config).build());
 
@@ -60,7 +61,7 @@ async fn main() -> anyhow::Result<()> {
     {
         let rest_config =
             config.rest.clone().ok_or_else(|| anyhow::anyhow!("config.rest is required when built with `rest`"))?;
-        let server = rbs_rest::Server::new(core.clone(), rest_config.clone());
+        let server = rbs_rest::Server::new(core.clone(), rest_config.clone(), config.auth.clone());
         let bound = server.bind().await.context("bind REST server")?;
         log::info!("RBS REST server starting on {}", rest_config.listen_addr);
         bound.run().await.context("RBS REST server")?;

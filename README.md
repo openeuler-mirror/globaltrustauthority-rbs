@@ -14,19 +14,19 @@ It includes:
 
 ## Quick start
 
-For a step-by-step setup, build, test, run, and service verification, see [**Quick start** in `docs/build/build_and_install.md`](docs/build/build_and_install.md#2-quick-start).
+For a step-by-step setup, build, test, run, and service verification, see [**Quick start**](docs/build/build_and_install.md#2-quick-start) in`docs/build/build_and_install.md`.
 
 ## Documentation
 
 | Topic | Location |
-|--------|----------|
-| Build, run, test, and troubleshooting | [**docs/build/build_and_install.md**](docs/build/build_and_install.md) |
-| RPM installation and systemd operation | [**docs/build/rpm.md**](docs/build/rpm.md) |
-| Container deployment assets | [`deployment/docker/`](deployment/docker/) |
-| REST API contract and reference | [OpenAPI YAML](docs/proto/rbs_rest_api.yaml), [Markdown](docs/api/rbs/md/rbs_rest_api.md), [HTML](docs/api/rbs/html/rbs_rest_api.html) |
-| Test suite and e2e options | [**tests/README.md**](tests/README.md) |
-| Sample broker configuration | [`rbs/conf/rbs.yaml`](rbs/conf/rbs.yaml) |
-| Developer tooling and quality checks | [§7 Further reading and tooling](docs/build/build_and_install.md#7-further-reading-and-tooling) |
+|-------|----------|
+| Build, run, test | [build_and_install.md](docs/build/build_and_install.md) |
+| RPM installation | [rpm.md](docs/build/rpm.md) |
+| Container deployment | [docker/](deployment/docker/) |
+| REST API | [YAML](docs/proto/rbs_rest_api.yaml) · [MD](docs/api/rbs/md/rbs_rest_api.md) · [HTML](docs/api/rbs/html/rbs_rest_api.html) |
+| Test suite | [README.md](tests/README.md) |
+| Sample config | [rbs.yaml](rbs/conf/rbs.yaml) |
+| Developer tooling | [Further reading](docs/build/build_and_install.md#7-further-reading-and-tooling) |
 
 ## License
 

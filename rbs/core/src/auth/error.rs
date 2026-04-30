@@ -10,16 +10,31 @@
  * See the Mulan PSL v2 for more details.
  */
 
-//! RBS REST service library.
-//!
-//! HTTP REST API implementation based on actix-web.
-//! Uses the `log` crate for logging; ensure the binary has called `rbs_core::init_logging` before starting the server.
+//! Authentication errors.
 
-mod api_doc;
-pub mod middleware;
-pub mod routes;
-pub mod server;
+use thiserror::Error;
 
-pub use api_doc::ApiDoc;
-pub use middleware::{auth_middleware, OptAuthContext};
-pub use server::{BoundServer, Server};
+/// Authentication error types
+#[derive(Debug, Clone, Error)]
+pub enum AuthError {
+    #[error("token is missing")]
+    TokenMissing,
+
+    #[error("token is invalid: {reason}")]
+    TokenInvalid { reason: String },
+
+    #[error("token has expired")]
+    TokenExpired,
+
+    #[error("token is not yet valid")]
+    TokenNotYetValid,
+
+    #[error("token issuer is unknown")]
+    TokenUnknown,
+
+    #[error("user is disabled")]
+    UserDisabled,
+
+    #[error("provider not found: {provider}")]
+    ProviderNotFound { provider: String },
+}

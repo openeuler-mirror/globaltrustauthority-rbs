@@ -13,7 +13,7 @@
 //! HTTP server integration tests.
 
 use actix_web::{test, web, App, HttpResponse};
-use rbs_api_types::config::RestConfig;
+use rbs_api_types::config::{AuthConfig, RestConfig};
 use rbs_core::RbsCore;
 use rbs_rest::server::{http::uri_length_guard_middleware, Server};
 use serde_json::Value;
@@ -43,7 +43,7 @@ async fn bind_fails_when_https_enabled_but_cert_file_empty() {
     rest.https.enabled = true;
     rest.https.cert_file = String::new();
     rest.https.key_file = rbs_api_types::config::Sensitive::new("/dev/null".to_string());
-    let server = Server::new(Arc::new(RbsCore::default()), rest);
+    let server = Server::new(Arc::new(RbsCore::default()), rest, AuthConfig::default());
     let result = server.bind().await;
     assert!(result.is_err());
     let err_msg = result.unwrap_err().to_string();
@@ -60,7 +60,7 @@ async fn bind_fails_when_https_enabled_but_key_file_empty() {
     rest.https.enabled = true;
     rest.https.cert_file = "/dev/null".to_string();
     rest.https.key_file = rbs_api_types::config::Sensitive::new(String::new());
-    let server = Server::new(Arc::new(RbsCore::default()), rest);
+    let server = Server::new(Arc::new(RbsCore::default()), rest, AuthConfig::default());
     let result = server.bind().await;
     assert!(result.is_err());
     let err_msg = result.unwrap_err().to_string();
