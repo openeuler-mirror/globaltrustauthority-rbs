@@ -290,17 +290,12 @@ impl Session {
                 .map_err(|e| RbcError::InvalidInput(format!("invalid tee_pubkey: {e}")))?;
             pubkey.validate_params()?;
             let effective_algorithm = pubkey.key_type();
-            if effective_algorithm != key_algorithm {
-                return Err(RbcError::InvalidInput(format!(
-                    "tee_pubkey algorithm ({effective_algorithm:?}) does not match configured key_algorithm ({key_algorithm:?})"
-                )));
-            }
             Ok(Self {
                 client,
                 ephemeral_key: None,
                 enriched_attester_data: attester_data.cloned(),
                 caller_manages_key: true,
-                key_algorithm,
+                key_algorithm: effective_algorithm,
                 _marker: std::marker::PhantomData,
             })
         } else {
@@ -707,6 +702,25 @@ token_provider:
 
         assert!(session.caller_manages_key);
         assert!(session.ephemeral_key.is_none());
+    }
+
+    #[test]
+    fn session_create_with_caller_tee_pubkey_algorithm_overrides_config() {
+        // EC pubkey supplied, config says RSA — session must adopt EC from the key.
+        let client = make_test_client();
+        let mut runtime_data = serde_json::Map::new();
+        runtime_data.insert("tee_pubkey".to_string(), json!({
+            "kty": "EC",
+            "crv": "P-256",
+            "x": "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU",
+            "y": "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0"
+        }));
+        let attester_data = AttesterData { runtime_data: Some(runtime_data) };
+
+        let session = Session::create(Rc::clone(&client.inner), Some(&attester_data), KeyType::Rsa).unwrap();
+
+        assert!(session.caller_manages_key);
+        assert_eq!(session.key_algorithm, KeyType::Ec);
     }
 
     #[test]
