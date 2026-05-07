@@ -13,6 +13,7 @@
 //! Logging integration tests.
 
 use rbs_core::{init_logging, LogRotationConfig, LoggingConfig, RotationCompression};
+use serial_test::serial;
 use std::fs;
 use tempfile::tempdir;
 
@@ -24,6 +25,7 @@ const APPENDED_LINE: &str = "appended line after init";
 /// When the log file already exists, `init_logging` must open it in append mode and
 /// preserve existing content.
 #[test]
+#[serial]
 fn init_logging_appends_to_existing_file() {
     let dir = tempdir().expect("create temp dir");
     let log_file = dir.path().join("rbs.log");
@@ -59,6 +61,7 @@ fn init_logging_appends_to_existing_file() {
 
 /// `init_logging` fails when the configured log directory does not exist.
 #[test]
+#[serial]
 fn init_logging_fails_when_log_directory_does_not_exist() {
     let dir = tempdir().expect("create temp dir");
     let nonexistent_sub = dir.path().join("nonexistent_subdir");
@@ -130,6 +133,7 @@ mod unix {
     }
 
     #[test]
+    #[serial]
     fn init_logging_stderr_contains_log_message() {
         const MARKER: &str = "logging_stderr_test_marker_xyz";
 
@@ -147,6 +151,7 @@ mod unix {
 
 #[cfg(not(unix))]
 #[test]
+#[serial]
 fn init_logging_stderr_succeeds_without_file_path() {
     let config = LoggingConfig::default();
     init_logging(&config).expect("init_logging without file_path should succeed");
@@ -165,6 +170,7 @@ mod permissions {
     /// When configured without rotation, the created log file must respect the configured
     /// file mode on Unix platforms.
     #[test]
+    #[serial]
     fn init_logging_sets_file_mode_0600() {
         let dir = tempdir().expect("create temp dir");
         let log_file = dir.path().join("rbs-permissions.log");
@@ -189,6 +195,7 @@ mod permissions {
 
     /// Rotated archives must honour the configured rotation file mode on Unix platforms.
     #[test]
+    #[serial]
     fn rotation_archives_use_0440_mode() {
         let dir = tempdir().expect("create temp dir");
         let log_file = dir.path().join("rbs-rotation-permissions.log");
@@ -222,6 +229,4 @@ mod permissions {
         assert_eq!(mode, 0o440, "archived log should have mode 0o440, got {mode:o}",);
     }
 }
-
-
 

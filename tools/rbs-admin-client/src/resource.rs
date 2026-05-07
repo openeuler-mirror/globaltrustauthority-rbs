@@ -54,13 +54,16 @@ pub struct ResourceInfoResponse {
     #[serde(default)]
     pub content_type: Option<String>,
     #[serde(default)]
-    pub content_length: Option<u64>,
+    pub export_mode: Option<String>,
+    #[serde(default)]
+    pub content_length: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ResourceCreateRequest {
-    pub content: String,
     pub policy_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub additional_info: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -71,8 +74,26 @@ pub type ResourceUpdateRequest = ResourceCreateRequest;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct ResourceMutationResponse {
-    pub uri: String,
-    pub message: String,
+    #[serde(default)]
+    pub uri: Option<String>,
+    #[serde(default)]
+    pub res_provider: Option<String>,
+    #[serde(default)]
+    pub repository_name: Option<String>,
+    #[serde(default)]
+    pub resource_type: Option<String>,
+    #[serde(default)]
+    pub resource_name: Option<String>,
+    #[serde(default)]
+    pub policy_id: Option<String>,
+    #[serde(default)]
+    pub content_type: Option<String>,
+    #[serde(default)]
+    pub export_mode: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
 }
 
 #[derive(Clone, Debug)]

@@ -10,10 +10,9 @@
  * See the Mulan PSL v2 for more details.
  */
 
+use rbc::RbcError;
 use rbs_admin_client::RbsAdminClientError;
 use thiserror::Error;
-
-pub type Result<T> = std::result::Result<T, CliError>;
 
 #[derive(Debug, Error)]
 pub enum CliError {
@@ -43,4 +42,14 @@ pub enum CliError {
 
     #[error("{0}")]
     FileReadError(String),
+}
+
+impl From<RbcError> for CliError {
+    fn from(err: RbcError) -> Self {
+        match err {
+            RbcError::InvalidInput(message) => Self::InvalidArgument(message),
+            RbcError::ConfigError(message) => Self::InvalidConfig(message),
+            other => Self::Message(other.to_string()),
+        }
+    }
 }

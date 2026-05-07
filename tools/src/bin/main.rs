@@ -1,6 +1,6 @@
 /*
  * Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
- * Global Trust Authority is licensed under the Mulan PSL v2.
+ * Global Trust Authority Resource Broker Service is licensed under the Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *     http://license.coscl.org.cn/MulanPSL2
@@ -17,11 +17,10 @@ use rbs_cli::admin::ref_value as ref_value_cmd;
 use rbs_cli::admin::res as res_cmd;
 use rbs_cli::admin::res_policy as res_policy_cmd;
 use rbs_cli::admin::user as user_cmd;
-use rbs_cli::cli::Cli;
-use rbs_cli::cli::Command;
 use rbs_cli::client::cmd as client_cmd;
 use rbs_cli::common::formatter::{emit_err, emit_output, Formatter, TextOutput};
 use rbs_cli::config::cmd::resolve_global_options;
+use rbs_cli::config::{Cli, Command};
 use rbs_cli::token::cmd as token_cmd;
 use rbs_cli::version::cmd as version_cmd;
 use std::process::ExitCode;

@@ -15,7 +15,7 @@ use serde::Serialize;
 
 use crate::common::formatter::Formatter;
 use crate::config::GlobalOptions;
-use crate::error::Result;
+use crate::error::CliError;
 
 #[derive(Args, Debug, Clone, Default)]
 pub struct VersionCli {}
@@ -27,15 +27,15 @@ struct VersionOutput {
 }
 
 impl Formatter for VersionOutput {
-    fn render_text(&self) -> Result<String> {
+    fn render_text(&self) -> Result<String, CliError> {
         Ok(format!("{} {}", self.name, self.version))
     }
 
-    fn render_json(&self) -> Result<String> {
-        serde_json::to_string_pretty(self).map_err(|_| crate::error::CliError::InternalFormat)
+    fn render_json(&self) -> Result<String, CliError> {
+        serde_json::to_string_pretty(self).map_err(|_| CliError::InternalFormat)
     }
 }
 
-pub fn run(_cli: &VersionCli, _global: &GlobalOptions) -> Result<Box<dyn Formatter>> {
+pub fn run(_cli: &VersionCli, _global: &GlobalOptions) -> Result<Box<dyn Formatter>, CliError> {
     Ok(Box::new(VersionOutput { name: env!("CARGO_PKG_NAME"), version: env!("CARGO_PKG_VERSION") }))
 }

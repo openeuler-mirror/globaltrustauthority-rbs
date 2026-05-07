@@ -27,21 +27,15 @@ pub struct ResourcePolicyClient {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct ResourcePolicy {
-    #[serde(default)]
-    pub id: Option<String>,
-    pub name: String,
-    #[serde(default)]
+    pub policy_id: String,
+    pub policy_name: String,
+    pub policy_version: i64,
     pub policy_content: String,
+    pub content_type: String,
+    pub created_at: i64,
+    pub updated_at: i64,
     #[serde(default)]
-    pub content_type: Option<String>,
-    #[serde(default)]
-    pub version: Option<String>,
-    #[serde(default)]
-    pub created_at: Option<String>,
-    #[serde(default)]
-    pub updated_at: Option<String>,
-    #[serde(default)]
-    pub applied_resources: Vec<String>,
+    pub applied_resources: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -54,30 +48,21 @@ pub struct ResourcePolicyListParams {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ResourcePolicyCreateRequest {
     pub name: String,
-    pub policy_content: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content_type: Option<String>,
+    pub content_type: String,
+    pub content: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ResourcePolicyUpdateRequest {
     pub name: String,
-    pub policy_content: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content_type: Option<String>,
+    pub content_type: String,
+    pub content: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct ResourcePolicyListResponse {
-    pub policies: Vec<ResourcePolicy>,
-    pub total_count: u64,
-    pub limit: u64,
-    pub offset: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-pub struct ResourcePolicyMutationResponse {
-    pub policy: ResourcePolicy,
+    pub items: Vec<ResourcePolicy>,
+    pub total: i64,
 }
 
 #[async_trait]
@@ -87,18 +72,18 @@ pub trait ResourcePolicyService {
         params: &ResourcePolicyListParams,
     ) -> Result<ResourcePolicyListResponse, RbsAdminClientError>;
 
-    async fn get_policy(&self, policy_id: &str) -> Result<ResourcePolicyMutationResponse, RbsAdminClientError>;
+    async fn get_policy(&self, policy_id: &str) -> Result<ResourcePolicy, RbsAdminClientError>;
 
     async fn create_policy(
         &self,
         request: &ResourcePolicyCreateRequest,
-    ) -> Result<ResourcePolicyMutationResponse, RbsAdminClientError>;
+    ) -> Result<ResourcePolicy, RbsAdminClientError>;
 
     async fn update_policy(
         &self,
         policy_id: &str,
         request: &ResourcePolicyUpdateRequest,
-    ) -> Result<ResourcePolicyMutationResponse, RbsAdminClientError>;
+    ) -> Result<ResourcePolicy, RbsAdminClientError>;
 
     async fn delete_policy(&self, policy_id: &str) -> Result<(), RbsAdminClientError>;
 
@@ -129,7 +114,7 @@ impl ResourcePolicyService for ResourcePolicyClient {
         send_json(&self.client, Method::GET, url, Option::<&()>::None).await
     }
 
-    async fn get_policy(&self, policy_id: &str) -> Result<ResourcePolicyMutationResponse, RbsAdminClientError> {
+    async fn get_policy(&self, policy_id: &str) -> Result<ResourcePolicy, RbsAdminClientError> {
         if policy_id.trim().is_empty() {
             return Err(RbsAdminClientError::ClientError("policy_id must not be empty".to_string()));
         }
@@ -140,7 +125,7 @@ impl ResourcePolicyService for ResourcePolicyClient {
     async fn create_policy(
         &self,
         request: &ResourcePolicyCreateRequest,
-    ) -> Result<ResourcePolicyMutationResponse, RbsAdminClientError> {
+    ) -> Result<ResourcePolicy, RbsAdminClientError> {
         let url = self.collection_url()?;
         send_json(&self.client, Method::POST, url, Some(request)).await
     }
@@ -149,7 +134,7 @@ impl ResourcePolicyService for ResourcePolicyClient {
         &self,
         policy_id: &str,
         request: &ResourcePolicyUpdateRequest,
-    ) -> Result<ResourcePolicyMutationResponse, RbsAdminClientError> {
+    ) -> Result<ResourcePolicy, RbsAdminClientError> {
         if policy_id.trim().is_empty() {
             return Err(RbsAdminClientError::ClientError("policy_id must not be empty".to_string()));
         }

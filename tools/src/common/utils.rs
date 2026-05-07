@@ -16,7 +16,7 @@ pub fn read_cert_file(path: &str) -> Result<Vec<u8>, CliError> {
     if path.trim().is_empty() {
         return Err(CliError::InvalidArgument("certificate file path must not be empty".to_string()));
     }
-    fs::read(path).map_err(|err| {
+    fs::read(path).map_err(|_err| {
         CliError::FileReadError(format!(
             "unable to read certificate file `{path}`. Please check that the file exists and is readable"
         ))
@@ -25,7 +25,7 @@ pub fn read_cert_file(path: &str) -> Result<Vec<u8>, CliError> {
 
 pub fn read_path_file(file: &str) -> Result<String, CliError> {
     if let Some(path) = file.strip_prefix('@') {
-        return std::fs::read_to_string(path).map_err(|err| {
+        return std::fs::read_to_string(path).map_err(|_err| {
             CliError::FileReadError(format!(
                 "unable to read file `{path}`. Please check that the file exists and is readable"
             ))

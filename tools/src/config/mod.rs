@@ -1,6 +1,6 @@
 /*
  * Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
- * Global Trust Authority is licensed under the Mulan PSL v2.
+ * Global Trust Authority Resource Broker Service is licensed under the Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *     http://license.coscl.org.cn/MulanPSL2
@@ -10,13 +10,72 @@
  * See the Mulan PSL v2 for more details.
  */
 
-use clap::ValueEnum;
+use crate::admin::cert::CertCli;
+use crate::admin::policy::PolicyCli;
+use crate::admin::ref_value::RefValueCli;
+use crate::admin::res::ResCli;
+use crate::admin::res_policy::ResPolicyCli;
+use crate::admin::user::UserCli;
+use crate::client::cmd::ClientCli;
+use crate::config::cmd::{validate_base_url, validate_cert, validate_output_file, validate_token};
+use crate::error::CliError;
+use crate::token::cmd::TokenCli;
+use crate::version::cmd::VersionCli;
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
-use crate::error::CliError;
-
 pub mod cmd;
+
+#[derive(Parser, Debug)]
+#[command(name = "rbs-cli")]
+pub struct Cli {
+    #[command(flatten)]
+    pub global: GlobalCliArgs,
+
+    #[command(subcommand)]
+    pub command: Option<Command>,
+}
+
+#[derive(Args, Debug, Clone, Default)]
+pub struct GlobalCliArgs {
+    #[arg(short = 'b', long, value_parser = validate_base_url)]
+    pub base_url: Option<String>,
+
+    #[arg(short, long, value_parser = validate_token)]
+    pub token: Option<String>,
+
+    #[arg(long, value_parser = validate_cert)]
+    pub cert: Option<String>,
+
+    #[arg(short, long, global = true, value_enum)]
+    pub format: Option<OutputFormat>,
+
+    #[arg(short, long, global = true, value_parser = validate_output_file)]
+    pub output_file: Option<String>,
+
+    #[arg(short, long, global = true)]
+    pub verbose: bool,
+
+    #[arg(short, long, global = true, conflicts_with = "verbose")]
+    pub quiet: bool,
+
+    #[arg(long, global = true)]
+    pub noout: bool,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum Command {
+    Cert(CertCli),
+    Client(ClientCli),
+    Policy(PolicyCli),
+    RefValue(RefValueCli),
+    Res(ResCli),
+    ResPolicy(ResPolicyCli),
+    Token(TokenCli),
+    User(UserCli),
+    Version(VersionCli),
+}
 
 pub const DEFAULT_BASE_URL: &str = "http://localhost:8080";
 pub const DEFAULT_FORMAT: &str = "text";
@@ -54,6 +113,7 @@ pub struct GlobalOptions {
     pub base_url: String,
     pub token: Option<String>,
     pub cert: Option<Vec<u8>>,
+    pub cert_path: Option<String>,
     pub format: OutputFormat,
     pub output_file: Option<String>,
     pub verbose: bool,
@@ -67,6 +127,7 @@ impl Default for GlobalOptions {
             base_url: DEFAULT_BASE_URL.to_string(),
             token: None,
             cert: None,
+            cert_path: None,
             format: OutputFormat::Text,
             output_file: None,
             verbose: false,
