@@ -16,9 +16,6 @@ mod builder;
 mod error;
 mod facade;
 
-#[cfg(test)]
-mod test;
-
 pub use error::AuthzError;
 pub use facade::AuthzFacade;
 

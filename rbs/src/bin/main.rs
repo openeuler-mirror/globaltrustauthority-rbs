@@ -75,8 +75,13 @@ async fn main() -> anyhow::Result<()> {
     let core = std::sync::Arc::new(rbs_core::RbsCoreBuilder::new(core_config).build());
 
     // Bootstrap the pre-configured administrator if no users exist
-    core.admin().bootstrap_admin().await.context("bootstrap admin user")?;
-    log::info!("Admin bootstrap check completed");
+    match core.admin().bootstrap_admin().await {
+        Ok(()) => log::info!("Admin bootstrap check completed"),
+        Err(rbs_core::RbsError::ResourceConflict) => {
+            log::info!("Admin bootstrap skipped: administrator already exists (concurrent bootstrap)");
+        }
+        Err(e) => anyhow::bail!("bootstrap admin user: {}", e),
+    }
 
     #[cfg(feature = "rest")]
     {

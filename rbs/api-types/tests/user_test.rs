@@ -13,7 +13,7 @@
 //! Integration tests for user types.
 
 use rbs_api_types::{
-    UserCreateRequest, UserListResponse, UserResponse, UserUpdateRequest,
+    AuthType, Role, UserCreateRequest, UserListResponse, UserResponse, UserUpdateRequest,
 };
 
 #[test]
@@ -25,7 +25,7 @@ fn test_user_create_request() {
     });
     let req: UserCreateRequest = serde_json::from_value(json).unwrap();
     assert_eq!(req.username, "alice");
-    assert_eq!(req.auth_type, "jwt");
+    assert_eq!(req.auth_type, AuthType::Jwt);
     assert!(req.public_key.is_some());
     assert!(req.role.is_none());
     assert!(req.enabled.is_none());
@@ -41,7 +41,7 @@ fn test_user_create_request_with_role() {
         "enabled": true
     });
     let req: UserCreateRequest = serde_json::from_value(json).unwrap();
-    assert_eq!(req.role.as_deref(), Some("user"));
+    assert_eq!(req.role, Some(Role::User));
     assert_eq!(req.enabled, Some(true));
 }
 
@@ -66,7 +66,7 @@ fn test_user_update_request_role() {
         "public_key": "-----BEGIN PUBLIC KEY-----\ntest\n-----END PUBLIC KEY-----"
     });
     let req: UserUpdateRequest = serde_json::from_value(json).unwrap();
-    assert_eq!(req.role.as_deref(), Some("user"));
+    assert_eq!(req.role, Some(Role::User));
     assert!(req.public_key.is_some());
 }
 
@@ -83,7 +83,7 @@ fn test_user_response() {
     let resp: UserResponse = serde_json::from_value(json).unwrap();
     assert_eq!(resp.id, "user-123");
     assert_eq!(resp.username, "bob");
-    assert_eq!(resp.role, "user");
+    assert_eq!(resp.role, Role::User);
     assert!(resp.enabled);
 }
 

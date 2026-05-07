@@ -78,4 +78,4 @@ pub use resource::{
 pub use openapi::{BuildMetadata, ErrorBody, RbsVersion};
 
 // Re-export types from user module
-pub use user::{UserCreateRequest, UserListResponse, UserResponse, UserUpdateRequest};
+pub use user::{AuthType, Role, UserCreateRequest, UserListResponse, UserResponse, UserUpdateRequest};

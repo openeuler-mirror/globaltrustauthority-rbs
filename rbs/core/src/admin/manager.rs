@@ -15,9 +15,10 @@
 
 use std::fs;
 
+use chrono::Timelike;
 use rbs_api_types::error::RbsError;
 use rbs_api_types::{
-    AdminConfig, UserCreateRequest, UserListResponse, UserResponse, UserUpdateRequest,
+    AdminConfig, Role, UserCreateRequest, UserListResponse, UserResponse, UserUpdateRequest,
 };
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set, TransactionTrait};
 use serde_json::Value;
@@ -26,14 +27,13 @@ use crate::auth::{Action, AuthContext, AuthzError, AuthzFacade, RequiredRole};
 use crate::infra::rdb::get_connection_from_pool;
 
 use super::entity::{
-    ActiveModel as UserActiveModel, Column as UserColumn, Entity as UserEntity, Model as UserModel,
+    ActiveModel as UserActiveModel, Column as UserColumn, DbAuthType, DbRole, Entity as UserEntity, Model as UserModel,
+    UserStatus,
 };
 use super::key::{jwk_to_pem, validate_and_derive_alg};
 
 const ADMIN_USERNAME: &str = "Administrator";
 const ROLE_ADMIN: &str = "admin";
-const ROLE_USER: &str = "user";
-const AUTH_TYPE_JWT: &str = "jwt";
 
 type Result<T> = std::result::Result<T, RbsError>;
 
@@ -79,17 +79,17 @@ impl AdminManager {
 
         let (auth_value, auth_alg) = self.read_admin_key()?;
         let user_id = generate_uuid();
-        let now = now_iso8601();
+        let now = now_without_nanos();
 
         let model = UserActiveModel {
             user_id: Set(user_id.clone()),
             username: Set(ADMIN_USERNAME.to_string()),
-            role: Set(ROLE_ADMIN.to_string()),
-            auth_type: Set(AUTH_TYPE_JWT.to_string()),
+            role: Set(DbRole::Admin),
+            auth_type: Set(DbAuthType::Jwt),
             auth_value: Set(auth_value),
             auth_alg: Set(auth_alg),
-            status: Set(1),
-            created_at: Set(now.clone()),
+            status: Set(UserStatus::Enabled),
+            created_at: Set(now),
             updated_at: Set(now),
             ..Default::default()
         };
@@ -152,7 +152,7 @@ impl AdminManager {
 
         validator::Validate::validate(req).map_err(|e| RbsError::InvalidParameter(e.to_string()))?;
         req.validate_key_pair()?;
-        let (auth_value, auth_alg) = Self::extract_auth_material(req)?;
+        let (auth_value, auth_alg) = AdminManager::extract_auth_material(req)?;
         let db = get_connection_from_pool().map_err(|e| {
             log::error!("Failed to get DB connection for create_user: {}", e);
             internal_err(e)
@@ -177,7 +177,7 @@ impl AdminManager {
             internal_err(e)
         })?;
 
-        log::info!("User '{}' (id={}, role={}) created by '{}'",
+        log::info!("User '{}' (id={}, role={:?}) created by '{}'",
             req.username,
             inserted.user_id,
             inserted.role,
@@ -229,12 +229,12 @@ impl AdminManager {
         }
 
         validator::Validate::validate(req).map_err(|e| RbsError::InvalidParameter(e.to_string()))?;
-        req.validate()?;
+        req.validate_cross_fields()?;
         if !is_admin {
-            Self::enforce_whitelist(req, username)?;
+            AdminManager::enforce_whitelist(req, username)?;
         }
 
-        let key_material = Self::extract_update_key_material(req)?;
+        let key_material = AdminManager::extract_update_key_material(req)?;
 
         let db = get_connection_from_pool().map_err(|e| {
             log::error!("Failed to get DB connection for update_user: {}", e);
@@ -328,9 +328,9 @@ impl AdminManager {
         max_users: u32,
     ) -> std::result::Result<UserModel, sea_orm::TransactionError<sea_orm::DbErr>> {
         let user_id = generate_uuid();
-        let now = now_iso8601();
-        let role = req.role.as_deref().unwrap_or(ROLE_USER).to_string();
-        let status: i32 = if req.enabled.unwrap_or(true) { 1 } else { 0 };
+        let now = now_without_nanos();
+        let role: DbRole = req.role.unwrap_or(Role::User).into();
+        let status = if req.enabled.unwrap_or(true) { UserStatus::Enabled } else { UserStatus::Disabled };
         let username = req.username.clone();
         let auth_value = auth_value.to_string();
         let auth_alg = auth_alg.to_string();
@@ -343,7 +343,7 @@ impl AdminManager {
 
             Box::pin(async move {
                 let regular_count = UserEntity::find()
-                    .filter(UserColumn::Role.ne(ROLE_ADMIN))
+                    .filter(UserColumn::Role.ne(DbRole::Admin))
                     .count(txn)
                     .await?;
 
@@ -360,11 +360,11 @@ impl AdminManager {
                     user_id: Set(user_id),
                     username: Set(username),
                     role: Set(role),
-                    auth_type: Set(AUTH_TYPE_JWT.to_string()),
+                    auth_type: Set(DbAuthType::Jwt),
                     auth_value: Set(auth_value),
                     auth_alg: Set(auth_alg),
                     status: Set(status),
-                    created_at: Set(now.clone()),
+                    created_at: Set(now),
                     updated_at: Set(now),
                     ..Default::default()
                 };
@@ -419,17 +419,17 @@ impl AdminManager {
                     active.auth_value = Set(auth_value.clone());
                     active.auth_alg = Set(auth_alg.clone());
                 }
-                if let Some(ref role) = role {
-                    active.role = Set(role.clone());
+                if let Some(role) = role {
+                    active.role = Set(DbRole::from(role));
                 }
                 if let Some(enabled) = enabled {
-                    active.status = Set(if enabled { 1 } else { 0 });
+                    active.status = Set(if enabled { UserStatus::Enabled } else { UserStatus::Disabled });
                 }
-                if let Some(ref auth_type) = auth_type {
-                    active.auth_type = Set(auth_type.clone());
+                if let Some(auth_type) = auth_type {
+                    active.auth_type = Set(DbAuthType::from(auth_type));
                 }
 
-                active.updated_at = Set(now_iso8601());
+                active.updated_at = Set(now_without_nanos());
                 active.update(txn).await
             })
         })
@@ -513,7 +513,7 @@ impl AdminManager {
         log::info!("[DEBUG] ensure_enabled: query succeeded, model={:?}", model.as_ref().map(|m| (&m.username, m.status)));
 
         match model {
-            Some(m) if m.status == 0 => {
+            Some(m) if m.status == UserStatus::Disabled => {
                 log::warn!("Operation rejected: user '{}' is disabled", username);
                 Err(RbsError::AuthzInsufficientPermissions)
             }
@@ -648,26 +648,26 @@ fn map_authz_err(e: AuthzError, ctx: &AuthContext) -> RbsError {
     }
 }
 
+/// Get current timestamp without nanoseconds.
+fn now_without_nanos() -> chrono::DateTime<chrono::Utc> {
+    chrono::Utc::now().with_nanosecond(0).unwrap()
+}
+
 /// Convert a database model to API response.
 fn model_to_response(m: &UserModel) -> UserResponse {
     UserResponse {
         id: m.user_id.clone(),
         username: m.username.clone(),
-        role: m.role.clone(),
-        enabled: m.status == 1,
-        created_at: m.created_at.clone(),
-        updated_at: m.updated_at.clone(),
+        role: m.role.into(),
+        enabled: m.status == UserStatus::Enabled,
+        created_at: m.created_at.to_rfc3339(),
+        updated_at: m.updated_at.to_rfc3339(),
     }
 }
 
 /// Generate a UUID v4 string.
 fn generate_uuid() -> String {
     uuid::Uuid::new_v4().to_string()
-}
-
-/// Current time in ISO 8601 format.
-fn now_iso8601() -> String {
-    chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
 
 fn internal_err(e: impl std::fmt::Display) -> RbsError {
@@ -677,11 +677,149 @@ fn internal_err(e: impl std::fmt::Display) -> RbsError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rbs_api_types::{AuthType, Role};
+
+    const TEST_RSA_PUBKEY: &str = concat!(
+        "-----BEGIN PUBLIC KEY-----\n",
+        "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA7JOjGVgMbclDvZ0zW8by\n",
+        "ALpLyUSNYkb5dyy9xFBEg97RI1SSx0rcOkrd7fb/aJThQ7n47OaSpaJZmNzL/phQ\n",
+        "9TnqHafrOsY8nYn1PlGbUu0yo99CLF9EOqmUpLfAkCELFumP5xt1DSJ+VN4gxVeq\n",
+        "GNAthfi7ceWKuWRgfkTif2wXJXEpCBunyTEM4nqvOZX+lMLWkvv/jaovl+PjNQyk\n",
+        "wTFjgs3EC7Cn/C35xYHRAws3iBXk8PJ7TPFiG3L2pDIP30jxTbu3taOpkAarieSg\n",
+        "rK+Dsrv9RIirzseAH3XnSOHDQDVU++8Jw421BQw/ZiYCfIye2RplBpaLcL8xhIIf\n",
+        "CwIDAQAB\n",
+        "-----END PUBLIC KEY-----\n"
+    );
 
     #[test]
-    fn test_generate_uuid_format() {
+    fn uuid_generation_returns_valid_format() {
         let uuid = generate_uuid();
         assert_eq!(uuid.len(), 36);
         assert_eq!(uuid.chars().filter(|&c| c == '-').count(), 4);
+    }
+
+    #[test]
+    fn timestamp_generation_has_zero_nanoseconds() {
+        let ts = now_without_nanos();
+        assert_eq!(ts.timestamp_subsec_nanos(), 0);
+    }
+
+    #[test]
+    fn extract_auth_material_returns_value_with_valid_public_key() {
+        let req = UserCreateRequest {
+            username: "test".to_string(),
+            role: None,
+            enabled: None,
+            auth_type: AuthType::Jwt,
+            public_key: Some(TEST_RSA_PUBKEY.to_string()),
+            jwk: None,
+        };
+        let result = AdminManager::extract_auth_material(&req);
+        assert!(result.is_ok());
+        let (auth_value, auth_alg) = result.unwrap();
+        assert!(auth_value.contains("BEGIN PUBLIC KEY"));
+        assert_eq!(auth_alg, "RS256");
+    }
+
+    #[test]
+    fn extract_auth_material_fails_without_key_material() {
+        let req = UserCreateRequest {
+            username: "test".to_string(),
+            role: None,
+            enabled: None,
+            auth_type: AuthType::Jwt,
+            public_key: None,
+            jwk: None,
+        };
+        let result = AdminManager::extract_auth_material(&req);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn extract_update_key_material_returns_value_with_public_key() {
+        let req = UserUpdateRequest {
+            role: None,
+            enabled: None,
+            auth_type: Some(AuthType::Jwt),
+            public_key: Some(TEST_RSA_PUBKEY.to_string()),
+            jwk: None,
+        };
+        let result = AdminManager::extract_update_key_material(&req);
+        assert!(result.is_ok());
+        let material = result.unwrap();
+        assert!(material.is_some());
+        let (auth_value, auth_alg) = material.unwrap();
+        assert!(auth_value.contains("BEGIN PUBLIC KEY"));
+        assert_eq!(auth_alg, "RS256");
+    }
+
+    #[test]
+    fn extract_update_key_material_returns_none_without_key() {
+        let req = UserUpdateRequest {
+            role: Some(Role::User),
+            enabled: None,
+            auth_type: None,
+            public_key: None,
+            jwk: None,
+        };
+        let result = AdminManager::extract_update_key_material(&req);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none());
+    }
+
+    #[test]
+    fn enforce_whitelist_rejects_role_update_for_non_admin() {
+        let req = UserUpdateRequest {
+            role: Some(Role::User),
+            enabled: None,
+            auth_type: None,
+            public_key: None,
+            jwk: None,
+        };
+        let result = AdminManager::enforce_whitelist(&req, "test_user");
+        assert!(result.is_err());
+        match result {
+            Err(RbsError::AuthzInsufficientPermissions) => {}
+            _ => panic!("Expected AuthzInsufficientPermissions"),
+        }
+    }
+
+    #[test]
+    fn enforce_whitelist_rejects_enabled_update_for_non_admin() {
+        let req = UserUpdateRequest {
+            role: None,
+            enabled: Some(false),
+            auth_type: None,
+            public_key: None,
+            jwk: None,
+        };
+        let result = AdminManager::enforce_whitelist(&req, "test_user");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn enforce_whitelist_accepts_key_update() {
+        let req = UserUpdateRequest {
+            role: None,
+            enabled: None,
+            auth_type: Some(AuthType::Jwt),
+            public_key: Some(TEST_RSA_PUBKEY.to_string()),
+            jwk: None,
+        };
+        let result = AdminManager::enforce_whitelist(&req, "test_user");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn enforce_whitelist_accepts_empty_request() {
+        let req = UserUpdateRequest {
+            role: None,
+            enabled: None,
+            auth_type: None,
+            public_key: None,
+            jwk: None,
+        };
+        let result = AdminManager::enforce_whitelist(&req, "test_user");
+        assert!(result.is_ok());
     }
 }

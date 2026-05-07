@@ -3304,6 +3304,7 @@ dependencies = [
  "socket2 0.5.10",
  "tokio",
  "utoipa",
+ "validator",
 ]
 
 [[package]]

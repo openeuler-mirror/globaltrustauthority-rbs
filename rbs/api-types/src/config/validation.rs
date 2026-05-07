@@ -13,9 +13,9 @@
 //! Configuration validation for RBS.
 
 use super::{
-    AttestTokenVerificationConfig, AttestationBackendConfig, AttestationBackendMode, AttestationConfig,
-    AttestationCredentials, AttestationRestConfig, AuthConfig, Database
-    , LogRotationConfig, LoggingConfig, PerIpRateLimitConfig, RbsConfig,
+    AdminConfig, AdminKeyConfig, AttestTokenVerificationConfig, AttestationBackendConfig,
+    AttestationBackendMode, AttestationConfig, AttestationCredentials, AttestationRestConfig,
+    AuthConfig, Database, LogRotationConfig, LoggingConfig, PerIpRateLimitConfig, RbsConfig,
     RestConfig,
 };
 
@@ -552,6 +552,32 @@ impl AuthConfig {
     }
 }
 
+impl AdminKeyConfig {
+    fn validate(&self) {
+        let has_pem = self.public_key_path.as_ref().map_or(false, |s| !s.is_empty());
+        let has_jwk = self.jwks_file.as_ref().map_or(false, |s| !s.is_empty());
+        let count = has_pem as usize + has_jwk as usize;
+        if count == 0 {
+            panic!("admin.admin_key must have either public_key_path or jwks_file configured");
+        }
+        if count > 1 {
+            panic!("admin.admin_key public_key_path and jwks_file are mutually exclusive");
+        }
+    }
+}
+
+impl AdminConfig {
+    fn validate(&self) {
+        if self.max_users < 1 || self.max_users > 100 {
+            panic!(
+                "admin.max_users must be in [1, 100], got {}",
+                self.max_users
+            );
+        }
+        self.admin_key.validate();
+    }
+}
+
 impl RbsConfig {
     /// Validates all configuration fields and panics if any constraint is violated.
     /// Called at startup before building the core to fail-fast on bad configuration.
@@ -562,6 +588,7 @@ impl RbsConfig {
         self.logging.validate();
         self.attestation.validate();
         self.auth.validate();
+        self.admin.validate();
         if let Some(ref storage) = self.storage {
             storage.validate();
         }

@@ -53,6 +53,15 @@ impl JwtVerifier {
     }
 
     /// Verify JWT token and return BearerContext.
+    ///
+    /// Verification order (per JWT best practice):
+    /// 1. Parse header (alg) and payload (sub only — needed for key lookup).
+    /// 2. Look up the per-user public key.
+    /// 3. Verify the cryptographic signature.
+    /// 4. Only after the signature is trusted, validate claims (iss, exp, nbf, role).
+    ///
+    /// Errors from key lookup and signature verification are masked with a
+    /// generic message to prevent user-enumeration attacks.
     pub async fn verify(&self, token: &str) -> Result<BearerContext, AuthError> {
         let parts: Vec<&str> = token.split('.').collect();
         if parts.len() != 3 {
@@ -63,68 +72,77 @@ impl JwtVerifier {
         let payload = parts[1];
         let signature = parts[2];
 
-        // Decode header
+        // Step 1 — Parse header to get algorithm.
         let header_bytes = decode_jwt_part(header)?;
         let header_json: Value = serde_json::from_slice(&header_bytes)
             .map_err(|e| AuthError::TokenInvalid { reason: format!("failed to parse header: {}", e) })?;
 
-        // Get algorithm
         let alg = header_json.get("alg")
             .and_then(|v| v.as_str())
             .ok_or_else(|| AuthError::TokenInvalid { reason: "missing alg in header".to_string() })?;
 
-        // Decode payload
+        // Step 1 — Parse payload, extract only `sub` (required to look up the key).
+        // Other claims are not trusted until after signature verification.
         let payload_bytes = decode_jwt_part(payload)?;
         let claims: Value = serde_json::from_slice(&payload_bytes)
             .map_err(|e| AuthError::TokenInvalid { reason: format!("failed to parse claims: {}", e) })?;
 
-        // Decode signature
-        let signature_bytes = decode_jwt_part(signature)?;
-
-        // Extract claims for validation
         let sub = claims.get("sub")
             .and_then(|v| v.as_str())
             .ok_or_else(|| AuthError::TokenInvalid { reason: "missing sub claim".to_string() })?;
+
+        // Decode signature bytes.
+        let signature_bytes = decode_jwt_part(signature)?;
+
+        // Step 2 — Look up the per-user public key.
+        // Mask key-lookup errors with a generic message (prevent user enumeration).
+        let public_key_pem = self.key_provider.get_public_key(sub).await
+            .map_err(|_| AuthError::TokenInvalid {
+                reason: "invalid token".to_string(),
+            })?;
+
+        let public_key = PKey::public_key_from_pem(public_key_pem.as_bytes())
+            .map_err(|_| AuthError::TokenInvalid {
+                reason: "invalid token".to_string(),
+            })?;
+
+        // Step 3 — Verify the cryptographic signature.
+        verify_jwt_signature(alg, header, payload, &signature_bytes, &public_key)
+            .map_err(|_| AuthError::TokenInvalid {
+                reason: "invalid token".to_string(),
+            })?;
+
+        // Step 4 — Signature is trusted. Now validate claims.
         let iss = claims.get("iss")
             .and_then(|v| v.as_str())
             .ok_or_else(|| AuthError::TokenInvalid { reason: "missing iss claim".to_string() })?
             .to_string();
-        let role = claims.get("role")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
+
+        if iss != self.config.issuer {
+            return Err(AuthError::TokenInvalid {
+                reason: format!("issuer mismatch: expected '{}'", self.config.issuer),
+            });
+        }
+
         let exp = claims.get("exp")
             .and_then(|v| v.as_i64())
             .ok_or_else(|| AuthError::TokenInvalid { reason: "missing exp claim".to_string() })?;
-        let nbf = claims.get("nbf").and_then(|v| v.as_i64());
 
-        // Verify issuer
-        if iss != self.config.issuer {
-            return Err(AuthError::TokenInvalid { reason: format!("issuer mismatch: expected '{}'", self.config.issuer) });
-        }
-
-        // Verify expiration
         let now = Utc::now().timestamp();
         if exp < now {
             return Err(AuthError::TokenExpired);
         }
 
-        // Verify not before
-        if let Some(nbf) = nbf {
+        if let Some(nbf) = claims.get("nbf").and_then(|v| v.as_i64()) {
             if now < nbf {
                 return Err(AuthError::TokenNotYetValid);
             }
         }
 
-        // Look up per-user public key
-        let public_key_pem = self.key_provider.get_public_key(sub).await?;
-        let public_key = PKey::public_key_from_pem(public_key_pem.as_bytes())
-            .map_err(|e| AuthError::TokenInvalid {
-                reason: format!("failed to parse user public key for '{}': {}", sub, e),
-            })?;
-
-        // Verify signature
-        verify_jwt_signature(alg, header, payload, &signature_bytes, &public_key)?;
+        let role = claims.get("role")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
 
         Ok(BearerContext {
             iss,
