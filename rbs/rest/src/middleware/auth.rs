@@ -81,9 +81,15 @@ fn is_resource_get_path(path: &str, method: &actix_web::http::Method) -> bool {
         return false;
     }
 
+    // Exclude user management routes (BearerToken only)
+    // /rbs/v0/users and /rbs/v0/users/{username}
+    if relative == "users" || relative.starts_with("users/") {
+        return false;
+    }
+
     // All other GET requests are Resource Get endpoints
     // This includes:
-    // - /rbs/v0/{uri} (matches any non-policy path)
+    // - /rbs/v0/{uri} (matches any non-policy, non-user path)
     // - /rbs/v0/{uri}/info
     true
 }

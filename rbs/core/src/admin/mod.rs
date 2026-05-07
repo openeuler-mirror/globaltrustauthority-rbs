@@ -10,15 +10,13 @@
  * See the Mulan PSL v2 for more details.
  */
 
-//! Authentication and Authorization module.
+//! Admin module — user management (CRUD).
+//!
+//! `AdminManager` owns user lifecycle operations: list, create, get, update, delete,
+//! plus bootstrap of the pre-configured administrator on first start.
 
-pub mod authn;
-pub mod authz;
-pub mod context;
-pub mod error;
+mod entity;
+mod key;
+mod manager;
 
-// Re-export auth module types
-pub use authn::{Auth, Authenticator, AttestTokenVerifier, JwtVerifier, UserKeyProvider};
-pub use authz::{AdminAction, AuthzDecision, AuthzError, AuthzFacade, RequiredRole};
-pub use context::{AttestContext, AuthContext, BearerContext, TokenType};
-pub use error::AuthError;
+pub use manager::AdminManager;

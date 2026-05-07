@@ -37,13 +37,30 @@ async fn uri_length_guard_returns_414_json_error_body() {
     assert_eq!(v.get("error").and_then(|x| x.as_str()), Some("URI Too Long"));
 }
 
+fn stub_key_provider() -> Arc<dyn rbs_core::auth::UserKeyProvider> {
+    use async_trait::async_trait;
+    use rbs_core::auth::{AuthError, UserKeyProvider};
+
+    #[derive(Debug, Clone, Default)]
+    struct Stub;
+
+    #[async_trait]
+    impl UserKeyProvider for Stub {
+        async fn get_public_key(&self, _sub: &str) -> Result<String, AuthError> {
+            Err(AuthError::TokenInvalid { reason: "stub".to_string() })
+        }
+    }
+
+    Arc::new(Stub)
+}
+
 #[actix_web::test]
 async fn bind_fails_when_https_enabled_but_cert_file_empty() {
     let mut rest = RestConfig::default();
     rest.https.enabled = true;
     rest.https.cert_file = String::new();
     rest.https.key_file = rbs_api_types::config::Sensitive::new("/dev/null".to_string());
-    let server = Server::new(Arc::new(RbsCore::default()), rest, AuthConfig::default());
+    let server = Server::new(Arc::new(RbsCore::default()), rest, AuthConfig::default(), stub_key_provider());
     let result = server.bind().await;
     assert!(result.is_err());
     let err_msg = result.unwrap_err().to_string();
@@ -60,7 +77,7 @@ async fn bind_fails_when_https_enabled_but_key_file_empty() {
     rest.https.enabled = true;
     rest.https.cert_file = "/dev/null".to_string();
     rest.https.key_file = rbs_api_types::config::Sensitive::new(String::new());
-    let server = Server::new(Arc::new(RbsCore::default()), rest, AuthConfig::default());
+    let server = Server::new(Arc::new(RbsCore::default()), rest, AuthConfig::default(), stub_key_provider());
     let result = server.bind().await;
     assert!(result.is_err());
     let err_msg = result.unwrap_err().to_string();

@@ -527,30 +527,8 @@ impl Database {
     }
 }
 
-impl JwtVerificationConfig {
-    fn validate(&self) {
-        // jwks_file and public_key_path are mutually exclusive (at least one must be set)
-        let has_jwks_file = self.jwks_file.is_some();
-        let has_public_key_path = self.public_key_path.is_some();
-
-        let count = has_jwks_file as usize + has_public_key_path as usize;
-        if count == 0 {
-            panic!("auth.bearer_token must have either jwks_file or public_key_path configured");
-        }
-        if count > 1 {
-            panic!("auth.bearer_token jwks_file and public_key_path are mutually exclusive");
-        }
-
-        // issuer is required
-        if self.issuer.is_empty() {
-            panic!("auth.bearer_token.issuer must not be empty");
-        }
-    }
-}
-
 impl AttestTokenVerificationConfig {
     fn validate(&self) {
-        // jwks_file and public_key_path are mutually exclusive (at least one must be set)
         let has_jwks_file = self.jwks_file.is_some();
         let has_public_key_path = self.public_key_path.is_some();
 
@@ -562,7 +540,6 @@ impl AttestTokenVerificationConfig {
             panic!("auth.attest_token jwks_file and public_key_path are mutually exclusive");
         }
 
-        // issuer is required
         if self.issuer.is_empty() {
             panic!("auth.attest_token.issuer must not be empty");
         }
@@ -571,7 +548,6 @@ impl AttestTokenVerificationConfig {
 
 impl AuthConfig {
     fn validate(&self) {
-        self.bearer_token.validate();
         self.attest_token.validate();
     }
 }

@@ -56,8 +56,7 @@ fn evaluate_policy_generic(input: &serde_json::Value, policy: &str) -> Result<Au
     match evaluate_policy(input, policy, true) {
         Ok(result) => {
             let matched = result
-                .get("result")
-                .and_then(|r| r.get("policy_matched"))
+                .get("policy_matched")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
             if matched {

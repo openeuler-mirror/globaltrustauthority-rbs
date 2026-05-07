@@ -25,3 +25,6 @@ serde_json.workspace = true
 anyhow.workspace = true
 governor = { version = "0.6", optional = true }
 utoipa.workspace = true
+
+[dev-dependencies]
+async-trait.workspace = true

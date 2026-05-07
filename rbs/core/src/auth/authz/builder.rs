@@ -23,7 +23,6 @@ pub struct AuthzRequestBuilder<'a> {
     ctx: &'a AuthContext,
     action: Option<AdminAction>,
     required_role: RequiredRole,
-    resource_type: Option<&'a str>,
 }
 
 impl<'a> AuthzRequestBuilder<'a> {
@@ -33,7 +32,6 @@ impl<'a> AuthzRequestBuilder<'a> {
             ctx,
             action: None,
             required_role: RequiredRole::UserScoped,
-            resource_type: None,
         }
     }
 
@@ -46,12 +44,6 @@ impl<'a> AuthzRequestBuilder<'a> {
     /// Set required role level
     pub fn required_role(mut self, role: RequiredRole) -> Self {
         self.required_role = role;
-        self
-    }
-
-    /// Set resource type
-    pub fn resource_type(mut self, resource_type: &'a str) -> Self {
-        self.resource_type = Some(resource_type);
         self
     }
 
@@ -71,7 +63,6 @@ impl<'a> AuthzRequestBuilder<'a> {
     /// Build policy engine input
     pub(super) fn build_input(&self) -> Result<Value, AuthzError> {
         let action = self.action.as_ref().ok_or(AuthzError::MissingField("action"))?;
-        let resource_type = self.resource_type.ok_or(AuthzError::MissingField("resource_type"))?;
 
         Ok(serde_json::json!({
             "token_type": self.token_type_str(),
@@ -79,7 +70,6 @@ impl<'a> AuthzRequestBuilder<'a> {
             "role": self.role(),
             "action": action.as_str(),
             "required_role": self.required_role.as_str(),
-            "resource_type": resource_type,
         }))
     }
 

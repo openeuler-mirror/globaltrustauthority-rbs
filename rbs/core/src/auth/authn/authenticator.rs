@@ -12,35 +12,60 @@
 
 //! Authenticator implementation.
 
+use std::sync::Arc;
+
+use crate::auth::authn::UserKeyProvider;
 use crate::auth::context::{AuthContext, TokenType};
 use crate::auth::error::AuthError;
 use super::jwt::JwtVerifier;
 use super::token::AttestTokenVerifier;
 use async_trait::async_trait;
-use rbs_api_types::config::AuthConfig;
+use rbs_api_types::config::{AuthConfig, JwtVerificationConfig};
 
 /// Authentication trait
 #[async_trait]
 pub trait Auth: Send + Sync {
-    /// Authenticate a token and return AuthContext
+    /// Authenticate a token and return AuthContext.
     /// - token: the token string (without Bearer/Attest prefix)
     /// - token_type: the token type determined by Authorization Header prefix
     async fn authenticate(&self, token: &str, token_type: TokenType) -> Result<AuthContext, AuthError>;
 }
 
-/// Authenticator implementation
-#[derive(Debug, Clone)]
+/// Authenticator implementation.
+///
+/// BearerToken uses per-user public keys via [`UserKeyProvider`];
+/// AttestToken uses the configured public key from `attest_token` config.
+#[derive(Clone)]
 pub struct Authenticator {
     jwt_verifier: JwtVerifier,
     attest_verifier: AttestTokenVerifier,
 }
 
+impl std::fmt::Debug for Authenticator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Authenticator").finish()
+    }
+}
+
 impl Authenticator {
-    /// Create a new Authenticator from config
-    pub fn new(config: AuthConfig) -> Result<Self, AuthError> {
+    /// Create a new Authenticator.
+    ///
+    /// `key_provider` resolves per-user BearerToken public keys from storage.
+    /// AttestToken uses `config.attest_token` for its public key.
+    pub fn new(
+        config: AuthConfig,
+        key_provider: Arc<dyn UserKeyProvider>,
+    ) -> Result<Self, AuthError> {
+        // BearerToken issuer is validated but no public key needed from config —
+        // per-user keys come from key_provider.
+        let jwt_config = JwtVerificationConfig {
+            public_key_path: None,
+            jwks_file: None,
+            issuer: config.attest_token.issuer.clone(),
+        };
         Ok(Self {
-            jwt_verifier: JwtVerifier::new(config.bearer_token.clone())?,
-            attest_verifier: AttestTokenVerifier::new(config.attest_token.clone())?,
+            jwt_verifier: JwtVerifier::new(jwt_config, key_provider),
+            attest_verifier: AttestTokenVerifier::new(config.attest_token)?,
         })
     }
 }

@@ -30,6 +30,22 @@ struct Cli {
     config: String,
 }
 
+/// Adapter: delegates [`rbs_core::auth::UserKeyProvider`] to `core.admin()`.
+struct CoreKeyProvider(std::sync::Arc<rbs_core::RbsCore>);
+
+impl std::fmt::Debug for CoreKeyProvider {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("CoreKeyProvider").finish()
+    }
+}
+
+#[async_trait::async_trait]
+impl rbs_core::auth::UserKeyProvider for CoreKeyProvider {
+    async fn get_public_key(&self, sub: &str) -> std::result::Result<String, rbs_core::auth::AuthError> {
+        self.0.admin().get_public_key(sub).await
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
@@ -54,14 +70,21 @@ async fn main() -> anyhow::Result<()> {
         logging: config.logging.clone(),
         attestation: config.attestation.clone(),
         auth: config.auth.clone(),
+        admin: config.admin.clone(),
     };
     let core = std::sync::Arc::new(rbs_core::RbsCoreBuilder::new(core_config).build());
+
+    // Bootstrap the pre-configured administrator if no users exist
+    core.admin().bootstrap_admin().await.context("bootstrap admin user")?;
+    log::info!("Admin bootstrap check completed");
 
     #[cfg(feature = "rest")]
     {
         let rest_config =
             config.rest.clone().ok_or_else(|| anyhow::anyhow!("config.rest is required when built with `rest`"))?;
-        let server = rbs_rest::Server::new(core.clone(), rest_config.clone(), config.auth.clone());
+        let key_provider: std::sync::Arc<dyn rbs_core::auth::UserKeyProvider> =
+            std::sync::Arc::new(CoreKeyProvider(core.clone()));
+        let server = rbs_rest::Server::new(core.clone(), rest_config.clone(), config.auth.clone(), key_provider);
         let bound = server.bind().await.context("bind REST server")?;
         log::info!("RBS REST server starting on {}", rest_config.listen_addr);
         bound.run().await.context("RBS REST server")?;

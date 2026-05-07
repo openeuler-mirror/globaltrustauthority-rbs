@@ -15,6 +15,7 @@
 //! Core business logic modules: attestation, resource, auth, policy, etc.;
 //! Provider traits define the interface; concrete implementations are injected at startup.
 
+pub mod admin;
 mod attestation;
 pub mod auth;
 mod infra;
@@ -26,10 +27,11 @@ use std::sync::Arc;
 
 pub mod system;
 
+pub use admin::AdminManager;
 pub use attestation::{AttestationManager, AttestationProvider, BuiltinAttestationProvider, GtaRestProvider};
 pub use auth::{
     AdminAction, Auth, AuthContext, Authenticator, AuthzDecision, AuthzError, AuthzFacade,
-    AttestContext, BearerContext, RequiredRole, TokenType, AuthError,
+    AttestContext, BearerContext, RequiredRole, TokenType, AuthError, UserKeyProvider,
 };
 pub use policy::PolicyManager;
 pub use resource::{ResourceManager, ResourceProvider};
@@ -37,8 +39,9 @@ pub use infra::logging::init_logging;
 pub use infra::init_database;
 pub use infra::rdb;
 pub use rbs_api_types::config::{
-    AttestationBackendConfig, AttestationBackendMode, AttestationConfig, AttestationRestConfig,
-    AuthConfig, CoreConfig, LogRotationConfig, LoggingConfig, RotationCompression,
+    AdminConfig, AdminKeyConfig, AttestationBackendConfig, AttestationBackendMode, AttestationConfig,
+    AttestationRestConfig, AuthConfig, CoreConfig, LogRotationConfig, LoggingConfig,
+    RotationCompression,
 };
 pub use rbs_api_types::error::RbsError;
 pub use system::{BuildMetadata, RbsVersion, API_VERSION, SERVICE_NAME};
@@ -50,6 +53,7 @@ pub struct RbsCore {
     attestation: AttestationManager,
     resource: ResourceManager,
     policy: PolicyManager,
+    admin: AdminManager,
 }
 
 impl std::fmt::Debug for RbsCore {
@@ -58,6 +62,7 @@ impl std::fmt::Debug for RbsCore {
             .field("attestation", &self.attestation)
             .field("resource", &self.resource)
             .field("policy", &self.policy)
+            .field("admin", &self.admin)
             .finish()
     }
 }
@@ -71,11 +76,13 @@ impl RbsCore {
         attestation: AttestationManager,
         resource: ResourceManager,
         policy: PolicyManager,
+        admin: AdminManager,
     ) -> Self {
         Self {
             attestation,
             resource,
             policy,
+            admin,
         }
     }
 
@@ -95,6 +102,12 @@ impl RbsCore {
     #[must_use]
     pub fn policy(&self) -> &PolicyManager {
         &self.policy
+    }
+
+    /// Returns the admin / user management manager.
+    #[must_use]
+    pub fn admin(&self) -> &AdminManager {
+        &self.admin
     }
 
     /// System metadata API (version, etc.).
@@ -138,8 +151,9 @@ impl RbsCoreBuilder {
 
         let resource = ResourceManager::new();
         let policy = PolicyManager::new();
+        let admin = AdminManager::new(self.config.admin);
 
-        RbsCore::new(attestation, resource, policy)
+        RbsCore::new(attestation, resource, policy, admin)
     }
 }
 
@@ -149,6 +163,7 @@ impl Default for RbsCore {
             AttestationManager::default(),
             ResourceManager::default(),
             PolicyManager::default(),
+            AdminManager::new(AdminConfig::default()),
         )
     }
 }
