@@ -23,11 +23,7 @@ pub enum AuthzError {
 
     #[error("policy evaluation failed: {0}")]
     PolicyEvaluationFailed(String),
-}
 
-/// Authorization decision
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AuthzDecision {
-    Allow,
-    Deny,
+    #[error("AttestToken requires a policy to be provided")]
+    MissingPolicyForAttest,
 }

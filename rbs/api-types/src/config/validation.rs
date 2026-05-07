@@ -13,10 +13,10 @@
 //! Configuration validation for RBS.
 
 use super::{
-    AttestationBackendConfig, AttestationBackendMode, AttestationConfig, AttestationCredentials,
-    AttestationRestConfig, AttestTokenVerificationConfig, AuthConfig, Database,
-    JwtVerificationConfig, LogRotationConfig, LoggingConfig, PerIpRateLimitConfig, RestConfig,
-    RbsConfig,
+    AttestTokenVerificationConfig, AttestationBackendConfig, AttestationBackendMode, AttestationConfig,
+    AttestationCredentials, AttestationRestConfig, AuthConfig, Database
+    , LogRotationConfig, LoggingConfig, PerIpRateLimitConfig, RbsConfig,
+    RestConfig,
 };
 
 /// Maximum allowed file mode (octal). Files cannot have permissions beyond 0o7777

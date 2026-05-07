@@ -15,14 +15,16 @@
 use crate::auth::context::AuthContext;
 use serde_json::Value;
 
-use super::{AdminAction, AuthzDecision, AuthzError, AuthzFacade, RequiredRole};
+use super::{Action, AuthzError, AuthzFacade, RequiredRole};
 
 /// Fluent builder for constructing authorization requests
 pub struct AuthzRequestBuilder<'a> {
     facade: &'a AuthzFacade,
     ctx: &'a AuthContext,
-    action: Option<AdminAction>,
+    action: Option<Action>,
     required_role: RequiredRole,
+    owner: Option<&'a str>,
+    policy: Option<&'a str>,
 }
 
 impl<'a> AuthzRequestBuilder<'a> {
@@ -32,11 +34,13 @@ impl<'a> AuthzRequestBuilder<'a> {
             ctx,
             action: None,
             required_role: RequiredRole::UserScoped,
+            owner: None,
+            policy: None,
         }
     }
 
     /// Set action type
-    pub fn action(mut self, action: AdminAction) -> Self {
+    pub fn action(mut self, action: Action) -> Self {
         self.action = Some(action);
         self
     }
@@ -47,35 +51,61 @@ impl<'a> AuthzRequestBuilder<'a> {
         self
     }
 
-    /// Execute authorization and return decision
-    pub async fn evaluate(self) -> Result<AuthzDecision, AuthzError> {
-        self.facade.evaluate(self).await
+    /// Set resource owner for Bearer path ownership check
+    pub fn owner(mut self, owner: &'a str) -> Self {
+        self.owner = Some(owner);
+        self
+    }
+
+    /// Set Rego policy content for Attest path evaluation
+    pub fn policy(mut self, policy: &'a str) -> Self {
+        self.policy = Some(policy);
+        self
     }
 
     /// Execute authorization, return error on deny
     pub async fn ensure_allowed(self) -> Result<(), AuthzError> {
-        match self.evaluate().await? {
-            AuthzDecision::Allow => Ok(()),
-            AuthzDecision::Deny => Err(AuthzError::Denied),
-        }
+        self.facade.evaluate(self).await
     }
 
-    /// Build policy engine input
+    /// Build policy engine input for Bearer path
     pub(super) fn build_input(&self) -> Result<Value, AuthzError> {
-        let action = self.action.as_ref().ok_or(AuthzError::MissingField("action"))?;
+        let action = self
+            .action
+            .as_ref()
+            .ok_or(AuthzError::MissingField("action"))?;
 
-        Ok(serde_json::json!({
+        let mut input = serde_json::json!({
             "token_type": self.token_type_str(),
             "sub": self.sub(),
             "role": self.role(),
             "action": action.as_str(),
             "required_role": self.required_role.as_str(),
-        }))
+        });
+
+        if let Some(owner) = self.owner {
+            input["owner"] = serde_json::Value::String(owner.to_string());
+        }
+
+        Ok(input)
     }
 
-    /// Check if token is AttestToken
-    pub(super) fn is_attest_token(&self) -> bool {
-        matches!(self.ctx, AuthContext::Attest(_))
+    /// Access the stored policy content (for Attest path)
+    pub(super) fn policy_content(&self) -> Option<&str> {
+        self.policy
+    }
+
+    /// Check if current token context is Bearer type
+    pub(super) fn is_bearer(&self) -> bool {
+        matches!(&self.ctx, AuthContext::Bearer(_))
+    }
+
+    /// Access the raw claims from an Attest context
+    pub(super) fn attest_claims(&self) -> Option<&Value> {
+        match &self.ctx {
+            AuthContext::Attest(a) => Some(&a.claims),
+            AuthContext::Bearer(_) => None,
+        }
     }
 
     fn token_type_str(&self) -> &'static str {

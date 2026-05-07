@@ -22,7 +22,7 @@ use rbs_api_types::{
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set, TransactionTrait};
 use serde_json::Value;
 
-use crate::auth::{AdminAction, AuthContext, AuthzError, AuthzFacade, RequiredRole};
+use crate::auth::{Action, AuthContext, AuthzError, AuthzFacade, RequiredRole};
 use crate::infra::rdb::get_connection_from_pool;
 
 use super::entity::{
@@ -327,8 +327,6 @@ impl AdminManager {
         auth_alg: &str,
         max_users: u32,
     ) -> std::result::Result<UserModel, sea_orm::TransactionError<sea_orm::DbErr>> {
-        use sea_orm::ConnectionTrait;
-
         let user_id = generate_uuid();
         let now = now_iso8601();
         let role = req.role.as_deref().unwrap_or(ROLE_USER).to_string();
@@ -399,8 +397,6 @@ impl AdminManager {
         req: &UserUpdateRequest,
         key_material: &Option<(String, String)>,
     ) -> std::result::Result<UserModel, sea_orm::TransactionError<sea_orm::DbErr>> {
-        use sea_orm::ConnectionTrait;
-
         let username = username.to_string();
         let role = req.role.clone();
         let enabled = req.enabled;
@@ -448,7 +444,7 @@ impl AdminManager {
 
         let result = self.authz
             .check(auth_ctx)
-            .action(AdminAction::List)
+            .action(Action::List)
             .required_role(RequiredRole::AdminOnly)
             .ensure_allowed()
             .await;
@@ -475,7 +471,7 @@ impl AdminManager {
         log::info!("[DEBUG] require_enabled_bearer: starting authz check");
         let result = self.authz
             .check(auth_ctx)
-            .action(AdminAction::Get)
+            .action(Action::Get)
             .required_role(RequiredRole::UserScoped)
             .ensure_allowed()
             .await;

@@ -30,7 +30,7 @@ pub mod system;
 pub use admin::AdminManager;
 pub use attestation::{AttestationManager, AttestationProvider, BuiltinAttestationProvider, GtaRestProvider};
 pub use auth::{
-    AdminAction, Auth, AuthContext, Authenticator, AuthzDecision, AuthzError, AuthzFacade,
+    Action, Auth, AuthContext, Authenticator, AuthzError, AuthzFacade,
     AttestContext, BearerContext, RequiredRole, TokenType, AuthError, UserKeyProvider,
 };
 pub use policy::PolicyManager;

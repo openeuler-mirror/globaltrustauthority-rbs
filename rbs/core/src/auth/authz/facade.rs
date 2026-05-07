@@ -12,10 +12,11 @@
 
 //! Authorization facade implementation.
 
+use crate::auth::context::AuthContext;
 use crate::policy_engine::evaluate_policy;
 
 use super::builder::AuthzRequestBuilder;
-use super::{AuthzDecision, AuthzError};
+use super::AuthzError;
 
 /// Admin policy Rego content
 const ADMIN_POLICY: &str = include_str!("../policies/admin_policy.rego");
@@ -30,19 +31,27 @@ impl AuthzFacade {
     }
 
     /// Start building authorization request
-    pub fn check<'a>(&'a self, ctx: &'a crate::auth::context::AuthContext) -> AuthzRequestBuilder<'a> {
+    pub fn check<'a>(&'a self, ctx: &'a AuthContext) -> AuthzRequestBuilder<'a> {
         AuthzRequestBuilder::new(self, ctx)
     }
 
     /// Execute authorization
-    pub(super) async fn evaluate(&self, builder: AuthzRequestBuilder<'_>) -> Result<AuthzDecision, AuthzError> {
-        // AttestToken not allowed for admin operations
-        if builder.is_attest_token() {
-            return Ok(AuthzDecision::Deny);
+    pub(super) async fn evaluate(
+        &self,
+        builder: AuthzRequestBuilder<'_>,
+    ) -> Result<(), AuthzError> {
+        if builder.is_bearer() {
+            let input = builder.build_input()?;
+            evaluate_policy_generic(&input, ADMIN_POLICY)
+        } else {
+            let claims = builder
+                .attest_claims()
+                .ok_or(AuthzError::MissingPolicyForAttest)?;
+            let policy = builder
+                .policy_content()
+                .ok_or(AuthzError::MissingPolicyForAttest)?;
+            evaluate_policy_generic(claims, policy)
         }
-
-        let input = builder.build_input()?;
-        evaluate_policy_generic(&input, ADMIN_POLICY)
     }
 }
 
@@ -52,7 +61,10 @@ impl Default for AuthzFacade {
     }
 }
 
-fn evaluate_policy_generic(input: &serde_json::Value, policy: &str) -> Result<AuthzDecision, AuthzError> {
+fn evaluate_policy_generic(
+    input: &serde_json::Value,
+    policy: &str,
+) -> Result<(), AuthzError> {
     match evaluate_policy(input, policy, true) {
         Ok(result) => {
             let matched = result
@@ -60,9 +72,9 @@ fn evaluate_policy_generic(input: &serde_json::Value, policy: &str) -> Result<Au
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
             if matched {
-                Ok(AuthzDecision::Allow)
+                Ok(())
             } else {
-                Ok(AuthzDecision::Deny)
+                Err(AuthzError::Denied)
             }
         }
         Err(e) => Err(AuthzError::PolicyEvaluationFailed(e.to_string())),

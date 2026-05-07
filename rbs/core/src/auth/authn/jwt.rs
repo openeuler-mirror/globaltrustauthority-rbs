@@ -17,12 +17,12 @@
 
 use std::sync::Arc;
 
+use crate::auth::authn::signature::{decode_jwt_part, verify_jwt_signature};
 use crate::auth::authn::UserKeyProvider;
 use crate::auth::context::{BearerContext, TokenType};
 use crate::auth::error::AuthError;
-use crate::auth::authn::signature::{decode_jwt_part, verify_jwt_signature};
 use chrono::Utc;
-use openssl::pkey::{PKey, Public};
+use openssl::pkey::PKey;
 use rbs_api_types::config::JwtVerificationConfig;
 use serde_json::Value;
 
