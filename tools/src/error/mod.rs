@@ -1,6 +1,6 @@
 /*
  * Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
- * Global Trust Authority is licensed under the Mulan PSL v2.
+ * Global Trust Authority Resource Broker Service is licensed under the Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *     http://license.coscl.org.cn/MulanPSL2
@@ -10,6 +10,7 @@
  * See the Mulan PSL v2 for more details.
  */
 
+use rbs_admin_client::RbsAdminClientError;
 use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, CliError>;
@@ -36,4 +37,10 @@ pub enum CliError {
 
     #[error(transparent)]
     Clap(#[from] clap::Error),
+
+    #[error("{0}")]
+    RequestError(#[from] RbsAdminClientError),
+
+    #[error("{0}")]
+    FileReadError(String),
 }

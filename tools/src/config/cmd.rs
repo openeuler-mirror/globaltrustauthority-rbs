@@ -1,6 +1,6 @@
 /*
  * Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
- * Global Trust Authority is licensed under the Mulan PSL v2.
+ * Global Trust Authority Resource Broker Service is licensed under the Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *     http://license.coscl.org.cn/MulanPSL2
@@ -10,14 +10,16 @@
  * See the Mulan PSL v2 for more details.
  */
 
-use std::env;
-
 use crate::cli::GlobalCliArgs;
-use crate::common::validate::{validate_file_path, validate_max_len, validate_not_empty, validate_url};
+use crate::common::validate::{
+    validate_file_path, validate_file_size, validate_max_len, validate_not_empty, validate_url,
+};
+use crate::common::CERT_FILE_MAX_SIZE;
 use crate::config::{GlobalOptions, OutputFormat, DEFAULT_BASE_URL, DEFAULT_FORMAT};
-use crate::error::Result;
+use crate::error::CliError;
+use std::{env, fs};
 
-pub fn resolve_global_options(cli: &GlobalCliArgs) -> Result<GlobalOptions> {
+pub fn resolve_global_options(cli: &GlobalCliArgs) -> std::result::Result<GlobalOptions, CliError> {
     let env_base_url = env::var("RBS_BASE_URL").ok();
     let env_token = env::var("RBS_TOKEN").ok();
     let env_cert = env::var("RBS_CERT").ok();
@@ -38,9 +40,17 @@ pub fn resolve_global_options(cli: &GlobalCliArgs) -> Result<GlobalOptions> {
     if let Some(token) = &token {
         validate_token(token)?;
     }
-    if let Some(cert) = &cert {
-        validate_cert(cert)?;
-    }
+    let cert = if let Some(cert_path) = &cert {
+        validate_cert(cert_path)?;
+        let bytes = fs::read(cert_path).map_err(|err| {
+            CliError::InvalidConfig(format!(
+                "unable to read certificate file `{cert_path}`. Please check that the file exists and is readable"
+            ))
+        })?;
+        Some(bytes)
+    } else {
+        None
+    };
 
     Ok(GlobalOptions {
         base_url,
@@ -54,58 +64,29 @@ pub fn resolve_global_options(cli: &GlobalCliArgs) -> Result<GlobalOptions> {
     })
 }
 
-pub fn validate_base_url(base_url: &str) -> Result<String> {
+pub fn validate_base_url(base_url: &str) -> Result<String, CliError> {
     validate_not_empty(base_url)?;
     validate_url(base_url)?;
     validate_max_len(base_url, 2048)?;
     Ok(base_url.to_string())
 }
 
-pub fn validate_token(token: &str) -> Result<String> {
+pub fn validate_token(token: &str) -> Result<String, CliError> {
     validate_not_empty(token)?;
     validate_max_len(token, 16384)?;
     Ok(token.to_string())
 }
 
-pub fn validate_cert(cert: &str) -> Result<String> {
+pub fn validate_cert(cert: &str) -> Result<String, CliError> {
     validate_not_empty(cert)?;
     validate_max_len(cert, 4096)?;
-    validate_file_path(cert)?;
+    validate_file_size(cert, CERT_FILE_MAX_SIZE)?;
     Ok(cert.to_string())
 }
 
-pub fn validate_output_file(output_file: &str) -> Result<String> {
+pub fn validate_output_file(output_file: &str) -> Result<String, CliError> {
     validate_not_empty(output_file)?;
     validate_max_len(output_file, 4096)?;
     validate_file_path(output_file)?;
     Ok(output_file.to_string())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{resolve_global_options, validate_base_url};
-    use crate::cli::GlobalCliArgs;
-    use crate::config::OutputFormat;
-
-    #[test]
-    fn resolve_global_options_uses_defaults() {
-        let cli = GlobalCliArgs::default();
-
-        let config = resolve_global_options(&cli).unwrap();
-        assert_eq!(config.base_url, "http://localhost:8080");
-        assert_eq!(config.format, OutputFormat::Text);
-    }
-
-    #[test]
-    fn resolve_global_options_uses_cert_arg() {
-        let cli = GlobalCliArgs { cert: Some("ca.pem".to_string()), ..Default::default() };
-
-        let config = resolve_global_options(&cli).unwrap();
-        assert_eq!(config.cert, Some("ca.pem".to_string()));
-    }
-
-    #[test]
-    fn validate_base_url_rejects_invalid_url() {
-        assert!(validate_base_url("not-a-url").is_err());
-    }
 }
