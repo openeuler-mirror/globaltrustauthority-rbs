@@ -1,6 +1,6 @@
 /*
  * Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
- * Global Trust Authority is licensed under the Mulan PSL v2.
+ * Global Trust Authority Resource Broker Service is licensed under the Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *     http://license.coscl.org.cn/MulanPSL2
@@ -17,8 +17,8 @@ use crate::error::CliError;
 pub mod cmd;
 
 #[derive(Serialize, Debug)]
-pub(crate) struct Token {
-    pub(crate) token: String,
+pub struct Token {
+    pub token: String,
 }
 
 impl Formatter for Token {

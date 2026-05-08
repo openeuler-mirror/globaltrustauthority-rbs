@@ -10,12 +10,11 @@
  * See the Mulan PSL v2 for more details.
  */
 
-use crate::cli::GlobalCliArgs;
 use crate::common::validate::{
     validate_file_path, validate_file_size, validate_max_len, validate_not_empty, validate_url,
 };
 use crate::common::CERT_FILE_MAX_SIZE;
-use crate::config::{GlobalOptions, OutputFormat, DEFAULT_BASE_URL, DEFAULT_FORMAT};
+use crate::config::{GlobalCliArgs, GlobalOptions, OutputFormat, DEFAULT_BASE_URL, DEFAULT_FORMAT};
 use crate::error::CliError;
 use std::{env, fs};
 
@@ -34,15 +33,15 @@ pub fn resolve_global_options(cli: &GlobalCliArgs) -> std::result::Result<Global
         env_format.unwrap_or_else(|| DEFAULT_FORMAT.to_string()).parse::<OutputFormat>().unwrap_or(OutputFormat::Text)
     });
     let token = cli.token.clone().or_else(|| env_token);
-    let cert = cli.cert.clone().or_else(|| env_cert);
+    let cert_path = cli.cert.clone().or_else(|| env_cert);
 
     validate_base_url(&base_url)?;
     if let Some(token) = &token {
         validate_token(token)?;
     }
-    let cert = if let Some(cert_path) = &cert {
+    let cert = if let Some(cert_path) = &cert_path {
         validate_cert(cert_path)?;
-        let bytes = fs::read(cert_path).map_err(|err| {
+        let bytes = fs::read(cert_path).map_err(|_err| {
             CliError::InvalidConfig(format!(
                 "unable to read certificate file `{cert_path}`. Please check that the file exists and is readable"
             ))
@@ -56,6 +55,7 @@ pub fn resolve_global_options(cli: &GlobalCliArgs) -> std::result::Result<Global
         base_url,
         token,
         cert,
+        cert_path,
         format,
         output_file: cli.output_file.clone(),
         verbose: cli.verbose,

@@ -60,6 +60,22 @@ pub fn validate_string_max_len(value: &str, max: usize) -> Result<String, CliErr
     Ok(value.to_string())
 }
 
+pub fn validate_trimmed_string_max_len(value: &str, max: usize, field_name: &str) -> Result<String, CliError> {
+    validate_max_len(value, max)?;
+    if value.trim().is_empty() {
+        return Err(CliError::InvalidArgument(format!("{field_name} must not be empty")));
+    }
+    Ok(value.to_string())
+}
+
+pub fn validate_resource_segment(value: &str, max: usize) -> Result<String, CliError> {
+    validate_max_len(value, max)?;
+    if value.trim().is_empty() || value.contains('/') {
+        return Err(CliError::InvalidArgument("resource path segment must not be empty or contain `/`".to_string()));
+    }
+    Ok(value.to_string())
+}
+
 pub fn validate_not_empty(value: &str) -> Result<(), CliError> {
     if value.is_empty() {
         return Err(CliError::InvalidArgument("value is empty".to_string()));
@@ -91,7 +107,7 @@ pub fn validate_file_path(file_path: &str) -> Result<String, CliError> {
 
 pub fn validate_file_size(file_path: &str, max_size: u64) -> Result<String, CliError> {
     validate_file_path(file_path)?;
-    let file_metadata = fs::metadata(file_path).map_err(|err| {
+    let file_metadata = fs::metadata(file_path).map_err(|_err| {
         CliError::FileReadError(format!(
             "unable to access file `{file_path}`. Please check that the file exists and is readable"
         ))
@@ -114,7 +130,7 @@ pub fn validate_url(url: &str) -> Result<(), CliError> {
     }
     url.parse::<reqwest::Url>()
         .map(|_| ())
-        .map_err(|err| CliError::InvalidArgument(format!("invalid url `{url}`. Please check the URL format")))
+        .map_err(|_err| CliError::InvalidArgument(format!("invalid url `{url}`. Please check the URL format")))
 }
 
 pub fn validate_cert_file(file_path: &str) -> Result<String, CliError> {

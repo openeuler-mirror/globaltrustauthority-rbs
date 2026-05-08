@@ -12,6 +12,7 @@
 use async_trait::async_trait;
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::client::AdminClient;
 use crate::error::RbsAdminClientError;
@@ -24,53 +25,56 @@ pub struct UserClient {
     client: AdminClient,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct JwtVerification {
-    pub public_key: Option<String>,
-    pub jwks_uri: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CreateUserRequest {
     pub username: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
     pub auth_type: String,
-    pub role: Option<String>,
-    pub jwt_verification: Option<JwtVerification>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub public_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jwk: Option<Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct UpdateUserRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
-    pub jwt_verification: Option<JwtVerification>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ListUsersParams {
-    pub role: Option<String>,
-    pub enabled: Option<bool>,
-    pub limit: u32,
-    pub offset: u32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct User {
-    pub id: Option<String>,
-    pub username: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub auth_type: Option<String>,
-    pub role: Option<String>,
-    pub enabled: Option<bool>,
-    pub jwt_verification: Option<JwtVerification>,
-    pub created_at: Option<String>,
-    pub updated_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub public_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jwk: Option<Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UserListResponse {
-    pub users: Vec<User>,
-    pub total_count: u64,
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct ListUsersParams {
     pub limit: u64,
     pub offset: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct User {
+    pub id: String,
+    pub username: String,
+    pub role: String,
+    pub enabled: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UserListResponse {
+    pub items: Vec<User>,
+    pub total_count: i64,
+    pub limit: i64,
+    pub offset: i64,
 }
 
 #[async_trait]
@@ -114,7 +118,7 @@ impl UserService for UserClient {
         let url = self.client.base_url.join(format!("{}/{}", USERS_PATH, username).as_str()).map_err(|_| {
             RbsAdminClientError::ClientError("base URL cannot be used to build user item path".to_string())
         })?;
-        send_json(&self.client, Method::PATCH, url, Some(request)).await
+        send_json(&self.client, Method::PUT, url, Some(request)).await
     }
 
     async fn list(&self, params: &ListUsersParams) -> Result<UserListResponse, RbsAdminClientError> {
@@ -125,12 +129,6 @@ impl UserService for UserClient {
             .map_err(|_| RbsAdminClientError::ClientError("failed to build users collection URL".to_string()))?;
         {
             let mut query = url.query_pairs_mut();
-            if let Some(role) = &params.role {
-                query.append_pair("role", role.as_str());
-            }
-            if let Some(enabled) = params.enabled {
-                query.append_pair("enabled", if enabled { "true" } else { "false" });
-            }
             query.append_pair("limit", &params.limit.to_string());
             query.append_pair("offset", &params.offset.to_string());
         }

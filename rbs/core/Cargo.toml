@@ -28,3 +28,4 @@ policy_engine = { git = "https://gitcode.com/openeuler/global-trust-authority", 
 tempfile = "3"
 # Used by `logging_init_stderr` (Unix) to redirect stderr and assert log output.
 libc = "0.2"
+serial_test = "3"

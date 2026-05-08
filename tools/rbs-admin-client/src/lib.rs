@@ -22,10 +22,7 @@ use serde::Serialize;
 
 pub use client::AdminClient;
 pub use error::RbsAdminClientError;
-pub use user::{
-    CreateUserRequest, JwtVerification, ListUsersParams, UpdateUserRequest, User, UserClient, UserListResponse,
-    UserService,
-};
+pub use user::{CreateUserRequest, ListUsersParams, UpdateUserRequest, User, UserClient, UserListResponse, UserService};
 
 pub(crate) async fn send_empty(
     client: &crate::client::AdminClient,
