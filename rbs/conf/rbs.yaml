@@ -29,18 +29,19 @@ rest:
 # New admins: registered via Admin API (POST /rbs/v0/admin/users); their public_key/jwks_uri stored in user data.
 
 # Authentication configuration
+# BearerToken user public keys come from Admin API (stored in DB), not from this file.
 auth:
-  # jwks_file and public_key_path are mutually exclusive (only one is required)
-  # Bearer JWT verification
-  bearer_token:
-    # public_key_path: "/etc/rbs/bearer_pub.pem"
-    jwks_file: "/etc/rbs/bearer.jwk"
-    issuer: "https://auth.example.com"
-  # AttestToken verification
+  # AttestToken verification (public key from config file)
   attest_token:
     # public_key_path: "/etc/rbs/attest_pub.pem"
     jwks_file: "/etc/rbs/attest.jwk"
     issuer: "Global Trust Authority"
+
+# Admin / user management configuration
+admin:
+  max_users: 10
+  admin_key:
+    public_key_path: "/etc/rbs/admin_pub.pem"   # PEM format (or jwks_file for JWK format)
 
 # Logging (default: file + rotation for RPM install; set file_path to empty or remove to use stderr only)
 logging:

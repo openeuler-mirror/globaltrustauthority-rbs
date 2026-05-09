@@ -53,10 +53,10 @@ pub use auth::{
 
 // Re-export types from config module
 pub use config::{
-    AttestationBackendConfig, AttestationBackendMode, AttestationBuiltinConfig, AttestationConfig,
-    AttestationRestConfig, CoreConfig, Database, LogRotationConfig, LoggingConfig,
-    PerIpRateLimitConfig, RestConfig, RestHttpsConfig, RbsConfig, RotationCompression, Sensitive,
-    TrustedProxyConfig,
+    AdminConfig, AdminKeyConfig, AttestationBackendConfig, AttestationBackendMode,
+    AttestationBuiltinConfig, AttestationConfig, AttestationRestConfig, CoreConfig, Database,
+    LogRotationConfig, LoggingConfig, PerIpRateLimitConfig, RestConfig, RestHttpsConfig,
+    RbsConfig, RotationCompression, Sensitive, TrustedProxyConfig,
 };
 
 // Re-export constants from constants module
@@ -78,4 +78,4 @@ pub use resource::{
 pub use openapi::{BuildMetadata, ErrorBody, RbsVersion};
 
 // Re-export types from user module
-pub use user::{UserCreateRequest, UserListResponse, UserResponse, UserUpdateRequest};
+pub use user::{AuthType, Role, UserCreateRequest, UserListResponse, UserResponse, UserUpdateRequest};

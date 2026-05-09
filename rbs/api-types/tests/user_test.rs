@@ -13,51 +13,96 @@
 //! Integration tests for user types.
 
 use rbs_api_types::{
-    UserCreateRequest, UserListResponse, UserResponse, UserUpdateRequest,
+    AuthType, Role, UserCreateRequest, UserListResponse, UserResponse, UserUpdateRequest,
 };
 
 #[test]
 fn test_user_create_request() {
     let json = serde_json::json!({
         "username": "alice",
-        "roles": ["administrator"]
+        "auth_type": "jwt",
+        "public_key": "-----BEGIN PUBLIC KEY-----\ntest\n-----END PUBLIC KEY-----"
     });
     let req: UserCreateRequest = serde_json::from_value(json).unwrap();
     assert_eq!(req.username, "alice");
-    assert_eq!(
-        req.roles.as_deref(),
-        Some(&["administrator".to_string()][..])
-    );
+    assert_eq!(req.auth_type, AuthType::Jwt);
+    assert!(req.public_key.is_some());
+    assert!(req.role.is_none());
+    assert!(req.enabled.is_none());
+}
+
+#[test]
+fn test_user_create_request_with_role() {
+    let json = serde_json::json!({
+        "username": "alice",
+        "auth_type": "jwt",
+        "public_key": "-----BEGIN PUBLIC KEY-----\ntest\n-----END PUBLIC KEY-----",
+        "role": "user",
+        "enabled": true
+    });
+    let req: UserCreateRequest = serde_json::from_value(json).unwrap();
+    assert_eq!(req.role, Some(Role::User));
+    assert_eq!(req.enabled, Some(true));
 }
 
 #[test]
 fn test_user_update_request() {
     let json = serde_json::json!({
-        "enabled": false,
-        "roles": ["operator"]
+        "enabled": false
     });
     let req: UserUpdateRequest = serde_json::from_value(json).unwrap();
     assert_eq!(req.enabled, Some(false));
-    assert_eq!(req.roles.as_deref(), Some(&["operator".to_string()][..]));
+    assert!(req.role.is_none());
+    assert!(req.auth_type.is_none());
+    assert!(req.public_key.is_none());
+    assert!(req.jwk.is_none());
+}
+
+#[test]
+fn test_user_update_request_role() {
+    let json = serde_json::json!({
+        "role": "user",
+        "auth_type": "jwt",
+        "public_key": "-----BEGIN PUBLIC KEY-----\ntest\n-----END PUBLIC KEY-----"
+    });
+    let req: UserUpdateRequest = serde_json::from_value(json).unwrap();
+    assert_eq!(req.role, Some(Role::User));
+    assert!(req.public_key.is_some());
 }
 
 #[test]
 fn test_user_response() {
     let json = serde_json::json!({
         "id": "user-123",
-        "username": "bob"
+        "username": "bob",
+        "role": "user",
+        "enabled": true,
+        "created_at": "2026-05-05T10:00:00Z",
+        "updated_at": "2026-05-05T10:00:00Z"
     });
     let resp: UserResponse = serde_json::from_value(json).unwrap();
     assert_eq!(resp.id, "user-123");
     assert_eq!(resp.username, "bob");
+    assert_eq!(resp.role, Role::User);
+    assert!(resp.enabled);
 }
 
 #[test]
 fn test_user_list_response() {
     let json = serde_json::json!({
         "items": [
-            {"id": "1", "username": "alice"},
-            {"id": "2", "username": "bob"}
+            {
+                "id": "1", "username": "alice",
+                "role": "user", "enabled": true,
+                "created_at": "2026-01-01T00:00:00Z",
+                "updated_at": "2026-01-01T00:00:00Z"
+            },
+            {
+                "id": "2", "username": "bob",
+                "role": "user", "enabled": true,
+                "created_at": "2026-01-01T00:00:00Z",
+                "updated_at": "2026-01-01T00:00:00Z"
+            }
         ],
         "total_count": 10,
         "limit": 2,

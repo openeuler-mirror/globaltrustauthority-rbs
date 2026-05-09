@@ -18,6 +18,16 @@ pub mod jwks;
 pub mod signature;
 pub mod token;
 
+use async_trait::async_trait;
+use crate::auth::error::AuthError;
+
 pub use authenticator::{Auth, Authenticator};
 pub use jwt::JwtVerifier;
 pub use token::AttestTokenVerifier;
+
+/// Provides a per-user public key (PEM) for BearerToken signature verification.
+#[async_trait]
+pub trait UserKeyProvider: Send + Sync + std::fmt::Debug {
+    /// Look up the PEM-encoded public key for the given user `sub`.
+    async fn get_public_key(&self, sub: &str) -> Result<String, AuthError>;
+}

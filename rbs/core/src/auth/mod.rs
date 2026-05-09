@@ -18,7 +18,7 @@ pub mod context;
 pub mod error;
 
 // Re-export auth module types
-pub use authn::{Auth, Authenticator, AttestTokenVerifier, JwtVerifier};
-pub use authz::{AdminAction, AuthzDecision, AuthzError, AuthzFacade, RequiredRole};
+pub use authn::{Auth, Authenticator, AttestTokenVerifier, JwtVerifier, UserKeyProvider};
+pub use authz::{Action, AuthzError, AuthzFacade, RequiredRole};
 pub use context::{AttestContext, AuthContext, BearerContext, TokenType};
 pub use error::AuthError;

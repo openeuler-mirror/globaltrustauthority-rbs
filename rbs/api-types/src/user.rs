@@ -10,60 +10,157 @@
  * See the Mulan PSL v2 for more details.
  */
 
-//! User management types.
-//!
-//! Covers user creation, update, retrieval, and listing.
+//! User management types with validation.
 
 use serde::{Deserialize, Serialize};
-use serde_json::Map;
+use serde_json::Value;
+use validator::Validate;
 
-/// Request body for POST /rbs/v0/users (create user).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+use crate::error::RbsError;
+
+// ── Enums ──
+
+/// User role. `Admin` is pre-configured and cannot be created via the API.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
-pub struct UserCreateRequest {
-    /// Login or unique handle (encoding per deployment).
-    pub username: String,
-
-    /// Optional role names (e.g. administrator); default roles are deployment-specific.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub roles: Option<Vec<String>>,
+pub enum Role {
+    Admin,
+    User,
 }
 
-/// Request body for PUT /rbs/v0/users/{user_id} (update user).
-///
-/// Only supplied fields are changed (semantics per implementation).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Authentication type. Add new types here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
-pub struct UserUpdateRequest {
-    /// New login name (if supported by implementation).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub username: Option<String>,
+pub enum AuthType {
+    Jwt,
+}
 
-    /// Replace or merge roles (semantics per implementation).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub roles: Option<Vec<String>>,
+// ── Request / response types ──
 
-    /// Whether the account can authenticate, if supported.
+/// Request body for POST /rbs/v0/users (create user).
+#[derive(Debug, Clone, Serialize, Deserialize, Validate, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct UserCreateRequest {
+    /// Login or unique handle. Immutable.
+    #[validate(length(min = 1, max = 36), custom(function = "validate_username_chars"))]
+    pub username: String,
+
+    /// Optional role; only `user` is allowed via API (admin is pre-configured).
+    #[validate(custom(function = "validate_create_role"))]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<Role>,
+
+    /// Whether the account is enabled.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
 
-    /// Optional JWT verification material (JWKS URI, public key, etc.) when supported.
+    /// Authentication type.
+    pub auth_type: AuthType,
+
+    /// PEM-encoded public key (mutually exclusive with `jwk`).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub jwt_verification: Option<Map<String, serde_json::Value>>,
+    pub public_key: Option<String>,
+
+    /// JWK public key object (mutually exclusive with `public_key`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jwk: Option<Value>,
 }
 
-/// Response for user retrieval and creation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+impl UserCreateRequest {
+    /// Cross-field validation: `public_key` / `jwk` mutual exclusion.
+    pub fn validate_key_pair(&self) -> Result<(), RbsError> {
+        let has_pk = self.public_key.as_deref().map_or(false, |s| !s.is_empty());
+        let has_jwk = self.jwk.is_some();
+
+        if !has_pk && !has_jwk {
+            return Err(RbsError::InvalidParameter(
+                "Must provide either public_key or jwk".to_string(),
+            ));
+        }
+        if has_pk && has_jwk {
+            return Err(RbsError::InvalidParameter(
+                "public_key and jwk are mutually exclusive".to_string(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Request body for PUT /rbs/v0/users/{username} (update user).
+///
+/// All fields are optional, but at least one must be provided.
+/// `username` is NOT in the request body — it is immutable.
+#[derive(Debug, Clone, Serialize, Deserialize, Validate, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct UserUpdateRequest {
+    /// New role (admin users only).
+    #[validate(custom(function = "validate_update_role"))]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<Role>,
+
+    /// Whether the account can authenticate.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+
+    /// Authentication type.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth_type: Option<AuthType>,
+
+    /// PEM-encoded public key (mutually exclusive with `jwk`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub public_key: Option<String>,
+
+    /// JWK public key object (mutually exclusive with `public_key`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jwk: Option<Value>,
+}
+
+impl UserUpdateRequest {
+    /// Cross-field: at least one field required + public_key/jwk mutual exclusion.
+    pub fn validate_cross_fields(&self) -> Result<(), RbsError> {
+        if self.role.is_none()
+            && self.enabled.is_none()
+            && self.auth_type.is_none()
+            && self.public_key.is_none()
+            && self.jwk.is_none()
+        {
+            return Err(RbsError::InvalidParameter(
+                "At least one update field is required".to_string(),
+            ));
+        }
+
+        let has_pk = self.public_key.as_deref().map_or(false, |s| !s.is_empty());
+        let has_jwk = self.jwk.is_some();
+
+        if has_pk && has_jwk {
+            return Err(RbsError::InvalidParameter(
+                "public_key and jwk are mutually exclusive".to_string(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Response for user retrieval, creation, and update.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct UserResponse {
-    /// Stable user id (same as path `user_id` where applicable).
+    /// Stable user ID (UUID).
     pub id: String,
     /// Human-facing login or handle.
     pub username: String,
+    /// User role.
+    pub role: Role,
+    /// Whether the account is enabled.
+    pub enabled: bool,
+    /// Creation time (RFC 3339).
+    pub created_at: String,
+    /// Last modification time (RFC 3339).
+    pub updated_at: String,
 }
 
 /// Paginated response for GET /rbs/v0/users.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct UserListResponse {
     /// Page of users.
@@ -74,4 +171,97 @@ pub struct UserListResponse {
     pub limit: i64,
     /// Effective skip count (may mirror request `offset`).
     pub offset: i64,
+}
+
+// ── Validation helpers (used by #[validate]) ──
+
+fn validate_create_role(role: &Role) -> Result<(), validator::ValidationError> {
+    if *role == Role::Admin {
+        let mut err = validator::ValidationError::new("invalid_role");
+        err.message = Some("role must be 'user' (admin is pre-configured)".into());
+        Err(err)
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_update_role(role: &Role) -> Result<(), validator::ValidationError> {
+    // Both values are valid for update — whitelist check in AdminManager
+    // prevents self-update of role.
+    let _ = role;
+    Ok(())
+}
+
+fn validate_username_chars(username: &str) -> Result<(), validator::ValidationError> {
+    if username.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+        Ok(())
+    } else {
+        let mut err = validator::ValidationError::new("invalid_username");
+        err.message = Some("username must only contain [a-zA-Z0-9_-]".into());
+        Err(err)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_create_request_valid() {
+        let json = serde_json::json!({
+            "username": "alice",
+            "auth_type": "jwt",
+            "public_key": "key"
+        });
+        let req: UserCreateRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(req.auth_type, AuthType::Jwt);
+        assert!(validator::Validate::validate(&req).is_ok());
+        assert!(req.validate_key_pair().is_ok());
+    }
+
+    #[test]
+    fn test_create_request_role_admin_rejected() {
+        let json = serde_json::json!({
+            "username": "alice",
+            "auth_type": "jwt",
+            "role": "admin",
+            "public_key": "key"
+        });
+        let req: UserCreateRequest = serde_json::from_value(json).unwrap();
+        assert!(validator::Validate::validate(&req).is_err());
+    }
+
+    #[test]
+    fn test_create_request_missing_key() {
+        let json = serde_json::json!({
+            "username": "alice",
+            "auth_type": "jwt"
+        });
+        let req: UserCreateRequest = serde_json::from_value(json).unwrap();
+        assert!(validator::Validate::validate(&req).is_ok());
+        assert!(req.validate_key_pair().is_err());
+    }
+
+    #[test]
+    fn test_invalid_role_rejected_by_serde() {
+        let json = serde_json::json!({
+            "username": "alice",
+            "auth_type": "jwt",
+            "role": "superuser",
+            "public_key": "key"
+        });
+        let result: std::result::Result<UserCreateRequest, _> = serde_json::from_value(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_invalid_auth_type_rejected_by_serde() {
+        let json = serde_json::json!({
+            "username": "alice",
+            "auth_type": "invalid",
+            "public_key": "key"
+        });
+        let result: std::result::Result<UserCreateRequest, _> = serde_json::from_value(json);
+        assert!(result.is_err());
+    }
 }

@@ -1,27 +1,32 @@
 # Admin Authorization Policy
 # Rego policy for admin operations
-# Rules:
-# - AdminOnly: only admin role can execute
-# - UserScoped: BearerToken is sufficient
 
-package rbs.auth.admin
+package verification
 
-import future.keywords.if
+default allow = false
 
-default policy_matched = false
+# Owner field absent → no ownership check needed
+check_owner {
+    not input.owner
+}
 
-# AdminOnly: only admin can execute
-policy_matched = true {
+# Owner field present → sub must match
+check_owner {
+    input.owner
+    input.sub == input.owner
+}
+
+allow {
     input.token_type == "Bearer"
     input.required_role == "AdminOnly"
     input.role == "admin"
+    check_owner
 }
 
-# UserScoped: BearerToken is sufficient
-policy_matched = true {
+allow {
     input.token_type == "Bearer"
     input.required_role == "UserScoped"
+    check_owner
 }
 
-# Output result
-result = {"policy_matched": policy_matched}
+result = {"policy_matched": allow}

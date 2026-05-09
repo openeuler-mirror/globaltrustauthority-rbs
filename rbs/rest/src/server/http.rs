@@ -21,6 +21,7 @@ use rbs_core::auth::Auth;
 use anyhow::{bail, Context};
 use openssl::ssl::{SslAcceptor, SslAcceptorBuilder, SslFiletype, SslMethod};
 use rbs_api_types::config::{AuthConfig, RestConfig};
+use rbs_core::auth::UserKeyProvider;
 use rbs_core::{auth::Authenticator, RbsCore};
 use socket2::{Domain, Socket, Type};
 
@@ -60,12 +61,18 @@ pub struct Server {
     core: Arc<RbsCore>,
     rest_config: RestConfig,
     auth_config: AuthConfig,
+    key_provider: Arc<dyn UserKeyProvider>,
 }
 
 impl Server {
     #[must_use]
-    pub fn new(core: Arc<RbsCore>, rest_config: RestConfig, auth_config: AuthConfig) -> Self {
-        Self { core, rest_config, auth_config }
+    pub fn new(
+        core: Arc<RbsCore>,
+        rest_config: RestConfig,
+        auth_config: AuthConfig,
+        key_provider: Arc<dyn UserKeyProvider>,
+    ) -> Self {
+        Self { core, rest_config, auth_config, key_provider }
     }
 
     /// Binds to the configured listen address with the configured backlog; then call `.run().await?`.
@@ -100,7 +107,7 @@ impl Server {
         socket.set_nonblocking(true).with_context(|| "set nonblocking")?;
         let std_listener: std::net::TcpListener = socket.into();
 
-        Ok(BoundServer { std_listener, core: self.core, rest_config: self.rest_config, auth_config: self.auth_config })
+        Ok(BoundServer { std_listener, core: self.core, rest_config: self.rest_config, auth_config: self.auth_config, key_provider: self.key_provider })
     }
 }
 
@@ -111,6 +118,7 @@ pub struct BoundServer {
     core: Arc<RbsCore>,
     rest_config: RestConfig,
     auth_config: AuthConfig,
+    key_provider: Arc<dyn UserKeyProvider>,
 }
 
 impl BoundServer {
@@ -135,6 +143,7 @@ impl BoundServer {
         let core = self.core;
         let std_listener = self.std_listener;
         let auth_config = self.auth_config;
+        let key_provider = self.key_provider;
 
         #[cfg(feature = "per-ip-rate-limit")]
         let limiter_opt = if rest.rate_limit.enabled {
@@ -163,7 +172,7 @@ impl BoundServer {
 
         let app_factory = move || {
             // Create Authenticator for this worker
-            let authenticator = Authenticator::new(auth_config.clone())
+            let authenticator = Authenticator::new(auth_config.clone(), key_provider.clone())
                 .expect("failed to initialize authenticator: invalid auth configuration");
             let auth: Arc<dyn Auth> = Arc::new(authenticator);
 

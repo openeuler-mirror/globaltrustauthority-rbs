@@ -13,6 +13,248 @@ servers:
 - url: http://localhost:6666
   description: Default local development (see `rbs.yaml` `rest.listen_addr`)
 paths:
+  /rbs/v0/users:
+    get:
+      tags:
+      - Admin
+      summary: List users (admin only)
+      operationId: listUsers
+      parameters:
+      - name: limit
+        in: query
+        description: Page size (1..100, default 50)
+        required: false
+        schema:
+          type: integer
+          format: int64
+      - name: offset
+        in: query
+        description: Offset (>=0, default 0)
+        required: false
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: Paginated user list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserListResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+    post:
+      tags:
+      - Admin
+      summary: Create a user (admin only)
+      operationId: createUser
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserCreateRequest'
+        required: true
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '409':
+          description: Username already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+  /rbs/v0/users/{username}:
+    get:
+      tags:
+      - Admin
+      summary: Get a user (admin or self)
+      operationId: getUser
+      parameters:
+      - name: username
+        in: path
+        description: Username
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: User found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+    put:
+      tags:
+      - Admin
+      summary: Update a user (admin or self)
+      operationId: updateUser
+      parameters:
+      - name: username
+        in: path
+        description: Username
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserUpdateRequest'
+        required: true
+      responses:
+        '200':
+          description: User updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+    delete:
+      tags:
+      - Admin
+      summary: Delete a user (admin only)
+      operationId: deleteUser
+      parameters:
+      - name: username
+        in: path
+        description: Username
+        required: true
+        schema:
+          type: string
+      responses:
+        '204':
+          description: User deleted (no body)
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
   /rbs/version:
     get:
       tags:
@@ -30,6 +272,11 @@ paths:
       - {}
 components:
   schemas:
+    AuthType:
+      type: string
+      description: Authentication type. Add new types here.
+      enum:
+      - jwt
     BuildMetadata:
       type: object
       description: Build-time identity for the running binary.
@@ -80,6 +327,135 @@ components:
         build:
           $ref: '#/components/schemas/BuildMetadata'
           description: Build metadata (`version`, `git_hash`, `build_date`) for this binary; same shape as in the exported `OpenAPI` schema.
+    Role:
+      type: string
+      description: User role. `Admin` is pre-configured and cannot be created via the API.
+      enum:
+      - admin
+      - user
+    UserCreateRequest:
+      type: object
+      description: Request body for POST /rbs/v0/users (create user).
+      required:
+      - username
+      - auth_type
+      properties:
+        username:
+          type: string
+          description: Login or unique handle. Immutable.
+        role:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/Role'
+            description: Optional role; only `user` is allowed via API (admin is pre-configured).
+        enabled:
+          type:
+          - boolean
+          - 'null'
+          description: Whether the account is enabled.
+        auth_type:
+          $ref: '#/components/schemas/AuthType'
+          description: Authentication type.
+        public_key:
+          type:
+          - string
+          - 'null'
+          description: PEM-encoded public key (mutually exclusive with `jwk`).
+        jwk:
+          description: JWK public key object (mutually exclusive with `public_key`).
+    UserListResponse:
+      type: object
+      description: Paginated response for GET /rbs/v0/users.
+      required:
+      - items
+      - total_count
+      - limit
+      - offset
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserResponse'
+          description: Page of users.
+        total_count:
+          type: integer
+          format: int64
+          description: Total matching users (not only this page).
+        limit:
+          type: integer
+          format: int64
+          description: Effective page size (may mirror request `limit`).
+        offset:
+          type: integer
+          format: int64
+          description: Effective skip count (may mirror request `offset`).
+    UserResponse:
+      type: object
+      description: Response for user retrieval, creation, and update.
+      required:
+      - id
+      - username
+      - role
+      - enabled
+      - created_at
+      - updated_at
+      properties:
+        id:
+          type: string
+          description: Stable user ID (UUID).
+        username:
+          type: string
+          description: Human-facing login or handle.
+        role:
+          $ref: '#/components/schemas/Role'
+          description: User role.
+        enabled:
+          type: boolean
+          description: Whether the account is enabled.
+        created_at:
+          type: string
+          description: Creation time (RFC 3339).
+        updated_at:
+          type: string
+          description: Last modification time (RFC 3339).
+    UserUpdateRequest:
+      type: object
+      description: |-
+        Request body for PUT /rbs/v0/users/{username} (update user).
+
+        All fields are optional, but at least one must be provided.
+        `username` is NOT in the request body — it is immutable.
+      properties:
+        role:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/Role'
+            description: New role (admin users only).
+        enabled:
+          type:
+          - boolean
+          - 'null'
+          description: Whether the account can authenticate.
+        auth_type:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/AuthType'
+            description: Authentication type.
+        public_key:
+          type:
+          - string
+          - 'null'
+          description: PEM-encoded public key (mutually exclusive with `jwk`).
+        jwk:
+          description: JWK public key object (mutually exclusive with `public_key`).
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT Bearer Token. Obtain via Admin API or attestation.
 tags:
 - name: System
   description: '`RbsCore::system` — service identity and API/build version via `GET /rbs/version` (system metadata). Does not require authentication.'
+- name: Admin
+  description: User management CRUD — `GET/POST/PUT/DELETE /rbs/v0/users` (admin or self). Requires BearerToken.

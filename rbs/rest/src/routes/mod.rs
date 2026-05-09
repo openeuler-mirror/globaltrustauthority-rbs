@@ -14,6 +14,7 @@
 
 use actix_web::web;
 
+pub mod admin;
 pub mod auth;
 pub mod error;
 pub mod policy;
@@ -32,7 +33,13 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     .route("/resource/policy/{policy_id}", web::get().to(policy::get_policy))
     .route("/resource/policy/{policy_id}", web::put().to(policy::update_policy))
     .route("/resource/policy/{policy_id}", web::delete().to(policy::delete_policy))
-    // Resource routes
+    // Admin / user management routes (MUST be before wildcard routes)
+    .route("/users", web::get().to(admin::list_users))
+    .route("/users", web::post().to(admin::create_user))
+    .route("/users/{username}", web::get().to(admin::get_user))
+    .route("/users/{username}", web::put().to(admin::update_user))
+    .route("/users/{username}", web::delete().to(admin::delete_user))
+    // Resource routes (wildcard - must be last)
     .route("/{uri:.+}/info", web::get().to(resource::get_resource_info))
     .route("/{uri:.+}/retrieve", web::post().to(resource::retrieve_resource))
     .route("/{uri:.+}", web::get().to(resource::get_resource))

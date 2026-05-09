@@ -30,6 +30,7 @@ anyhow.workspace = true
 clap.workspace = true
 serde_yaml.workspace = true
 log.workspace = true
+async-trait.workspace = true
 
 [build-dependencies]
 rbs-rest = { path = "rest", optional = true }
@@ -39,4 +40,4 @@ serde_yaml.workspace = true
 anyhow.workspace = true
 
 [dev-dependencies]
-tempfile = "3"
+tempfile.workspace = true

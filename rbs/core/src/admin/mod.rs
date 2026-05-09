@@ -10,20 +10,13 @@
  * See the Mulan PSL v2 for more details.
  */
 
-//! Authorization errors.
+//! Admin module — user management (CRUD).
+//!
+//! `AdminManager` owns user lifecycle operations: list, create, get, update, delete,
+//! plus bootstrap of the pre-configured administrator on first start.
 
-/// Authorization errors
-#[derive(Debug, thiserror::Error)]
-pub enum AuthzError {
-    #[error("access denied")]
-    Denied,
+mod entity;
+mod key;
+mod manager;
 
-    #[error("missing required field: {0}")]
-    MissingField(&'static str),
-
-    #[error("policy evaluation failed: {0}")]
-    PolicyEvaluationFailed(String),
-
-    #[error("AttestToken requires a policy to be provided")]
-    MissingPolicyForAttest,
-}
+pub use manager::AdminManager;

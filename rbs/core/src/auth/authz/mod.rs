@@ -16,12 +16,12 @@ mod builder;
 mod error;
 mod facade;
 
-pub use error::{AuthzDecision, AuthzError};
+pub use error::AuthzError;
 pub use facade::AuthzFacade;
 
-/// Management operation types
+/// CRUD operation types
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AdminAction {
+pub enum Action {
     Create,
     Get,
     Update,
@@ -29,14 +29,14 @@ pub enum AdminAction {
     List,
 }
 
-impl AdminAction {
+impl Action {
     pub fn as_str(&self) -> &'static str {
         match self {
-            AdminAction::Create => "Create",
-            AdminAction::Get => "Get",
-            AdminAction::Update => "Update",
-            AdminAction::Delete => "Delete",
-            AdminAction::List => "List",
+            Action::Create => "Create",
+            Action::Get => "Get",
+            Action::Update => "Update",
+            Action::Delete => "Delete",
+            Action::List => "List",
         }
     }
 }

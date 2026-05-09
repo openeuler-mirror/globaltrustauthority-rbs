@@ -13,10 +13,10 @@
 //! Configuration validation for RBS.
 
 use super::{
-    AttestationBackendConfig, AttestationBackendMode, AttestationConfig, AttestationCredentials,
-    AttestationRestConfig, AttestTokenVerificationConfig, AuthConfig, Database,
-    JwtVerificationConfig, LogRotationConfig, LoggingConfig, PerIpRateLimitConfig, RestConfig,
-    RbsConfig,
+    AdminConfig, AdminKeyConfig, AttestTokenVerificationConfig, AttestationBackendConfig,
+    AttestationBackendMode, AttestationConfig, AttestationCredentials, AttestationRestConfig,
+    AuthConfig, Database, LogRotationConfig, LoggingConfig, PerIpRateLimitConfig, RbsConfig,
+    RestConfig,
 };
 
 /// Maximum allowed file mode (octal). Files cannot have permissions beyond 0o7777
@@ -527,30 +527,8 @@ impl Database {
     }
 }
 
-impl JwtVerificationConfig {
-    fn validate(&self) {
-        // jwks_file and public_key_path are mutually exclusive (at least one must be set)
-        let has_jwks_file = self.jwks_file.is_some();
-        let has_public_key_path = self.public_key_path.is_some();
-
-        let count = has_jwks_file as usize + has_public_key_path as usize;
-        if count == 0 {
-            panic!("auth.bearer_token must have either jwks_file or public_key_path configured");
-        }
-        if count > 1 {
-            panic!("auth.bearer_token jwks_file and public_key_path are mutually exclusive");
-        }
-
-        // issuer is required
-        if self.issuer.is_empty() {
-            panic!("auth.bearer_token.issuer must not be empty");
-        }
-    }
-}
-
 impl AttestTokenVerificationConfig {
     fn validate(&self) {
-        // jwks_file and public_key_path are mutually exclusive (at least one must be set)
         let has_jwks_file = self.jwks_file.is_some();
         let has_public_key_path = self.public_key_path.is_some();
 
@@ -562,7 +540,6 @@ impl AttestTokenVerificationConfig {
             panic!("auth.attest_token jwks_file and public_key_path are mutually exclusive");
         }
 
-        // issuer is required
         if self.issuer.is_empty() {
             panic!("auth.attest_token.issuer must not be empty");
         }
@@ -571,8 +548,33 @@ impl AttestTokenVerificationConfig {
 
 impl AuthConfig {
     fn validate(&self) {
-        self.bearer_token.validate();
         self.attest_token.validate();
+    }
+}
+
+impl AdminKeyConfig {
+    fn validate(&self) {
+        let has_pem = self.public_key_path.as_ref().map_or(false, |s| !s.is_empty());
+        let has_jwk = self.jwks_file.as_ref().map_or(false, |s| !s.is_empty());
+        let count = has_pem as usize + has_jwk as usize;
+        if count == 0 {
+            panic!("admin.admin_key must have either public_key_path or jwks_file configured");
+        }
+        if count > 1 {
+            panic!("admin.admin_key public_key_path and jwks_file are mutually exclusive");
+        }
+    }
+}
+
+impl AdminConfig {
+    fn validate(&self) {
+        if self.max_users < 1 || self.max_users > 100 {
+            panic!(
+                "admin.max_users must be in [1, 100], got {}",
+                self.max_users
+            );
+        }
+        self.admin_key.validate();
     }
 }
 
@@ -586,6 +588,7 @@ impl RbsConfig {
         self.logging.validate();
         self.attestation.validate();
         self.auth.validate();
+        self.admin.validate();
         if let Some(ref storage) = self.storage {
             storage.validate();
         }

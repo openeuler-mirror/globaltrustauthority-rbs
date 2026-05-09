@@ -118,7 +118,7 @@ impl Default for Database {
     }
 }
 
-/// Top-level run configuration (`rbs.yaml`). Only **`rest`**, **`logging`**, **`storage`**, **`attestation`**, and **`auth`** are deserialized;
+/// Top-level run configuration (`rbs.yaml`). Only **`rest`**, **`logging`**, **`storage`**, **`attestation`**, **`auth`**, and **`admin`** are deserialized;
 /// any other top-level key is rejected (`deny_unknown_fields`).
 ///
 /// In YAML, `rest` may be omitted or null (deserializes as `None`). The `rbs` binary's `load_config`
@@ -135,6 +135,8 @@ pub struct RbsConfig {
     pub attestation: AttestationConfig,
     #[serde(default)]
     pub auth: AuthConfig,
+    #[serde(default)]
+    pub admin: AdminConfig,
 }
 
 /// For programmatic use; YAML omitting `rest` deserializes to `None` via `default_rest_option`.
@@ -146,6 +148,7 @@ impl Default for RbsConfig {
             storage: None,
             attestation: AttestationConfig::default(),
             auth: AuthConfig::default(),
+            admin: AdminConfig::default(),
         }
     }
 }
@@ -172,6 +175,8 @@ pub struct CoreConfig {
     pub attestation: AttestationConfig,
     #[serde(default)]
     pub auth: AuthConfig,
+    #[serde(default)]
+    pub admin: AdminConfig,
 }
 
 impl Default for CoreConfig {
@@ -180,6 +185,7 @@ impl Default for CoreConfig {
             logging: LoggingConfig::default(),
             attestation: AttestationConfig::default(),
             auth: AuthConfig::default(),
+            admin: AdminConfig::default(),
         }
     }
 }
@@ -487,14 +493,43 @@ pub struct AttestTokenVerificationConfig {
     pub audience: Option<String>,
 }
 
-/// Authentication configuration (top-level)
+/// Authentication configuration (top-level).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AuthConfig {
-    /// Bearer JWT verification configuration
-    #[serde(default)]
-    pub bearer_token: JwtVerificationConfig,
     /// AttestToken verification configuration
     #[serde(default)]
     pub attest_token: AttestTokenVerificationConfig,
+}
+
+/// Admin / user management configuration.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AdminConfig {
+    /// Maximum number of regular users (1..=100).
+    #[serde(default = "default_max_users")]
+    pub max_users: u32,
+    /// Admin public key configuration (PEM file or JWK file, mutually exclusive).
+    pub admin_key: AdminKeyConfig,
+}
+
+fn default_max_users() -> u32 { 10 }
+
+impl Default for AdminConfig {
+    fn default() -> Self {
+        Self {
+            max_users: default_max_users(),
+            admin_key: AdminKeyConfig::default(),
+        }
+    }
+}
+
+/// Admin public key source (PEM file or JWK file, exactly one must be set).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AdminKeyConfig {
+    /// Path to PEM-encoded public key file (mutually exclusive with jwks_file).
+    pub public_key_path: Option<String>,
+    /// Path to JWK key file (mutually exclusive with public_key_path).
+    pub jwks_file: Option<String>,
 }
