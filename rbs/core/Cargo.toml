@@ -24,6 +24,7 @@ validator.workspace = true
 reqwest.workspace = true
 chrono.workspace = true
 openssl.workspace = true
+jsonwebtoken.workspace = true
 policy_engine = { git = "https://gitcode.com/openeuler/global-trust-authority", package = "policy_engine" }
 
 [dev-dependencies]

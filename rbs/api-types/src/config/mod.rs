@@ -462,18 +462,14 @@ where
     deserializer.deserialize_any(OctalModeVisitor)
 }
 
-/// Bearer JWT verification configuration
+/// BearerToken verification configuration
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
-pub struct JwtVerificationConfig {
-    /// Path to local JWKS file (mutually exclusive with public_key_path)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub jwks_file: Option<String>,
-    /// Path to PEM-encoded public key file (mutually exclusive with jwks_file)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub public_key_path: Option<String>,
+pub struct BearerTokenVerificationConfig {
     /// Expected issuer (token.iss claim, required)
     pub issuer: String,
+    /// Expected audience (token.aud claim, required)
+    pub audience: String,
 }
 
 /// AttestToken verification configuration
@@ -500,6 +496,9 @@ pub struct AuthConfig {
     /// AttestToken verification configuration
     #[serde(default)]
     pub attest_token: AttestTokenVerificationConfig,
+    /// BearerToken verification configuration (per-user keys from DB)
+    #[serde(default)]
+    pub bearer_token: BearerTokenVerificationConfig,
 }
 
 /// Admin / user management configuration.

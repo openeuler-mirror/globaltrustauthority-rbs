@@ -11,20 +11,19 @@
  */
 
 //! JWKS (JSON Web Key Set) parsing and key matching.
+//!
+//! Only RSA and OKP (Ed25519) key types are supported for signature verification.
 
 use crate::auth::error::AuthError;
 use base64::Engine;
-use openssl::bn::{BigNum, BigNumContext};
-use openssl::ec::{EcGroup, EcKey, EcPoint};
-use openssl::nid::Nid;
-use openssl::pkey::{PKey, Public};
+use openssl::bn::BigNum;
 use openssl::rsa::Rsa;
 use serde::Deserialize;
 
 /// A single JWK (JSON Web Key)
 #[derive(Debug, Clone, Deserialize)]
 pub struct Jwk {
-    /// Key type (RSA, EC, oct)
+    /// Key type (RSA, OKP)
     pub kty: String,
     /// Key ID (optional, used for matching)
     #[serde(default)]
@@ -38,15 +37,12 @@ pub struct Jwk {
     /// RSA public exponent (for RSA keys)
     #[serde(default)]
     pub e: Option<String>,
-    /// Elliptic curve (for EC keys)
+    /// Elliptic curve (for OKP keys: Ed25519)
     #[serde(default)]
     pub crv: Option<String>,
-    /// X coordinate (for EC keys)
+    /// X coordinate (for OKP keys)
     #[serde(default)]
     pub x: Option<String>,
-    /// Y coordinate (for EC keys)
-    #[serde(default)]
-    pub y: Option<String>,
 }
 
 /// A JWKS (JSON Web Key Set) containing multiple keys
@@ -66,81 +62,119 @@ pub fn find_key_by_kid<'a>(jwks: &'a Jwks, kid: &str) -> Option<&'a Jwk> {
     jwks.keys.iter().find(|k| k.kid.as_deref() == Some(kid))
 }
 
-/// Convert a JWK to an OpenSSL PKey
-pub fn jwk_to_pkey(jwk: &Jwk) -> Result<PKey<Public>, AuthError> {
+/// Convert a JWK to PEM-encoded public key bytes
+pub fn jwk_to_pem(jwk: &Jwk) -> Result<Vec<u8>, AuthError> {
     match jwk.kty.as_str() {
-        "RSA" => {
-            let n = jwk.n.as_ref()
-                .ok_or_else(|| AuthError::TokenInvalid { reason: "missing 'n' in RSA JWK".to_string() })?;
-            let e = jwk.e.as_ref()
-                .ok_or_else(|| AuthError::TokenInvalid { reason: "missing 'e' in RSA JWK".to_string() })?;
+        "RSA" => jwk_rsa_to_pem(jwk),
+        "OKP" => jwk_okp_to_pem(jwk),
+        _ => Err(AuthError::TokenInvalid {
+            reason: format!("unsupported key type: {}. Only RSA and OKP (Ed25519) are supported", jwk.kty)
+        }),
+    }
+}
 
-            let n_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
-                .decode(n)
-                .map_err(|e| AuthError::TokenInvalid { reason: format!("failed to decode 'n': {}", e) })?;
-            let e_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
-                .decode(e)
-                .map_err(|e| AuthError::TokenInvalid { reason: format!("failed to decode 'e': {}", e) })?;
+/// Convert RSA JWK to PEM
+fn jwk_rsa_to_pem(jwk: &Jwk) -> Result<Vec<u8>, AuthError> {
+    let n = jwk.n.as_ref()
+        .ok_or_else(|| AuthError::TokenInvalid { reason: "missing 'n' in RSA JWK".to_string() })?;
+    let e = jwk.e.as_ref()
+        .ok_or_else(|| AuthError::TokenInvalid { reason: "missing 'e' in RSA JWK".to_string() })?;
 
-            let n = BigNum::from_slice(&n_bytes)
-                .map_err(|e| AuthError::TokenInvalid { reason: format!("failed to create RSA modulus: {}", e) })?;
-            let e = BigNum::from_slice(&e_bytes)
-                .map_err(|e| AuthError::TokenInvalid { reason: format!("failed to create RSA exponent: {}", e) })?;
+    let n_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(n)
+        .map_err(|e| AuthError::TokenInvalid { reason: format!("failed to decode 'n': {}", e) })?;
+    let e_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(e)
+        .map_err(|e| AuthError::TokenInvalid { reason: format!("failed to decode 'e': {}", e) })?;
 
-            let rsa = Rsa::from_public_components(n, e)
-                .map_err(|e| AuthError::TokenInvalid { reason: format!("failed to create RSA key: {}", e) })?;
-            let pkey = PKey::from_rsa(rsa)
-                .map_err(|e| AuthError::TokenInvalid { reason: format!("failed to create PKey from RSA: {}", e) })?;
+    let n = BigNum::from_slice(&n_bytes)
+        .map_err(|e| AuthError::TokenInvalid { reason: format!("failed to create RSA modulus: {}", e) })?;
+    let e = BigNum::from_slice(&e_bytes)
+        .map_err(|e| AuthError::TokenInvalid { reason: format!("failed to create RSA exponent: {}", e) })?;
 
-            Ok(pkey)
-        }
-        "EC" => {
-            let x = jwk.x.as_ref()
-                .ok_or_else(|| AuthError::TokenInvalid { reason: "missing 'x' in EC JWK".to_string() })?;
-            let y = jwk.y.as_ref()
-                .ok_or_else(|| AuthError::TokenInvalid { reason: "missing 'y' in EC JWK".to_string() })?;
-            let crv = jwk.crv.as_ref()
-                .ok_or_else(|| AuthError::TokenInvalid { reason: "missing 'crv' in EC JWK".to_string() })?;
+    let rsa = Rsa::from_public_components(n, e)
+        .map_err(|e| AuthError::TokenInvalid { reason: format!("failed to create RSA key: {}", e) })?;
 
-            let x_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
-                .decode(x)
-                .map_err(|e| AuthError::TokenInvalid { reason: format!("failed to decode 'x': {}", e) })?;
-            let y_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
-                .decode(y)
-                .map_err(|e| AuthError::TokenInvalid { reason: format!("failed to decode 'y': {}", e) })?;
+    let pem = rsa.public_key_to_pem()
+        .map_err(|e| AuthError::TokenInvalid { reason: format!("failed to encode RSA public key to PEM: {}", e) })?;
 
-            let x = BigNum::from_slice(&x_bytes)
-                .map_err(|e| AuthError::TokenInvalid { reason: format!("failed to create EC x: {}", e) })?;
-            let y = BigNum::from_slice(&y_bytes)
-                .map_err(|e| AuthError::TokenInvalid { reason: format!("failed to create EC y: {}", e) })?;
+    Ok(pem)
+}
 
-            // Map curve name
-            let nid = match crv.as_str() {
-                "P-256" => Nid::X9_62_PRIME256V1,
-                "P-384" => Nid::SECP384R1,
-                "P-521" => Nid::SECP521R1,
-                "SM2" => Nid::SM2,
-                _ => return Err(AuthError::TokenInvalid { reason: format!("unsupported curve: {}", crv) }),
-            };
+/// Convert OKP JWK (Ed25519) to PEM
+fn jwk_okp_to_pem(jwk: &Jwk) -> Result<Vec<u8>, AuthError> {
+    let crv = jwk.crv.as_ref()
+        .ok_or_else(|| AuthError::TokenInvalid { reason: "missing 'crv' in OKP JWK".to_string() })?;
 
-            let group = EcGroup::from_curve_name(nid)
-                .map_err(|e| AuthError::TokenInvalid { reason: format!("failed to create EC group: {}", e) })?;
+    if crv != "Ed25519" {
+        return Err(AuthError::TokenInvalid {
+            reason: format!("unsupported curve: {}. Only Ed25519 is supported", crv)
+        });
+    }
 
-            let mut ctx = BigNumContext::new()
-                .map_err(|e| AuthError::TokenInvalid { reason: format!("failed to create context: {}", e) })?;
-            let mut point = EcPoint::new(&group)
-                .map_err(|e| AuthError::TokenInvalid { reason: format!("failed to create EC point: {}", e) })?;
-            point.set_affine_coordinates_gfp(&group, &x, &y, &mut ctx)
-                .map_err(|e| AuthError::TokenInvalid { reason: format!("failed to set EC coordinates: {}", e) })?;
+    let x = jwk.x.as_ref()
+        .ok_or_else(|| AuthError::TokenInvalid { reason: "missing 'x' in OKP JWK".to_string() })?;
 
-            let ec_key = EcKey::from_public_key(&group, &point)
-                .map_err(|e| AuthError::TokenInvalid { reason: format!("failed to create EC key: {}", e) })?;
-            let pkey = PKey::from_ec_key(ec_key)
-                .map_err(|e| AuthError::TokenInvalid { reason: format!("failed to create PKey from EC: {}", e) })?;
+    let x_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(x)
+        .map_err(|e| AuthError::TokenInvalid { reason: format!("failed to decode 'x': {}", e) })?;
 
-            Ok(pkey)
-        }
-        _ => Err(AuthError::TokenInvalid { reason: format!("unsupported key type: {}", jwk.kty) }),
+    // Build Ed25519 public key in DER format and convert to PEM
+    let pem = format_ed25519_public_key(&x_bytes);
+    Ok(pem)
+}
+
+/// Format Ed25519 public key bytes as PEM
+fn format_ed25519_public_key(x_bytes: &[u8]) -> Vec<u8> {
+    // Ed25519 public key ASN.1 structure:
+    // SubjectPublicKeyInfo ::= SEQUENCE {
+    //   algorithm AlgorithmIdentifier,
+    //   subjectPublicKey BIT STRING
+    // }
+    // For Ed25519, the algorithm is OID 1.3.101.112
+
+    use base64::Engine;
+
+    // Algorithm identifier for Ed25519
+    let alg_id = vec![
+        0x30, 0x05, // SEQUENCE, 5 bytes
+        0x06, 0x03, 0x2b, 0x65, 0x70, // OID for Ed25519: 1.3.101.112
+    ];
+
+    // Bit string containing the public key
+    let mut bit_string = vec![0x03, 0x21, 0x00]; // BIT STRING, 33 bytes, 0 unused bits
+    bit_string.extend_from_slice(x_bytes);
+
+    // SEQUENCE wrapping with proper DER length encoding
+    let seq_len = alg_id.len() + bit_string.len();
+    let mut der = vec![0x30];
+    der.extend_from_slice(&encode_der_length(seq_len));
+    der.extend_from_slice(&alg_id);
+    der.extend_from_slice(&bit_string);
+
+    // Convert to PEM
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&der);
+    let pem = format!("-----BEGIN PUBLIC KEY-----\n{}\n-----END PUBLIC KEY-----\n", b64);
+    pem.into_bytes()
+}
+
+/// Encode a length in DER format.
+///
+/// DER length encoding:
+/// - 0-127: single byte (bit 7 clear)
+/// - 128-255: not possible (would use short form)
+/// - 256+: long form: 0x80 | num_bytes, followed by length in big-endian
+fn encode_der_length(len: usize) -> Vec<u8> {
+    if len < 0x80 {
+        vec![len as u8]
+    } else {
+        let bytes = len.to_be_bytes();
+        let leading_zeros = bytes.iter().take_while(|&&b| b == 0).count();
+        let significant_bytes = &bytes[leading_zeros..];
+        let num_bytes = significant_bytes.len() as u8;
+        let mut result = vec![0x80 | num_bytes];
+        result.extend_from_slice(significant_bytes);
+        result
     }
 }
 
@@ -149,7 +183,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_jwks() {
+    fn test_parse_jwks_rsa() {
         let json = r#"{
             "keys": [
                 {
@@ -180,5 +214,25 @@ mod tests {
         assert!(find_key_by_kid(&jwks, "key1").is_some());
         assert!(find_key_by_kid(&jwks, "key2").is_some());
         assert!(find_key_by_kid(&jwks, "key3").is_none());
+    }
+
+    #[test]
+    fn test_unsupported_key_type_ec() {
+        let json = r#"{
+            "keys": [
+                {
+                    "kty": "EC",
+                    "kid": "ec-key",
+                    "crv": "P-256",
+                    "x": "test",
+                    "y": "test"
+                }
+            ]
+        }"#;
+
+        let jwks = parse_jwks_file(json).unwrap();
+        let result = jwk_to_pem(&jwks.keys[0]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("unsupported key type"));
     }
 }
