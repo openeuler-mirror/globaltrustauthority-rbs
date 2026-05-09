@@ -13,7 +13,7 @@
 use async_trait::async_trait;
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
-
+use tabled::Tabled;
 use crate::client::AdminClient;
 use crate::error::RbsAdminClientError;
 use crate::{send_empty, send_json};
@@ -25,24 +25,26 @@ pub struct ResourcePolicyClient {
     client: AdminClient,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default, Tabled)]
 pub struct ResourcePolicy {
     pub policy_id: String,
     pub policy_name: String,
     pub policy_version: i64,
+    #[tabled(skip)]
     pub policy_content: String,
     pub content_type: String,
-    pub created_at: i64,
-    pub updated_at: i64,
+    pub created_at: String,
+    pub updated_at: String,
     #[serde(default)]
+    #[tabled(skip)]
     pub applied_resources: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct ResourcePolicyListParams {
     pub ids: Option<Vec<String>>,
-    pub limit: Option<u64>,
-    pub offset: Option<u64>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -74,10 +76,8 @@ pub trait ResourcePolicyService {
 
     async fn get_policy(&self, policy_id: &str) -> Result<ResourcePolicy, RbsAdminClientError>;
 
-    async fn create_policy(
-        &self,
-        request: &ResourcePolicyCreateRequest,
-    ) -> Result<ResourcePolicy, RbsAdminClientError>;
+    async fn create_policy(&self, request: &ResourcePolicyCreateRequest)
+        -> Result<ResourcePolicy, RbsAdminClientError>;
 
     async fn update_policy(
         &self,

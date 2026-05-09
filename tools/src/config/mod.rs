@@ -39,28 +39,49 @@ pub struct Cli {
 
 #[derive(Args, Debug, Clone, Default)]
 pub struct GlobalCliArgs {
-    #[arg(short = 'b', long, value_parser = validate_base_url)]
+    #[arg(short = 'b', long, display_order = 100, value_parser = validate_base_url, help = "Base URL of the RBS service")]
     pub base_url: Option<String>,
 
-    #[arg(short, long, value_parser = validate_token)]
+    #[arg(short, long, display_order = 101, value_parser = validate_token, help = "Bearer token used for authenticated requests")]
     pub token: Option<String>,
 
-    #[arg(long, value_parser = validate_cert)]
+    #[arg(long, display_order = 102, value_parser = validate_cert, help = "CA certificate file used to verify the RBS server")]
     pub cert: Option<String>,
 
-    #[arg(short, long, global = true, value_enum)]
+    #[arg(
+        short,
+        long,
+        display_order = 103,
+        global = true,
+        value_enum,
+        help = "Output format for stdout. When --output-file is set without an explicit format, the file is written as json"
+    )]
     pub format: Option<OutputFormat>,
 
-    #[arg(short, long, global = true, value_parser = validate_output_file)]
+    #[arg(
+        short,
+        long,
+        display_order = 104,
+        global = true,
+        value_parser = validate_output_file,
+        help = "Write command output to a file. Without an explicit --format, the file uses json and stdout prints a success message"
+    )]
     pub output_file: Option<String>,
 
-    #[arg(short, long, global = true)]
+    #[arg(short, long, display_order = 105, global = true, help = "Enable verbose output")]
     pub verbose: bool,
 
-    #[arg(short, long, global = true, conflicts_with = "verbose")]
+    #[arg(
+        short,
+        long,
+        display_order = 106,
+        global = true,
+        conflicts_with = "verbose",
+        help = "Suppress non-essential output"
+    )]
     pub quiet: bool,
 
-    #[arg(long, global = true)]
+    #[arg(long, display_order = 107, global = true, help = "Do not print command output")]
     pub noout: bool,
 }
 
@@ -115,6 +136,7 @@ pub struct GlobalOptions {
     pub cert: Option<Vec<u8>>,
     pub cert_path: Option<String>,
     pub format: OutputFormat,
+    pub format_explicitly_set: bool,
     pub output_file: Option<String>,
     pub verbose: bool,
     pub quiet: bool,
@@ -129,6 +151,7 @@ impl Default for GlobalOptions {
             cert: None,
             cert_path: None,
             format: OutputFormat::Text,
+            format_explicitly_set: false,
             output_file: None,
             verbose: false,
             quiet: false,

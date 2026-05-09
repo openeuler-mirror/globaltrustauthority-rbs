@@ -25,8 +25,7 @@ use crate::common::validate::{validate_cert_file, validate_string_max_len};
 use crate::config::GlobalOptions;
 use crate::error::CliError;
 
-const SUPPORTED_CERT_TYPES: [&str; 7] =
-    ["refvalue", "policy", "tpm_boot", "tpm", "tpm_ima", "ascend_npu", "crl"];
+const SUPPORTED_CERT_TYPES: [&str; 7] = ["refvalue", "policy", "tpm_boot", "tpm", "tpm_ima", "ascend_npu", "crl"];
 
 const CRL: &str = "crl";
 const DELETE_CERT_ID: &str = "id";
@@ -118,7 +117,7 @@ pub struct CreateArgs {
     )]
     pub crl_content: Option<String>,
 
-    #[arg(short, long, help = "Whether to mark this cert as default")]
+    #[arg(long, help = "Whether to mark this cert as default")]
     pub is_default: Option<bool>,
 }
 
@@ -142,7 +141,7 @@ pub struct UpdateArgs {
     )]
     pub cert_type: Option<Vec<String>>,
 
-    #[arg(short, long, help = "Whether to mark this cert as default")]
+    #[arg(long, help = "Whether to mark this cert as default")]
     pub is_default: Option<bool>,
 }
 

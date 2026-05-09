@@ -22,7 +22,9 @@ use openssl::x509::X509;
 use rbc::client::{RbsRestClient, TlsConfig};
 use rbc::sdk::{Client as RbcClient, Config as RbcConfig, ConfigBuilder, ProviderRawConfig, ProviderType};
 use rbc::tools::tee_key::{KeyType, TeeKeyPair, TeePublicKey};
-use rbs_api_types::{AttestRequest, AttestResponse, AttesterData, AuthChallengeResponse, RbcEvidencesPayload, ResourceContentResponse};
+use rbs_api_types::{
+    AttestRequest, AttestResponse, AttesterData, AuthChallengeResponse, RbcEvidencesPayload, ResourceContentResponse,
+};
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 
@@ -37,6 +39,7 @@ const DEFAULT_AGENT_CONFIG: &str = "/etc/attestation_agent/agent_config.yaml";
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
 
 #[derive(Args, Debug, Clone)]
+#[command(about = "Run client-side attestation and resource access flows")]
 pub struct ClientCli {
     #[command(subcommand)]
     pub command: ClientCommand,
@@ -44,76 +47,81 @@ pub struct ClientCli {
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum ClientCommand {
+    #[command(about = "Request an authentication nonce from the RBS server")]
     Auth(AuthArgs),
+    #[command(about = "Collect local evidence using the attestation agent")]
     CollectEvidence(CollectEvidenceArgs),
+    #[command(about = "Submit evidence to the RBS server for attestation")]
     Attest(AttestArgs),
+    #[command(about = "Collect evidence and exchange it for an attestation token")]
     GetToken(GetTokenArgs),
+    #[command(about = "Fetch a protected resource using a token or evidence")]
     GetRes(GetResArgs),
 }
 
 #[derive(Args, Debug, Clone, Default)]
 pub struct AuthArgs {
-    #[arg(long)]
+    #[arg(long, help = "Provider identifier sent when requesting the nonce")]
     pub as_provider: Option<String>,
 }
 
 #[derive(Args, Debug, Clone)]
 pub struct CollectEvidenceArgs {
-    #[arg(long)]
+    #[arg(long, help = "Nonce to embed in collected evidence; fetch from server or stdin when omitted")]
     pub nonce: Option<String>,
 
-    #[arg(long, value_parser = validate_not_empty)]
+    #[arg(long, value_parser = validate_not_empty, help = "Attester public key used to populate tee_pubkey in runtime data")]
     pub attester_pubkey: String,
 
-    #[arg(long)]
+    #[arg(long, help = "Attester-data JSON or @file path merged into the evidence request")]
     pub attester_data: Option<String>,
 
-    #[arg(long = "runtime-data", action = ArgAction::Append)]
+    #[arg(long = "runtime-data", action = ArgAction::Append, help = "Runtime data entry in key=value form; repeat to add multiple entries")]
     pub runtime_data: Vec<String>,
 
-    #[arg(long, default_value = DEFAULT_AGENT_CONFIG, value_parser = validate_file_path)]
+    #[arg(long, default_value = DEFAULT_AGENT_CONFIG, value_parser = validate_file_path, help = "Path to the attestation agent config file")]
     pub agent_config: String,
 }
 
 #[derive(Args, Debug, Clone, Default)]
 pub struct AttestArgs {
-    #[arg(long)]
+    #[arg(long, help = "Evidence JSON, @file path, or '-' to read from stdin")]
     pub evidence: Option<String>,
 }
 
 #[derive(Args, Debug, Clone)]
 pub struct GetTokenArgs {
-    #[arg(long, value_parser = validate_not_empty)]
+    #[arg(long, value_parser = validate_not_empty, help = "Attestation public key used to build tee_pubkey runtime data")]
     pub attest_pubkey: String,
 
-    #[arg(long = "policy-ids", value_delimiter = ',', num_args = 1..)]
+    #[arg(long = "policy-ids", value_delimiter = ',', num_args = 1.., help = "Comma-separated policy IDs to attach to collected evidence")]
     pub policy_ids: Vec<String>,
 
-    #[arg(long = "refvalue-ids", value_delimiter = ',', num_args = 1..)]
+    #[arg(long = "refvalue-ids", value_delimiter = ',', num_args = 1.., help = "Comma-separated reference value IDs to include in runtime data")]
     pub refvalue_ids: Vec<String>,
 
-    #[arg(long, default_value = DEFAULT_AGENT_CONFIG, value_parser = validate_file_path)]
+    #[arg(long, default_value = DEFAULT_AGENT_CONFIG, value_parser = validate_file_path, help = "Path to the attestation agent config file")]
     pub agent_config: String,
 }
 
 #[derive(Args, Debug, Clone, Default)]
 pub struct GetResArgs {
-    #[arg(long, value_parser = validate_not_empty)]
+    #[arg(long, value_parser = validate_not_empty, help = "Resource URI to fetch")]
     pub uri: String,
 
-    #[arg(long)]
+    #[arg(long, help = "Use the attestation token flow when the server expects it")]
     pub attest_token: bool,
 
-    #[arg(long)]
+    #[arg(long, help = "Evidence JSON, @file path, or '-' to read from stdin; bypasses bearer-token retrieval")]
     pub evidence: Option<String>,
 
-    #[arg(long = "runtime-data", action = ArgAction::Append)]
+    #[arg(long = "runtime-data", action = ArgAction::Append, help = "Runtime data entry in key=value form; used with --evidence")]
     pub runtime_data: Vec<String>,
 
-    #[arg(long, value_parser = validate_file_path)]
+    #[arg(long, value_parser = validate_file_path, help = "Path to a PEM private key used to decrypt returned content when needed")]
     pub private_key_file: Option<String>,
 
-    #[arg(long, num_args = 0..=1, value_name = "@PATH")]
+    #[arg(long, num_args = 0..=1, value_name = "@PATH", help = "Read the private key passphrase interactively or from @PATH")]
     pub private_key_passphrase: Option<Option<String>>,
 }
 
@@ -129,31 +137,27 @@ async fn execute_client_command(cli: &ClientCli, global: &GlobalOptions) -> Resu
         ClientCommand::Auth(args) => {
             let resp = rest_client.get_nonce(args.as_provider.clone()).await?;
             Ok(Box::new(AuthOutput(resp)))
-        }
+        },
         ClientCommand::CollectEvidence(args) => {
             let nonce = resolve_nonce_input(args.nonce.as_deref(), &rest_client).await?;
-            let attester_data = build_attester_data(Some(&args.attester_pubkey), args.attester_data.as_deref(), &args.runtime_data)?;
+            let attester_data =
+                build_attester_data(Some(&args.attester_pubkey), args.attester_data.as_deref(), &args.runtime_data)?;
             let client = build_evidence_client(global, &args.agent_config)?;
             let session = client.new_session(Some(&attester_data))?;
             let challenge = AuthChallengeResponse { nonce };
             let evidence = session.collect_evidence(&challenge)?;
             Ok(Box::new(JsonValueOutput(evidence)))
-        }
+        },
         ClientCommand::Attest(args) => {
             let evidence = read_evidence_payload(args.evidence.as_deref())?;
             let resp = rest_client
                 .post_attest(
-                    &AttestRequest {
-                        as_provider: None,
-                        rbc_evidences: evidence,
-                        attester_data: None,
-                    },
+                    &AttestRequest { as_provider: None, rbc_evidences: evidence, attester_data: None },
                     &Default::default(),
                 )
-                .await
-                ?;
+                .await?;
             Ok(Box::new(AttestOutput(resp)))
-        }
+        },
         ClientCommand::GetToken(args) => {
             validate_string_list(&args.policy_ids, 10, "--policy-ids")?;
             validate_string_list(&args.refvalue_ids, 5, "--refvalue-ids")?;
@@ -169,16 +173,12 @@ async fn execute_client_command(cli: &ClientCli, global: &GlobalOptions) -> Resu
                 .map_err(|err| CliError::InvalidArgument(format!("invalid collected evidence JSON: {err}")))?;
             let resp = rest_client
                 .post_attest(
-                    &AttestRequest {
-                        as_provider: None,
-                        rbc_evidences,
-                        attester_data: None,
-                    },
+                    &AttestRequest { as_provider: None, rbc_evidences, attester_data: None },
                     &Default::default(),
                 )
                 .await?;
             Ok(Box::new(AttestOutput(resp)))
-        }
+        },
         ClientCommand::GetRes(args) => {
             let resp = if let Some(evidence_input) = args.evidence.as_deref() {
                 let evidence = read_evidence_payload(Some(evidence_input))?;
@@ -190,37 +190,25 @@ async fn execute_client_command(cli: &ClientCli, global: &GlobalOptions) -> Resu
                 rest_client
                     .get_resource_by_evidence(
                         &args.uri,
-                        &AttestRequest {
-                            as_provider: None,
-                            rbc_evidences: evidence,
-                            attester_data,
-                        },
+                        &AttestRequest { as_provider: None, rbc_evidences: evidence, attester_data },
                     )
-                    .await
-                    ?
+                    .await?
             } else {
-                let token = global
-                    .token
-                    .as_deref()
-                    .ok_or_else(|| CliError::InvalidArgument("missing required token; pass -t/--token or set RBS_TOKEN".to_string()))?;
+                let token = global.token.as_deref().ok_or_else(|| {
+                    CliError::InvalidArgument("missing required token; pass -t/--token or set RBS_TOKEN".to_string())
+                })?;
                 let _use_attest_token_header = args.attest_token;
                 rest_client.get_resource(&args.uri, token).await?
             };
 
             let content = maybe_decrypt_resource(&resp, args)?;
-            Ok(Box::new(ResourceOutput {
-                uri: resp.uri,
-                content,
-                content_type: resp.content_type,
-            }))
-        }
+            Ok(Box::new(ResourceOutput { uri: resp.uri, content, content_type: resp.content_type }))
+        },
     }
 }
 
 fn build_rest_client(global: &GlobalOptions) -> Result<RbsRestClient, CliError> {
-    let tls = global.cert_path.as_ref().map(|path| TlsConfig {
-        ca_cert: Some(path.clone()),
-    });
+    let tls = global.cert_path.as_ref().map(|path| TlsConfig { ca_cert: Some(path.clone()) });
     Ok(RbsRestClient::new(&global.base_url, tls.as_ref(), Some(DEFAULT_TIMEOUT_SECS))?)
 }
 
@@ -256,7 +244,7 @@ async fn resolve_nonce_input(input: Option<&str>, rest_client: &RbsRestClient) -
             }
             let resp = rest_client.get_nonce(None).await?;
             Ok(resp.nonce)
-        }
+        },
     }
 }
 
@@ -298,7 +286,7 @@ fn build_attester_data(
             let raw = read_path_file(value)?;
             serde_json::from_str::<AttesterData>(raw.trim())
                 .map_err(|err| CliError::InvalidArgument(format!("invalid attester-data JSON: {err}")))?
-        }
+        },
         None => AttesterData::default(),
     };
 
@@ -318,22 +306,17 @@ fn build_attester_data(
 fn build_get_token_attester_data(attest_pubkey: &str, refvalue_ids: &[String]) -> Result<AttesterData, CliError> {
     let mut data = build_attester_data(Some(attest_pubkey), None, &[])?;
     if !refvalue_ids.is_empty() {
-        data.runtime_data
-            .get_or_insert_with(Map::new)
-            .insert(
-                "refvalue_ids".to_string(),
-                Value::Array(refvalue_ids.iter().cloned().map(Value::String).collect()),
-            );
+        data.runtime_data.get_or_insert_with(Map::new).insert(
+            "refvalue_ids".to_string(),
+            Value::Array(refvalue_ids.iter().cloned().map(Value::String).collect()),
+        );
     }
     Ok(data)
 }
 
 fn validate_string_list(values: &[String], max: usize, flag: &str) -> Result<(), CliError> {
     if values.len() > max {
-        return Err(CliError::InvalidArgument(format!(
-            "{flag} supports at most {max} items; got {}",
-            values.len()
-        )));
+        return Err(CliError::InvalidArgument(format!("{flag} supports at most {max} items; got {}", values.len())));
     }
     for value in values {
         validate_not_empty(value)?;
@@ -360,9 +343,7 @@ fn apply_policy_ids_to_evidence(value: Value, policy_ids: &[String]) -> Result<V
 
 fn parse_runtime_data_entry(entry: &str) -> Result<(String, Value), CliError> {
     let Some((key, value)) = entry.split_once('=') else {
-        return Err(CliError::InvalidArgument(format!(
-            "invalid --runtime-data `{entry}`; expected key=value"
-        )));
+        return Err(CliError::InvalidArgument(format!("invalid --runtime-data `{entry}`; expected key=value")));
     };
     validate_not_empty(key)?;
     let value = if let Some(path) = value.strip_prefix('@') {
@@ -400,12 +381,11 @@ fn public_key_to_jwk_value(input: &str) -> Result<Value, CliError> {
             return Err(CliError::InvalidArgument(format!(
                 "unsupported public key type `{other:?}`; expected RSA or EC"
             )))
-        }
+        },
     };
 
     TeePublicKey::from_jwk_json(&serde_json::to_string(&jwk).map_err(|_| CliError::InternalFormat)?)
-        .and_then(|key| key.validate_params().map(|_| key))
-        ?;
+        .and_then(|key| key.validate_params().map(|_| key))?;
 
     Ok(jwk)
 }
@@ -417,9 +397,7 @@ fn parse_public_key(raw: &[u8]) -> Result<PKey<Public>, CliError> {
 }
 
 fn rsa_public_key_to_jwk(pkey: &PKey<Public>) -> Result<Value, CliError> {
-    let rsa = pkey
-        .rsa()
-        .map_err(|err| CliError::InvalidArgument(format!("failed to read RSA public key: {err}")))?;
+    let rsa = pkey.rsa().map_err(|err| CliError::InvalidArgument(format!("failed to read RSA public key: {err}")))?;
     Ok(json!({
         "kty": "RSA",
         "alg": "RSA-OAEP-256",
@@ -429,23 +407,20 @@ fn rsa_public_key_to_jwk(pkey: &PKey<Public>) -> Result<Value, CliError> {
 }
 
 fn ec_public_key_to_jwk(pkey: &PKey<Public>) -> Result<Value, CliError> {
-    let ec_key = pkey
-        .ec_key()
-        .map_err(|err| CliError::InvalidArgument(format!("failed to read EC public key: {err}")))?;
+    let ec_key =
+        pkey.ec_key().map_err(|err| CliError::InvalidArgument(format!("failed to read EC public key: {err}")))?;
     let group = ec_key.group();
     let curve = match group.curve_name() {
         Some(openssl::nid::Nid::X9_62_PRIME256V1) => ("P-256", 32usize),
         Some(openssl::nid::Nid::SECP384R1) => ("P-384", 48usize),
         Some(openssl::nid::Nid::SECP521R1) => ("P-521", 66usize),
         _ => {
-            return Err(CliError::InvalidArgument(
-                "unsupported EC curve; expected P-256, P-384, or P-521".to_string(),
-            ))
-        }
+            return Err(CliError::InvalidArgument("unsupported EC curve; expected P-256, P-384, or P-521".to_string()))
+        },
     };
 
-    let mut ctx = BigNumContext::new()
-        .map_err(|err| CliError::Message(format!("failed to allocate OpenSSL context: {err}")))?;
+    let mut ctx =
+        BigNumContext::new().map_err(|err| CliError::Message(format!("failed to allocate OpenSSL context: {err}")))?;
     let encoded = ec_key
         .public_key()
         .to_bytes(group, PointConversionForm::UNCOMPRESSED, &mut ctx)
@@ -474,15 +449,14 @@ fn maybe_decrypt_resource(resp: &ResourceContentResponse, args: &GetResArgs) -> 
 
     let (key_type, private_pem) = load_private_key_pem(private_key_file, &args.private_key_passphrase)?;
     let key_pair = TeeKeyPair::from_private_pem(key_type, &private_pem, None)?;
-    let ciphertext = String::from_utf8(decoded)
-        .map_err(|_| CliError::InvalidArgument("resource content is not valid UTF-8 JWE; cannot decrypt".to_string()))?;
+    let ciphertext = String::from_utf8(decoded).map_err(|_| {
+        CliError::InvalidArgument("resource content is not valid UTF-8 JWE; cannot decrypt".to_string())
+    })?;
     Ok(key_pair.decrypt_jwe(&ciphertext)?)
 }
 
 fn decode_resource_content(content: &str) -> Vec<u8> {
-    base64::engine::general_purpose::STANDARD
-        .decode(content)
-        .unwrap_or_else(|_| content.as_bytes().to_vec())
+    base64::engine::general_purpose::STANDARD.decode(content).unwrap_or_else(|_| content.as_bytes().to_vec())
 }
 
 fn load_private_key_pem(path: &str, passphrase: &Option<Option<String>>) -> Result<(KeyType, String), CliError> {
@@ -504,7 +478,7 @@ fn load_private_key_pem(path: &str, passphrase: &Option<Option<String>>) -> Resu
             return Err(CliError::InvalidArgument(format!(
                 "unsupported private key type `{other:?}`; expected RSA or EC"
             )))
-        }
+        },
     };
 
     Ok((key_type, pem))
@@ -593,9 +567,7 @@ mod tests {
 
     #[test]
     fn auth_output_text_is_bare_nonce() {
-        let output = AuthOutput(AuthChallengeResponse {
-            nonce: "nonce-value".to_string(),
-        });
+        let output = AuthOutput(AuthChallengeResponse { nonce: "nonce-value".to_string() });
         assert_eq!(output.render_text().expect("render text"), "nonce-value");
     }
 

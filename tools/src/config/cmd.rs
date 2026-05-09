@@ -28,6 +28,7 @@ pub fn resolve_global_options(cli: &GlobalCliArgs) -> std::result::Result<Global
         format.parse::<OutputFormat>()?;
     }
 
+    let format_explicitly_set = cli.format.is_some() || env_format.is_some();
     let base_url = cli.base_url.clone().unwrap_or_else(|| env_base_url.unwrap_or_else(|| DEFAULT_BASE_URL.to_string()));
     let format = cli.format.clone().unwrap_or_else(|| {
         env_format.unwrap_or_else(|| DEFAULT_FORMAT.to_string()).parse::<OutputFormat>().unwrap_or(OutputFormat::Text)
@@ -57,6 +58,7 @@ pub fn resolve_global_options(cli: &GlobalCliArgs) -> std::result::Result<Global
         cert,
         cert_path,
         format,
+        format_explicitly_set,
         output_file: cli.output_file.clone(),
         verbose: cli.verbose,
         quiet: cli.quiet,

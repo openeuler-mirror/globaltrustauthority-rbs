@@ -9,7 +9,7 @@
  * PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
-use crate::common::{CERT_FILE_MAX_SIZE, URL_MAX_LEN};
+use crate::common::{CERT_FILE_MAX_SIZE, PUBKEY_FILE_MAX_SIZE, URL_MAX_LEN};
 use crate::error::CliError;
 use regex::Regex;
 use std::fs;
@@ -145,4 +145,26 @@ pub fn validate_cert_file(file_path: &str) -> Result<String, CliError> {
         }
     }
     Ok(file_path.to_string())
+}
+
+pub fn validate_pubkey_file(file_path: &str) -> Result<String, CliError> {
+    if let Some(path) = file_path.strip_prefix('@') {
+        validate_file_size(path, PUBKEY_FILE_MAX_SIZE)?;
+    } else {
+        if file_path.len() > PUBKEY_FILE_MAX_SIZE as usize {
+            return Err(CliError::InvalidArgument(format!(
+                "public key content must not exceed {PUBKEY_FILE_MAX_SIZE} bytes; got {} bytes",
+                file_path.len()
+            )));
+        }
+    }
+    Ok(file_path.to_string())
+}
+
+pub fn validate_i64(value: &str, min: i64, max: i64, field: &str) -> Result<i64, String> {
+    let parsed: i64 = value.parse().map_err(|_| format!("{} must be an integer", field))?;
+    if !(min..=max).contains(&parsed) {
+        return Err(format!("{} must be between {} and {}", field, min, max));
+    }
+    Ok(parsed)
 }

@@ -90,10 +90,7 @@ async fn list_users_appends_pagination() {
         .await;
 
     let client = build_user_client(&server);
-    let resp = client
-        .list(&ListUsersParams { limit: 20, offset: 5 })
-        .await
-        .expect("list should succeed");
+    let resp = client.list(&ListUsersParams { limit: 20, offset: 5 }).await.expect("list should succeed");
 
     assert_eq!(resp.total_count, 1);
     assert_eq!(resp.limit, 20);

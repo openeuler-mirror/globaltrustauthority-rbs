@@ -18,6 +18,7 @@ use crate::config::GlobalOptions;
 use crate::error::CliError;
 
 #[derive(Args, Debug, Clone, Default)]
+#[command(about = "Print the rbs-cli version")]
 pub struct VersionCli {}
 
 #[derive(Debug, Clone, Serialize)]
