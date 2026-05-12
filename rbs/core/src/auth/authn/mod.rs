@@ -13,16 +13,16 @@
 //! Authentication module.
 
 pub mod authenticator;
-pub mod jwt;
+pub mod common;
 pub mod jwks;
-pub mod signature;
+pub mod bearer_token;
 pub mod token;
 
 use async_trait::async_trait;
 use crate::auth::error::AuthError;
 
 pub use authenticator::{Auth, Authenticator};
-pub use jwt::JwtVerifier;
+pub use bearer_token::BearerTokenVerifier;
 pub use token::AttestTokenVerifier;
 
 /// Provides a per-user public key (PEM) for BearerToken signature verification.
@@ -30,4 +30,24 @@ pub use token::AttestTokenVerifier;
 pub trait UserKeyProvider: Send + Sync + std::fmt::Debug {
     /// Look up the PEM-encoded public key for the given user `sub`.
     async fn get_public_key(&self, sub: &str) -> Result<String, AuthError>;
+}
+
+/// Token verifier trait for different token types.
+///
+/// This trait provides a common interface for token verification,
+/// enabling extensible authentication mechanisms.
+#[async_trait]
+pub trait TokenVerifier: Send + Sync {
+    /// The context type returned after successful verification.
+    type Context: Send + Sync;
+
+    /// Verify a token and return the authentication context.
+    ///
+    /// # Arguments
+    /// * `token` - The raw token string (without Bearer/Attest prefix)
+    ///
+    /// # Returns
+    /// * `Ok(Context)` on successful verification
+    /// * `Err(AuthError)` on verification failure
+    async fn verify(&self, token: &str) -> Result<Self::Context, AuthError>;
 }

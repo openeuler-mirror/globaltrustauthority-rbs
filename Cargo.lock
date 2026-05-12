@@ -3269,6 +3269,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "flate2",
+ "jsonwebtoken",
  "libc",
  "log",
  "openssl",
