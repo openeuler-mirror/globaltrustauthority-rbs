@@ -9,8 +9,8 @@
  * PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
-use base64::Engine;
 use base64::engine::general_purpose;
+use base64::Engine;
 use clap::{Args, Subcommand};
 use rbs_admin_client::attestation::policy::{
     PolicyClient, PolicyCreateRequest, PolicyDeleteRequest, PolicyListParams, PolicyListResponse,
@@ -25,7 +25,8 @@ use crate::common::utils::read_path_file;
 use crate::common::validate::{validate_file_size, validate_string_max_len};
 use crate::config::GlobalOptions;
 use crate::error::CliError;
-const SUPPORTED_ATTESTER_TYPES: [&str; 9] = ["all", "tpm", "tpm_boot", "tpm_ima", "virt_cca", "ascend_npu", "itrustee", "cca", "dice"];
+const SUPPORTED_ATTESTER_TYPES: [&str; 9] =
+    ["all", "tpm", "tpm_boot", "tpm_ima", "virt_cca", "ascend_npu", "itrustee", "cca", "dice"];
 const SUPPORTED_CONTENT_TYPES: [&str; 2] = ["text", "jwt"];
 const DELETE_POLICY_ID: &str = "id";
 const DELETE_POLICY_ATTESTER_TYPE: &str = "attester_type";
@@ -193,7 +194,7 @@ async fn execute_policy_command(cli: &PolicyCli, service: &PolicyClient) -> Resu
                 "text" => {
                     content = general_purpose::STANDARD.encode(content.as_bytes());
                 },
-                _ => {}
+                _ => {},
             }
             let resp = service
                 .create_policy(&PolicyCreateRequest {
@@ -216,7 +217,7 @@ async fn execute_policy_command(cli: &PolicyCli, service: &PolicyClient) -> Resu
                     "text" => {
                         content = general_purpose::STANDARD.encode(raw_content.as_bytes());
                     },
-                    _ => {}
+                    _ => {},
                 }
             }
             let resp = service

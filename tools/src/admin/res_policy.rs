@@ -10,13 +10,17 @@
  * See the Mulan PSL v2 for more details.
  */
 
+use crate::common::DEFAULT_PAGE_LIMIT;
+use crate::common::MAX_PAGE_LIMIT;
 use clap::{ArgGroup, Args, Subcommand};
 use rbs_admin_client::resource_policy::{
-    ResourcePolicy, ResourcePolicyClient, ResourcePolicyCreateRequest, ResourcePolicyListParams, ResourcePolicyListResponse,
-    ResourcePolicyService, ResourcePolicyUpdateRequest,
+    ResourcePolicy, ResourcePolicyClient, ResourcePolicyCreateRequest, ResourcePolicyListParams,
+    ResourcePolicyListResponse, ResourcePolicyService, ResourcePolicyUpdateRequest,
 };
 use rbs_admin_client::AdminClient;
 use serde::Serialize;
+use tabled::settings::Style;
+use tabled::Table;
 
 use crate::common::formatter::{Formatter, TextOutput};
 use crate::common::utils::read_path_file;
@@ -26,9 +30,6 @@ use crate::error::CliError;
 
 const POLICY_ID_MAX_LEN: usize = 256;
 const POLICY_NAME_MAX_LEN: usize = 255;
-const DEFAULT_PAGE_LIMIT: u64 = 10;
-const MAX_PAGE_LIMIT: u64 = 100;
-const MAX_PAGE_OFFSET: u64 = 1_000_000;
 
 #[derive(Args, Debug, Clone)]
 #[command(about = "Manage resource access policies")]
@@ -76,11 +77,11 @@ pub struct ListArgs {
     )]
     pub ids: Option<Vec<String>>,
 
-    #[arg(long, default_value_t = DEFAULT_PAGE_LIMIT, value_parser = clap::value_parser!(u64).range(1..=MAX_PAGE_LIMIT))]
-    pub limit: u64,
+    #[arg(long, default_value_t = DEFAULT_PAGE_LIMIT, value_parser = clap::value_parser!(i64).range(1..=MAX_PAGE_LIMIT))]
+    pub limit: i64,
 
-    #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u64).range(0..=MAX_PAGE_OFFSET))]
-    pub offset: u64,
+    #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(i64).range(0..=MAX_PAGE_LIMIT))]
+    pub offset: i64,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -163,11 +164,11 @@ async fn execute_res_policy_command(
                 })
                 .await?;
             Ok(Box::new(ResourcePolicyListOutput(resp)))
-        }
+        },
         ResPolicyCommand::Get(args) => {
             let resp = service.get_policy(&args.id).await?;
             Ok(Box::new(ResourcePolicyMutationOutput(resp)))
-        }
+        },
         ResPolicyCommand::Create(args) => {
             let resp = service
                 .create_policy(&ResourcePolicyCreateRequest {
@@ -177,7 +178,7 @@ async fn execute_res_policy_command(
                 })
                 .await?;
             Ok(Box::new(ResourcePolicyMutationOutput(resp)))
-        }
+        },
         ResPolicyCommand::Update(args) => {
             let resp = service
                 .update_policy(
@@ -190,18 +191,18 @@ async fn execute_res_policy_command(
                 )
                 .await?;
             Ok(Box::new(ResourcePolicyMutationOutput(resp)))
-        }
+        },
         ResPolicyCommand::Delete(args) => {
             let message = if let Some(id) = &args.id {
                 service.delete_policy(id).await?;
-                format!("deleted resource policy: {id}")
+                format!("Delete succeeded: resource policy removed: {id}")
             } else {
                 let ids = args.ids.clone().unwrap_or_default();
                 service.delete_policies(&ids).await?;
-                format!("deleted resource policies: {}", ids.join(","))
+                format!("Delete succeeded: resource policies removed: {}", ids.join(","))
             };
             Ok(Box::new(TextOutput::new(message)))
-        }
+        },
     }
 }
 
@@ -211,12 +212,9 @@ struct ResourcePolicyListOutput(ResourcePolicyListResponse);
 impl Formatter for ResourcePolicyListOutput {
     fn render_text(&self) -> Result<String, CliError> {
         let mut lines = vec![format!("resource_policies: total={}", self.0.total)];
-        if self.0.items.is_empty() {
-            lines.push("  <empty>".to_string());
-        } else {
-            for policy in &self.0.items {
-                lines.push(format!("  - {}", format_policy(policy)));
-            }
+        if !self.0.items.is_empty() {
+            let table = Table::new(self.0.items.iter()).with(Style::psql()).to_string();
+            lines.extend(table.lines().map(|line| line.to_string()));
         }
         Ok(lines.join("\n"))
     }
@@ -239,37 +237,19 @@ impl Formatter for ResourcePolicyMutationOutput {
     }
 }
 
-fn format_policy(policy: &ResourcePolicy) -> String {
-    let mut parts = vec![
-        format!("policy_name={}", policy.policy_name),
-        format!("policy_id={}", policy.policy_id),
-        format!("policy_version={}", policy.policy_version),
-        format!("content_type={}", policy.content_type),
-        format!("created_at={}", policy.created_at),
-        format!("updated_at={}", policy.updated_at),
-    ];
-    if let Some(applied_resources) = &policy.applied_resources {
-        if !applied_resources.is_empty() {
-            parts.push(format!("applied_resources={}", applied_resources.join(",")));
-        }
-    }
-    parts.join(" ")
-}
-
 fn format_policy_multiline(policy: &ResourcePolicy) -> String {
-    let mut lines = vec![
-        format!("policy_id: {}", policy.policy_id),
-        format!("policy_name: {}", policy.policy_name),
-        format!("policy_version: {}", policy.policy_version),
-        format!("policy_content: {}", policy.policy_content),
-        format!("content_type: {}", policy.content_type),
-        format!("created_at: {}", policy.created_at),
-        format!("updated_at: {}", policy.updated_at),
-    ];
-    if let Some(applied_resources) = &policy.applied_resources {
-        if !applied_resources.is_empty() {
-            lines.push(format!("applied_resources: {}", applied_resources.join(",")));
-        }
-    }
-    lines.join("\n")
+    let applied_resources = serde_json::to_string(&policy.applied_resources.clone().unwrap_or_default())
+        .unwrap_or_else(|_| "[]".to_string());
+
+    [
+        format!("{:<20}{}", "policy_id:", policy.policy_id),
+        format!("{:<20}{}", "policy_name:", policy.policy_name),
+        format!("{:<20}{}", "policy_version:", policy.policy_version),
+        format!("{:<20}{}", "policy_content:", policy.policy_content),
+        format!("{:<20}{}", "content_type:", policy.content_type),
+        format!("{:<20}{}", "created_at:", policy.created_at),
+        format!("{:<20}{}", "updated_at:", policy.updated_at),
+        format!("{:<20}{}", "applied_resources:", applied_resources),
+    ]
+    .join("\n")
 }

@@ -72,29 +72,7 @@ pub struct ResourceCreateRequest {
 
 pub type ResourceUpdateRequest = ResourceCreateRequest;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-pub struct ResourceMutationResponse {
-    #[serde(default)]
-    pub uri: Option<String>,
-    #[serde(default)]
-    pub res_provider: Option<String>,
-    #[serde(default)]
-    pub repository_name: Option<String>,
-    #[serde(default)]
-    pub resource_type: Option<String>,
-    #[serde(default)]
-    pub resource_name: Option<String>,
-    #[serde(default)]
-    pub policy_id: Option<String>,
-    #[serde(default)]
-    pub content_type: Option<String>,
-    #[serde(default)]
-    pub export_mode: Option<String>,
-    #[serde(default)]
-    pub created_at: Option<String>,
-    #[serde(default)]
-    pub updated_at: Option<String>,
-}
+pub type ResourceMutationResponse = ResourceInfoResponse;
 
 #[derive(Clone, Debug)]
 pub struct ResourceClient {

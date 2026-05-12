@@ -9,14 +9,14 @@
  * PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
+use crate::client::AdminClient;
+use crate::error::RbsAdminClientError;
+use crate::{send_empty, send_json};
 use async_trait::async_trait;
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-
-use crate::client::AdminClient;
-use crate::error::RbsAdminClientError;
-use crate::{send_empty, send_json};
+use tabled::Tabled;
 
 const USERS_PATH: &str = "/rbs/v0/users";
 
@@ -55,11 +55,11 @@ pub struct UpdateUserRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct ListUsersParams {
-    pub limit: u64,
-    pub offset: u64,
+    pub limit: i64,
+    pub offset: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Tabled)]
 pub struct User {
     pub id: String,
     pub username: String,

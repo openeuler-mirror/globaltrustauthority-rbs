@@ -10,10 +10,11 @@
  * See the Mulan PSL v2 for more details.
  */
 
+use crate::common::clap::Page;
 use crate::common::formatter::Formatter;
 use crate::common::utils::read_path_file;
+use crate::common::validate::validate_pubkey_file;
 use crate::common::validate::{validate_max_len, validate_not_empty};
-use crate::common::DEFAULT_PAGE_LIMIT;
 use crate::common::ROLE_ARRAY;
 use crate::common::ROLE_USER;
 use crate::common::{JWT, USERNAME_MAX_LEN};
@@ -21,12 +22,18 @@ use crate::config::GlobalOptions;
 use crate::error::CliError;
 use clap::ArgGroup;
 use clap::{Args, Subcommand};
-use rbs_admin_client::{AdminClient, CreateUserRequest, ListUsersParams, UpdateUserRequest, User, UserClient, UserListResponse, UserService};
+use rbs_admin_client::{
+    AdminClient, CreateUserRequest, ListUsersParams, RbsAdminClientError, UpdateUserRequest, User, UserClient,
+    UserListResponse, UserService,
+};
 use regex::Regex;
 use serde::Serialize;
 use serde_json::Value;
+use tabled::settings::Style;
+use tabled::Table;
 
 #[derive(Args, Debug, Clone)]
+#[command(about = "Manage RBS users")]
 pub struct UserCli {
     #[command(subcommand)]
     pub command: UserCommand,
@@ -34,31 +41,33 @@ pub struct UserCli {
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum UserCommand {
+    #[command(about = "List users with pagination")]
     List(ListArgs),
+    #[command(about = "Get one user by username")]
     Get(GetArgs),
-    #[command(alias = "register")]
+    #[command(about = "Create a user with a public key or JWK")]
     Create(CreateArgs),
+    #[command(about = "Update a user's role, enabled flag, or key material")]
     Update(UpdateArgs),
+    #[command(about = "Delete a user by username")]
     Delete(DeleteArgs),
 }
 
 #[derive(Args, Debug, Clone)]
 pub struct ListArgs {
-    #[arg(long, default_value_t = DEFAULT_PAGE_LIMIT, value_parser = clap::value_parser!(u32).range(1..=100))]
-    pub limit: u64,
-
-    #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u32).range(0..=1000000))]
-    pub offset: u64,
+    #[command(flatten)]
+    pub page: Page,
 }
 
 #[derive(Args, Debug, Clone)]
 pub struct GetArgs {
-    #[arg(value_parser = validate_username)]
+    #[arg(short = 'u', long, value_parser = validate_username, help = "Username to query")]
     pub username: String,
 }
 
 #[derive(Args, Debug, Clone)]
 pub struct DeleteArgs {
+    #[arg(short = 'u', long, help = "Username to delete")]
     #[arg(value_parser = validate_username)]
     pub username: String,
 }
@@ -73,13 +82,13 @@ pub struct DeleteArgs {
     )
 )]
 pub struct CreateArgs {
-    #[arg(long, value_parser = validate_username)]
+    #[arg(long, value_parser = validate_username, help = "Username to create")]
     pub username: String,
 
-    #[arg(long, default_value = ROLE_USER, value_parser = ROLE_ARRAY)]
+    #[arg(long, default_value = ROLE_USER, value_parser = ROLE_ARRAY, help = "User role")]
     pub role: Option<String>,
 
-    #[arg(long)]
+    #[arg(long, help = "Whether the user is enabled after creation")]
     pub enabled: Option<bool>,
 
     #[arg(long, value_parser = read_path_file, help = "PEM public key or @file path")]
@@ -98,19 +107,20 @@ pub struct CreateArgs {
     )
 )]
 pub struct UpdateArgs {
+    #[arg(short = 'u', long, help = "Username to update")]
     #[arg(value_parser = validate_username)]
     pub username: String,
 
-    #[arg(long, value_parser = ROLE_ARRAY)]
+    #[arg(long, value_parser = ROLE_ARRAY, help = "New user role")]
     pub role: Option<String>,
 
-    #[arg(long)]
+    #[arg(long, help = "Whether the user is enabled")]
     pub enabled: Option<bool>,
 
-    #[arg(long, value_parser = read_path_file, help = "PEM public key or @file path")]
+    #[arg(long, value_parser = validate_pubkey_file, help = "PEM public key or @file path")]
     pub public_key: Option<String>,
 
-    #[arg(long, value_parser = read_path_file, help = "JWK JSON or @file path")]
+    #[arg(long, value_parser = validate_pubkey_file, help = "JWK JSON or @file path")]
     pub jwk: Option<String>,
 }
 
@@ -128,28 +138,30 @@ pub fn run(cli: &UserCli, global: &GlobalOptions) -> Result<Box<dyn Formatter>, 
 async fn execute_user_command(cli: &UserCli, service: &UserClient) -> Result<Box<dyn Formatter>, CliError> {
     match &cli.command {
         UserCommand::List(args) => {
-            let resp = service.list(&ListUsersParams { limit: args.limit, offset: args.offset }).await?;
+            let resp = service.list(&ListUsersParams { limit: args.page.limit, offset: args.page.offset }).await?;
             Ok(Box::new(UserListOutput(resp)))
-        }
+        },
         UserCommand::Get(args) => {
             let resp = service.get(&args.username).await?;
             Ok(Box::new(UserOutput(resp)))
-        }
+        },
         UserCommand::Create(args) => {
+            let (pub_key, jwk) = read_pubkey_and_jwk(&args.public_key, &args.jwk)?;
             let resp = service
                 .create(&CreateUserRequest {
                     username: args.username.clone(),
                     role: args.role.clone(),
                     enabled: args.enabled,
                     auth_type: JWT.to_string(),
-                    public_key: args.public_key.clone(),
-                    jwk: parse_jwk_input(args.jwk.as_deref())?,
+                    public_key: pub_key.clone(),
+                    jwk: jwk.clone(),
                 })
                 .await?;
             Ok(Box::new(UserOutput(resp)))
-        }
+        },
         UserCommand::Update(args) => {
             validate_update_args(args)?;
+            let (pub_key, jwk) = read_pubkey_and_jwk(&args.public_key, &args.jwk)?;
             let resp = service
                 .update(
                     &args.username,
@@ -157,17 +169,23 @@ async fn execute_user_command(cli: &UserCli, service: &UserClient) -> Result<Box
                         role: args.role.clone(),
                         enabled: args.enabled,
                         auth_type: Some(JWT.to_string()),
-                        public_key: args.public_key.clone(),
-                        jwk: parse_jwk_input(args.jwk.as_deref())?,
+                        public_key: pub_key.clone(),
+                        jwk: jwk.clone(),
                     },
                 )
                 .await?;
             Ok(Box::new(UserOutput(resp)))
-        }
+        },
         UserCommand::Delete(args) => {
-            service.delete(&args.username).await?;
+            match service.delete(&args.username).await {
+                Ok(()) => {},
+                Err(RbsAdminClientError::ClientError(message)) if message == "The requested item was not found." => {
+                    return Err(CliError::Message(format!("Delete failed: user not found: {}", args.username)));
+                },
+                Err(err) => return Err(CliError::RequestError(err)),
+            }
             Ok(Box::new(DeleteUserOutput { username: args.username.clone() }))
-        }
+        },
     }
 }
 
@@ -180,16 +198,20 @@ fn validate_update_args(args: &UpdateArgs) -> Result<(), CliError> {
     Ok(())
 }
 
-fn parse_jwk_input(input: Option<&str>) -> Result<Option<Value>, CliError> {
-    let Some(input) = input else {
-        return Ok(None);
+fn read_pubkey_and_jwk(
+    public_key: &Option<String>,
+    jwk: &Option<String>,
+) -> Result<(Option<String>, Option<Value>), CliError> {
+    let pub_key = if let Some(public_key) = public_key { Some(read_path_file(public_key)?) } else { None };
+    let jwk = if let Some(jwk) = jwk {
+        let jwk_data = read_path_file(jwk)?;
+        let jwk_value: Value = serde_json::from_str(jwk_data.as_str())
+            .map_err(|err| CliError::InvalidArgument(format!("invalid JWK JSON: {err}")))?;
+        Some(jwk_value)
+    } else {
+        None
     };
-    let value: Value = serde_json::from_str(input)
-        .map_err(|err| CliError::InvalidArgument(format!("invalid JWK JSON: {err}")))?;
-    if !value.is_object() {
-        return Err(CliError::InvalidArgument("jwk must be a JSON object".to_string()));
-    }
-    Ok(Some(value))
+    Ok((pub_key, jwk))
 }
 
 #[derive(Debug, Serialize)]
@@ -199,12 +221,12 @@ impl Formatter for UserOutput {
     fn render_text(&self) -> Result<String, CliError> {
         let user = &self.0;
         Ok([
-            format!("id: {}", user.id),
-            format!("username: {}", user.username),
-            format!("role: {}", user.role),
-            format!("enabled: {}", user.enabled),
-            format!("created_at: {}", user.created_at),
-            format!("updated_at: {}", user.updated_at),
+            format!("{:<20}{}", "id:", user.id),
+            format!("{:<20}{}", "username:", user.username),
+            format!("{:<20}{}", "role:", user.role),
+            format!("{:<20}{}", "enabled", user.enabled),
+            format!("{:<20}{}", "created_at", user.created_at),
+            format!("{:<20}{}", "updated_at", user.updated_at),
         ]
         .join("\n"))
     }
@@ -227,12 +249,9 @@ impl Formatter for UserListOutput {
             "items:".to_string(),
         ];
 
-        if resp.items.is_empty() {
-            lines.push("  <empty>".to_string());
-        } else {
-            for user in &resp.items {
-                lines.push(format!("  - {} role={} enabled={}", user.username, user.role, user.enabled));
-            }
+        if !resp.items.is_empty() {
+            let table = Table::new(resp.items.iter()).with(Style::psql()).to_string();
+            lines.extend(table.lines().map(|line| line.to_string()));
         }
 
         Ok(lines.join("\n"))
@@ -250,7 +269,7 @@ struct DeleteUserOutput {
 
 impl Formatter for DeleteUserOutput {
     fn render_text(&self) -> Result<String, CliError> {
-        Ok(format!("deleted user: {}", self.username))
+        Ok(format!("Delete succeeded: user removed: {}", self.username))
     }
 
     fn render_json(&self) -> Result<String, CliError> {
@@ -263,9 +282,7 @@ pub fn validate_username(input: &str) -> Result<String, CliError> {
     validate_max_len(input, USERNAME_MAX_LEN)?;
     let username_re = Regex::new(r"^[a-zA-Z0-9_-]+$").map_err(|_| CliError::InternalFormat)?;
     if !username_re.is_match(input) {
-        return Err(CliError::InvalidArgument(
-            "username must match [a-zA-Z0-9_-]+".to_string(),
-        ));
+        return Err(CliError::InvalidArgument("username must contain only letters, digits, '_' or '-'".to_string()));
     }
     Ok(input.to_string())
 }

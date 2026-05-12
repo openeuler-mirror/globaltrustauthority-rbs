@@ -12,12 +12,12 @@
 
 use clap::{Args, Subcommand};
 use rbs_admin_client::resource::{
-    ResourceClient, ResourceCreateRequest, ResourceInfoResponse, ResourceMutationResponse, ResourcePath,
-    ResourceResponse, ResourceService, ResourceUpdateRequest,
+    ResourceClient, ResourceCreateRequest, ResourceInfoResponse, ResourcePath, ResourceResponse, ResourceService,
+    ResourceUpdateRequest,
 };
 use rbs_admin_client::AdminClient;
-use serde::Serialize;
 use rbs_api_types::constants::RESOURCE_TYPES;
+use serde::Serialize;
 
 use crate::common::formatter::{Formatter, TextOutput};
 use crate::common::utils::read_path_file;
@@ -40,29 +40,29 @@ pub struct ResCli {
 pub enum ResCommand {
     #[command(
         about = "Get resource content",
-        long_about = "Get resource content by resource path.\n\nExample:\n  rbs-cli res get vault default secret my-secret"
+        long_about = "Get resource content by resource path.\n\nExample:\n  rbs-cli res get --res-provider vault --repository-name default --resource-type secret --resource-name my-secret"
     )]
     Get(PathArgs),
     #[command(
         name = "get-res-info",
         alias = "info",
         about = "Get resource metadata",
-        long_about = "Get resource metadata without returning resource content.\n\nExample:\n  rbs-cli res get-res-info vault default secret my-secret"
+        long_about = "Get resource metadata without returning resource content.\n\nExample:\n  rbs-cli res get-res-info --res-provider vault --repository-name default --resource-type secret --resource-name my-secret"
     )]
     GetResInfo(PathArgs),
     #[command(
         about = "Create a resource binding",
-        long_about = "Create resource metadata for a key, secret, or cert resource.\n\nExample:\n  rbs-cli res create vault default secret my-secret --policy-id policy-1 --content-type text --export-mode plain"
+        long_about = "Create resource metadata for a key, secret, or cert resource.\n\nExample:\n  rbs-cli res create --res-provider vault --repository-name default --resource-type secret --resource-name my-secret --policy-id policy-1 --content-type text --export-mode plain"
     )]
-    Create(MutateArgs),
+    Create(CreateArgs),
     #[command(
         about = "Update a resource binding",
-        long_about = "Update resource metadata for a key, secret, or cert resource.\n\nExample:\n  rbs-cli res update vault default secret my-secret --policy-id policy-1 --content-type text --export-mode jwe"
+        long_about = "Update resource metadata for a key, secret, or cert resource.\n\nExample:\n  rbs-cli res update --res-provider vault --repository-name default --resource-type secret --resource-name my-secret --policy-id policy-1 --content-type text --export-mode jwe"
     )]
-    Update(MutateArgs),
+    Update(UpdateArgs),
     #[command(
         about = "Delete a resource",
-        long_about = "Delete a key, secret, or cert resource.\n\nExample:\n  rbs-cli res delete vault default secret my-secret"
+        long_about = "Delete a key, secret, or cert resource.\n\nExample:\n  rbs-cli res delete --res-provider vault --repository-name default --resource-type secret --resource-name my-secret"
     )]
     Delete(PathArgs),
 }
@@ -83,12 +83,30 @@ pub struct PathArgs {
 }
 
 #[derive(Args, Debug, Clone)]
-pub struct MutateArgs {
+pub struct CreateArgs {
     #[command(flatten)]
     pub path: PathArgs,
 
     #[arg(long, value_parser = |s: &str| validate_trimmed_string_max_len(s, POLICY_ID_MAX_LEN, "policy_id"), help = "Bound resource policy ID")]
     pub policy_id: String,
+
+    #[arg(long, value_parser = read_path_file, help = "Optional Base64 additional_info value or @file path")]
+    pub additional_info: Option<String>,
+
+    #[arg(long, value_parser = RESOURCE_CONTENT_TYPES, help = "Resource content type: jwt, json, text, binary, jwk, or jwe")]
+    pub content_type: Option<String>,
+
+    #[arg(long, value_parser = EXPORT_MODES, help = "Export mode: plain or jwe")]
+    pub export_mode: Option<String>,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct UpdateArgs {
+    #[command(flatten)]
+    pub path: PathArgs,
+
+    #[arg(long, value_parser = |s: &str| validate_trimmed_string_max_len(s, POLICY_ID_MAX_LEN, "policy_id"), help = "Bound resource policy ID")]
+    pub policy_id: Option<String>,
 
     #[arg(long, value_parser = read_path_file, help = "Optional Base64 additional_info value or @file path")]
     pub additional_info: Option<String>,
@@ -119,7 +137,7 @@ async fn execute_res_command(cli: &ResCli, service: &ResourceClient) -> Result<B
         },
         ResCommand::GetResInfo(args) => {
             let resp = service.get_resource_info(&build_path(args)).await?;
-            Ok(Box::new(ResourceInfoOutput(resp)))
+            Ok(Box::new(ResourceMetadataOutput(resp)))
         },
         ResCommand::Create(args) => {
             let resp = service
@@ -133,28 +151,43 @@ async fn execute_res_command(cli: &ResCli, service: &ResourceClient) -> Result<B
                     },
                 )
                 .await?;
-            Ok(Box::new(ResourceMutationOutput(resp)))
+            Ok(Box::new(ResourceMetadataOutput(resp)))
         },
         ResCommand::Update(args) => {
+            validate_update_args(args)?;
             let resp = service
                 .update_resource(
                     &build_path(&args.path),
                     &ResourceUpdateRequest {
-                        policy_id: args.policy_id.clone(),
+                        policy_id: args.policy_id.clone().unwrap_or_default(),
                         additional_info: args.additional_info.clone(),
                         content_type: args.content_type.clone(),
                         export_mode: args.export_mode.clone(),
                     },
                 )
                 .await?;
-            Ok(Box::new(ResourceMutationOutput(resp)))
+            Ok(Box::new(ResourceMetadataOutput(resp)))
         },
         ResCommand::Delete(args) => {
             let path = build_path(args);
             service.delete_resource(&path).await?;
-            Ok(Box::new(TextOutput::new(format!("deleted resource: {}", resource_uri(&path)))))
+            Ok(Box::new(TextOutput::new(format!("Delete succeeded: resource removed: {}", resource_uri(&path)))))
         },
     }
+}
+
+fn validate_update_args(args: &UpdateArgs) -> Result<(), CliError> {
+    if args.policy_id.is_none()
+        && args.additional_info.is_none()
+        && args.content_type.is_none()
+        && args.export_mode.is_none()
+    {
+        return Err(CliError::InvalidArgument(
+            "at least one updatable field must be set: policy_id, additional_info, content_type, export_mode"
+                .to_string(),
+        ));
+    }
+    Ok(())
 }
 
 fn build_path(args: &PathArgs) -> ResourcePath {
@@ -175,10 +208,11 @@ struct ResourceOutput(ResourceResponse);
 
 impl Formatter for ResourceOutput {
     fn render_text(&self) -> Result<String, CliError> {
-        let mut lines = vec![format!("uri: {}", self.0.uri), format!("content: {}", self.0.content)];
-        if let Some(content_type) = &self.0.content_type {
-            lines.push(format!("content_type: {content_type}"));
-        }
+        let lines = vec![
+            format!("{:<20}{}", "uri:", self.0.uri),
+            format!("{:<20}{}", "content:", self.0.content),
+            format!("{:<20}{}", "content_type:", self.0.content_type.as_deref().unwrap_or("")),
+        ];
         Ok(lines.join("\n"))
     }
 
@@ -188,86 +222,33 @@ impl Formatter for ResourceOutput {
 }
 
 #[derive(Debug, Serialize)]
-struct ResourceInfoOutput(ResourceInfoResponse);
+struct ResourceMetadataOutput(ResourceInfoResponse);
 
-impl Formatter for ResourceInfoOutput {
+impl Formatter for ResourceMetadataOutput {
     fn render_text(&self) -> Result<String, CliError> {
-        let mut lines = vec![format!("uri: {}", self.0.uri)];
-        if let Some(res_provider) = &self.0.res_provider {
-            lines.push(format!("res_provider: {res_provider}"));
-        }
-        if let Some(repository_name) = &self.0.repository_name {
-            lines.push(format!("repository_name: {repository_name}"));
-        }
-        if let Some(resource_type) = &self.0.resource_type {
-            lines.push(format!("resource_type: {resource_type}"));
-        }
-        if let Some(resource_name) = &self.0.resource_name {
-            lines.push(format!("resource_name: {resource_name}"));
-        }
-        if let Some(policy_id) = &self.0.policy_id {
-            lines.push(format!("policy_id: {policy_id}"));
-        }
-        if let Some(content_type) = &self.0.content_type {
-            lines.push(format!("content_type: {content_type}"));
-        }
-        if let Some(export_mode) = &self.0.export_mode {
-            lines.push(format!("export_mode: {export_mode}"));
-        }
-        if let Some(content_length) = self.0.content_length {
-            lines.push(format!("content_length: {content_length}"));
-        }
-        if let Some(created_at) = &self.0.created_at {
-            lines.push(format!("created_at: {created_at}"));
-        }
-        if let Some(updated_at) = &self.0.updated_at {
-            lines.push(format!("updated_at: {updated_at}"));
-        }
-        Ok(lines.join("\n"))
-    }
-
-    fn render_json(&self) -> Result<String, CliError> {
-        serde_json::to_string_pretty(&self.0).map_err(|_| CliError::InternalFormat)
-    }
-}
-
-#[derive(Debug, Serialize)]
-struct ResourceMutationOutput(ResourceMutationResponse);
-
-impl Formatter for ResourceMutationOutput {
-    fn render_text(&self) -> Result<String, CliError> {
-        let mut lines = Vec::new();
-        if let Some(uri) = &self.0.uri {
-            lines.push(format!("uri: {uri}"));
-        }
-        if let Some(res_provider) = &self.0.res_provider {
-            lines.push(format!("res_provider: {res_provider}"));
-        }
-        if let Some(repository_name) = &self.0.repository_name {
-            lines.push(format!("repository_name: {repository_name}"));
-        }
-        if let Some(resource_type) = &self.0.resource_type {
-            lines.push(format!("resource_type: {resource_type}"));
-        }
-        if let Some(resource_name) = &self.0.resource_name {
-            lines.push(format!("resource_name: {resource_name}"));
-        }
-        if let Some(policy_id) = &self.0.policy_id {
-            lines.push(format!("policy_id: {policy_id}"));
-        }
-        if let Some(content_type) = &self.0.content_type {
-            lines.push(format!("content_type: {content_type}"));
-        }
-        if let Some(export_mode) = &self.0.export_mode {
-            lines.push(format!("export_mode: {export_mode}"));
-        }
-        if let Some(created_at) = &self.0.created_at {
-            lines.push(format!("created_at: {created_at}"));
-        }
-        if let Some(updated_at) = &self.0.updated_at {
-            lines.push(format!("updated_at: {updated_at}"));
-        }
-        Ok(lines.join("\n"))
+        let resource = &self.0;
+        Ok([
+            format!("{:<20}{}", "uri:", resource.uri),
+            format!("{:<20}{}", "res_provider:", resource.res_provider.as_deref().unwrap_or("")),
+            format!(
+                "{:<20}{}",
+                "repository_name:",
+                resource.repository_name.as_deref().unwrap_or("")
+            ),
+            format!("{:<20}{}", "resource_type:", resource.resource_type.as_deref().unwrap_or("")),
+            format!("{:<20}{}", "resource_name:", resource.resource_name.as_deref().unwrap_or("")),
+            format!("{:<20}{}", "policy_id:", resource.policy_id.as_deref().unwrap_or("")),
+            format!("{:<20}{}", "content_type:", resource.content_type.as_deref().unwrap_or("")),
+            format!("{:<20}{}", "export_mode:", resource.export_mode.as_deref().unwrap_or("")),
+            format!(
+                "{:<20}{}",
+                "content_length:",
+                resource.content_length.map(|value| value.to_string()).unwrap_or_default()
+            ),
+            format!("{:<20}{}", "created_at:", resource.created_at.as_deref().unwrap_or("")),
+            format!("{:<20}{}", "updated_at:", resource.updated_at.as_deref().unwrap_or("")),
+        ]
+        .join("\n"))
     }
 
     fn render_json(&self) -> Result<String, CliError> {
