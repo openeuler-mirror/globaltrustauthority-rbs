@@ -211,6 +211,7 @@ evidence_provider:
 token_provider:
   - type: rbs
     enabled: true
+    config_path: /etc/gta/agent_config.yaml
 
   - type: native
     enabled: false
