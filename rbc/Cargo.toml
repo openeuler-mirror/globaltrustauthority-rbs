@@ -11,7 +11,7 @@ path = "src/lib.rs"
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [[bin]]
-name = "rbc"
+name = "rbc-cli"
 path = "src/bin/main.rs"
 
 [dependencies]
@@ -29,6 +29,8 @@ serde_yaml.workspace = true
 josekit.workspace = true
 async-trait.workspace = true
 attestation_client = { git = "https://gitcode.com/openeuler/global-trust-authority", package = "attestation_client" }
+clap.workspace = true
+rpassword.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

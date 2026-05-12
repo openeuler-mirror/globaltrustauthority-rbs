@@ -1,6 +1,6 @@
 /*
  * Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
- * Global Trust Authority is licensed under the Mulan PSL v2.
+ * Global Trust Authority Resource Broker Service is licensed under the Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *     http://license.coscl.org.cn/MulanPSL2
@@ -10,21 +10,15 @@
  * See the Mulan PSL v2 for more details.
  */
 
-//! Resource Broker Client (RBC) Library
-//!
+pub mod args;
+pub mod context;
+pub mod execute;
+pub mod output;
 
-pub mod cli;
-pub mod client;
-pub mod error;
-pub mod evidence;
-pub mod ffi;
-pub mod sdk;
-pub mod token;
-pub mod tools;
-
-pub use error::RbcError;
-pub use evidence::EvidenceProvider;
-pub use sdk::{
-    Client, Config, ConfigBuilder, GetResourceRequest, ProviderRawConfig, ProviderType, RbsConfig, Resource, Session,
+pub use args::{
+    AttestArgs, AttesterArgs, ChallengeArgs, ClientAction, ClientCli, CollectEvidenceArgs, GetResourceArgs,
+    GetTokenArgs, PolicyIdsArgs,
 };
-pub use token::TokenProvider;
+pub use context::{ClientCommandContext, ExecutionOptions};
+pub use execute::{execute_action, CliError};
+pub use output::{ClientOutput, OutputFormat};

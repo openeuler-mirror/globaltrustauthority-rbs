@@ -28,7 +28,7 @@ use crate::token::{TokenProvider, RbsAttestTokenProvider, NativeTokenProvider};
 use crate::tools::tee_key::{KeyType, TeeKeyPair, TeePublicKey};
 
 /// Selects the evidence or token provider implementation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, clap::ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum ProviderType {
     /// Built-in provider running in the same process.

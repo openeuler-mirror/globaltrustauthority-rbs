@@ -49,8 +49,7 @@ pub fn emit_output(output: &dyn Formatter, global: &GlobalOptions) -> Result<(),
     };
 
     if let Some(output_file) = &global.output_file {
-        let file_rendered = if global.format_explicitly_set { rendered.clone() } else { output.render_json()? };
-        fs::write(output_file, &file_rendered)?;
+        fs::write(output_file, &rendered)?;
 
         if global.quiet {
             return Ok(());

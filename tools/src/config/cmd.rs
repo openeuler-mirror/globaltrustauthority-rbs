@@ -17,6 +17,7 @@ use crate::common::CERT_FILE_MAX_SIZE;
 use crate::config::{GlobalCliArgs, GlobalOptions, OutputFormat, DEFAULT_BASE_URL, DEFAULT_FORMAT};
 use crate::error::CliError;
 use std::{env, fs};
+use rbc::ProviderType;
 
 pub fn resolve_global_options(cli: &GlobalCliArgs) -> std::result::Result<GlobalOptions, CliError> {
     let env_base_url = env::var("RBS_BASE_URL").ok();
@@ -35,7 +36,6 @@ pub fn resolve_global_options(cli: &GlobalCliArgs) -> std::result::Result<Global
     });
     let token = cli.token.clone().or_else(|| env_token);
     let cert_path = cli.cert.clone().or_else(|| env_cert);
-
     validate_base_url(&base_url)?;
     if let Some(token) = &token {
         validate_token(token)?;
@@ -51,10 +51,22 @@ pub fn resolve_global_options(cli: &GlobalCliArgs) -> std::result::Result<Global
     } else {
         None
     };
+    let mut token_provider = ProviderType::Native;
+    if let Some(token_provider_type) = &cli.token_provider_type {
+        token_provider = *token_provider_type;
+    }
+    let mut evidence_provider = ProviderType::Rbs;
+    if let Some(evidence_provider_type) = &cli.evidence_provider_type {
+        evidence_provider = *evidence_provider_type;
+    }
 
     Ok(GlobalOptions {
         base_url,
         token,
+        evidence_provider_type: token_provider,
+        evidence_provider_config: cli.evidence_provider_config.clone(),
+        token_provider_type: evidence_provider,
+        token_provider_config: cli.token_provider_config.clone(),
         cert,
         cert_path,
         format,

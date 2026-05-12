@@ -11,9 +11,9 @@
  */
 
 use clap::{ArgAction, Args, Subcommand, ValueEnum};
-use jsonwebtoken::{encode as jwt_encode, Algorithm as JwtAlgorithm, EncodingKey, Header as JwtHeader};
 use josekit::jws::{EdDSA, JwsHeader, ES256, ES384, ES512};
 use josekit::jwt::{self, JwtPayload};
+use jsonwebtoken::{encode as jwt_encode, Algorithm as JwtAlgorithm, EncodingKey, Header as JwtHeader};
 use openssl::nid::Nid;
 use openssl::pkey::{Id, PKey, Private};
 use serde_json::{Map, Value};
@@ -361,11 +361,10 @@ impl TokenGenerate {
             CliError::InvalidArgument("unable to build the token payload. Please check the token claims".to_string())
         })?;
 
-        let pem = Zeroizing::new(
-            private_key
-                .private_key_to_pem_pkcs8()
-                .map_err(|_err| CliError::InvalidArgument("unable to prepare the private key for signing".to_string()))?,
-        );
+        let pem =
+            Zeroizing::new(private_key.private_key_to_pem_pkcs8().map_err(|_err| {
+                CliError::InvalidArgument("unable to prepare the private key for signing".to_string())
+            })?);
         let token = Self::generate_token(&alg, &pem, &header, &payload)?;
         Ok(token)
     }
@@ -460,8 +459,9 @@ fn generate_pss_token_with_jsonwebtoken(
     jwt_header.typ = Some("JWT".to_string());
     jwt_header.kid = header.key_id().map(|value| value.to_string());
 
-    let claims: Value = serde_json::from_str(&payload.to_string())
-        .map_err(|_| CliError::InvalidArgument("unable to build the token payload. Please check the token claims".to_string()))?;
+    let claims: Value = serde_json::from_str(&payload.to_string()).map_err(|_| {
+        CliError::InvalidArgument("unable to build the token payload. Please check the token claims".to_string())
+    })?;
     let encoding_key = EncodingKey::from_rsa_pem(pem).map_err(|err| {
         CliError::InvalidArgument(format!(
             "unable to load the RSA private key for {alg}. Please check that the key is a valid PEM private key: {err}"
@@ -488,10 +488,7 @@ fn validate_audience_count(values: &[String]) -> Result<(), CliError> {
     if values.len() <= AUD_MAX_COUNT {
         Ok(())
     } else {
-        Err(CliError::InvalidArgument(format!(
-            "audience count must not exceed {AUD_MAX_COUNT}; got {}",
-            values.len()
-        )))
+        Err(CliError::InvalidArgument(format!("audience count must not exceed {AUD_MAX_COUNT}; got {}", values.len())))
     }
 }
 
@@ -513,9 +510,7 @@ fn validate_time_claims(exp: u64, nbf: Option<u64>, iat: Option<u64>) -> Result<
         .as_secs();
 
     if exp <= now {
-        return Err(CliError::InvalidArgument(
-            "exp must be a Unix timestamp later than the current time".to_string(),
-        ));
+        return Err(CliError::InvalidArgument("exp must be a Unix timestamp later than the current time".to_string()));
     }
     if let Some(nbf) = nbf {
         if nbf >= exp {

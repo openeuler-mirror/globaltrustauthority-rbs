@@ -21,6 +21,7 @@ use crate::config::cmd::{validate_base_url, validate_cert, validate_output_file,
 use crate::error::CliError;
 use crate::token::cmd::TokenCli;
 use crate::version::cmd::VersionCli;
+use rbc::ProviderType;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -45,43 +46,75 @@ pub struct GlobalCliArgs {
     #[arg(short, long, display_order = 101, value_parser = validate_token, help = "Bearer token used for authenticated requests")]
     pub token: Option<String>,
 
-    #[arg(long, display_order = 102, value_parser = validate_cert, help = "CA certificate file used to verify the RBS server")]
+    #[arg(
+        long,
+        display_order = 102,
+        value_parser = parse_provider_type,
+        help = "Evidence provider type"
+    )]
+    pub evidence_provider_type: Option<ProviderType>,
+
+    #[arg(
+        long,
+        display_order = 103,
+        default_value = "/etc/attestation_agent/agent_config.yaml",
+        help = "Evidence provider config path"
+    )]
+    pub evidence_provider_config: String,
+
+    #[arg(
+        long,
+        display_order = 104,
+        value_parser = parse_provider_type,
+        help = "Token provider type"
+    )]
+    pub token_provider_type: Option<ProviderType>,
+
+    #[arg(
+        long,
+        display_order = 105,
+        default_value = "/etc/attestation_agent/agent_config.yaml",
+        help = "Token provider config path"
+    )]
+    pub token_provider_config: String,
+
+    #[arg(long, display_order = 106, value_parser = validate_cert, help = "CA certificate file used to verify the RBS server")]
     pub cert: Option<String>,
 
     #[arg(
         short,
         long,
-        display_order = 103,
+        display_order = 107,
         global = true,
         value_enum,
-        help = "Output format for stdout. When --output-file is set without an explicit format, the file is written as json"
+        help = "Output format"
     )]
     pub format: Option<OutputFormat>,
 
     #[arg(
         short,
         long,
-        display_order = 104,
+        display_order = 108,
         global = true,
         value_parser = validate_output_file,
-        help = "Write command output to a file. Without an explicit --format, the file uses json and stdout prints a success message"
+        help = "Write command output to a file"
     )]
     pub output_file: Option<String>,
 
-    #[arg(short, long, display_order = 105, global = true, help = "Enable verbose output")]
+    #[arg(short, long, display_order = 109, global = true, help = "Enable verbose output")]
     pub verbose: bool,
 
     #[arg(
         short,
         long,
-        display_order = 106,
+        display_order = 110,
         global = true,
         conflicts_with = "verbose",
         help = "Suppress non-essential output"
     )]
     pub quiet: bool,
 
-    #[arg(long, display_order = 107, global = true, help = "Do not print command output")]
+    #[arg(long, display_order = 111, global = true, help = "Do not print command output")]
     pub noout: bool,
 }
 
@@ -133,6 +166,10 @@ impl FromStr for OutputFormat {
 pub struct GlobalOptions {
     pub base_url: String,
     pub token: Option<String>,
+    pub evidence_provider_type: ProviderType,
+    pub evidence_provider_config: String,
+    pub token_provider_type: ProviderType,
+    pub token_provider_config: String,
     pub cert: Option<Vec<u8>>,
     pub cert_path: Option<String>,
     pub format: OutputFormat,
@@ -148,6 +185,10 @@ impl Default for GlobalOptions {
         Self {
             base_url: DEFAULT_BASE_URL.to_string(),
             token: None,
+            evidence_provider_type: ProviderType::Rbs,
+            evidence_provider_config: "/etc/attestation_agent/agent_config.yaml".to_string(),
+            token_provider_type: ProviderType::Native,
+            token_provider_config: "/etc/attestation_agent/agent_config.yaml".to_string(),
             cert: None,
             cert_path: None,
             format: OutputFormat::Text,
@@ -157,5 +198,13 @@ impl Default for GlobalOptions {
             quiet: false,
             noout: false,
         }
+    }
+}
+
+fn parse_provider_type(value: &str) -> Result<ProviderType, String> {
+    match value {
+        "native" => Ok(ProviderType::Native),
+        "rbs" => Ok(ProviderType::Rbs),
+        _ => Err(format!("invalid provider type `{value}`; expected `native` or `rbs`")),
     }
 }

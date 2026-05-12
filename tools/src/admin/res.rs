@@ -230,11 +230,7 @@ impl Formatter for ResourceMetadataOutput {
         Ok([
             format!("{:<20}{}", "uri:", resource.uri),
             format!("{:<20}{}", "res_provider:", resource.res_provider.as_deref().unwrap_or("")),
-            format!(
-                "{:<20}{}",
-                "repository_name:",
-                resource.repository_name.as_deref().unwrap_or("")
-            ),
+            format!("{:<20}{}", "repository_name:", resource.repository_name.as_deref().unwrap_or("")),
             format!("{:<20}{}", "resource_type:", resource.resource_type.as_deref().unwrap_or("")),
             format!("{:<20}{}", "resource_name:", resource.resource_name.as_deref().unwrap_or("")),
             format!("{:<20}{}", "policy_id:", resource.policy_id.as_deref().unwrap_or("")),

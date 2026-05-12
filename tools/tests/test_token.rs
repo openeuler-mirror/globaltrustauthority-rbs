@@ -24,7 +24,9 @@
 use clap::Parser;
 use josekit::jws::{EdDSA, ES256, ES384, ES512};
 use josekit::jwt;
-use jsonwebtoken::{decode as jwt_decode, decode_header as jwt_decode_header, Algorithm as JwtAlgorithm, DecodingKey, Validation};
+use jsonwebtoken::{
+    decode as jwt_decode, decode_header as jwt_decode_header, Algorithm as JwtAlgorithm, DecodingKey, Validation,
+};
 use openssl::ec::{EcGroup, EcKey};
 use openssl::nid::Nid;
 use openssl::pkey::PKey;
@@ -47,10 +49,7 @@ struct TempFile {
 impl TempFile {
     fn new(prefix: &str, contents: &[u8]) -> Self {
         let unique = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system time before unix epoch")
-            .as_nanos();
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).expect("system time before unix epoch").as_nanos();
         let path = std::env::temp_dir().join(format!("rbs-cli-{prefix}-{nanos}-{unique}.pem"));
         fs::write(&path, contents).expect("failed to write temporary key file");
         Self { path }
@@ -88,9 +87,7 @@ fn base_generate_args(private_key_file: &Path, alg: TokenAlg) -> GenerateArgs {
 fn parse_generate_args(arguments: Vec<String>) -> Result<GenerateArgs, clap::Error> {
     let cli = Cli::try_parse_from(arguments)?;
     match cli.command {
-        Some(Command::Token(TokenCli {
-            command: TokenCommand::Generate(args),
-        })) => Ok(args),
+        Some(Command::Token(TokenCli { command: TokenCommand::Generate(args) })) => Ok(args),
         _ => panic!("expected token gen command"),
     }
 }
@@ -109,9 +106,7 @@ fn token_gen_args_with(flag: &str, value: String) -> Vec<String> {
 
 fn generate_ed25519_private_key_file(prefix: &str) -> TempFile {
     let private_key = PKey::generate_ed25519().expect("failed to generate Ed25519 key");
-    let private_pem = private_key
-        .private_key_to_pem_pkcs8()
-        .expect("failed to export Ed25519 private key");
+    let private_pem = private_key.private_key_to_pem_pkcs8().expect("failed to export Ed25519 private key");
     TempFile::new(prefix, &private_pem)
 }
 
@@ -165,12 +160,8 @@ fn assert_common_claims_with_jsonwebtoken_pss(token: &str, expected_alg: JwtAlgo
 fn generate_rsa_pem(prefix: &str) -> (TempFile, Vec<u8>) {
     let rsa = Rsa::generate(2048).expect("failed to generate RSA key");
     let private_key = PKey::from_rsa(rsa).expect("failed to convert RSA key");
-    let private_pem = private_key
-        .private_key_to_pem_pkcs8()
-        .expect("failed to export RSA private key");
-    let public_pem = private_key
-        .public_key_to_pem()
-        .expect("failed to export RSA public key");
+    let private_pem = private_key.private_key_to_pem_pkcs8().expect("failed to export RSA private key");
+    let public_pem = private_key.public_key_to_pem().expect("failed to export RSA public key");
     let private_file = TempFile::new(prefix, &private_pem);
 
     (private_file, public_pem)
@@ -205,9 +196,7 @@ fn generate_token_with_es256() {
     let group = EcGroup::from_curve_name(Nid::X9_62_PRIME256V1).expect("failed to load P-256 group");
     let ec_key = EcKey::generate(&group).expect("failed to generate P-256 key");
     let private_key = PKey::from_ec_key(ec_key).expect("failed to convert P-256 private key");
-    let private_pem = private_key
-        .private_key_to_pem_pkcs8()
-        .expect("failed to export P-256 private key");
+    let private_pem = private_key.private_key_to_pem_pkcs8().expect("failed to export P-256 private key");
     let public_pem = private_key.public_key_to_pem().expect("failed to export P-256 public key");
     let private_file = TempFile::new("es256-private", &private_pem);
 
@@ -223,9 +212,7 @@ fn generate_token_with_es384() {
     let group = EcGroup::from_curve_name(Nid::SECP384R1).expect("failed to load P-384 group");
     let ec_key = EcKey::generate(&group).expect("failed to generate P-384 key");
     let private_key = PKey::from_ec_key(ec_key).expect("failed to convert P-384 private key");
-    let private_pem = private_key
-        .private_key_to_pem_pkcs8()
-        .expect("failed to export P-384 private key");
+    let private_pem = private_key.private_key_to_pem_pkcs8().expect("failed to export P-384 private key");
     let public_pem = private_key.public_key_to_pem().expect("failed to export P-384 public key");
     let private_file = TempFile::new("es384-private", &private_pem);
 
@@ -241,9 +228,7 @@ fn generate_token_with_es512() {
     let group = EcGroup::from_curve_name(Nid::SECP521R1).expect("failed to load P-521 group");
     let ec_key = EcKey::generate(&group).expect("failed to generate P-521 key");
     let private_key = PKey::from_ec_key(ec_key).expect("failed to convert P-521 private key");
-    let private_pem = private_key
-        .private_key_to_pem_pkcs8()
-        .expect("failed to export P-521 private key");
+    let private_pem = private_key.private_key_to_pem_pkcs8().expect("failed to export P-521 private key");
     let public_pem = private_key.public_key_to_pem().expect("failed to export P-521 public key");
     let private_file = TempFile::new("es512-private", &private_pem);
 
@@ -257,9 +242,7 @@ fn generate_token_with_es512() {
 #[test]
 fn generate_token_with_eddsa() {
     let private_key = PKey::generate_ed25519().expect("failed to generate Ed25519 key");
-    let private_pem = private_key
-        .private_key_to_pem_pkcs8()
-        .expect("failed to export Ed25519 private key");
+    let private_pem = private_key.private_key_to_pem_pkcs8().expect("failed to export Ed25519 private key");
     let public_pem = private_key.public_key_to_pem().expect("failed to export Ed25519 public key");
     let private_file = TempFile::new("eddsa-private", &private_pem);
 
@@ -272,14 +255,9 @@ fn generate_token_with_eddsa() {
 
 #[test]
 fn token_gen_clap_accepts_max_length_string_fields() {
-    for (flag, max_len) in [
-        ("--iss", 128usize),
-        ("--sub", 64),
-        ("--aud", 128),
-        ("--role", 64),
-        ("--jti", 128),
-        ("--kid", 128),
-    ] {
+    for (flag, max_len) in
+        [("--iss", 128usize), ("--sub", 64), ("--aud", 128), ("--role", 64), ("--jti", 128), ("--kid", 128)]
+    {
         let args = token_gen_args_with(flag, "a".repeat(max_len));
         let parsed = parse_generate_args(args).expect("expected clap to accept boundary length");
         let parsed_value = match flag {
@@ -297,14 +275,9 @@ fn token_gen_clap_accepts_max_length_string_fields() {
 
 #[test]
 fn token_gen_clap_rejects_oversized_string_fields() {
-    for (flag, max_len) in [
-        ("--iss", 128usize),
-        ("--sub", 64),
-        ("--aud", 128),
-        ("--role", 64),
-        ("--jti", 128),
-        ("--kid", 128),
-    ] {
+    for (flag, max_len) in
+        [("--iss", 128usize), ("--sub", 64), ("--aud", 128), ("--role", 64), ("--jti", 128), ("--kid", 128)]
+    {
         let args = token_gen_args_with(flag, "a".repeat(max_len + 1));
         let err = parse_generate_args(args).expect_err("expected clap to reject oversized input");
         let err_text = err.to_string();
