@@ -388,26 +388,33 @@ impl Session {
         Ok(Resource { uri: resp.uri, content, content_type: resp.content_type })
     }
 
-    /// Decrypt a JWE-encrypted resource content. Pass `private_key_pem` when the caller manages
-    /// the TEE key; omit it to use the session's ephemeral key. Pass `passphrase` when the PEM
-    /// is encrypted; caller is responsible for zeroizing the slice after this call returns.
+    /// Decrypt a JWE-encrypted resource content.
+    ///
+    /// If `private_key_pem` is provided it is always used, regardless of whether the session holds
+    /// an ephemeral key. This allows stateless callers (e.g. a CLI) to supply their own long-lived
+    /// private key without requiring the same `Session` that collected evidence. Pass `passphrase`
+    /// when the PEM is encrypted; caller is responsible for zeroizing the slice after this call.
+    ///
+    /// When `private_key_pem` is omitted the session's ephemeral key is used instead.
     pub fn decrypt_content(
         &self,
         jwe_token: &str,
         private_key_pem: Option<&str>,
         passphrase: Option<&[u8]>,
     ) -> Result<Zeroizing<Vec<u8>>, RbcError> {
-        let bytes = if self.caller_manages_key {
-            let pem = private_key_pem
-                .ok_or_else(|| RbcError::InvalidInput(
-                    "caller manages key but no private key provided".into()
-                ))?;
+        let bytes = if let Some(pem) = private_key_pem {
             let kp = TeeKeyPair::from_private_pem(self.key_algorithm, pem, passphrase)?;
             kp.decrypt_jwe(jwe_token)?
         } else {
             let key = self.ephemeral_key
                 .as_ref()
-                .ok_or_else(|| RbcError::DecryptError("no ephemeral key available".into()))?;
+                .ok_or_else(|| {
+                    if self.caller_manages_key {
+                        RbcError::InvalidInput("caller manages key but no private key provided".into())
+                    } else {
+                        RbcError::DecryptError("no ephemeral key available".into())
+                    }
+                })?;
             key.decrypt_jwe(jwe_token)?
         };
         Ok(Zeroizing::new(bytes))

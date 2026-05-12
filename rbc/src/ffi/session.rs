@@ -200,9 +200,11 @@ pub extern "C" fn rbc_session_get_resource_by_evidence(
 
 /// Decrypt a JWE token using the session's key.
 ///
-/// Pass `private_key_pem == NULL` to use the ephemeral key generated in
-/// `RbcSessionBegin`. Pass a PEM string only when the caller supplied its own
-/// `tee_pubkey` in `attester_data_json` during `RbcSessionBegin`.
+/// If `private_key_pem` is non-NULL it is always used, regardless of whether
+/// the session holds an ephemeral key. This allows stateless callers (e.g. a
+/// CLI) to supply a long-lived private key without requiring the same session
+/// that collected evidence. Pass NULL to fall back to the session's ephemeral
+/// key.
 ///
 /// On success `*out_plaintext` is a newly allocated buffer of `*out_len` bytes
 /// owned by the caller; release with `RbcBufferFree(buf, len)`.
