@@ -93,7 +93,7 @@ fn test_user_response() {
 #[test]
 fn test_user_list_response() {
     let json = serde_json::json!({
-        "items": [
+        "users": [
             {
                 "id": "1", "username": "alice",
                 "role": "user", "enabled": true,
@@ -112,7 +112,7 @@ fn test_user_list_response() {
         "offset": 0
     });
     let resp: UserListResponse = serde_json::from_value(json).unwrap();
-    assert_eq!(resp.items.len(), 2);
+    assert_eq!(resp.users.len(), 2);
     assert_eq!(resp.total_count, 10);
     assert_eq!(resp.limit, 2);
     assert_eq!(resp.offset, 0);

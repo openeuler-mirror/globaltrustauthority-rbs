@@ -141,9 +141,9 @@ impl AdminManager {
                 internal_err(e)
             })?;
 
-        let items = models.into_iter().map(|m| model_to_response(&m)).collect();
+        let users = models.into_iter().map(|m| model_to_response(&m)).collect();
 
-        Ok(UserListResponse { items, total_count, limit, offset })
+        Ok(UserListResponse { users, total_count, limit, offset })
     }
 
     /// Create a user (admin only).
@@ -171,7 +171,7 @@ impl AdminManager {
                     "User creation by '{}' rejected: max_users limit ({}) reached",
                     bearer.sub, self.config.max_users
                 );
-                return RbsError::AuthzInsufficientPermissions;
+                return RbsError::ResourceQuotaExceeded;
             }
             log::error!("Failed to insert user '{}': {}", req.username, e);
             internal_err(e)
@@ -711,7 +711,7 @@ mod tests {
         assert!(result.is_ok());
         let (auth_value, auth_alg) = result.unwrap();
         assert!(auth_value.contains("BEGIN PUBLIC KEY"));
-        assert_eq!(auth_alg, "PS256");
+        assert_eq!(auth_alg, "RSA");
     }
 
     #[test]
@@ -743,7 +743,7 @@ mod tests {
         assert!(material.is_some());
         let (auth_value, auth_alg) = material.unwrap();
         assert!(auth_value.contains("BEGIN PUBLIC KEY"));
-        assert_eq!(auth_alg, "PS256");
+        assert_eq!(auth_alg, "RSA");
     }
 
     #[test]

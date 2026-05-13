@@ -22,7 +22,7 @@ use rbs_api_types::ErrorBody;
 use rbs_core::auth::{Auth, AuthContext, TokenType};
 
 /// Paths that do NOT require authentication (exact match)
-const PUBLIC_PATHS: &[&str] = &["/rbs/v0/challenge", "/rbs/v0/attest"];
+const PUBLIC_PATHS: &[&str] = &["/rbs/v0/challenge", "/rbs/v0/attest", "/rbs/version"];
 
 /// Check if the path is a public endpoint (no authentication required)
 ///

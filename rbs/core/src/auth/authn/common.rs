@@ -16,12 +16,12 @@ use crate::auth::error::AuthError;
 use jsonwebtoken::{decode_header, Algorithm, DecodingKey, Header};
 
 /// Supported algorithms for token verification.
-/// Only RSA-PSS and EdDSA are supported for security reasons.
+/// RSA-PSS, ECDSA (NIST P-256/384), and EdDSA are supported.
 pub const SUPPORTED_ALGORITHMS: &[Algorithm] =
-    &[Algorithm::PS256, Algorithm::PS384, Algorithm::PS512, Algorithm::EdDSA];
+    &[Algorithm::PS256, Algorithm::PS384, Algorithm::PS512, Algorithm::ES256, Algorithm::ES384, Algorithm::EdDSA];
 
 /// Human-readable list of supported algorithms for error messages.
-pub const SUPPORTED_ALGORITHMS_STR: &str = "PS256, PS384, PS512, EdDSA";
+pub const SUPPORTED_ALGORITHMS_STR: &str = "PS256, PS384, PS512, ES256, ES384, EdDSA";
 
 /// Validate that the algorithm is supported.
 ///
@@ -67,14 +67,23 @@ pub fn decode_token_header(token: &str) -> Result<Header, AuthError> {
 /// * `Ok(DecodingKey)` on success
 /// * `Err(AuthError::TokenInvalid)` if the key cannot be created
 pub fn create_decoding_key(alg: &Algorithm, pem: &[u8]) -> Result<DecodingKey, AuthError> {
-    if *alg == Algorithm::EdDSA {
-        DecodingKey::from_ed_pem(pem).map_err(|e| AuthError::TokenInvalid {
-            reason: format!("failed to create EdDSA decoding key: {}", e),
-        })
-    } else {
-        DecodingKey::from_rsa_pem(pem).map_err(|e| AuthError::TokenInvalid {
-            reason: format!("failed to create RSA decoding key: {}", e),
-        })
+    match *alg {
+        Algorithm::EdDSA => {
+            DecodingKey::from_ed_pem(pem).map_err(|e| AuthError::TokenInvalid {
+                reason: format!("failed to create EdDSA decoding key: {}", e),
+            })
+        }
+        Algorithm::ES256 | Algorithm::ES384 => {
+            DecodingKey::from_ec_pem(pem).map_err(|e| AuthError::TokenInvalid {
+                reason: format!("failed to create EC decoding key: {}", e),
+            })
+        }
+        _ => {
+            // RSA-PSS algorithms use RSA keys
+            DecodingKey::from_rsa_pem(pem).map_err(|e| AuthError::TokenInvalid {
+                reason: format!("failed to create RSA decoding key: {}", e),
+            })
+        }
     }
 }
 
@@ -125,6 +134,8 @@ mod tests {
         assert!(validate_algorithm(&Algorithm::PS256).is_ok());
         assert!(validate_algorithm(&Algorithm::PS384).is_ok());
         assert!(validate_algorithm(&Algorithm::PS512).is_ok());
+        assert!(validate_algorithm(&Algorithm::ES256).is_ok());
+        assert!(validate_algorithm(&Algorithm::ES384).is_ok());
         assert!(validate_algorithm(&Algorithm::EdDSA).is_ok());
     }
 
@@ -137,10 +148,12 @@ mod tests {
 
     #[test]
     fn test_supported_algorithms_constant() {
-        assert_eq!(SUPPORTED_ALGORITHMS.len(), 4);
+        assert_eq!(SUPPORTED_ALGORITHMS.len(), 6);
         assert!(SUPPORTED_ALGORITHMS.contains(&Algorithm::PS256));
         assert!(SUPPORTED_ALGORITHMS.contains(&Algorithm::PS384));
         assert!(SUPPORTED_ALGORITHMS.contains(&Algorithm::PS512));
+        assert!(SUPPORTED_ALGORITHMS.contains(&Algorithm::ES256));
+        assert!(SUPPORTED_ALGORITHMS.contains(&Algorithm::ES384));
         assert!(SUPPORTED_ALGORITHMS.contains(&Algorithm::EdDSA));
     }
 

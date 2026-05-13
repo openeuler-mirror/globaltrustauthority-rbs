@@ -363,7 +363,7 @@ func main() {
 
 ```json
 {
-  "items": [
+  "users": [
     {
       "id": "string",
       "username": "string",
@@ -423,7 +423,7 @@ const inputBody = '{
   "enabled": true,
   "auth_type": "jwt",
   "public_key": "string",
-  "jwk": null
+  "jwk": "string"
 }';
 const headers = {
   'Content-Type':'application/json',
@@ -567,7 +567,7 @@ func main() {
   "enabled": true,
   "auth_type": "jwt",
   "public_key": "string",
-  "jwk": null
+  "jwk": "string"
 }
 ```
 
@@ -824,7 +824,7 @@ const inputBody = '{
   "enabled": true,
   "auth_type": {},
   "public_key": "string",
-  "jwk": null
+  "jwk": "string"
 }';
 const headers = {
   'Content-Type':'application/json',
@@ -967,7 +967,7 @@ func main() {
   "enabled": true,
   "auth_type": {},
   "public_key": "string",
-  "jwk": null
+  "jwk": "string"
 }
 ```
 
@@ -3959,7 +3959,7 @@ Request body for `PUT /rbs/v0/{uri}` — update or create a resource.
   "enabled": true,
   "auth_type": "jwt",
   "public_key": "string",
-  "jwk": null
+  "jwk": "string"
 }
 
 ```
@@ -3991,8 +3991,8 @@ continued
 |---|---|---|---|---|
 |enabled|boolean,null|false|none|Whether the account is enabled.|
 |auth_type|[AuthType](#schemaauthtype)|true|none|Authentication type.|
-|public_key|string,null|false|none|PEM-encoded public key (mutually exclusive with `jwk`).|
-|jwk|any|false|none|JWK public key object (mutually exclusive with `public_key`).|
+|public_key|string,null|false|none|Base64-encoded PEM public key (mutually exclusive with `jwk`).|
+|jwk|string,null|false|none|Base64-encoded JWK public key JSON object (mutually exclusive with `public_key`).|
 
 <h2 id="tocS_UserListResponse">UserListResponse</h2>
 <!-- backwards compatibility -->
@@ -4003,7 +4003,7 @@ continued
 
 ```json
 {
-  "items": [
+  "users": [
     {
       "id": "string",
       "username": "string",
@@ -4026,7 +4026,7 @@ Paginated response for GET /rbs/v0/users.
 
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
-|items|[[UserResponse](#schemauserresponse)]|true|none|Page of users.|
+|users|[[UserResponse](#schemauserresponse)]|true|none|Page of users.|
 |total_count|integer(int64)|true|none|Total matching users (not only this page).|
 |limit|integer(int64)|true|none|Effective page size (may mirror request `limit`).|
 |offset|integer(int64)|true|none|Effective skip count (may mirror request `offset`).|
@@ -4076,7 +4076,7 @@ Response for user retrieval, creation, and update.
   "enabled": true,
   "auth_type": {},
   "public_key": "string",
-  "jwk": null
+  "jwk": "string"
 }
 
 ```
@@ -4127,6 +4127,6 @@ continued
 
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
-|public_key|string,null|false|none|PEM-encoded public key (mutually exclusive with `jwk`).|
-|jwk|any|false|none|JWK public key object (mutually exclusive with `public_key`).|
+|public_key|string,null|false|none|Base64-encoded PEM public key (mutually exclusive with `jwk`).|
+|jwk|string,null|false|none|Base64-encoded JWK public key JSON object (mutually exclusive with `public_key`).|
 

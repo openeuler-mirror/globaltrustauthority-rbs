@@ -1284,12 +1284,12 @@ components:
       type: object
       description: Paginated response for GET /rbs/v0/users.
       required:
-      - items
+      - users
       - total_count
       - limit
       - offset
       properties:
-        items:
+        users:
           type: array
           items:
             $ref: '#/components/schemas/UserResponse'

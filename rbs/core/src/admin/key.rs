@@ -47,8 +47,9 @@ pub fn validate_and_derive_alg(pem: &str) -> Result<String> {
         })?;
 
     match pkey.id() {
-        openssl::pkey::Id::RSA => Ok("PS256".to_string()),
-        openssl::pkey::Id::ED25519 => Ok("EdDSA".to_string()),
+        openssl::pkey::Id::RSA => Ok("RSA".to_string()),
+        openssl::pkey::Id::EC => Ok("EC".to_string()),
+        openssl::pkey::Id::ED25519 => Ok("Ed25519".to_string()),
         _ => Err(RbsError::InvalidParameter("Unsupported key type".to_string())),
     }
 }
@@ -164,10 +165,10 @@ mod tests {
     }
 
     #[test]
-    fn validate_and_derive_alg_returns_ps256_for_rsa_key() {
+    fn validate_and_derive_alg_returns_rsa_for_rsa_key() {
         let result = validate_and_derive_alg(VALID_RSA_PEM);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), "PS256");
+        assert_eq!(result.unwrap(), "RSA");
     }
 
     #[test]
@@ -282,7 +283,7 @@ mod tests {
     }
 
     #[test]
-    fn validate_and_derive_alg_returns_eddsa_for_ed25519() {
+    fn validate_and_derive_alg_returns_ed25519_for_ed25519() {
         // Generate an Ed25519 key pair
         let ed_key = openssl::pkey::PKey::generate_ed25519().unwrap();
         let pem = ed_key.public_key_to_pem().unwrap();
@@ -290,6 +291,20 @@ mod tests {
 
         let result = validate_and_derive_alg(&pem_str);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), "EdDSA");
+        assert_eq!(result.unwrap(), "Ed25519");
+    }
+
+    #[test]
+    fn validate_and_derive_alg_returns_ec_for_ec_key() {
+        // Generate an P-256 EC key pair
+        let ec_group = openssl::ec::EcGroup::from_curve_name(openssl::nid::Nid::X9_62_PRIME256V1).unwrap();
+        let ec_key = openssl::ec::EcKey::generate(&ec_group).unwrap();
+        let pkey = openssl::pkey::PKey::from_ec_key(ec_key).unwrap();
+        let pem = pkey.public_key_to_pem().unwrap();
+        let pem_str = String::from_utf8_lossy(&pem).to_string();
+
+        let result = validate_and_derive_alg(&pem_str);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "EC");
     }
 }

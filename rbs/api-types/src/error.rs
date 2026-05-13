@@ -61,6 +61,7 @@ pub enum StableCode {
     ResourceNotFound,
     ResourceConflict,
     ResourceGone,
+    ResourceQuotaExceeded,
     // Provider errors
     ProviderUnavailable,
     ProviderTimeout,
@@ -104,7 +105,7 @@ impl From<StableCode> for HttpStatus {
             }
             StableCode::NotImplemented => HttpStatus::NotImplemented,
             StableCode::ResourceNotFound | StableCode::ResourceGone => HttpStatus::NotFound,
-            StableCode::ResourceConflict => HttpStatus::Conflict,
+            StableCode::ResourceConflict | StableCode::ResourceQuotaExceeded => HttpStatus::Conflict,
             StableCode::RateLimitExceeded => HttpStatus::TooManyRequests,
             StableCode::ProviderUnavailable
             | StableCode::ProviderTimeout
@@ -151,7 +152,8 @@ impl From<StableCode> for Retryable {
             | StableCode::InvalidParameter
             | StableCode::NotImplemented
             | StableCode::ResourceConflict
-            | StableCode::AuthzInsufficientPermissions => Retryable::No,
+            | StableCode::AuthzInsufficientPermissions
+            | StableCode::ResourceQuotaExceeded => Retryable::No,
             StableCode::RateLimitExceeded
             | StableCode::ProviderTimeout
             | StableCode::DependencyUnavailable => Retryable::Yes,
@@ -214,6 +216,9 @@ pub enum RbsError {
     #[error("resource gone")]
     ResourceGone,
 
+    #[error("resource quota exceeded")]
+    ResourceQuotaExceeded,
+
     // Provider errors
     #[error("attestation provider unavailable")]
     AttestationProviderUnavailable,
@@ -260,7 +265,7 @@ impl RbsError {
             | Self::ParamMalformed
             | Self::InvalidParameter(_)
             | Self::NotImplemented => ErrorClass::Param,
-            Self::ResourceNotFound | Self::ResourceConflict | Self::ResourceGone => {
+            Self::ResourceNotFound | Self::ResourceConflict | Self::ResourceGone | Self::ResourceQuotaExceeded => {
                 ErrorClass::Resource
             }
             Self::AttestationProviderUnavailable
@@ -290,6 +295,7 @@ impl RbsError {
             Self::ResourceNotFound => StableCode::ResourceNotFound,
             Self::ResourceConflict => StableCode::ResourceConflict,
             Self::ResourceGone => StableCode::ResourceGone,
+            Self::ResourceQuotaExceeded => StableCode::ResourceQuotaExceeded,
             Self::AttestationProviderUnavailable
             | Self::ResourceProviderUnavailable
             | Self::ProviderTimeout
@@ -331,6 +337,7 @@ impl RbsError {
             Self::ResourceNotFound => "resource not found",
             Self::ResourceConflict => "resource conflict",
             Self::ResourceGone => "resource no longer available",
+            Self::ResourceQuotaExceeded => "resource quota exceeded",
             Self::AttestationProviderUnavailable
             | Self::ResourceProviderUnavailable
             | Self::ProviderTimeout
