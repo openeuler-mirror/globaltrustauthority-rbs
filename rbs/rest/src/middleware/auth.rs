@@ -123,6 +123,7 @@ pub async fn auth_middleware(
         Some(header) if header.starts_with("Bearer ") => (&header[7..], TokenType::Bearer),
         Some(header) if header.starts_with("Attest ") => {
             if !attest_allowed {
+                log::warn!("Authentication failed for path '{}': AttestToken not allowed for this endpoint", path);
                 let res = req.into_response(
                     actix_web::HttpResponse::Unauthorized().json(ErrorBody {
                         error: "AttestToken not allowed for this endpoint".to_string(),
@@ -134,6 +135,7 @@ pub async fn auth_middleware(
         }
         _ => {
             // Non-public path requires authentication
+            log::warn!("Authentication failed for path '{}': missing token", path);
             let res = req.into_response(actix_web::HttpResponse::Unauthorized().json(ErrorBody {
                 error: "Unauthorized".to_string(),
             }));
@@ -163,7 +165,7 @@ pub async fn auth_middleware(
             req.extensions_mut().insert(OptAuthContext(Some(auth_ctx)));
         }
         Err(e) => {
-            log::debug!("Authentication failed: {}", e);
+            log::warn!("Authentication failed for path '{}': {}", path, e);
             let res = req.into_response(
                 actix_web::HttpResponse::Unauthorized().json(ErrorBody {
                     error: e.to_string(),

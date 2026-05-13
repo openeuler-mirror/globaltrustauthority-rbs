@@ -18,10 +18,11 @@ use rbs_api_types::{
 
 #[test]
 fn test_user_create_request() {
+    // Base64 of "-----BEGIN PUBLIC KEY-----\ntest\n-----END PUBLIC KEY-----"
     let json = serde_json::json!({
         "username": "alice",
         "auth_type": "jwt",
-        "public_key": "-----BEGIN PUBLIC KEY-----\ntest\n-----END PUBLIC KEY-----"
+        "public_key": "LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0KdGVzdAo9LS0tLS1FTkQgUFVCTElDIEtFWV9ERUNLQUdJTi0tLS0K"
     });
     let req: UserCreateRequest = serde_json::from_value(json).unwrap();
     assert_eq!(req.username, "alice");
@@ -33,10 +34,11 @@ fn test_user_create_request() {
 
 #[test]
 fn test_user_create_request_with_role() {
+    // Base64 of "-----BEGIN PUBLIC KEY-----\ntest\n-----END PUBLIC KEY-----"
     let json = serde_json::json!({
         "username": "alice",
         "auth_type": "jwt",
-        "public_key": "-----BEGIN PUBLIC KEY-----\ntest\n-----END PUBLIC KEY-----",
+        "public_key": "LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0KdGVzdAo9LS0tLS1FTkQgUFVCTElDIEtFWV9ERUNLQUdJTi0tLS0K",
         "role": "user",
         "enabled": true
     });
@@ -60,10 +62,11 @@ fn test_user_update_request() {
 
 #[test]
 fn test_user_update_request_role() {
+    // Base64 of "-----BEGIN PUBLIC KEY-----\ntest\n-----END PUBLIC KEY-----"
     let json = serde_json::json!({
         "role": "user",
         "auth_type": "jwt",
-        "public_key": "-----BEGIN PUBLIC KEY-----\ntest\n-----END PUBLIC KEY-----"
+        "public_key": "LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0KdGVzdAo9LS0tLS1FTkQgUFVCTElDIEtFWV9ERUNLQUdJTi0tLS0K"
     });
     let req: UserUpdateRequest = serde_json::from_value(json).unwrap();
     assert_eq!(req.role, Some(Role::User));

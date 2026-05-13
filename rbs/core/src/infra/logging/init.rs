@@ -16,6 +16,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, Once};
+use std::time::SystemTime;
 
 use flate2::write::GzEncoder;
 use flate2::Compression;
@@ -170,13 +171,23 @@ fn gz_path(base: &Path, n: u32) -> PathBuf {
     PathBuf::from(format!("{}.{}.gz", base.display(), n))
 }
 
+fn format_timestamp(time: &SystemTime) -> String {
+    let duration = time.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+    let secs = duration.as_secs();
+    let datetime = chrono::DateTime::from_timestamp(secs as i64, 0)
+        .unwrap_or_default();
+    let local: chrono::DateTime<chrono::Local> = chrono::DateTime::from(datetime);
+    local.format("%Y-%m-%d %H:%M:%S").to_string()
+}
+
 fn format_line(record: &Record<'_>, config: &LoggingConfig) -> String {
+    let timestamp = format_timestamp(&std::time::SystemTime::now());
     if config.format.eq_ignore_ascii_case("json") {
         let msg = record.args().to_string();
         let level = format!("{:?}", record.level());
-        format!("{{\"level\":\"{level}\",\"message\":{}}}\n", serde_json::json!(msg))
+        format!("{{\"level\":\"{level}\",\"timestamp\":\"{timestamp}\",\"message\":{}}}\n", serde_json::json!(msg))
     } else {
-        format!("{} - {}\n", record.level(), record.args())
+        format!("{} {} - {}\n", timestamp, record.level(), record.args())
     }
 }
 

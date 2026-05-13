@@ -57,20 +57,20 @@ pub struct UserCreateRequest {
     /// Authentication type.
     pub auth_type: AuthType,
 
-    /// PEM-encoded public key (mutually exclusive with `jwk`).
+    /// Base64-encoded PEM public key (mutually exclusive with `jwk`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_key: Option<String>,
 
-    /// JWK public key object (mutually exclusive with `public_key`).
+    /// Base64-encoded JWK public key JSON object (mutually exclusive with `public_key`).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub jwk: Option<Value>,
+    pub jwk: Option<String>,
 }
 
 impl UserCreateRequest {
     /// Cross-field validation: `public_key` / `jwk` mutual exclusion.
     pub fn validate_key_pair(&self) -> Result<(), RbsError> {
         let has_pk = self.public_key.as_deref().map_or(false, |s| !s.is_empty());
-        let has_jwk = self.jwk.is_some();
+        let has_jwk = self.jwk.as_deref().map_or(false, |s| !s.is_empty());
 
         if !has_pk && !has_jwk {
             return Err(RbsError::InvalidParameter(
@@ -106,13 +106,13 @@ pub struct UserUpdateRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auth_type: Option<AuthType>,
 
-    /// PEM-encoded public key (mutually exclusive with `jwk`).
+    /// Base64-encoded PEM public key (mutually exclusive with `jwk`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_key: Option<String>,
 
-    /// JWK public key object (mutually exclusive with `public_key`).
+    /// Base64-encoded JWK public key JSON object (mutually exclusive with `public_key`).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub jwk: Option<Value>,
+    pub jwk: Option<String>,
 }
 
 impl UserUpdateRequest {
@@ -121,8 +121,8 @@ impl UserUpdateRequest {
         if self.role.is_none()
             && self.enabled.is_none()
             && self.auth_type.is_none()
-            && self.public_key.is_none()
-            && self.jwk.is_none()
+            && self.public_key.as_ref().map_or(false, |s| !s.is_empty())
+            && self.jwk.as_ref().map_or(false, |s| !s.is_empty())
         {
             return Err(RbsError::InvalidParameter(
                 "At least one update field is required".to_string(),
@@ -130,7 +130,7 @@ impl UserUpdateRequest {
         }
 
         let has_pk = self.public_key.as_deref().map_or(false, |s| !s.is_empty());
-        let has_jwk = self.jwk.is_some();
+        let has_jwk = self.jwk.as_deref().map_or(false, |s| !s.is_empty());
 
         if has_pk && has_jwk {
             return Err(RbsError::InvalidParameter(

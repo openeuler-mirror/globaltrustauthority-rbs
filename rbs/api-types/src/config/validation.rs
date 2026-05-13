@@ -371,13 +371,6 @@ impl AttestationRestConfig {
             );
         }
 
-        // warn if tls_verify is disabled
-        if !self.tls_verify {
-            eprintln!(
-                "WARNING: attestation.backends.*.rest.tls_verify is false; TLS verification is disabled"
-            );
-        }
-
         // credentials validation
         self.credentials.validate();
     }

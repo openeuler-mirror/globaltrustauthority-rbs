@@ -105,7 +105,7 @@ impl AdminManager {
 
     /// List users (admin only).
     pub async fn list_users(&self, limit: i64, offset: i64, auth_ctx: &AuthContext) -> Result<UserListResponse> {
-        log::info!("[DEBUG] list_users called: limit={}, offset={}", limit, offset);
+        log::info!("list_users called: limit={}, offset={}", limit, offset);
 
         let bearer = match self.require_enabled_admin(auth_ctx).await {
             Ok(b) => {
@@ -188,7 +188,7 @@ impl AdminManager {
 
     /// Get a user (admin or self).
     pub async fn get_user(&self, username: &str, auth_ctx: &AuthContext) -> Result<Option<UserResponse>> {
-        log::info!("[DEBUG] get_user: called with username={}", username);
+        log::info!("get_user: called with username={}", username);
         let bearer = self.require_enabled_bearer(auth_ctx).await?;
 
         if bearer.role != ROLE_ADMIN && bearer.sub != username {
@@ -293,10 +293,11 @@ impl AdminManager {
     /// Assumes `req.validate()` has already been called.
     fn extract_auth_material(req: &UserCreateRequest) -> Result<(String, String)> {
         let auth_value = if let Some(pk) = req.public_key.as_deref().filter(|s| !s.is_empty()) {
-            validate_and_derive_alg(pk)?;
-            pk.to_string()
-        } else if let Some(jwk) = &req.jwk {
-            jwk_to_pem(jwk)?
+            let pem = crate::admin::key::decode_base64_input(pk, "public_key")?;
+            validate_and_derive_alg(&pem)?;
+            pem
+        } else if let Some(jwk_b64) = &req.jwk {
+            crate::admin::key::jwk_from_base64(jwk_b64)?
         } else {
             // validate() guarantees this branch is unreachable
             return Err(RbsError::InvalidParameter("No key material".to_string()));
@@ -308,10 +309,11 @@ impl AdminManager {
     /// Extract optional key material from a validated `UserUpdateRequest`.
     fn extract_update_key_material(req: &UserUpdateRequest) -> Result<Option<(String, String)>> {
         if let Some(pk) = req.public_key.as_deref().filter(|s| !s.is_empty()) {
-            let alg = validate_and_derive_alg(pk)?;
-            Ok(Some((pk.to_string(), alg)))
-        } else if let Some(jwk) = &req.jwk {
-            let pem = jwk_to_pem(jwk)?;
+            let pem = crate::admin::key::decode_base64_input(pk, "public_key")?;
+            let alg = validate_and_derive_alg(&pem)?;
+            Ok(Some((pem, alg)))
+        } else if let Some(jwk_b64) = &req.jwk {
+            let pem = crate::admin::key::jwk_from_base64(jwk_b64)?;
             let alg = validate_and_derive_alg(&pem)?;
             Ok(Some((pem, alg)))
         } else {
@@ -440,7 +442,7 @@ impl AdminManager {
 
     /// Authorize with `AdminOnly`, check enabled, return `BearerContext`.
     async fn require_enabled_admin<'a>(&self, auth_ctx: &'a AuthContext) -> Result<&'a crate::auth::BearerContext> {
-        log::info!("[DEBUG] require_enabled_admin: starting authz check");
+        log::info!("require_enabled_admin: starting authz check");
 
         let result = self.authz
             .check(auth_ctx)
@@ -450,25 +452,25 @@ impl AdminManager {
             .await;
 
         match result {
-            Ok(_) => log::info!("[DEBUG] require_enabled_admin: authz check passed"),
+            Ok(_) => log::info!("require_enabled_admin: authz check passed"),
             Err(e) => {
-                log::error!("[DEBUG] require_enabled_admin: authz check failed: {:?}", e);
+                log::error!("require_enabled_admin: authz check failed: {:?}", e);
                 return Err(map_authz_err(e, auth_ctx));
             }
         }
 
         let bearer = extract_bearer(auth_ctx)?;
-        log::info!("[DEBUG] require_enabled_admin: extract_bearer succeeded, sub={}", bearer.sub);
+        log::info!("require_enabled_admin: extract_bearer succeeded, sub={}", bearer.sub);
 
         self.ensure_enabled(&bearer.sub).await?;
-        log::info!("[DEBUG] require_enabled_admin: ensure_enabled passed");
+        log::info!("require_enabled_admin: ensure_enabled passed");
 
         Ok(bearer)
     }
 
     /// Authorize with `UserScoped`, check enabled, return `BearerContext`.
     async fn require_enabled_bearer<'a>(&self, auth_ctx: &'a AuthContext) -> Result<&'a crate::auth::BearerContext> {
-        log::info!("[DEBUG] require_enabled_bearer: starting authz check");
+        log::info!("require_enabled_bearer: starting authz check");
         let result = self.authz
             .check(auth_ctx)
             .action(Action::Get)
@@ -477,40 +479,40 @@ impl AdminManager {
             .await;
 
         match result {
-            Ok(_) => log::info!("[DEBUG] require_enabled_bearer: authz check passed"),
+            Ok(_) => log::info!("require_enabled_bearer: authz check passed"),
             Err(e) => {
-                log::error!("[DEBUG] require_enabled_bearer: authz check failed: {:?}", e);
+                log::error!("require_enabled_bearer: authz check failed: {:?}", e);
                 return Err(map_authz_err(e, auth_ctx));
             }
         }
 
         let bearer = extract_bearer(auth_ctx)?;
-        log::info!("[DEBUG] require_enabled_bearer: extract_bearer succeeded, sub={}", bearer.sub);
+        log::info!("require_enabled_bearer: extract_bearer succeeded, sub={}", bearer.sub);
 
         self.ensure_enabled(&bearer.sub).await?;
-        log::info!("[DEBUG] require_enabled_bearer: ensure_enabled passed");
+        log::info!("require_enabled_bearer: ensure_enabled passed");
 
         Ok(bearer)
     }
 
     /// Verify the calling user is enabled.
     async fn ensure_enabled(&self, username: &str) -> Result<()> {
-        log::info!("[DEBUG] ensure_enabled: checking username={}", username);
+        log::info!("ensure_enabled: checking username={}", username);
 
         let db = get_connection_from_pool().map_err(|e| {
-            log::error!("[DEBUG] ensure_enabled: get_connection_from_pool failed: {}", e);
+            log::error!("ensure_enabled: get_connection_from_pool failed: {}", e);
             internal_err(e)
         })?;
-        log::info!("[DEBUG] ensure_enabled: got DB connection");
+        log::info!("ensure_enabled: got DB connection");
 
         let model = UserEntity::find_by_id(username)
             .one(&*db)
             .await
             .map_err(|e| {
-                log::error!("[DEBUG] ensure_enabled: query failed: {}", e);
+                log::error!("ensure_enabled: query failed: {}", e);
                 internal_err(e)
             })?;
-        log::info!("[DEBUG] ensure_enabled: query succeeded, model={:?}", model.as_ref().map(|m| (&m.username, m.status)));
+        log::info!("ensure_enabled: query succeeded, model={:?}", model.as_ref().map(|m| (&m.username, m.status)));
 
         match model {
             Some(m) if m.status == UserStatus::Disabled => {
@@ -679,17 +681,8 @@ mod tests {
     use super::*;
     use rbs_api_types::{AuthType, Role};
 
-    const TEST_RSA_PUBKEY: &str = concat!(
-        "-----BEGIN PUBLIC KEY-----\n",
-        "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA7JOjGVgMbclDvZ0zW8by\n",
-        "ALpLyUSNYkb5dyy9xFBEg97RI1SSx0rcOkrd7fb/aJThQ7n47OaSpaJZmNzL/phQ\n",
-        "9TnqHafrOsY8nYn1PlGbUu0yo99CLF9EOqmUpLfAkCELFumP5xt1DSJ+VN4gxVeq\n",
-        "GNAthfi7ceWKuWRgfkTif2wXJXEpCBunyTEM4nqvOZX+lMLWkvv/jaovl+PjNQyk\n",
-        "wTFjgs3EC7Cn/C35xYHRAws3iBXk8PJ7TPFiG3L2pDIP30jxTbu3taOpkAarieSg\n",
-        "rK+Dsrv9RIirzseAH3XnSOHDQDVU++8Jw421BQw/ZiYCfIye2RplBpaLcL8xhIIf\n",
-        "CwIDAQAB\n",
-        "-----END PUBLIC KEY-----\n"
-    );
+    // Base64 encoded RSA public key (with 64-char line breaks)
+    const TEST_RSA_PUBKEY_B64: &str = "LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUlJQklqQU5CZ2txaGtpRzl3MEJBUUVGQUFPQ0FROEFNSUlCQ2dLQ0FRRUE3Sk9qR1ZnTWJjbER2WjB6VzhieQpBTHBMeVVTTllrYjVkeXk5eEZCRWc5N1JJMVNTeDByY09rcmQ3ZmIvYUpUaFE3bjQ3T2FTcGFKWm1OekwvcGhRCjlUbnFIYWZyT3NZOG5ZbjFQbEdiVXUweW85OUNMRjlFT3FtVXBMZkFrQ0VMRnVtUDV4dDFEU0orVk40Z3hWZXEKR05BdGhmaTdjZVdLdVdSZ2ZrVGlmMndYSlhFcENCdW55VEVNNG5xdk9aWCtsTUxXa3Z2L2phb3ZsK1BqTlF5awp3VEZqZ3MzRUM3Q24vQzM1eFlIUkF3czNpQlhrOFBKN1RQRmlHM0wycERJUDMwanhUYnUzdGFPcGtBYXJpZVNnCnJLK0RzcnY5UklpcnpzZUFIM1huU09IRFFEVlUrKzhKdzQyMUJRdy9aaVlDZkl5ZTJScGxCcGFMY0w4eGhJSWYKQ3dJREFRQUIKLS0tLS1FTkQgUFVCTElDIEtFWS0tLS0tCg==";
 
     #[test]
     fn uuid_generation_returns_valid_format() {
@@ -711,14 +704,14 @@ mod tests {
             role: None,
             enabled: None,
             auth_type: AuthType::Jwt,
-            public_key: Some(TEST_RSA_PUBKEY.to_string()),
+            public_key: Some(TEST_RSA_PUBKEY_B64.to_string()),
             jwk: None,
         };
         let result = AdminManager::extract_auth_material(&req);
         assert!(result.is_ok());
         let (auth_value, auth_alg) = result.unwrap();
         assert!(auth_value.contains("BEGIN PUBLIC KEY"));
-        assert_eq!(auth_alg, "RS256");
+        assert_eq!(auth_alg, "PS256");
     }
 
     #[test]
@@ -741,7 +734,7 @@ mod tests {
             role: None,
             enabled: None,
             auth_type: Some(AuthType::Jwt),
-            public_key: Some(TEST_RSA_PUBKEY.to_string()),
+            public_key: Some(TEST_RSA_PUBKEY_B64.to_string()),
             jwk: None,
         };
         let result = AdminManager::extract_update_key_material(&req);
@@ -750,7 +743,7 @@ mod tests {
         assert!(material.is_some());
         let (auth_value, auth_alg) = material.unwrap();
         assert!(auth_value.contains("BEGIN PUBLIC KEY"));
-        assert_eq!(auth_alg, "RS256");
+        assert_eq!(auth_alg, "PS256");
     }
 
     #[test]
@@ -803,7 +796,7 @@ mod tests {
             role: None,
             enabled: None,
             auth_type: Some(AuthType::Jwt),
-            public_key: Some(TEST_RSA_PUBKEY.to_string()),
+            public_key: Some("dGVzdEtleQ==".to_string()),  // base64 of "testKey"
             jwk: None,
         };
         let result = AdminManager::enforce_whitelist(&req, "test_user");

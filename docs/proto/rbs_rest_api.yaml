@@ -1274,9 +1274,12 @@ components:
           type:
           - string
           - 'null'
-          description: PEM-encoded public key (mutually exclusive with `jwk`).
+          description: Base64-encoded PEM public key (mutually exclusive with `jwk`).
         jwk:
-          description: JWK public key object (mutually exclusive with `public_key`).
+          type:
+          - string
+          - 'null'
+          description: Base64-encoded JWK public key JSON object (mutually exclusive with `public_key`).
     UserListResponse:
       type: object
       description: Paginated response for GET /rbs/v0/users.
@@ -1359,9 +1362,12 @@ components:
           type:
           - string
           - 'null'
-          description: PEM-encoded public key (mutually exclusive with `jwk`).
+          description: Base64-encoded PEM public key (mutually exclusive with `jwk`).
         jwk:
-          description: JWK public key object (mutually exclusive with `public_key`).
+          type:
+          - string
+          - 'null'
+          description: Base64-encoded JWK public key JSON object (mutually exclusive with `public_key`).
   securitySchemes:
     attestAuth:
       type: http
