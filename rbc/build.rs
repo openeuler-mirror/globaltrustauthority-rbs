@@ -8,8 +8,8 @@ fn main() {
 
     std::fs::create_dir_all(&out_dir).expect("create include dir");
 
-    let config = cbindgen::Config::from_file(PathBuf::from(&crate_dir).join("cbindgen.toml"))
-        .expect("read cbindgen.toml");
+    let config =
+        cbindgen::Config::from_file(PathBuf::from(&crate_dir).join("cbindgen.toml")).expect("read cbindgen.toml");
 
     match cbindgen::Builder::new().with_crate(&crate_dir).with_config(config).generate() {
         Ok(bindings) => {

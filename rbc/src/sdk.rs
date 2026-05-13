@@ -12,19 +12,20 @@
 
 //! RBC SDK — Config / Client / Session with TeeKeyPair-based JWE envelope management.
 
-use std::rc::Rc;
-use std::sync::Arc;
+use base64::Engine;
+use rbs_api_types::{
+    AttestRequest, AttestResponse, AttesterData, AuthChallengeResponse, RbcEvidencesPayload, ResourceContentResponse,
+};
 use serde::Deserialize;
 use serde_json::Value;
-use base64::Engine;
-use rbs_api_types::{AttestResponse, AttesterData, AuthChallengeResponse,
-                    ResourceContentResponse, AttestRequest, RbcEvidencesPayload};
+use std::rc::Rc;
+use std::sync::Arc;
 use zeroize::Zeroizing;
 
 use crate::client::{RbsRestClient, TlsConfig};
 use crate::error::RbcError;
 use crate::evidence::{EvidenceProvider, NativeEvidenceProvider};
-use crate::token::{TokenProvider, RbsAttestTokenProvider, NativeTokenProvider};
+use crate::token::{NativeTokenProvider, RbsAttestTokenProvider, TokenProvider};
 use crate::tools::tee_key::{KeyType, TeeKeyPair, TeePublicKey};
 
 /// Selects the evidence or token provider implementation.
@@ -49,7 +50,9 @@ pub struct ProviderRawConfig {
 }
 
 impl ProviderRawConfig {
-    fn default_enabled() -> bool { true }
+    fn default_enabled() -> bool {
+        true
+    }
 }
 
 /// RBS connection parameters, mapped from the `rbs:` block in `rbc.yaml`.
@@ -73,10 +76,8 @@ pub struct Config {
 impl Config {
     /// Load configuration from a YAML file at `path`.
     pub fn from_file(path: &str) -> Result<Self, RbcError> {
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| RbcError::ConfigError(format!("read {path}: {e}")))?;
-        serde_yaml::from_str(&content)
-            .map_err(|e| RbcError::ConfigError(format!("parse {path}: {e}")))
+        let content = std::fs::read_to_string(path).map_err(|e| RbcError::ConfigError(format!("read {path}: {e}")))?;
+        serde_yaml::from_str(&content).map_err(|e| RbcError::ConfigError(format!("parse {path}: {e}")))
     }
 
     /// Return a [`ConfigBuilder`] for constructing a [`Config`] programmatically.
@@ -130,14 +131,9 @@ impl ConfigBuilder {
 
     /// Build the [`Config`], returning an error if `base_url` was not set.
     pub fn build(self) -> Result<Config, RbcError> {
-        let base_url = self.base_url
-            .ok_or_else(|| RbcError::ConfigError("base_url is required".into()))?;
+        let base_url = self.base_url.ok_or_else(|| RbcError::ConfigError("base_url is required".into()))?;
         Ok(Config {
-            rbs: RbsConfig {
-                base_url,
-                ca_cert: self.ca_cert,
-                timeout_secs: self.timeout_secs,
-            },
+            rbs: RbsConfig { base_url, ca_cert: self.ca_cert, timeout_secs: self.timeout_secs },
             evidence_provider: self.evidence_provider,
             token_provider: self.token_provider,
             key_algorithm: self.key_algorithm.unwrap_or(KeyType::Rsa),
@@ -179,20 +175,12 @@ pub struct Client {
 impl Client {
     /// Create a `Client` from a [`Config`].
     pub fn new(config: Config) -> Result<Self, RbcError> {
-        let tls = config.rbs.ca_cert.as_ref().map(|ca| TlsConfig {
-            ca_cert: Some(ca.clone()),
-        });
-        let rest_client = RbsRestClient::new(
-            &config.rbs.base_url,
-            tls.as_ref(),
-            config.rbs.timeout_secs,
-        )?;
+        let tls = config.rbs.ca_cert.as_ref().map(|ca| TlsConfig { ca_cert: Some(ca.clone()) });
+        let rest_client = RbsRestClient::new(&config.rbs.base_url, tls.as_ref(), config.rbs.timeout_secs)?;
 
-        let evidence_provider =
-            Self::build_evidence_provider(config.evidence_provider)?;
+        let evidence_provider = Self::build_evidence_provider(config.evidence_provider)?;
 
-        let token_provider =
-            Self::build_token_provider(config.token_provider, &rest_client)?;
+        let token_provider = Self::build_token_provider(config.token_provider, &rest_client)?;
 
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -221,9 +209,9 @@ impl Client {
         let ep_cfg = Value::Object(cfg.rest);
         let provider: Arc<dyn EvidenceProvider> = match cfg.provider_type {
             ProviderType::Native => Arc::new(NativeEvidenceProvider::new(ep_cfg)?),
-            ProviderType::Rbs => return Err(RbcError::ConfigError(
-                "evidence_provider does not support type 'rbs'".into(),
-            )),
+            ProviderType::Rbs => {
+                return Err(RbcError::ConfigError("evidence_provider does not support type 'rbs'".into()))
+            },
         };
         Ok(Some(provider))
     }
@@ -256,10 +244,7 @@ impl Client {
 
     /// Begin a new session. If `attester_data` does not contain `tee_pubkey`, an ephemeral
     /// key pair is generated automatically; otherwise the caller is responsible for the key.
-    pub fn new_session(
-        &self,
-        attester_data: Option<&AttesterData>,
-    ) -> Result<Session, RbcError> {
+    pub fn new_session(&self, attester_data: Option<&AttesterData>) -> Result<Session, RbcError> {
         Session::create(Rc::clone(&self.inner), attester_data, self.inner.key_type)
     }
 }
@@ -304,10 +289,7 @@ impl Session {
 
             let mut enriched = attester_data.cloned().unwrap_or_default();
             let jwk_value: Value = serde_json::from_str(&jwk_json)?;
-            enriched
-                .runtime_data
-                .get_or_insert_with(Default::default)
-                .insert("tee_pubkey".to_string(), jwk_value);
+            enriched.runtime_data.get_or_insert_with(Default::default).insert("tee_pubkey".to_string(), jwk_value);
 
             Ok(Self {
                 client,
@@ -321,17 +303,18 @@ impl Session {
     }
 
     /// Collect TEE evidence for the given challenge using the configured evidence provider.
-    pub fn collect_evidence(
-        &self,
-        challenge: &AuthChallengeResponse,
-    ) -> Result<Value, RbcError> {
-        let provider = self.client.evidence_provider.as_ref()
+    pub fn collect_evidence(&self, challenge: &AuthChallengeResponse) -> Result<Value, RbcError> {
+        let provider = self
+            .client
+            .evidence_provider
+            .as_ref()
             .ok_or_else(|| RbcError::ProviderError("evidence provider not configured".into()))?;
         let timeout = self.client.timeout_secs.map(std::time::Duration::from_secs);
         self.client.runtime.block_on(async {
             let fut = provider.collect_evidence(challenge, self.enriched_attester_data.as_ref());
             match timeout {
-                Some(d) => tokio::time::timeout(d, fut).await
+                Some(d) => tokio::time::timeout(d, fut)
+                    .await
                     .map_err(|_| RbcError::TimeoutError("collect evidence timed out".into()))?,
                 None => fut.await,
             }
@@ -340,14 +323,18 @@ impl Session {
 
     /// Obtain an attest token from the configured token provider, optionally passing raw evidence.
     pub fn attest(&self, evidence: Option<&Value>) -> Result<AttestResponse, RbcError> {
-        let provider = self.client.token_provider.as_ref()
+        let provider = self
+            .client
+            .token_provider
+            .as_ref()
             .ok_or_else(|| RbcError::ProviderError("token provider not configured".into()))?;
         let timeout = self.client.timeout_secs.map(std::time::Duration::from_secs);
         let token = self.client.runtime.block_on(async {
             let fut = provider.get_token(evidence, self.enriched_attester_data.as_ref());
             match timeout {
-                Some(d) => tokio::time::timeout(d, fut).await
-                    .map_err(|_| RbcError::TimeoutError("attest timed out".into()))?,
+                Some(d) => {
+                    tokio::time::timeout(d, fut).await.map_err(|_| RbcError::TimeoutError("attest timed out".into()))?
+                },
                 None => fut.await,
             }
         })?;
@@ -355,27 +342,17 @@ impl Session {
     }
 
     /// Fetch the resource at `uri`, authorized via `request`.
-    pub fn get_resource(
-        &self,
-        uri: &str,
-        request: GetResourceRequest<'_>,
-    ) -> Result<Resource, RbcError> {
+    pub fn get_resource(&self, uri: &str, request: GetResourceRequest<'_>) -> Result<Resource, RbcError> {
         let rest = self.client.rest_client.clone();
         let resp: ResourceContentResponse = self.client.runtime.block_on(async {
             match request {
-                GetResourceRequest::ByAttestToken(token) => {
-                    rest.get_resource(uri, token).await
-                }
+                GetResourceRequest::ByAttestToken(token) => rest.get_resource(uri, token).await,
                 GetResourceRequest::ByEvidence { value } => {
                     let rbc_evidences: RbcEvidencesPayload = serde_json::from_value(value.clone())
                         .map_err(|e| RbcError::InvalidInput(format!("invalid evidence: {e}")))?;
-                    let attest_req = AttestRequest {
-                        as_provider: None,
-                        rbc_evidences,
-                        attester_data: None,
-                    };
+                    let attest_req = AttestRequest { as_provider: None, rbc_evidences, attester_data: None };
                     rest.get_resource_by_evidence(uri, &attest_req).await
-                }
+                },
             }
         })?;
 
@@ -406,15 +383,13 @@ impl Session {
             let kp = TeeKeyPair::from_private_pem(self.key_algorithm, pem, passphrase)?;
             kp.decrypt_jwe(jwe_token)?
         } else {
-            let key = self.ephemeral_key
-                .as_ref()
-                .ok_or_else(|| {
-                    if self.caller_manages_key {
-                        RbcError::InvalidInput("caller manages key but no private key provided".into())
-                    } else {
-                        RbcError::DecryptError("no ephemeral key available".into())
-                    }
-                })?;
+            let key = self.ephemeral_key.as_ref().ok_or_else(|| {
+                if self.caller_manages_key {
+                    RbcError::InvalidInput("caller manages key but no private key provided".into())
+                } else {
+                    RbcError::DecryptError("no ephemeral key available".into())
+                }
+            })?;
             key.decrypt_jwe(jwe_token)?
         };
         Ok(Zeroizing::new(bytes))
@@ -445,10 +420,10 @@ impl Session {
 
 #[cfg(test)]
 mod tests {
-    use async_trait::async_trait;
     use super::*;
     use crate::client::RbsRestClient;
     use crate::tools::tee_key::TeePublicKey;
+    use async_trait::async_trait;
     use rbs_api_types::{AttesterData, AuthChallengeResponse};
     use serde_json::json;
 
@@ -487,20 +462,13 @@ mod tests {
     }
 
     fn make_test_client() -> Client {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
 
         Client {
             inner: Rc::new(ClientInner {
                 rest_client: RbsRestClient::new("http://localhost:9999", None, None).unwrap(),
-                evidence_provider: Some(Arc::new(MockEvidenceProvider {
-                    result: json!({"mock": true}),
-                })),
-                token_provider: Some(Arc::new(MockTokenProvider {
-                    token: "mock.token".to_string(),
-                })),
+                evidence_provider: Some(Arc::new(MockEvidenceProvider { result: json!({"mock": true}) })),
+                token_provider: Some(Arc::new(MockTokenProvider { token: "mock.token".to_string() })),
                 key_type: KeyType::Ec,
                 timeout_secs: None,
                 runtime,
@@ -510,10 +478,7 @@ mod tests {
     }
 
     fn make_test_client_no_providers() -> Client {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
 
         Client {
             inner: Rc::new(ClientInner {
@@ -658,13 +623,7 @@ token_provider:
         assert!(!session.caller_manages_key);
         assert!(session.ephemeral_key.is_some());
 
-        let rd = session
-            .enriched_attester_data
-            .as_ref()
-            .unwrap()
-            .runtime_data
-            .as_ref()
-            .unwrap();
+        let rd = session.enriched_attester_data.as_ref().unwrap().runtime_data.as_ref().unwrap();
         assert!(rd.contains_key("tee_pubkey"), "tee_pubkey must be injected");
     }
 
@@ -673,19 +632,11 @@ token_provider:
         let client = make_test_client();
         let mut runtime_data = serde_json::Map::new();
         runtime_data.insert("user_field".to_string(), json!("user_value"));
-        let attester_data = AttesterData {
-            runtime_data: Some(runtime_data),
-        };
+        let attester_data = AttesterData { runtime_data: Some(runtime_data) };
 
         let session = Session::create(Rc::clone(&client.inner), Some(&attester_data), KeyType::Ec).unwrap();
 
-        let rd = session
-            .enriched_attester_data
-            .as_ref()
-            .unwrap()
-            .runtime_data
-            .as_ref()
-            .unwrap();
+        let rd = session.enriched_attester_data.as_ref().unwrap().runtime_data.as_ref().unwrap();
         assert!(rd.contains_key("tee_pubkey"), "tee_pubkey must be injected");
         assert_eq!(rd["user_field"], "user_value", "pre-existing field must be preserved");
     }
@@ -695,15 +646,16 @@ token_provider:
         let client = make_test_client();
         let mut runtime_data = serde_json::Map::new();
         // Valid P-256 public JWK (test vector, not a real key)
-        runtime_data.insert("tee_pubkey".to_string(), json!({
-            "kty": "EC",
-            "crv": "P-256",
-            "x": "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU",
-            "y": "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0"
-        }));
-        let attester_data = AttesterData {
-            runtime_data: Some(runtime_data),
-        };
+        runtime_data.insert(
+            "tee_pubkey".to_string(),
+            json!({
+                "kty": "EC",
+                "crv": "P-256",
+                "x": "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU",
+                "y": "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0"
+            }),
+        );
+        let attester_data = AttesterData { runtime_data: Some(runtime_data) };
 
         let session = Session::create(Rc::clone(&client.inner), Some(&attester_data), KeyType::Ec).unwrap();
 
@@ -716,12 +668,15 @@ token_provider:
         // EC pubkey supplied, config says RSA — session must adopt EC from the key.
         let client = make_test_client();
         let mut runtime_data = serde_json::Map::new();
-        runtime_data.insert("tee_pubkey".to_string(), json!({
-            "kty": "EC",
-            "crv": "P-256",
-            "x": "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU",
-            "y": "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0"
-        }));
+        runtime_data.insert(
+            "tee_pubkey".to_string(),
+            json!({
+                "kty": "EC",
+                "crv": "P-256",
+                "x": "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU",
+                "y": "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0"
+            }),
+        );
         let attester_data = AttesterData { runtime_data: Some(runtime_data) };
 
         let session = Session::create(Rc::clone(&client.inner), Some(&attester_data), KeyType::Rsa).unwrap();
@@ -742,9 +697,7 @@ token_provider:
     fn session_collect_evidence_delegates_to_provider() {
         let client = make_test_client();
         let session = Session::create(Rc::clone(&client.inner), None, KeyType::Ec).unwrap();
-        let challenge = AuthChallengeResponse {
-            nonce: "test-nonce".to_string(),
-        };
+        let challenge = AuthChallengeResponse { nonce: "test-nonce".to_string() };
         let evidence = session.collect_evidence(&challenge).unwrap();
         assert_eq!(evidence["mock"], true);
     }
@@ -784,12 +737,7 @@ token_provider:
         let client = make_test_client();
         let session = Session::create(Rc::clone(&client.inner), None, KeyType::Ec).unwrap();
 
-        let pubkey_json = session
-            .ephemeral_key
-            .as_ref()
-            .unwrap()
-            .public_jwk_json()
-            .unwrap();
+        let pubkey_json = session.ephemeral_key.as_ref().unwrap().public_jwk_json().unwrap();
         let pubkey = TeePublicKey::from_jwk_json(&pubkey_json).unwrap();
 
         let plaintext = b"hello secret resource";
@@ -809,9 +757,8 @@ token_provider:
         let pubkey = kp.public_key();
 
         let pkey = PKey::private_key_from_pem(plain_pem.as_bytes()).unwrap();
-        let enc_pem_bytes = pkey
-            .private_key_to_pem_pkcs8_passphrase(Cipher::aes_256_cbc(), b"test-passphrase")
-            .unwrap();
+        let enc_pem_bytes =
+            pkey.private_key_to_pem_pkcs8_passphrase(Cipher::aes_256_cbc(), b"test-passphrase").unwrap();
         let enc_pem = std::str::from_utf8(&enc_pem_bytes).unwrap();
 
         let plaintext = b"encrypted pem roundtrip";
@@ -826,9 +773,7 @@ token_provider:
             key_algorithm: KeyType::Ec,
             _marker: std::marker::PhantomData,
         };
-        let decrypted = session
-            .decrypt_content(&jwe, Some(enc_pem), Some(b"test-passphrase"))
-            .unwrap();
+        let decrypted = session.decrypt_content(&jwe, Some(enc_pem), Some(b"test-passphrase")).unwrap();
         assert_eq!(decrypted.as_slice(), plaintext.as_ref());
     }
 
@@ -842,9 +787,7 @@ token_provider:
         let pubkey = kp.public_key();
 
         let pkey = PKey::private_key_from_pem(plain_pem.as_bytes()).unwrap();
-        let enc_pem_bytes = pkey
-            .private_key_to_pem_pkcs8_passphrase(Cipher::aes_256_cbc(), b"correct")
-            .unwrap();
+        let enc_pem_bytes = pkey.private_key_to_pem_pkcs8_passphrase(Cipher::aes_256_cbc(), b"correct").unwrap();
         let enc_pem = std::str::from_utf8(&enc_pem_bytes).unwrap();
 
         let jwe = pubkey.encrypt_jwe(b"data").unwrap();
@@ -858,9 +801,7 @@ token_provider:
             key_algorithm: KeyType::Ec,
             _marker: std::marker::PhantomData,
         };
-        let err = session
-            .decrypt_content(&jwe, Some(enc_pem), Some(b"wrong"))
-            .unwrap_err();
+        let err = session.decrypt_content(&jwe, Some(enc_pem), Some(b"wrong")).unwrap_err();
         assert!(matches!(err, RbcError::KeyGenError(_)));
     }
 
@@ -874,9 +815,7 @@ token_provider:
         let pubkey = kp.public_key();
 
         let pkey = PKey::private_key_from_pem(plain_pem.as_bytes()).unwrap();
-        let enc_pem_bytes = pkey
-            .private_key_to_pem_pkcs8_passphrase(Cipher::aes_256_cbc(), b"secret")
-            .unwrap();
+        let enc_pem_bytes = pkey.private_key_to_pem_pkcs8_passphrase(Cipher::aes_256_cbc(), b"secret").unwrap();
         let enc_pem = std::str::from_utf8(&enc_pem_bytes).unwrap();
 
         let jwe = pubkey.encrypt_jwe(b"data").unwrap();
@@ -890,9 +829,7 @@ token_provider:
             key_algorithm: KeyType::Ec,
             _marker: std::marker::PhantomData,
         };
-        let err = session
-            .decrypt_content(&jwe, Some(enc_pem), None)
-            .unwrap_err();
+        let err = session.decrypt_content(&jwe, Some(enc_pem), None).unwrap_err();
         assert!(matches!(err, RbcError::KeyGenError(_)));
     }
 
@@ -906,9 +843,7 @@ token_provider:
         let pubkey = kp.public_key();
 
         let pkey = PKey::private_key_from_pem(plain_pem.as_bytes()).unwrap();
-        let enc_pem_bytes = pkey
-            .private_key_to_pem_pkcs8_passphrase(Cipher::aes_256_cbc(), b"rsa-passphrase")
-            .unwrap();
+        let enc_pem_bytes = pkey.private_key_to_pem_pkcs8_passphrase(Cipher::aes_256_cbc(), b"rsa-passphrase").unwrap();
         let enc_pem = std::str::from_utf8(&enc_pem_bytes).unwrap();
 
         let plaintext = b"encrypted rsa pem roundtrip";
@@ -923,9 +858,7 @@ token_provider:
             key_algorithm: KeyType::Rsa,
             _marker: std::marker::PhantomData,
         };
-        let decrypted = session
-            .decrypt_content(&jwe, Some(enc_pem), Some(b"rsa-passphrase"))
-            .unwrap();
+        let decrypted = session.decrypt_content(&jwe, Some(enc_pem), Some(b"rsa-passphrase")).unwrap();
         assert_eq!(decrypted.as_slice(), plaintext.as_ref());
     }
 }

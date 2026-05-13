@@ -68,10 +68,7 @@ impl EvidenceProvider for NativeEvidenceProvider {
             attester_data: attester_data_val,
         };
 
-        let response = self
-            .client
-            .collect_evidence(req)
-            .map_err(|e| RbcError::EvidenceError(e.to_string()))?;
+        let response = self.client.collect_evidence(req).map_err(|e| RbcError::EvidenceError(e.to_string()))?;
 
         serde_json::to_value(&response)
             .map_err(|e| RbcError::EvidenceError(format!("serialize evidence response failed: {e}")))

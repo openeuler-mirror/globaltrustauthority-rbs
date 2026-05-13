@@ -196,8 +196,7 @@ mod tests {
             client: ClientCli,
         }
 
-        let err = Root::try_parse_from(["cmd", "get-token"])
-            .expect_err("missing attester-pubkey should fail");
+        let err = Root::try_parse_from(["cmd", "get-token"]).expect_err("missing attester-pubkey should fail");
         assert_eq!(err.kind(), clap::error::ErrorKind::MissingRequiredArgument);
     }
 

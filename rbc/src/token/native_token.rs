@@ -69,9 +69,6 @@ impl TokenProvider for NativeTokenProvider {
             token_fmt: None,
         };
 
-        self.client
-            .get_token(req)
-            .await
-            .map_err(|e|RbcError::ProviderError(e.to_string()))        
+        self.client.get_token(req).await.map_err(|e| RbcError::ProviderError(e.to_string()))
     }
 }

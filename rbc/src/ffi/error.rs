@@ -13,7 +13,7 @@
 //! FFI error code enum and thread-local last-error storage.
 
 use std::cell::RefCell;
-use std::ffi::{CString, c_char};
+use std::ffi::{c_char, CString};
 use std::ptr;
 
 use crate::error::RbcError;
@@ -46,22 +46,22 @@ pub enum RbcErrorCode {
 
 pub(crate) fn error_to_code(e: &RbcError) -> RbcErrorCode {
     match e {
-        RbcError::InvalidInput(_)      => RbcErrorCode::InvalidArg,
-        RbcError::ConfigError(_)       => RbcErrorCode::Config,
-        RbcError::TlsError(_)          => RbcErrorCode::Tls,
-        RbcError::ProviderError(_)     => RbcErrorCode::Provider,
-        RbcError::KeyGenError(_)       => RbcErrorCode::Keygen,
-        RbcError::EvidenceError(_)     => RbcErrorCode::Evidence,
+        RbcError::InvalidInput(_) => RbcErrorCode::InvalidArg,
+        RbcError::ConfigError(_) => RbcErrorCode::Config,
+        RbcError::TlsError(_) => RbcErrorCode::Tls,
+        RbcError::ProviderError(_) => RbcErrorCode::Provider,
+        RbcError::KeyGenError(_) => RbcErrorCode::Keygen,
+        RbcError::EvidenceError(_) => RbcErrorCode::Evidence,
         RbcError::NetworkError(_) | RbcError::HttpTransport(_) => RbcErrorCode::Network,
-        RbcError::TimeoutError(_)      => RbcErrorCode::Timeout,
-        RbcError::AuthError(_)         => RbcErrorCode::Auth,
-        RbcError::PolicyDenied(_)      => RbcErrorCode::PolicyDenied,
-        RbcError::ResourceNotFound(_)  => RbcErrorCode::ResourceNotFound,
-        RbcError::AttestError(_)       => RbcErrorCode::Attest,
-        RbcError::ServerError(_)       => RbcErrorCode::Server,
-        RbcError::EncryptError(_)      => RbcErrorCode::Encrypt,
-        RbcError::DecryptError(_)      => RbcErrorCode::Decrypt,
-        RbcError::JsonError(_)         => RbcErrorCode::Json,
+        RbcError::TimeoutError(_) => RbcErrorCode::Timeout,
+        RbcError::AuthError(_) => RbcErrorCode::Auth,
+        RbcError::PolicyDenied(_) => RbcErrorCode::PolicyDenied,
+        RbcError::ResourceNotFound(_) => RbcErrorCode::ResourceNotFound,
+        RbcError::AttestError(_) => RbcErrorCode::Attest,
+        RbcError::ServerError(_) => RbcErrorCode::Server,
+        RbcError::EncryptError(_) => RbcErrorCode::Encrypt,
+        RbcError::DecryptError(_) => RbcErrorCode::Decrypt,
+        RbcError::JsonError(_) => RbcErrorCode::Json,
     }
 }
 
@@ -70,9 +70,7 @@ thread_local! {
 }
 
 pub(crate) fn set_last_error<S: Into<Vec<u8>>>(msg: S) {
-    let c = CString::new(msg).unwrap_or_else(|_| {
-        CString::new("<invalid error message: contains NUL>").unwrap()
-    });
+    let c = CString::new(msg).unwrap_or_else(|_| CString::new("<invalid error message: contains NUL>").unwrap());
     LAST_ERROR.with(|slot| *slot.borrow_mut() = Some(c));
 }
 
@@ -89,12 +87,7 @@ pub(crate) fn record(e: &RbcError) -> RbcErrorCode {
 /// NOT free it.
 #[export_name = "RbcLastErrorMessage"]
 pub extern "C" fn rbc_last_error_message() -> *const c_char {
-    LAST_ERROR.with(|slot| {
-        slot.borrow()
-            .as_ref()
-            .map(|c| c.as_ptr())
-            .unwrap_or(ptr::null())
-    })
+    LAST_ERROR.with(|slot| slot.borrow().as_ref().map(|c| c.as_ptr()).unwrap_or(ptr::null()))
 }
 
 /// Clear the last error on the current thread.
@@ -145,10 +138,7 @@ mod tests {
             assert!(!rbc_last_error_message().is_null());
         });
         handle.join().unwrap();
-        assert!(
-            rbc_last_error_message().is_null(),
-            "error set in another thread must not bleed into this thread"
-        );
+        assert!(rbc_last_error_message().is_null(), "error set in another thread must not bleed into this thread");
     }
 
     #[test]

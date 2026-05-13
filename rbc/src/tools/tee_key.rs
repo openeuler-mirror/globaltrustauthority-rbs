@@ -15,16 +15,16 @@
 //! Supports EC (P-256, ECDH-ES+A256KW) and RSA (4096-bit, RSA-OAEP) key pairs for
 //! JWE envelope encryption/decryption in the RBS attestation flow.
 
+use base64::Engine as _;
+use josekit::jwe::{self, JweHeader};
 use josekit::jwk::alg::ec::EcCurve;
 use josekit::jwk::alg::ec::EcKeyPair;
 use josekit::jwk::alg::rsa::RsaKeyPair;
 use josekit::jwk::Jwk;
-use josekit::jwe::{self, JweHeader};
 use josekit::jwk::KeyPair;
 use openssl::pkey::PKey;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
-use base64::Engine as _;
 
 use crate::error::RbcError;
 
@@ -98,7 +98,7 @@ impl TeeKeyPair {
                 let private_der = Zeroizing::new(kp.to_der_private_key());
                 let public_jwk = kp.to_jwk_public_key();
                 Ok(Self { key_type, ec_curve: None, private_der, public_jwk })
-            }
+            },
             KeyType::Ec => {
                 let mut kp = EcKeyPair::generate(DEFAULT_EC_CURVE)
                     .map_err(|e| RbcError::KeyGenError(format!("EC {} keygen: {e}", DEFAULT_EC_CURVE.name())))?;
@@ -106,7 +106,7 @@ impl TeeKeyPair {
                 let private_der = Zeroizing::new(kp.to_der_private_key());
                 let public_jwk = kp.to_jwk_public_key();
                 Ok(Self { key_type, ec_curve: Some(DEFAULT_EC_CURVE), private_der, public_jwk })
-            }
+            },
         }
     }
 
@@ -114,17 +114,12 @@ impl TeeKeyPair {
     ///
     /// `passphrase` — required when the PEM is encrypted; caller is responsible for
     /// zeroizing this slice after the call returns.
-    pub fn from_private_pem(
-        key_type: KeyType,
-        pem: &str,
-        passphrase: Option<&[u8]>,
-    ) -> Result<Self, RbcError> {
+    pub fn from_private_pem(key_type: KeyType, pem: &str, passphrase: Option<&[u8]>) -> Result<Self, RbcError> {
         let plain_pem_buf: Option<Zeroizing<Vec<u8>>> = if let Some(pw) = passphrase {
             let pkey = PKey::private_key_from_pem_passphrase(pem.as_bytes(), pw)
                 .map_err(|e| RbcError::KeyGenError(format!("PEM decrypt: {e}")))?;
             Some(Zeroizing::new(
-                pkey.private_key_to_pem_pkcs8()
-                    .map_err(|e| RbcError::KeyGenError(format!("PEM export: {e}")))?
+                pkey.private_key_to_pem_pkcs8().map_err(|e| RbcError::KeyGenError(format!("PEM export: {e}")))?,
             ))
         } else {
             None
@@ -132,7 +127,7 @@ impl TeeKeyPair {
 
         let pem_bytes: &[u8] = match &plain_pem_buf {
             Some(buf) => buf.as_slice(),
-            None      => pem.as_bytes(),
+            None => pem.as_bytes(),
         };
 
         match key_type {
@@ -142,7 +137,7 @@ impl TeeKeyPair {
                 let private_der = Zeroizing::new(kp.to_der_private_key());
                 let public_jwk = kp.to_jwk_public_key();
                 Ok(Self { key_type, ec_curve: None, private_der, public_jwk })
-            }
+            },
             KeyType::Ec => {
                 let kp = EcKeyPair::from_pem(pem_bytes, None)
                     .map_err(|e| RbcError::KeyGenError(format!("EC PEM parse: {e}")))?;
@@ -150,14 +145,13 @@ impl TeeKeyPair {
                 let public_jwk = kp.to_jwk_public_key();
                 let ec_curve = Some(ec_curve_from_jwk(&public_jwk)?);
                 Ok(Self { key_type, ec_curve, private_der, public_jwk })
-            }
+            },
         }
     }
 
     /// Serialize the public key as a JWK JSON string.
     pub fn public_jwk_json(&self) -> Result<String, RbcError> {
-        serde_json::to_string(&self.public_jwk.as_ref())
-            .map_err(|e| RbcError::JsonError(e))
+        serde_json::to_string(&self.public_jwk.as_ref()).map_err(|e| RbcError::JsonError(e))
     }
 
     /// Extract the public key portion.
@@ -172,23 +166,25 @@ impl TeeKeyPair {
                 let kp = RsaKeyPair::from_der(&*self.private_der)
                     .map_err(|e| RbcError::DecryptError(format!("load RSA private key: {e}")))?;
                 let private_jwk = kp.to_jwk_key_pair();
-                let decrypter = jwe::RSA_OAEP_256.decrypter_from_jwk(&private_jwk)
+                let decrypter = jwe::RSA_OAEP_256
+                    .decrypter_from_jwk(&private_jwk)
                     .map_err(|e| RbcError::DecryptError(format!("RSA decrypter: {e}")))?;
                 let (payload, _header) = jwe::deserialize_compact(jwe_compact, &decrypter)
                     .map_err(|e| RbcError::DecryptError(format!("JWE decrypt: {e}")))?;
                 Ok(payload)
-            }
+            },
             KeyType::Ec => {
                 let curve = self.ec_curve.ok_or_else(|| RbcError::DecryptError("EC curve not set".into()))?;
                 let kp = EcKeyPair::from_der(&*self.private_der, Some(curve))
                     .map_err(|e| RbcError::DecryptError(format!("load EC private key: {e}")))?;
                 let private_jwk = kp.to_jwk_key_pair();
-                let decrypter = jwe::ECDH_ES_A256KW.decrypter_from_jwk(&private_jwk)
+                let decrypter = jwe::ECDH_ES_A256KW
+                    .decrypter_from_jwk(&private_jwk)
                     .map_err(|e| RbcError::DecryptError(format!("EC decrypter: {e}")))?;
                 let (payload, _header) = jwe::deserialize_compact(jwe_compact, &decrypter)
                     .map_err(|e| RbcError::DecryptError(format!("JWE decrypt: {e}")))?;
                 Ok(payload)
-            }
+            },
         }
     }
 
@@ -199,30 +195,26 @@ impl TeeKeyPair {
                 let kp = RsaKeyPair::from_der(&*self.private_der)
                     .map_err(|e| RbcError::KeyGenError(format!("load RSA DER: {e}")))?;
                 Ok(String::from_utf8_lossy(&kp.to_pem_private_key()).to_string())
-            }
+            },
             KeyType::Ec => {
                 let curve = self.ec_curve.ok_or_else(|| RbcError::KeyGenError("EC curve not set".into()))?;
                 let kp = EcKeyPair::from_der(&*self.private_der, Some(curve))
                     .map_err(|e| RbcError::KeyGenError(format!("load EC DER: {e}")))?;
                 Ok(String::from_utf8_lossy(&kp.to_pem_private_key()).to_string())
-            }
+            },
         }
     }
-
 }
 
 impl TeePublicKey {
     /// Deserialize from a JWK JSON string.
     /// Infers key_type from the `kty` field.
     pub fn from_jwk_json(json: &str) -> Result<Self, RbcError> {
-        let jwk = Jwk::from_bytes(json.as_bytes())
-            .map_err(|e| RbcError::InvalidInput(format!("invalid JWK: {e}")))?;
+        let jwk = Jwk::from_bytes(json.as_bytes()).map_err(|e| RbcError::InvalidInput(format!("invalid JWK: {e}")))?;
         let key_type = match jwk.key_type() {
             "RSA" => KeyType::Rsa,
             "EC" => KeyType::Ec,
-            other => return Err(RbcError::InvalidInput(
-                format!("unsupported JWK kty: {other}")
-            )),
+            other => return Err(RbcError::InvalidInput(format!("unsupported JWK kty: {other}"))),
         };
         Ok(Self { key_type, public_jwk: jwk })
     }
@@ -261,9 +253,7 @@ impl TeePublicKey {
         }
         if let Some(alg) = self.public_jwk.algorithm() {
             if !RSA_ALLOWED_ALGS.contains(&alg) {
-                return invalid(&format!(
-                    "RSA algorithm '{alg}' is not allowed; allowed: {RSA_ALLOWED_ALGS:?}"
-                ));
+                return invalid(&format!("RSA algorithm '{alg}' is not allowed; allowed: {RSA_ALLOWED_ALGS:?}"));
             }
         }
         Ok(())
@@ -287,9 +277,7 @@ impl TeePublicKey {
         self.validate_ec_coordinate("y", crv, expected_coord_len)?;
         if let Some(alg) = self.public_jwk.algorithm() {
             if !EC_ALLOWED_ALGS.contains(&alg) {
-                return invalid(&format!(
-                    "EC algorithm '{alg}' is not allowed; allowed: {EC_ALLOWED_ALGS:?}"
-                ));
+                return invalid(&format!("EC algorithm '{alg}' is not allowed; allowed: {EC_ALLOWED_ALGS:?}"));
             }
         }
         Ok(())
@@ -303,9 +291,7 @@ impl TeePublicKey {
         };
         let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
             .decode(b64)
-            .map_err(|_| RbcError::InvalidInput(
-                format!("invalid tee_pubkey: EC '{coord}' is not valid base64url")
-            ))?;
+            .map_err(|_| RbcError::InvalidInput(format!("invalid tee_pubkey: EC '{coord}' is not valid base64url")))?;
         if bytes.len() != expected_len {
             return invalid(&format!(
                 "EC '{coord}' length {} bytes does not match curve {crv} (expected {expected_len} bytes)",
@@ -322,17 +308,19 @@ impl TeePublicKey {
 
         match self.key_type {
             KeyType::Rsa => {
-                let encrypter = jwe::RSA_OAEP_256.encrypter_from_jwk(&self.public_jwk)
+                let encrypter = jwe::RSA_OAEP_256
+                    .encrypter_from_jwk(&self.public_jwk)
                     .map_err(|e| RbcError::EncryptError(format!("RSA encrypter: {e}")))?;
                 jwe::serialize_compact(plaintext, &header, &encrypter)
                     .map_err(|e| RbcError::EncryptError(format!("JWE encrypt: {e}")))
-            }
+            },
             KeyType::Ec => {
-                let encrypter = jwe::ECDH_ES_A256KW.encrypter_from_jwk(&self.public_jwk)
+                let encrypter = jwe::ECDH_ES_A256KW
+                    .encrypter_from_jwk(&self.public_jwk)
                     .map_err(|e| RbcError::EncryptError(format!("EC encrypter: {e}")))?;
                 jwe::serialize_compact(plaintext, &header, &encrypter)
                     .map_err(|e| RbcError::EncryptError(format!("JWE encrypt: {e}")))
-            }
+            },
         }
     }
 }

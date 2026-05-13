@@ -12,17 +12,19 @@
 
 //! Session lifecycle, operations, and decryption FFI functions.
 
-use std::ffi::{CString, c_char};
-use serde_json::Value;
 use rbs_api_types::{AttesterData, AuthChallengeResponse};
+use serde_json::Value;
+use std::ffi::{c_char, CString};
 
+use super::error::{record, set_last_error, RbcErrorCode};
+use super::resource::{box_resource_into_handle, wrap_resource};
+use super::{
+    box_session_into_handle, client_ref, drop_session, require_non_null, session_ref, RbcClient, RbcResource,
+    RbcSession,
+};
+use super::{cstr_to_str, opt_cstr_to_str};
 use crate::error::RbcError;
 use crate::sdk::GetResourceRequest;
-use super::{RbcClient, RbcResource, RbcSession,
-            box_session_into_handle, client_ref, drop_session, require_non_null, session_ref};
-use super::error::{RbcErrorCode, record, set_last_error};
-use super::{cstr_to_str, opt_cstr_to_str};
-use super::resource::{box_resource_into_handle, wrap_resource};
 
 // ─── Session lifecycle ──────────────────────────────────────────────────
 
@@ -46,7 +48,7 @@ pub extern "C" fn rbc_session_new(
             Err(e) => {
                 set_last_error(format!("parse attester_data_json: {e}"));
                 return RbcErrorCode::InvalidArg;
-            }
+            },
         },
         Err(e) => return e,
     };
@@ -55,7 +57,7 @@ pub extern "C" fn rbc_session_new(
         Ok(session) => {
             unsafe { *out_session = box_session_into_handle(session) };
             RbcErrorCode::Ok
-        }
+        },
         Err(e) => record(&e),
     }
 }
@@ -91,11 +93,11 @@ pub extern "C" fn rbc_session_collect_evidence(
                 Ok(c) => {
                     unsafe { *out_evidence_json = c.into_raw() };
                     RbcErrorCode::Ok
-                }
+                },
                 Err(e) => {
                     set_last_error(format!("evidence JSON contains NUL: {e}"));
                     RbcErrorCode::Internal
-                }
+                },
             },
             Err(e) => record(&RbcError::JsonError(e)),
         },
@@ -121,7 +123,7 @@ pub extern "C" fn rbc_session_attest(
             Err(e) => {
                 set_last_error(format!("parse evidence_json: {e}"));
                 return RbcErrorCode::InvalidArg;
-            }
+            },
         },
         Err(e) => return e,
     };
@@ -131,11 +133,11 @@ pub extern "C" fn rbc_session_attest(
             Ok(c) => {
                 unsafe { *out_token = c.into_raw() };
                 RbcErrorCode::Ok
-            }
+            },
             Err(e) => {
                 set_last_error(format!("token contains NUL: {e}"));
                 RbcErrorCode::Internal
-            }
+            },
         },
         Err(e) => record(&e),
     }
@@ -150,15 +152,21 @@ pub extern "C" fn rbc_session_get_resource_by_token(
     out_resource: *mut *mut RbcResource,
 ) -> RbcErrorCode {
     require_non_null!(session, out_resource);
-    let uri_s = match cstr_to_str(uri, "uri") { Ok(s) => s, Err(e) => return e };
-    let token_s = match cstr_to_str(token, "token") { Ok(s) => s, Err(e) => return e };
+    let uri_s = match cstr_to_str(uri, "uri") {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+    let token_s = match cstr_to_str(token, "token") {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
     let session = unsafe { session_ref(session) };
     match session.get_resource(uri_s, GetResourceRequest::ByAttestToken(token_s)) {
         Ok(r) => match wrap_resource(r) {
             Ok(ctx) => {
                 unsafe { *out_resource = box_resource_into_handle(ctx) };
                 RbcErrorCode::Ok
-            }
+            },
             Err(code) => code,
         },
         Err(e) => record(&e),
@@ -174,14 +182,20 @@ pub extern "C" fn rbc_session_get_resource_by_evidence(
     out_resource: *mut *mut RbcResource,
 ) -> RbcErrorCode {
     require_non_null!(session, out_resource);
-    let uri_s = match cstr_to_str(uri, "uri") { Ok(s) => s, Err(e) => return e };
-    let ev_s = match cstr_to_str(evidence_json, "evidence_json") { Ok(s) => s, Err(e) => return e };
+    let uri_s = match cstr_to_str(uri, "uri") {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+    let ev_s = match cstr_to_str(evidence_json, "evidence_json") {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
     let ev: Value = match serde_json::from_str(ev_s) {
         Ok(v) => v,
         Err(e) => {
             set_last_error(format!("parse evidence_json: {e}"));
             return RbcErrorCode::InvalidArg;
-        }
+        },
     };
     let session = unsafe { session_ref(session) };
     match session.get_resource(uri_s, GetResourceRequest::ByEvidence { value: &ev }) {
@@ -189,7 +203,7 @@ pub extern "C" fn rbc_session_get_resource_by_evidence(
             Ok(ctx) => {
                 unsafe { *out_resource = box_resource_into_handle(ctx) };
                 RbcErrorCode::Ok
-            }
+            },
             Err(code) => code,
         },
         Err(e) => record(&e),
@@ -222,7 +236,10 @@ pub extern "C" fn rbc_session_decrypt_content(
     out_len: *mut usize,
 ) -> RbcErrorCode {
     require_non_null!(session, out_plaintext, out_len);
-    let jwe_s = match cstr_to_str(jwe, "jwe") { Ok(s) => s, Err(e) => return e };
+    let jwe_s = match cstr_to_str(jwe, "jwe") {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
     let pem_opt = match opt_cstr_to_str(private_key_pem, "private_key_pem") {
         Ok(o) => o,
         Err(e) => return e,
@@ -250,29 +267,29 @@ pub extern "C" fn rbc_session_decrypt_content(
                 *out_len = len;
             }
             RbcErrorCode::Ok
-        }
+        },
         Err(e) => record(&e),
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::client::{rbc_client_free, rbc_client_new_from_yaml};
+    use super::super::{rbc_buffer_free, rbc_string_free, RbcClient};
     use super::*;
-    use std::ptr;
-    use std::ffi::{CStr, CString};
-    use std::rc::Rc;
-    use std::sync::Arc;
-    use async_trait::async_trait;
-    use serde_json::json;
-    use rbs_api_types::{AttesterData, AuthChallengeResponse};
     use crate::client::RbsRestClient;
     use crate::error::RbcError;
     use crate::evidence::EvidenceProvider;
     use crate::sdk::{Client, ClientInner};
     use crate::token::TokenProvider;
     use crate::tools::tee_key::{KeyType, TeePublicKey};
-    use super::super::{RbcClient, rbc_string_free, rbc_buffer_free};
-    use super::super::client::{rbc_client_new_from_yaml, rbc_client_free};
+    use async_trait::async_trait;
+    use rbs_api_types::{AttesterData, AuthChallengeResponse};
+    use serde_json::json;
+    use std::ffi::{CStr, CString};
+    use std::ptr;
+    use std::rc::Rc;
+    use std::sync::Arc;
 
     // ── Mock providers ──────────────────────────────────────────────────────
 
@@ -317,10 +334,7 @@ mod tests {
     }
 
     fn make_mock_client() -> Client {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         Client::new_for_test(Rc::new(ClientInner {
             rest_client: RbsRestClient::new("http://localhost:9999", None, None).unwrap(),
             evidence_provider: Some(Arc::new(MockEvidenceProvider { result: json!({"mock": true}) })),
@@ -490,9 +504,7 @@ mod tests {
         let uri = CString::new("rbs://res/1").unwrap();
         let token = CString::new("tok").unwrap();
         let mut out: *mut RbcResource = ptr::null_mut();
-        let code = rbc_session_get_resource_by_token(
-            ptr::null_mut(), uri.as_ptr(), token.as_ptr(), &mut out,
-        );
+        let code = rbc_session_get_resource_by_token(ptr::null_mut(), uri.as_ptr(), token.as_ptr(), &mut out);
         assert_eq!(code, RbcErrorCode::InvalidArg);
     }
 
@@ -502,9 +514,7 @@ mod tests {
         let session = unsafe { make_mock_session_handle(client) };
         let uri = CString::new("rbs://res/1").unwrap();
         let token = CString::new("tok").unwrap();
-        let code = rbc_session_get_resource_by_token(
-            session, uri.as_ptr(), token.as_ptr(), ptr::null_mut(),
-        );
+        let code = rbc_session_get_resource_by_token(session, uri.as_ptr(), token.as_ptr(), ptr::null_mut());
         assert_eq!(code, RbcErrorCode::InvalidArg);
         rbc_session_free(session);
         rbc_client_free(client);
@@ -517,9 +527,7 @@ mod tests {
         let uri = CString::new("rbs://res/1").unwrap();
         let ev = CString::new("{}").unwrap();
         let mut out: *mut RbcResource = ptr::null_mut();
-        let code = rbc_session_get_resource_by_evidence(
-            ptr::null_mut(), uri.as_ptr(), ev.as_ptr(), &mut out,
-        );
+        let code = rbc_session_get_resource_by_evidence(ptr::null_mut(), uri.as_ptr(), ev.as_ptr(), &mut out);
         assert_eq!(code, RbcErrorCode::InvalidArg);
     }
 
@@ -529,9 +537,7 @@ mod tests {
         let session = unsafe { make_mock_session_handle(client) };
         let uri = CString::new("rbs://res/1").unwrap();
         let ev = CString::new("{}").unwrap();
-        let code = rbc_session_get_resource_by_evidence(
-            session, uri.as_ptr(), ev.as_ptr(), ptr::null_mut(),
-        );
+        let code = rbc_session_get_resource_by_evidence(session, uri.as_ptr(), ev.as_ptr(), ptr::null_mut());
         assert_eq!(code, RbcErrorCode::InvalidArg);
         rbc_session_free(session);
         rbc_client_free(client);
@@ -544,9 +550,7 @@ mod tests {
         let uri = CString::new("rbs://res/1").unwrap();
         let bad_ev = CString::new("{not json}").unwrap();
         let mut out: *mut RbcResource = ptr::null_mut();
-        let code = rbc_session_get_resource_by_evidence(
-            session, uri.as_ptr(), bad_ev.as_ptr(), &mut out,
-        );
+        let code = rbc_session_get_resource_by_evidence(session, uri.as_ptr(), bad_ev.as_ptr(), &mut out);
         assert_eq!(code, RbcErrorCode::InvalidArg);
         rbc_session_free(session);
         rbc_client_free(client);
@@ -559,9 +563,8 @@ mod tests {
         let jwe = CString::new("a.b.c.d.e").unwrap();
         let mut out: *mut u8 = ptr::null_mut();
         let mut len: usize = 0;
-        let code = rbc_session_decrypt_content(
-            ptr::null_mut(), jwe.as_ptr(), ptr::null(), ptr::null(), 0, &mut out, &mut len,
-        );
+        let code =
+            rbc_session_decrypt_content(ptr::null_mut(), jwe.as_ptr(), ptr::null(), ptr::null(), 0, &mut out, &mut len);
         assert_eq!(code, RbcErrorCode::InvalidArg);
     }
 
@@ -571,9 +574,8 @@ mod tests {
         let session = unsafe { make_mock_session_handle(client) };
         let jwe = CString::new("a.b.c.d.e").unwrap();
         let mut len: usize = 0;
-        let code = rbc_session_decrypt_content(
-            session, jwe.as_ptr(), ptr::null(), ptr::null(), 0, ptr::null_mut(), &mut len,
-        );
+        let code =
+            rbc_session_decrypt_content(session, jwe.as_ptr(), ptr::null(), ptr::null(), 0, ptr::null_mut(), &mut len);
         assert_eq!(code, RbcErrorCode::InvalidArg);
         rbc_session_free(session);
         rbc_client_free(client);
@@ -585,9 +587,8 @@ mod tests {
         let session = unsafe { make_mock_session_handle(client) };
         let jwe = CString::new("a.b.c.d.e").unwrap();
         let mut out: *mut u8 = ptr::null_mut();
-        let code = rbc_session_decrypt_content(
-            session, jwe.as_ptr(), ptr::null(), ptr::null(), 0, &mut out, ptr::null_mut(),
-        );
+        let code =
+            rbc_session_decrypt_content(session, jwe.as_ptr(), ptr::null(), ptr::null(), 0, &mut out, ptr::null_mut());
         assert_eq!(code, RbcErrorCode::InvalidArg);
         rbc_session_free(session);
         rbc_client_free(client);
@@ -599,9 +600,7 @@ mod tests {
         let session = unsafe { make_mock_session_handle(client) };
 
         let session_inner = unsafe { session_ref(session) };
-        let pubkey_json = session_inner
-            .test_ephemeral_public_jwk_json()
-            .expect("session must have an ephemeral key");
+        let pubkey_json = session_inner.test_ephemeral_public_jwk_json().expect("session must have an ephemeral key");
         let pubkey = TeePublicKey::from_jwk_json(&pubkey_json).unwrap();
 
         let plaintext = b"secret payload";
@@ -611,7 +610,13 @@ mod tests {
         let mut out_ptr: *mut u8 = ptr::null_mut();
         let mut out_len: usize = 0;
         let code = rbc_session_decrypt_content(
-            session, jwe_c.as_ptr(), ptr::null(), ptr::null(), 0, &mut out_ptr, &mut out_len,
+            session,
+            jwe_c.as_ptr(),
+            ptr::null(),
+            ptr::null(),
+            0,
+            &mut out_ptr,
+            &mut out_len,
         );
         assert_eq!(code, RbcErrorCode::Ok);
         assert!(!out_ptr.is_null());
@@ -626,9 +631,9 @@ mod tests {
 
     #[test]
     fn decrypt_content_roundtrip_with_encrypted_pem_via_ffi() {
+        use crate::tools::tee_key::TeeKeyPair;
         use openssl::pkey::PKey;
         use openssl::symm::Cipher;
-        use crate::tools::tee_key::TeeKeyPair;
 
         let kp = TeeKeyPair::generate(KeyType::Ec).unwrap();
         let plain_pem = kp.to_private_pem().unwrap();
@@ -636,9 +641,7 @@ mod tests {
         let pubkey_json = kp.public_jwk_json().unwrap();
 
         let pkey = PKey::private_key_from_pem(plain_pem.as_bytes()).unwrap();
-        let enc_pem_bytes = pkey
-            .private_key_to_pem_pkcs8_passphrase(Cipher::aes_256_cbc(), b"ffi-passphrase")
-            .unwrap();
+        let enc_pem_bytes = pkey.private_key_to_pem_pkcs8_passphrase(Cipher::aes_256_cbc(), b"ffi-passphrase").unwrap();
         let enc_pem_str = std::str::from_utf8(&enc_pem_bytes).unwrap();
 
         let plaintext = b"ffi encrypted pem roundtrip";
@@ -677,5 +680,4 @@ mod tests {
         rbc_session_free(session);
         rbc_client_free(client);
     }
-
 }
