@@ -168,3 +168,44 @@ pub fn validate_i64(value: &str, min: i64, max: i64, field: &str) -> Result<i64,
     }
     Ok(parsed)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_trimmed_string_max_len_rejects_blank_values() {
+        let err = validate_trimmed_string_max_len("   ", 10, "name").expect_err("blank should fail");
+        assert!(err.to_string().contains("name must not be empty"));
+    }
+
+    #[test]
+    fn validate_resource_segment_rejects_slashes() {
+        let err = validate_resource_segment("a/b", 16).expect_err("slash should fail");
+        assert!(err.to_string().contains("resource path segment"));
+    }
+
+    #[test]
+    fn validate_file_path_rejects_existing_directory() {
+        let err = validate_file_path(".").expect_err("directory should fail");
+        assert!(err.to_string().contains("existing directory"));
+    }
+
+    #[test]
+    fn validate_cert_file_accepts_inline_content() {
+        let cert = "-----BEGIN CERTIFICATE-----mock-----END CERTIFICATE-----";
+        assert_eq!(validate_cert_file(cert).expect("inline cert"), cert);
+    }
+
+    #[test]
+    fn validate_pubkey_file_accepts_inline_content() {
+        let key = "-----BEGIN PUBLIC KEY-----mock-----END PUBLIC KEY-----";
+        assert_eq!(validate_pubkey_file(key).expect("inline key"), key);
+    }
+
+    #[test]
+    fn validate_i64_reports_out_of_range_values() {
+        let err = validate_i64("11", 1, 10, "limit").expect_err("out of range should fail");
+        assert_eq!(err, "limit must be between 1 and 10");
+    }
+}

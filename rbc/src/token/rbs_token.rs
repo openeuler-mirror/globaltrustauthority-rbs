@@ -12,11 +12,11 @@
 
 //! Token provider that submits evidence to the RBS `/attest` endpoint (UC-01).
 
-use std::collections::HashMap;
 use async_trait::async_trait;
 use rbs_api_types::{AttestRequest, AttesterData, RbcEvidencesPayload};
 use serde::Deserialize;
 use serde_json::Value;
+use std::collections::HashMap;
 
 use crate::client::RbsRestClient;
 use crate::error::RbcError;
@@ -48,8 +48,7 @@ impl AgentConfig {
     fn from_file(path: &str) -> Result<Self, RbcError> {
         let content = std::fs::read_to_string(path)
             .map_err(|e| RbcError::ConfigError(format!("read agent config {path}: {e}")))?;
-        serde_yaml::from_str(&content)
-            .map_err(|e| RbcError::ConfigError(format!("parse agent config {path}: {e}")))
+        serde_yaml::from_str(&content).map_err(|e| RbcError::ConfigError(format!("parse agent config {path}: {e}")))
     }
 }
 
@@ -66,8 +65,8 @@ impl RbsAttestTokenProvider {
     /// `rest_client` is shared from the top-level `Client` (constructed from endpoint/TLS config).
     /// `cfg` holds all fields from the `token_provider` block except `type`.
     pub fn new(rest_client: RbsRestClient, cfg: serde_json::Value) -> Result<Self, RbcError> {
-        let config: RbsTokenProviderConfig = serde_json::from_value(cfg)
-            .map_err(|e| RbcError::ConfigError(format!("RbsTokenProvider config: {e}")))?;
+        let config: RbsTokenProviderConfig =
+            serde_json::from_value(cfg).map_err(|e| RbcError::ConfigError(format!("RbsTokenProvider config: {e}")))?;
         let path = config.config_path.as_deref().unwrap_or(DEFAULT_AGENT_CONFIG);
         let agent = AgentConfig::from_file(path)?.agent;
         Ok(Self { rest_client, user_id: agent.user_id, apikey: agent.apikey })
@@ -81,18 +80,13 @@ impl TokenProvider for RbsAttestTokenProvider {
         evidence: Option<&Value>,
         _attester_data: Option<&AttesterData>,
     ) -> Result<String, RbcError> {
-        let evidence_val = evidence.ok_or_else(|| {
-            RbcError::InvalidInput("RbsAttestTokenProvider requires evidence".into())
-        })?;
+        let evidence_val =
+            evidence.ok_or_else(|| RbcError::InvalidInput("RbsAttestTokenProvider requires evidence".into()))?;
 
         let rbc_evidences: RbcEvidencesPayload = serde_json::from_value(evidence_val.clone())
             .map_err(|e| RbcError::AttestError(format!("invalid evidence format: {e}")))?;
 
-        let req = AttestRequest {
-            as_provider: None,
-            rbc_evidences,
-            attester_data: None,
-        };
+        let req = AttestRequest { as_provider: None, rbc_evidences, attester_data: None };
 
         let mut headers = HashMap::new();
         headers.insert(HEADER_USER_ID, self.user_id.as_str());

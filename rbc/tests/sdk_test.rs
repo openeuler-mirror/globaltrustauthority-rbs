@@ -9,10 +9,10 @@
  * PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
-use wiremock::{Mock, MockServer, ResponseTemplate};
-use wiremock::matchers::{method, path, header};
-use rbc::{Client, GetResourceRequest};
 use rbc::sdk::{Config, ProviderRawConfig, ProviderType};
+use rbc::{Client, GetResourceRequest};
+use wiremock::matchers::{header, method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 const TEST_AGENT_CONFIG: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/data/agent_config.yaml");
 
@@ -36,10 +36,8 @@ fn test_config_builder() {
 
     assert_eq!(config.rbs.base_url, "https://rbs.example.com");
     assert_eq!(config.rbs.timeout_secs, Some(60));
-    assert!(config.evidence_provider.as_ref().unwrap()
-        .iter().any(|p| p.provider_type == ProviderType::Native));
-    assert!(config.token_provider.as_ref().unwrap()
-        .iter().any(|p| p.provider_type == ProviderType::Rbs));
+    assert!(config.evidence_provider.as_ref().unwrap().iter().any(|p| p.provider_type == ProviderType::Native));
+    assert!(config.token_provider.as_ref().unwrap().iter().any(|p| p.provider_type == ProviderType::Rbs));
 }
 
 #[test]
@@ -78,34 +76,28 @@ fn test_passport_mode_with_rbs_attest() {
 
         Mock::given(method("GET"))
             .and(path("/rbs/v0/challenge"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(
-                serde_json::json!({"nonce": "mock-nonce"})
-            ))
-            .mount(&server).await;
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"nonce": "mock-nonce"})))
+            .mount(&server)
+            .await;
 
         Mock::given(method("POST"))
             .and(path("/rbs/v0/attest"))
             .and(header("User-Id", "test-user"))
             .and(header("API-Key", "test-api-key"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(
-                serde_json::json!({"token": "mock-jwt-token"})
-            ))
-            .mount(&server).await;
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"token": "mock-jwt-token"})))
+            .mount(&server)
+            .await;
 
-        let resource_content = base64::Engine::encode(
-            &base64::engine::general_purpose::STANDARD,
-            b"secret-value",
-        );
+        let resource_content = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, b"secret-value");
         Mock::given(method("GET"))
             .and(path("/rbs/v0/test-key"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(
-                serde_json::json!({
-                    "uri": "test-key",
-                    "content": resource_content,
-                    "content_type": "application/octet-stream"
-                })
-            ))
-            .mount(&server).await;
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "uri": "test-key",
+                "content": resource_content,
+                "content_type": "application/octet-stream"
+            })))
+            .mount(&server)
+            .await;
 
         server
     });
@@ -132,10 +124,7 @@ fn test_passport_mode_with_rbs_attest() {
     let resp = session.attest(Some(&mock_evidence)).unwrap();
     assert_eq!(resp.token, "mock-jwt-token");
 
-    let resource = session.get_resource(
-        "test-key",
-        GetResourceRequest::ByAttestToken(&resp.token),
-    ).unwrap();
+    let resource = session.get_resource("test-key", GetResourceRequest::ByAttestToken(&resp.token)).unwrap();
     assert_eq!(resource.uri, "test-key");
     assert_eq!(resource.content.as_slice(), b"secret-value");
 }
@@ -149,7 +138,8 @@ fn test_rbs_error_mapping() {
         Mock::given(method("GET"))
             .and(path("/rbs/v0/challenge"))
             .respond_with(ResponseTemplate::new(500).set_body_string("internal error"))
-            .mount(&server).await;
+            .mount(&server)
+            .await;
 
         server
     });

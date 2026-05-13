@@ -286,3 +286,83 @@ pub fn validate_username(input: &str) -> Result<String, CliError> {
     }
     Ok(input.to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_update_args_requires_some_field() {
+        let err = validate_update_args(&UpdateArgs {
+            username: "user-1".to_string(),
+            role: None,
+            enabled: None,
+            public_key: None,
+            jwk: None,
+        })
+        .expect_err("empty update should fail");
+        assert!(err.to_string().contains("at least one updatable field"));
+    }
+
+    #[test]
+    fn validate_username_rejects_invalid_characters() {
+        let err = validate_username("bad name").expect_err("space should fail");
+        assert!(err.to_string().contains("username must contain only letters"));
+    }
+
+    #[test]
+    fn read_pubkey_and_jwk_reads_inputs() {
+        let dir = std::env::temp_dir();
+        let pub_path = dir.join(format!("user-pub-{}.pem", std::process::id()));
+        let jwk_path = dir.join(format!("user-jwk-{}.json", std::process::id()));
+        std::fs::write(&pub_path, "PUBLIC-KEY").expect("write pubkey");
+        std::fs::write(&jwk_path, r#"{"kty":"EC","crv":"P-256","x":"x","y":"y"}"#).expect("write jwk");
+
+        let (public_key, jwk) = read_pubkey_and_jwk(
+            &Some(format!("@{}", pub_path.display())),
+            &Some(format!("@{}", jwk_path.display())),
+        )
+        .expect("read inputs");
+
+        assert_eq!(public_key.as_deref(), Some("PUBLIC-KEY"));
+        assert_eq!(jwk.expect("jwk")["kty"], "EC");
+
+        let _ = std::fs::remove_file(pub_path);
+        let _ = std::fs::remove_file(jwk_path);
+    }
+
+    #[test]
+    fn user_outputs_render_text() {
+        let user = UserOutput(User {
+            id: "user-1".to_string(),
+            username: "ops".to_string(),
+            role: "user".to_string(),
+            enabled: true,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            updated_at: "2026-01-02T00:00:00Z".to_string(),
+        });
+        let rendered = user.render_text().expect("render user");
+        assert!(rendered.contains("username:"));
+        assert!(rendered.contains("ops"));
+
+        let list = UserListOutput(UserListResponse {
+            items: vec![User {
+                id: "user-1".to_string(),
+                username: "ops".to_string(),
+                role: "user".to_string(),
+                enabled: true,
+                created_at: "2026-01-01T00:00:00Z".to_string(),
+                updated_at: "2026-01-02T00:00:00Z".to_string(),
+            }],
+            total_count: 1,
+            limit: 10,
+            offset: 0,
+        });
+        let rendered = list.render_text().expect("render list");
+        assert!(rendered.contains("total_count: 1"));
+        assert!(rendered.contains("ops"));
+
+        let deleted = DeleteUserOutput { username: "ops".to_string() };
+        assert_eq!(deleted.render_text().expect("render delete"), "Delete succeeded: user removed: ops");
+    }
+}

@@ -22,6 +22,8 @@ For a step-by-step setup, build, test, run, and service verification, see [**Qui
 |-------|----------|
 | Build, run, test | [build_and_install.md](docs/build/build_and_install.md) |
 | RPM installation | [rpm.md](docs/build/rpm.md) |
+| RBC client CLI usage | [rbc.md](docs/usage_guide/rbc.md) |
+| rbs-cli usage | [rbs_cli.md](docs/usage_guide/rbs_cli.md) |
 | Container deployment | [docker/](deployment/docker/) |
 | REST API | [YAML](docs/proto/rbs_rest_api.yaml) · [MD](docs/api/rbs/md/rbs_rest_api.md) · [HTML](docs/api/rbs/html/rbs_rest_api.html) |
 | Test suite | [README.md](tests/README.md) |

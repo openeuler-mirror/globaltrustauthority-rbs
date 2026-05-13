@@ -33,3 +33,25 @@ pub fn read_path_file(file: &str) -> Result<String, CliError> {
     }
     Ok(file.to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn read_cert_file_rejects_blank_path() {
+        let err = read_cert_file(" ").expect_err("blank path should fail");
+        assert!(err.to_string().contains("certificate file path must not be empty"));
+    }
+
+    #[test]
+    fn read_path_file_returns_inline_value_or_file_contents() {
+        assert_eq!(read_path_file("inline").expect("inline"), "inline");
+
+        let path = std::env::temp_dir().join(format!("tools-read-path-{}.txt", std::process::id()));
+        std::fs::write(&path, "file-content").expect("write file");
+        let value = read_path_file(&format!("@{}", path.display())).expect("read file");
+        assert_eq!(value, "file-content");
+        let _ = std::fs::remove_file(path);
+    }
+}

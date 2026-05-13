@@ -12,11 +12,9 @@
 
 //! RBS REST API client and TLS configuration.
 
-use std::collections::HashMap;
+use rbs_api_types::{AttestRequest, AttestResponse, AuthChallengeResponse, ResourceContentResponse};
 use reqwest::Client as HttpClient;
-use rbs_api_types::{
-    AttestRequest, AttestResponse, AuthChallengeResponse, ResourceContentResponse,
-};
+use std::collections::HashMap;
 
 use crate::error::RbcError;
 
@@ -38,8 +36,8 @@ impl RbsRestClient {
 
         if let Some(tls_cfg) = tls {
             if let Some(ca_path) = &tls_cfg.ca_cert {
-                let ca_pem = std::fs::read(ca_path)
-                    .map_err(|e| RbcError::TlsError(format!("read CA cert {ca_path}: {e}")))?;
+                let ca_pem =
+                    std::fs::read(ca_path).map_err(|e| RbcError::TlsError(format!("read CA cert {ca_path}: {e}")))?;
                 let cert = reqwest::Certificate::from_pem(&ca_pem)
                     .map_err(|e| RbcError::TlsError(format!("parse CA cert: {e}")))?;
                 builder = builder.add_root_certificate(cert);
@@ -50,14 +48,9 @@ impl RbsRestClient {
             builder = builder.timeout(std::time::Duration::from_secs(secs));
         }
 
-        let http = builder
-            .build()
-            .map_err(|e| RbcError::TlsError(e.to_string()))?;
+        let http = builder.build().map_err(|e| RbcError::TlsError(e.to_string()))?;
 
-        Ok(Self {
-            base_url: base_url.trim_end_matches('/').to_string(),
-            http,
-        })
+        Ok(Self { base_url: base_url.trim_end_matches('/').to_string(), http })
     }
 
     /// GET /rbs/v0/challenge → AuthChallengeResponse
@@ -69,33 +62,27 @@ impl RbsRestClient {
         if let Some(p) = provider {
             request_builder = request_builder.query(&[("as_provider", &p)]);
         }
-        let resp = request_builder
-            .send()
-            .await
-            .map_err(|e| RbcError::NetworkError(e.to_string()))?;
+        let resp = request_builder.send().await.map_err(|e| RbcError::NetworkError(e.to_string()))?;
         Self::handle_response(resp).await
     }
 
     /// POST /rbs/v0/attest → AttestResponse
-    pub async fn post_attest(&self, req: &AttestRequest, extra_headers: &HashMap<&str, &str>) -> Result<AttestResponse, RbcError> {
+    pub async fn post_attest(
+        &self,
+        req: &AttestRequest,
+        extra_headers: &HashMap<&str, &str>,
+    ) -> Result<AttestResponse, RbcError> {
         let url = format!("{}/rbs/v0/attest", self.base_url);
         let mut builder = self.http.post(&url).json(req);
         for (name, value) in extra_headers {
             builder = builder.header(*name, *value);
         }
-        let resp = builder
-            .send()
-            .await
-            .map_err(|e| RbcError::NetworkError(e.to_string()))?;
+        let resp = builder.send().await.map_err(|e| RbcError::NetworkError(e.to_string()))?;
         Self::handle_response(resp).await
     }
 
     /// GET /rbs/v0/{uri} + Authorization header → ResourceContentResponse
-    pub async fn get_resource(
-        &self,
-        uri: &str,
-        token: &str,
-    ) -> Result<ResourceContentResponse, RbcError> {
+    pub async fn get_resource(&self, uri: &str, token: &str) -> Result<ResourceContentResponse, RbcError> {
         let url = format!("{}/rbs/v0/{}", self.base_url, uri);
         let resp = self
             .http
@@ -114,24 +101,15 @@ impl RbsRestClient {
         evidence: &AttestRequest,
     ) -> Result<ResourceContentResponse, RbcError> {
         let url = format!("{}/rbs/v0/{}/retrieve", self.base_url, uri);
-        let resp = self
-            .http
-            .post(&url)
-            .json(evidence)
-            .send()
-            .await
-            .map_err(|e| RbcError::NetworkError(e.to_string()))?;
+        let resp =
+            self.http.post(&url).json(evidence).send().await.map_err(|e| RbcError::NetworkError(e.to_string()))?;
         Self::handle_response(resp).await
     }
 
-    async fn handle_response<T: serde::de::DeserializeOwned>(
-        resp: reqwest::Response,
-    ) -> Result<T, RbcError> {
+    async fn handle_response<T: serde::de::DeserializeOwned>(resp: reqwest::Response) -> Result<T, RbcError> {
         let status = resp.status().as_u16();
         if (200..300).contains(&status) {
-            resp.json::<T>()
-                .await
-                .map_err(|e| RbcError::NetworkError(e.to_string()))
+            resp.json::<T>().await.map_err(|e| RbcError::NetworkError(e.to_string()))
         } else {
             let body = resp.text().await.unwrap_or_default();
             match status {

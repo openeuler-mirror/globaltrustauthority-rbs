@@ -230,11 +230,7 @@ impl Formatter for ResourceMetadataOutput {
         Ok([
             format!("{:<20}{}", "uri:", resource.uri),
             format!("{:<20}{}", "res_provider:", resource.res_provider.as_deref().unwrap_or("")),
-            format!(
-                "{:<20}{}",
-                "repository_name:",
-                resource.repository_name.as_deref().unwrap_or("")
-            ),
+            format!("{:<20}{}", "repository_name:", resource.repository_name.as_deref().unwrap_or("")),
             format!("{:<20}{}", "resource_type:", resource.resource_type.as_deref().unwrap_or("")),
             format!("{:<20}{}", "resource_name:", resource.resource_name.as_deref().unwrap_or("")),
             format!("{:<20}{}", "policy_id:", resource.policy_id.as_deref().unwrap_or("")),
@@ -253,5 +249,69 @@ impl Formatter for ResourceMetadataOutput {
 
     fn render_json(&self) -> Result<String, CliError> {
         serde_json::to_string_pretty(&self.0).map_err(|_| CliError::InternalFormat)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn base_path_args() -> PathArgs {
+        PathArgs {
+            res_provider: "vault".to_string(),
+            repository_name: "default".to_string(),
+            resource_type: "secret".to_string(),
+            resource_name: "demo".to_string(),
+        }
+    }
+
+    #[test]
+    fn validate_update_args_requires_at_least_one_field() {
+        let args = UpdateArgs {
+            path: base_path_args(),
+            policy_id: None,
+            additional_info: None,
+            content_type: None,
+            export_mode: None,
+        };
+        let err = validate_update_args(&args).expect_err("empty update should fail");
+        assert!(err.to_string().contains("at least one updatable field"));
+    }
+
+    #[test]
+    fn build_path_and_resource_uri_match_command_arguments() {
+        let path_args = base_path_args();
+        let path = build_path(&path_args);
+        assert_eq!(path.res_provider, "vault");
+        assert_eq!(resource_uri(&path), "vault/default/secret/demo");
+    }
+
+    #[test]
+    fn resource_outputs_render_text() {
+        let resource = ResourceOutput(ResourceResponse {
+            uri: "vault/default/secret/demo".to_string(),
+            content: "secret".to_string(),
+            content_type: Some("text".to_string()),
+        });
+        let text = resource.render_text().expect("render resource");
+        assert!(text.contains("content:"));
+        assert!(text.contains("secret"));
+
+        let meta = ResourceMetadataOutput(ResourceInfoResponse {
+            uri: "vault/default/secret/demo".to_string(),
+            res_provider: Some("vault".to_string()),
+            repository_name: Some("default".to_string()),
+            resource_type: Some("secret".to_string()),
+            resource_name: Some("demo".to_string()),
+            created_at: Some("2026-01-01T00:00:00Z".to_string()),
+            updated_at: Some("2026-01-02T00:00:00Z".to_string()),
+            policy_id: Some("policy-1".to_string()),
+            content_type: Some("text".to_string()),
+            export_mode: Some("plain".to_string()),
+            content_length: Some(6),
+        });
+        let text = meta.render_text().expect("render metadata");
+        assert!(text.contains("policy_id:"));
+        assert!(text.contains("policy-1"));
     }
 }

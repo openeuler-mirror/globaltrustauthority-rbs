@@ -253,3 +253,60 @@ fn format_policy_multiline(policy: &ResourcePolicy) -> String {
     ]
     .join("\n")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn format_policy_multiline_includes_core_fields() {
+        let policy = ResourcePolicy {
+            policy_id: "policy-1".to_string(),
+            policy_name: "allow-secret".to_string(),
+            policy_version: 2,
+            policy_content: "Zm9v".to_string(),
+            content_type: "base64".to_string(),
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            updated_at: "2026-01-02T00:00:00Z".to_string(),
+            applied_resources: Some(vec!["vault/default/secret/demo".to_string()]),
+        };
+
+        let rendered = format_policy_multiline(&policy);
+        assert!(rendered.contains("policy_id:"));
+        assert!(rendered.contains("policy-1"));
+        assert!(rendered.contains("allow-secret"));
+        assert!(rendered.contains("vault/default/secret/demo"));
+    }
+
+    #[test]
+    fn resource_policy_outputs_render_text() {
+        let list = ResourcePolicyListOutput(ResourcePolicyListResponse {
+            items: vec![ResourcePolicy {
+                policy_id: "policy-1".to_string(),
+                policy_name: "allow-secret".to_string(),
+                policy_version: 1,
+                policy_content: "Zm9v".to_string(),
+                content_type: "base64".to_string(),
+                created_at: "2026-01-01T00:00:00Z".to_string(),
+                updated_at: "2026-01-02T00:00:00Z".to_string(),
+                applied_resources: None,
+            }],
+            total: 1,
+        });
+        let text = list.render_text().expect("render list");
+        assert!(text.contains("resource_policies: total=1"));
+        assert!(text.contains("allow-secret"));
+
+        let mutation = ResourcePolicyMutationOutput(ResourcePolicy {
+            policy_id: "policy-1".to_string(),
+            policy_name: "allow-secret".to_string(),
+            policy_version: 1,
+            policy_content: "Zm9v".to_string(),
+            content_type: "base64".to_string(),
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            updated_at: "2026-01-02T00:00:00Z".to_string(),
+            applied_resources: None,
+        });
+        assert!(mutation.render_text().expect("render mutation").contains("policy_name:"));
+    }
+}

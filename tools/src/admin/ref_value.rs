@@ -325,3 +325,107 @@ fn validate_and_read_ref_value(path: &str) -> Result<String, CliError> {
     let content = std::fs::read_to_string(path)?;
     Ok(content)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_update_args_requires_some_field() {
+        let err = validate_update_args(&UpdateArgs {
+            id: "rv-1".to_string(),
+            name: None,
+            description: None,
+            attester_type: None,
+            content: None,
+        })
+        .expect_err("empty update should fail");
+        assert!(err.to_string().contains("at least one updatable field"));
+    }
+
+    #[test]
+    fn build_delete_request_supports_all_modes() {
+        let by_id = build_delete_request(&DeleteArgs {
+            delete_type: "id".to_string(),
+            ids: vec!["a".to_string()],
+            attester_type: None,
+        })
+        .expect("id delete");
+        assert_eq!(by_id.delete_type, "id");
+
+        let by_type = build_delete_request(&DeleteArgs {
+            delete_type: "type".to_string(),
+            ids: vec![],
+            attester_type: Some("tpm".to_string()),
+        })
+        .expect("type delete");
+        assert_eq!(by_type.attester_type.as_deref(), Some("tpm"));
+
+        let all = build_delete_request(&DeleteArgs {
+            delete_type: "all".to_string(),
+            ids: vec![],
+            attester_type: None,
+        })
+        .expect("all delete");
+        assert_eq!(all.delete_type, "all");
+    }
+
+    #[test]
+    fn delete_message_matches_delete_mode() {
+        assert_eq!(
+            delete_message(&RefValueDeleteRequest {
+                delete_type: "id".to_string(),
+                ids: Some(vec!["a".to_string()]),
+                attester_type: None,
+            }),
+            "deleted ref values: a"
+        );
+        assert_eq!(
+            delete_message(&RefValueDeleteRequest {
+                delete_type: "type".to_string(),
+                ids: None,
+                attester_type: Some("tpm".to_string()),
+            }),
+            "deleted ref values by attester_type: tpm"
+        );
+    }
+
+    #[test]
+    fn validate_and_read_ref_value_reads_file_content() {
+        let path = std::env::temp_dir().join(format!("ref-value-{}.jwt", std::process::id()));
+        std::fs::write(&path, "jwt-content").expect("write file");
+        let content = validate_and_read_ref_value(path.to_str().expect("utf8 path")).expect("read content");
+        assert_eq!(content, "jwt-content");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn ref_value_outputs_render_text() {
+        let list = RefValueListOutput(RefValueListResponse {
+            ref_values: vec![rbs_admin_client::attestation::ref_value::RefValue {
+                id: Some("rv-1".to_string()),
+                uid: None,
+                name: "demo-rv".to_string(),
+                description: Some("demo".to_string()),
+                attester_type: "tpm".to_string(),
+                content: Some("jwt".to_string()),
+                version: Some(1),
+                valid_code: None,
+            }],
+        });
+        let text = list.render_text().expect("render list");
+        assert!(text.contains("demo-rv"));
+        assert!(text.contains("attester_type=tpm"));
+
+        let mutation = RefValueMutationOutput(RefValueMutationResponse {
+            ref_value: rbs_admin_client::attestation::ref_value::RefValueMutation {
+                id: Some("rv-1".to_string()),
+                name: "demo-rv".to_string(),
+                version: Some(2),
+            },
+        });
+        let text = mutation.render_text().expect("render mutation");
+        assert!(text.contains("id: rv-1"));
+        assert!(text.contains("version: 2"));
+    }
+}

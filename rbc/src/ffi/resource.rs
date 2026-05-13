@@ -116,7 +116,11 @@ mod tests {
     use std::ffi::CStr;
 
     fn make_resource_handle(uri: &str, content: Vec<u8>, ct: Option<&str>) -> *mut RbcResource {
-        let r = Resource { uri: uri.to_string(), content: zeroize::Zeroizing::new(content), content_type: ct.map(str::to_string) };
+        let r = Resource {
+            uri: uri.to_string(),
+            content: zeroize::Zeroizing::new(content),
+            content_type: ct.map(str::to_string),
+        };
         box_resource_into_handle(wrap_resource(r).unwrap())
     }
 

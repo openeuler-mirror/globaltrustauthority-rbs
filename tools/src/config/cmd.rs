@@ -16,6 +16,7 @@ use crate::common::validate::{
 use crate::common::CERT_FILE_MAX_SIZE;
 use crate::config::{GlobalCliArgs, GlobalOptions, OutputFormat, DEFAULT_BASE_URL, DEFAULT_FORMAT};
 use crate::error::CliError;
+use rbc::ProviderType;
 use std::{env, fs};
 
 pub fn resolve_global_options(cli: &GlobalCliArgs) -> std::result::Result<GlobalOptions, CliError> {
@@ -35,7 +36,6 @@ pub fn resolve_global_options(cli: &GlobalCliArgs) -> std::result::Result<Global
     });
     let token = cli.token.clone().or_else(|| env_token);
     let cert_path = cli.cert.clone().or_else(|| env_cert);
-
     validate_base_url(&base_url)?;
     if let Some(token) = &token {
         validate_token(token)?;
@@ -51,10 +51,22 @@ pub fn resolve_global_options(cli: &GlobalCliArgs) -> std::result::Result<Global
     } else {
         None
     };
+    let mut token_provider = ProviderType::Native;
+    if let Some(token_provider_type) = &cli.token_provider_type {
+        token_provider = *token_provider_type;
+    }
+    let mut evidence_provider = ProviderType::Rbs;
+    if let Some(evidence_provider_type) = &cli.evidence_provider_type {
+        evidence_provider = *evidence_provider_type;
+    }
 
     Ok(GlobalOptions {
         base_url,
         token,
+        evidence_provider_type: token_provider,
+        evidence_provider_config: cli.evidence_provider_config.clone(),
+        token_provider_type: evidence_provider,
+        token_provider_config: cli.token_provider_config.clone(),
         cert,
         cert_path,
         format,
@@ -91,4 +103,39 @@ pub fn validate_output_file(output_file: &str) -> Result<String, CliError> {
     validate_max_len(output_file, 4096)?;
     validate_file_path(output_file)?;
     Ok(output_file.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{GlobalCliArgs, OutputFormat};
+
+    #[test]
+    fn resolve_global_options_preserves_basic_fields() {
+        let cli = GlobalCliArgs {
+            base_url: Some("http://127.0.0.1:8080".to_string()),
+            token: Some("token-value".to_string()),
+            evidence_provider_type: Some(ProviderType::Rbs),
+            evidence_provider_config: "/tmp/evidence.yaml".to_string(),
+            token_provider_type: Some(ProviderType::Native),
+            token_provider_config: "/tmp/token.yaml".to_string(),
+            cert: None,
+            format: Some(OutputFormat::Json),
+            output_file: Some("/tmp/out.json".to_string()),
+            verbose: true,
+            quiet: false,
+            noout: false,
+        };
+
+        let options = resolve_global_options(&cli).expect("options should resolve");
+
+        assert_eq!(options.base_url, "http://127.0.0.1:8080");
+        assert_eq!(options.token.as_deref(), Some("token-value"));
+        assert_eq!(options.evidence_provider_config, "/tmp/evidence.yaml");
+        assert_eq!(options.token_provider_config, "/tmp/token.yaml");
+        assert_eq!(options.format, OutputFormat::Json);
+        assert_eq!(options.output_file.as_deref(), Some("/tmp/out.json"));
+        assert!(options.format_explicitly_set);
+        assert!(options.verbose);
+    }
 }

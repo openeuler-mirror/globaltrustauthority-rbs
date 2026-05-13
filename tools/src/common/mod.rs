@@ -36,5 +36,8 @@ pub const DEFAULT_PAGE_OFFSET: i64 = 0;
 pub const MIN_PAGE_OFFSET: i64 = 0;
 pub const MAX_PAGE_OFFSET: i64 = 1000000;
 
+pub const AS_PROVIDE: &str = "gta";
+pub const CLIENT_REQUEST_TIMEOUT: u64 = 10;
+
 pub static GTA_CERT_ATTESTER_TYPE_ARRAY: [&str; 8] =
     ["refvalue", "policy", "tpm_boot", "tpm", "tpm_ima", "ascend_npu", "dice", "crl"];

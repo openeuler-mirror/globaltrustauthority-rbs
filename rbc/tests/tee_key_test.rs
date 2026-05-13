@@ -20,9 +20,7 @@ fn encrypted_ec_pem(passphrase: &[u8]) -> (TeeKeyPair, String) {
     let kp = TeeKeyPair::generate(KeyType::Ec).unwrap();
     let plain_pem = kp.to_private_pem().unwrap();
     let pkey = PKey::private_key_from_pem(plain_pem.as_bytes()).unwrap();
-    let enc_bytes = pkey
-        .private_key_to_pem_pkcs8_passphrase(Cipher::aes_256_cbc(), passphrase)
-        .unwrap();
+    let enc_bytes = pkey.private_key_to_pem_pkcs8_passphrase(Cipher::aes_256_cbc(), passphrase).unwrap();
     (kp, String::from_utf8(enc_bytes).unwrap())
 }
 
@@ -257,8 +255,7 @@ fn validate_params_rejects_ec_disallowed_alg() {
 fn from_jwk_json_rejects_malformed_ec_coordinate_as_invalid_input() {
     // josekit rejects non-base64url x at parse time; after P1-3 fix this must be InvalidInput
     let json = r#"{"kty":"EC","crv":"P-256","x":"!!!not-base64!!!","y":"x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0"}"#;
-    let err = TeePublicKey::from_jwk_json(json)
-        .err().expect("should return Err");
+    let err = TeePublicKey::from_jwk_json(json).err().expect("should return Err");
     assert!(matches!(err, RbcError::InvalidInput(_)), "expected InvalidInput, got {err:?}");
 }
 
@@ -286,18 +283,14 @@ fn encrypted_ec_pem_correct_passphrase_roundtrip() {
 #[test]
 fn encrypted_ec_pem_wrong_passphrase_returns_error() {
     let (_kp, enc_pem) = encrypted_ec_pem(b"correct-pass");
-    let err = TeeKeyPair::from_private_pem(KeyType::Ec, &enc_pem, Some(b"wrong"))
-        .err()
-        .unwrap();
+    let err = TeeKeyPair::from_private_pem(KeyType::Ec, &enc_pem, Some(b"wrong")).err().unwrap();
     assert!(matches!(err, RbcError::KeyGenError(_)));
 }
 
 #[test]
 fn encrypted_ec_pem_no_passphrase_returns_error() {
     let (_kp, enc_pem) = encrypted_ec_pem(b"secret");
-    let err = TeeKeyPair::from_private_pem(KeyType::Ec, &enc_pem, None)
-        .err()
-        .unwrap();
+    let err = TeeKeyPair::from_private_pem(KeyType::Ec, &enc_pem, None).err().unwrap();
     assert!(matches!(err, RbcError::KeyGenError(_)));
 }
 
@@ -314,15 +307,13 @@ fn encrypted_ec_pem_decrypt_jwe_end_to_end() {
 
 #[test]
 fn from_jwk_json_parse_failure_returns_invalid_input() {
-    let err = TeePublicKey::from_jwk_json("not json at all")
-        .err().expect("should return Err");
+    let err = TeePublicKey::from_jwk_json("not json at all").err().expect("should return Err");
     assert!(matches!(err, RbcError::InvalidInput(_)), "expected InvalidInput, got {err:?}");
 }
 
 #[test]
 fn from_jwk_json_unknown_kty_returns_invalid_input() {
     let json = r#"{"kty":"OKP","crv":"Ed25519","x":"abc"}"#;
-    let err = TeePublicKey::from_jwk_json(json)
-        .err().expect("should return Err");
+    let err = TeePublicKey::from_jwk_json(json).err().expect("should return Err");
     assert!(matches!(err, RbcError::InvalidInput(_)), "expected InvalidInput, got {err:?}");
 }

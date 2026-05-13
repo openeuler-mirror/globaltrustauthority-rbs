@@ -55,3 +55,21 @@ impl AdminClient {
         &self.bearer_token
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn admin_client_rejects_invalid_base_url() {
+        let err = AdminClient::new("not a url", "token", &None).expect_err("invalid url should fail");
+        assert_eq!(err.to_string(), "invalid base url");
+    }
+
+    #[test]
+    fn admin_client_rejects_invalid_pem_certificate() {
+        let err = AdminClient::new("https://example.com", "token", &Some(b"not-pem".to_vec()))
+            .expect_err("invalid pem should fail");
+        assert!(err.to_string().contains("Unable to use the certificate"));
+    }
+}
