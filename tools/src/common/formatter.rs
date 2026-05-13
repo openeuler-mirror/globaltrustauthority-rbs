@@ -50,11 +50,9 @@ pub fn emit_output(output: &dyn Formatter, global: &GlobalOptions) -> Result<(),
 
     if let Some(output_file) = &global.output_file {
         fs::write(output_file, &rendered)?;
-
         if global.quiet {
             return Ok(());
         }
-
         if !global.noout {
             if global.format_explicitly_set {
                 println!("{rendered}");
@@ -82,4 +80,34 @@ pub fn emit_err(err: &CliError, global: &GlobalOptions) {
     }
 
     eprintln!("{err}");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{GlobalOptions, OutputFormat};
+
+    #[test]
+    fn text_output_renders_text_and_json() {
+        let output = TextOutput::new("hello");
+        assert_eq!(output.render_text().expect("text"), "hello");
+        assert_eq!(output.render_json().expect("json"), "{\n  \"message\": \"hello\"\n}");
+    }
+
+    #[test]
+    fn emit_output_writes_only_file_when_output_file_is_set() {
+        let path = std::env::temp_dir().join(format!("tools-output-{}.txt", std::process::id()));
+        let output = TextOutput::new("payload");
+        let global = GlobalOptions {
+            format: OutputFormat::Text,
+            output_file: Some(path.to_string_lossy().into_owned()),
+            ..Default::default()
+        };
+
+        emit_output(&output, &global).expect("emit output");
+
+        let written = std::fs::read_to_string(&path).expect("read output");
+        assert_eq!(written, "payload");
+        let _ = std::fs::remove_file(path);
+    }
 }

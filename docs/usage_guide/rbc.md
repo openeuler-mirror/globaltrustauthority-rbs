@@ -106,7 +106,7 @@ cc -I rbc/include rbc/examples/c/demo.c \
 LD_LIBRARY_PATH=target/debug /tmp/rbc_demo rbc/conf/rbc.yaml <resource_uri>
 ```
 
-See [Section 7.4](#74-c--full-attestation-flow) for a line-by-line walkthrough of the demo.
+See [Section 7.5](#75-c--full-attestation-flow) for a line-by-line walkthrough of the demo.
 
 ---
 
@@ -306,7 +306,73 @@ For the complete function list and signatures, refer to [`rbc/include/rbc.h`](..
 
 ## 7. Usage Guide
 
-### 7.1 Rust — Full Attestation Flow
+### 7.1 rbc-cli Workflows
+
+`rbc-cli` exposes five top-level commands:
+
+```text
+rbc-cli challenge
+rbc-cli collect-evidence
+rbc-cli attest
+rbc-cli get-token
+rbc-cli get-resource
+```
+
+Common global options:
+
+| Option | Meaning |
+|---|---|
+| `-c`, `--config` | Path to the RBC YAML configuration file |
+| `-b`, `--base-url` | Override the RBS base URL from config |
+| `--cert` | Override the CA certificate path |
+| `--timeout-secs` | Override the request timeout |
+| `--key-algorithm` | Override the session key algorithm: `rsa` or `ec` |
+| `--token-provider-type` | Override the configured token provider: `native` or `rbs` |
+| `--as-provider` | Provider identifier attached to API requests; default `gta` |
+| `-f`, `--format` | Output format: `text` or `json` |
+| `-o`, `--output-file` | Write output to a file |
+| `--noout` | Suppress stdout output |
+
+Examples:
+
+```bash
+rbc-cli --config /etc/rbc/rbc.yaml challenge
+
+rbc-cli --config /etc/rbc/rbc.yaml \
+  collect-evidence \
+  --nonce @/tmp/nonce.txt \
+  --attester-pubkey @public_key.pem \
+  --output-file /tmp/evidence.json
+
+rbc-cli --config /etc/rbc/rbc.yaml \
+  --token-provider-type rbs \
+  attest \
+  --evidence @/tmp/evidence.json \
+  --output-file /tmp/token.txt
+
+rbc-cli --config /etc/rbc/rbc.yaml \
+  get-token \
+  --attester-pubkey @public_key.pem \
+  --output-file /tmp/token.txt
+
+rbc-cli --config /etc/rbc/rbc.yaml \
+  get-resource \
+  --uri default/repo/key/test-key \
+  --token @/tmp/token.txt \
+  --private-key-file private_key.pem \
+  --output-file /tmp/resource.txt
+```
+
+`get-resource` also supports evidence mode:
+
+```bash
+rbc-cli --config /etc/rbc/rbc.yaml \
+  get-resource \
+  --uri default/repo/key/test-key \
+  --evidence @/tmp/evidence.json
+```
+
+### 7.2 Rust — Full Attestation Flow
 
 Standard flow: load config → create client → get challenge → create session → collect evidence → attest → fetch resource → decrypt.
 
@@ -347,7 +413,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### 7.2 Rust — Pull by Evidence (No Token)
+### 7.3 Rust — Pull by Evidence (No Token)
 
 In pull-by-evidence mode, the evidence bundle is submitted directly to RBS. RBS performs attestation internally and returns the resource in a single call, skipping the separate `attest` step.
 
@@ -376,7 +442,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### 7.3 Rust — Caller-managed Key
+### 7.4 Rust — Caller-managed Key
 
 Use this mode when the TEE hardware generates its own key pair and the public key must be bound into the evidence quote by the attester.
 
@@ -421,7 +487,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### 7.4 C — Full Attestation Flow
+### 7.5 C — Full Attestation Flow
 
 The following is the complete C demo (`rbc/examples/c/demo.c`) with annotations:
 

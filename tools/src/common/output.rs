@@ -34,3 +34,24 @@ pub fn write_output(global: &GlobalOptions, output: &str) -> std::result::Result
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn write_formatted_output_writes_rendered_content_to_file() {
+        let path = std::env::temp_dir().join(format!("tools-common-output-{}.txt", std::process::id()));
+        let global = GlobalOptions { output_file: Some(path.to_string_lossy().into_owned()), noout: true, ..Default::default() };
+
+        write_formatted_output(&global, |format| {
+            assert_eq!(format, OutputFormat::Text);
+            Ok("payload".to_string())
+        })
+        .expect("write formatted output");
+
+        let written = std::fs::read_to_string(&path).expect("read output");
+        assert_eq!(written, "payload");
+        let _ = std::fs::remove_file(path);
+    }
+}

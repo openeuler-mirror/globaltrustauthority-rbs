@@ -30,3 +30,15 @@ impl Formatter for Token {
         serde_json::to_string_pretty(self).map_err(|_| CliError::InternalFormat)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn token_formatter_renders_text_and_json() {
+        let token = Token { token: "jwt-token".to_string() };
+        assert_eq!(token.render_text().expect("text"), "jwt-token");
+        assert!(token.render_json().expect("json").contains("jwt-token"));
+    }
+}

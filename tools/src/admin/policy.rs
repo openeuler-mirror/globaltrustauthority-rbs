@@ -369,6 +369,115 @@ impl Formatter for PolicyMutationOutput {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn base_update_args() -> UpdateArgs {
+        UpdateArgs {
+            id: "policy-1".to_string(),
+            name: None,
+            description: None,
+            attester_type: None,
+            content_type: None,
+            content: None,
+            is_default: None,
+        }
+    }
+
+    #[test]
+    fn validate_update_args_requires_at_least_one_field() {
+        let err = validate_update_args(&base_update_args()).expect_err("empty update should fail");
+        assert!(err.to_string().contains("at least one updatable field"));
+    }
+
+    #[test]
+    fn validate_update_args_requires_content_type_with_content() {
+        let mut args = base_update_args();
+        args.content = Some("payload".to_string());
+        let err = validate_update_args(&args).expect_err("content without type should fail");
+        assert!(err.to_string().contains("content_type must be set"));
+    }
+
+    #[test]
+    fn build_delete_request_supports_all_modes() {
+        let by_id = build_delete_request(&DeleteArgs {
+            delete_type: "id".to_string(),
+            ids: vec!["a".to_string(), "b".to_string()],
+            attester_type: None,
+        })
+        .expect("id delete");
+        assert_eq!(by_id.ids, Some(vec!["a".to_string(), "b".to_string()]));
+
+        let by_type = build_delete_request(&DeleteArgs {
+            delete_type: "attester_type".to_string(),
+            ids: vec![],
+            attester_type: Some("tpm".to_string()),
+        })
+        .expect("type delete");
+        assert_eq!(by_type.attester_type.as_deref(), Some("tpm"));
+
+        let all = build_delete_request(&DeleteArgs {
+            delete_type: "all".to_string(),
+            ids: vec![],
+            attester_type: None,
+        })
+        .expect("all delete");
+        assert_eq!(all.delete_type, "all");
+    }
+
+    #[test]
+    fn delete_message_matches_delete_mode() {
+        assert_eq!(
+            delete_message(&PolicyDeleteRequest {
+                delete_type: "id".to_string(),
+                ids: Some(vec!["a".to_string(), "b".to_string()]),
+                attester_type: None,
+            }),
+            "deleted policies: a,b"
+        );
+        assert_eq!(
+            delete_message(&PolicyDeleteRequest {
+                delete_type: "attester_type".to_string(),
+                ids: None,
+                attester_type: Some("tpm".to_string()),
+            }),
+            "deleted policies by attester_type: tpm"
+        );
+    }
+
+    #[test]
+    fn policy_outputs_render_text() {
+        let list = PolicyListOutput(PolicyListResponse {
+            policies: vec![rbs_admin_client::attestation::policy::Policy {
+                id: Some("policy-1".to_string()),
+                name: "allow-secret".to_string(),
+                description: Some("demo".to_string()),
+                content: Some("package policy".to_string()),
+                attester_type: vec!["tpm".to_string()],
+                is_default: Some(true),
+                version: Some(2),
+                update_time: Some(123),
+                valid_code: None,
+            }],
+        });
+        let text = list.render_text().expect("render list");
+        assert!(text.contains("allow-secret"));
+        assert!(text.contains("attester_type=tpm"));
+
+        let mutation = PolicyMutationOutput(PolicyMutationResponse {
+            policy: rbs_admin_client::attestation::policy::PolicyMutation {
+                id: Some("policy-1".to_string()),
+                name: "allow-secret".to_string(),
+                version: Some(2),
+            },
+        });
+        let text = mutation.render_text().expect("render mutation");
+        assert!(text.contains("id: policy-1"));
+        assert!(text.contains("version: 2"));
+    }
+}
+
 fn validate_policy_content(path: &str) -> Result<String, CliError> {
     if let Some(path) = path.strip_prefix('@') {
         validate_file_size(path, MAX_CONTENT_SIZE)?;

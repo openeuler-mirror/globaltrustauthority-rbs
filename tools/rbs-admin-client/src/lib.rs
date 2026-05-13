@@ -125,3 +125,28 @@ pub(crate) fn http_error(status: StatusCode, body: &str) -> RbsAdminClientError 
         .to_string(),
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn http_error_maps_status_codes_to_sanitized_messages() {
+        assert_eq!(
+            http_error(StatusCode::BAD_REQUEST, "").to_string(),
+            "The request could not be completed. Please check your input and try again."
+        );
+        assert_eq!(
+            http_error(StatusCode::FORBIDDEN, "").to_string(),
+            "You do not have permission to perform this action."
+        );
+        assert_eq!(
+            http_error(StatusCode::NOT_FOUND, "").to_string(),
+            "The requested item was not found."
+        );
+        assert_eq!(
+            http_error(StatusCode::INTERNAL_SERVER_ERROR, "").to_string(),
+            "The service is temporarily unavailable. Please try again later."
+        );
+    }
+}

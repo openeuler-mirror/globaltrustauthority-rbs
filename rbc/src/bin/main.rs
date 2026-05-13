@@ -143,9 +143,7 @@ fn parse_provider_type(value: &str) -> Result<ProviderType, String> {
     match value {
         "native" => Ok(ProviderType::Native),
         "rbs" => Ok(ProviderType::Rbs),
-        _ => Err(format!(
-            "invalid token provider type `{value}`; expected `native` or `rbs`"
-        )),
+        _ => Err(format!("invalid token provider type `{value}`; expected `native` or `rbs`")),
     }
 }
 
@@ -162,12 +160,8 @@ fn override_provider_type(
                 providers[0].enabled = true;
             }
             providers
-        }
-        _ => vec![ProviderRawConfig {
-            provider_type,
-            enabled: true,
-            rest: Default::default(),
-        }],
+        },
+        _ => vec![ProviderRawConfig { provider_type, enabled: true, rest: Default::default() }],
     }
 }
 
@@ -253,22 +247,77 @@ mod tests {
     #[test]
     fn override_provider_type_updates_enabled_provider() {
         let providers = vec![
-            ProviderRawConfig {
-                provider_type: ProviderType::Native,
-                enabled: false,
-                rest: Default::default(),
-            },
-            ProviderRawConfig {
-                provider_type: ProviderType::Native,
-                enabled: true,
-                rest: Default::default(),
-            },
+            ProviderRawConfig { provider_type: ProviderType::Native, enabled: false, rest: Default::default() },
+            ProviderRawConfig { provider_type: ProviderType::Native, enabled: true, rest: Default::default() },
         ];
         let providers = override_provider_type(Some(providers), ProviderType::Rbs);
-        let provider = providers
-            .into_iter()
-            .find(|provider| provider.enabled)
-            .expect("enabled provider");
+        let provider = providers.into_iter().find(|provider| provider.enabled).expect("enabled provider");
         assert_eq!(provider.provider_type, ProviderType::Rbs);
+    }
+
+    #[test]
+    fn resolve_context_requires_base_url_without_config_or_override() {
+        let args = GlobalArgs {
+            config_path: None,
+            base_url: None,
+            cert: None,
+            timeout_secs: None,
+            key_algorithm: None,
+            token_provider_type: None,
+            as_provider: "gta".to_string(),
+            format: OutputFormat::Text,
+            output_file: None,
+            noout: false,
+        };
+
+        let err = resolve_context(&args).expect_err("missing base url should fail");
+        assert!(err.to_string().contains("missing RBS base URL"));
+    }
+
+    #[test]
+    fn resolve_context_applies_cli_overrides_on_top_of_config() {
+        let dir = std::env::temp_dir();
+        let config_path = dir.join(format!("rbc-cli-config-{}.yaml", std::process::id()));
+        std::fs::write(
+            &config_path,
+            r#"
+rbs:
+  base_url: "https://config.example.com"
+  timeout_secs: 15
+token_provider:
+  - type: native
+    enabled: true
+"#,
+        )
+        .expect("write config");
+
+        let args = GlobalArgs {
+            config_path: Some(config_path.to_string_lossy().into_owned()),
+            base_url: Some("https://override.example.com".to_string()),
+            cert: Some("/tmp/ca.pem".to_string()),
+            timeout_secs: Some(30),
+            key_algorithm: Some(KeyType::Ec),
+            token_provider_type: Some(ProviderType::Rbs),
+            as_provider: "gta".to_string(),
+            format: OutputFormat::Text,
+            output_file: None,
+            noout: false,
+        };
+
+        let context = resolve_context(&args).expect("context should resolve");
+        assert_eq!(context.base_url, "https://override.example.com");
+        assert_eq!(context.cert_path.as_deref(), Some("/tmp/ca.pem"));
+        assert_eq!(context.timeout_secs, Some(30));
+        assert_eq!(context.key_algorithm, KeyType::Ec);
+        assert_eq!(
+            context
+                .token_provider
+                .as_ref()
+                .and_then(|providers| providers.iter().find(|provider| provider.enabled))
+                .map(|provider| provider.provider_type),
+            Some(ProviderType::Rbs)
+        );
+
+        let _ = std::fs::remove_file(config_path);
     }
 }

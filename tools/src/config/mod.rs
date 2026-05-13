@@ -21,8 +21,8 @@ use crate::config::cmd::{validate_base_url, validate_cert, validate_output_file,
 use crate::error::CliError;
 use crate::token::cmd::TokenCli;
 use crate::version::cmd::VersionCli;
-use rbc::ProviderType;
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use rbc::ProviderType;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
@@ -81,14 +81,7 @@ pub struct GlobalCliArgs {
     #[arg(long, display_order = 106, value_parser = validate_cert, help = "CA certificate file used to verify the RBS server")]
     pub cert: Option<String>,
 
-    #[arg(
-        short,
-        long,
-        display_order = 107,
-        global = true,
-        value_enum,
-        help = "Output format"
-    )]
+    #[arg(short, long, display_order = 107, global = true, value_enum, help = "Output format")]
     pub format: Option<OutputFormat>,
 
     #[arg(
@@ -206,5 +199,24 @@ fn parse_provider_type(value: &str) -> Result<ProviderType, String> {
         "native" => Ok(ProviderType::Native),
         "rbs" => Ok(ProviderType::Rbs),
         _ => Err(format!("invalid provider type `{value}`; expected `native` or `rbs`")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[test]
+    fn output_format_from_str_rejects_invalid_value() {
+        let err = "yaml".parse::<OutputFormat>().expect_err("invalid format should fail");
+        assert!(err.to_string().contains("invalid output format"));
+    }
+
+    #[test]
+    fn provider_types_are_optional_in_clap() {
+        let cli = Cli::parse_from(["rbs-cli"]);
+        assert_eq!(cli.global.evidence_provider_type, None);
+        assert_eq!(cli.global.token_provider_type, None);
     }
 }

@@ -17,8 +17,8 @@ use rbc::cli::{execute_action, ClientCommandContext, ClientOutput, ExecutionOpti
 use rbc::ProviderRawConfig;
 use serde_json::{Map, Value};
 
-use crate::common::{AS_PROVIDE, CLIENT_REQUEST_TIMEOUT};
 use crate::common::formatter::Formatter;
+use crate::common::{AS_PROVIDE, CLIENT_REQUEST_TIMEOUT};
 use crate::config::GlobalOptions;
 use crate::error::CliError;
 
@@ -31,18 +31,12 @@ pub fn run(cli: &ClientCli, global: &GlobalOptions) -> Result<Box<dyn Formatter>
         evidence_provider: Some(vec![ProviderRawConfig {
             provider_type: global.evidence_provider_type,
             enabled: true,
-            rest: Map::from_iter([(
-                "config_path".to_string(),
-                Value::String(global.evidence_provider_config.clone()),
-            )]),
+            rest: Map::from_iter([("config_path".to_string(), Value::String(global.evidence_provider_config.clone()))]),
         }]),
         token_provider: Some(vec![ProviderRawConfig {
             provider_type: global.token_provider_type,
             enabled: true,
-            rest: Map::from_iter([(
-                "config_path".to_string(),
-                Value::String(global.token_provider_config.clone()),
-            )]),
+            rest: Map::from_iter([("config_path".to_string(), Value::String(global.token_provider_config.clone()))]),
         }]),
     };
     let options = ExecutionOptions { as_provider: String::from(AS_PROVIDE) };
@@ -77,13 +71,13 @@ mod tests {
     use super::*;
     use clap::Parser;
 
-    #[derive(Parser)]
+    #[derive(Parser, Debug)]
     struct Root {
         #[command(subcommand)]
         command: Command,
     }
 
-    #[derive(clap::Subcommand)]
+    #[derive(clap::Subcommand, Debug)]
     enum Command {
         Client(ClientCli),
     }
@@ -94,5 +88,19 @@ mod tests {
         match root.command {
             Command::Client(cli) => assert!(matches!(cli.command, ClientAction::Challenge(_))),
         }
+    }
+
+    #[test]
+    fn parse_nested_collect_evidence_requires_attester_pubkey() {
+        let err = Root::try_parse_from(["rbs-cli", "client", "collect-evidence", "--nonce", "nonce-value"])
+            .expect_err("missing attester-pubkey should fail");
+        assert_eq!(err.kind(), clap::error::ErrorKind::MissingRequiredArgument);
+    }
+
+    #[test]
+    fn parse_nested_get_token_requires_attester_pubkey() {
+        let err =
+            Root::try_parse_from(["rbs-cli", "client", "get-token"]).expect_err("missing attester-pubkey should fail");
+        assert_eq!(err.kind(), clap::error::ErrorKind::MissingRequiredArgument);
     }
 }
