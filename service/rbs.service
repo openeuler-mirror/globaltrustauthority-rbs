@@ -5,27 +5,10 @@ After=network.target
 
 [Service]
 Type=simple
-User=rbs
-Group=rbs
-WorkingDirectory=/var/lib/rbs
-Environment=RBS_CONFIG=/etc/rbs/rbs.yaml
 ExecStart=/usr/bin/rbs
 Restart=always
-RestartSec=10
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=rbs
-
-# Security hardening
-UMask=0027
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/var/lib/rbs /var/log/rbs
-
-# Resource limits
-LimitNOFILE=65536
+RestartSec=10s
+TimeoutStopSec=90
 
 [Install]
 WantedBy=multi-user.target

@@ -165,10 +165,10 @@ pub async fn auth_middleware(
             req.extensions_mut().insert(OptAuthContext(Some(auth_ctx)));
         }
         Err(e) => {
-            log::warn!("Authentication failed for path '{}': {}", path, e);
+            log::error!("Authentication failed for path '{}': {}", path, e);
             let res = req.into_response(
                 actix_web::HttpResponse::Unauthorized().json(ErrorBody {
-                    error: e.to_string(),
+                    error: "Authentication failed".to_string(),
                 }),
             );
             return Ok(res.map_body(|_, b| BoxBody::new(b)));

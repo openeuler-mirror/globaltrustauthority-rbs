@@ -346,7 +346,7 @@ fn make_service(
 
 /// UT-RS-001: POST create success – all mocks pass -> Ok(ResourceResponse)
 #[tokio::test]
-async fn ut_rs_001_post_create_success() {
+async fn test_post_create_success() {
     let svc = make_service(
         |repo| {
             *repo.find_by_uri_result.lock().unwrap() = Ok(None);
@@ -367,7 +367,7 @@ async fn ut_rs_001_post_create_success() {
 
 /// UT-RS-002: POST create permission denied – authz returns Deny
 #[tokio::test]
-async fn ut_rs_002_post_create_permission_denied() {
+async fn test_post_create_permission_denied() {
     let svc = make_service(
         |_| {},
         |_| {},
@@ -389,7 +389,7 @@ async fn ut_rs_002_post_create_permission_denied() {
 /// First authz (create action with UserScoped) passes for Bearer tokens.
 /// Second authz (policy-use action with AdminOnly) fails when role != "admin".
 #[tokio::test]
-async fn ut_rs_003_post_create_policy_use_denied() {
+async fn test_post_create_policy_use_denied() {
     let svc = make_service(
         |repo| {
             *repo.find_by_uri_result.lock().unwrap() = Ok(None);
@@ -418,7 +418,7 @@ async fn ut_rs_003_post_create_policy_use_denied() {
 
 /// UT-RS-004: POST create policy invalid – policy_client.validate_policy returns false
 #[tokio::test]
-async fn ut_rs_004_post_create_policy_invalid() {
+async fn test_post_create_policy_invalid() {
     let svc = make_service(
         |repo| {
             *repo.find_by_uri_result.lock().unwrap() = Ok(None);
@@ -440,7 +440,7 @@ async fn ut_rs_004_post_create_policy_invalid() {
 
 /// UT-RS-005: POST create backend not found – BackendProvider.get_backend returns None
 #[tokio::test]
-async fn ut_rs_005_post_create_backend_not_found() {
+async fn test_post_create_backend_not_found() {
     let svc = make_service(
         |repo| {
             *repo.find_by_uri_result.lock().unwrap() = Ok(None);
@@ -461,7 +461,7 @@ async fn ut_rs_005_post_create_backend_not_found() {
 
 /// UT-RS-006: POST create already exists – repo.find_by_uri returns Some
 #[tokio::test]
-async fn ut_rs_006_post_create_already_exists() {
+async fn test_post_create_already_exists() {
     let entity = make_entity();
     let svc = make_service(
         |repo| {
@@ -482,7 +482,7 @@ async fn ut_rs_006_post_create_already_exists() {
 
 /// UT-RS-006a: POST create missing required field (empty policy_id) -> Err(ParamInvalid)
 #[tokio::test]
-async fn ut_rs_006a_post_create_empty_policy_id() {
+async fn test_post_create_empty_policy_id() {
     let svc = make_service(
         |_| {},
         |_| {},
@@ -501,7 +501,7 @@ async fn ut_rs_006a_post_create_empty_policy_id() {
 
 /// UT-RS-006b: POST create backend provider unknown -> Err(BackendUnsupported)
 #[tokio::test]
-async fn ut_rs_006b_post_create_unknown_provider() {
+async fn test_post_create_unknown_provider() {
     let svc = make_service(
         |_| {},
         |_| {},
@@ -524,7 +524,7 @@ async fn ut_rs_006b_post_create_unknown_provider() {
 
 /// UT-RS-007: PUT update success – resource exists, same user -> Ok(ResourceResponse)
 #[tokio::test]
-async fn ut_rs_007_put_update_success() {
+async fn test_put_update_success() {
     let svc = make_service(
         |repo| {
             *repo.find_by_uri_result.lock().unwrap() = Ok(Some(make_entity()));
@@ -546,7 +546,7 @@ async fn ut_rs_007_put_update_success() {
 
 /// UT-RS-008: PUT create (resource not exists) – upsert creates -> Ok(ResourceResponse), 201
 #[tokio::test]
-async fn ut_rs_008_put_create_when_not_exists() {
+async fn test_put_create_when_not_exists() {
     let svc = make_service(
         |repo| {
             *repo.find_by_uri_result.lock().unwrap() = Ok(None);
@@ -570,7 +570,7 @@ async fn ut_rs_008_put_create_when_not_exists() {
 
 /// UT-RS-009: PUT update permission denied (different user_id)
 #[tokio::test]
-async fn ut_rs_009_put_update_permission_denied_different_user() {
+async fn test_put_update_permission_denied_different_user() {
     let mut entity = make_entity();
     entity.username = OTHER_USER.to_string(); // owned by OTHER_USER
 
@@ -595,7 +595,7 @@ async fn ut_rs_009_put_update_permission_denied_different_user() {
 
 /// UT-RS-010: PUT create no permission – resource missing and authz denies create
 #[tokio::test]
-async fn ut_rs_010_put_create_no_permission() {
+async fn test_put_create_no_permission() {
     let svc = make_service(
         |repo| {
             *repo.find_by_uri_result.lock().unwrap() = Ok(None);
@@ -619,7 +619,7 @@ async fn ut_rs_010_put_create_no_permission() {
 
 /// UT-RS-011: DELETE success
 #[tokio::test]
-async fn ut_rs_011_delete_success() {
+async fn test_delete_success() {
     let svc = make_service(
         |repo| {
             *repo.find_by_uri_result.lock().unwrap() = Ok(Some(make_entity()));
@@ -640,7 +640,7 @@ async fn ut_rs_011_delete_success() {
 
 /// UT-RS-012: DELETE not found
 #[tokio::test]
-async fn ut_rs_012_delete_not_found() {
+async fn test_delete_not_found() {
     let svc = make_service(
         |repo| {
             *repo.find_by_uri_result.lock().unwrap() = Ok(None);
@@ -660,7 +660,7 @@ async fn ut_rs_012_delete_not_found() {
 
 /// UT-RS-013: DELETE permission denied (different user_id)
 #[tokio::test]
-async fn ut_rs_013_delete_permission_denied_different_user() {
+async fn test_delete_permission_denied_different_user() {
     let mut entity = make_entity();
     entity.username = OTHER_USER.to_string();
 
@@ -690,7 +690,7 @@ async fn ut_rs_013_delete_permission_denied_different_user() {
 /// Attest tokens are hard-denied by AuthzFacade. For GET operations, the service
 /// maps authz Deny → NotFound (404) to hide resource existence.
 #[tokio::test]
-async fn ut_rs_013a_get_content_permission_denied() {
+async fn test_get_content_permission_denied() {
     let svc = make_service(
         |_| {},
         |_| {},
@@ -713,7 +713,7 @@ async fn ut_rs_013a_get_content_permission_denied() {
 /// This test simulates the behaviour by passing a dummy AttestContext whose
 /// claims do not satisfy the resource-bound Rego policy.
 #[tokio::test]
-async fn ut_rs_023_get_content_attest_policy_deny() {
+async fn test_get_content_attest_policy_deny() {
     let svc = make_service(
         |repo| {
             *repo.find_by_uri_result.lock().unwrap() = Ok(Some(make_entity()));
@@ -738,7 +738,7 @@ async fn ut_rs_023_get_content_attest_policy_deny() {
 
 /// UT-RS-014: GET content success – all mocks pass -> Ok(ResourceContentResponse)
 #[tokio::test]
-async fn ut_rs_014_get_content_success() {
+async fn test_get_content_success() {
     let svc = make_service(
         |repo| {
             *repo.find_by_uri_result.lock().unwrap() = Ok(Some(make_entity()));
@@ -770,7 +770,7 @@ async fn ut_rs_014_get_content_success() {
 
 /// UT-RS-014a: GET content resource not found in DB -> Err(NotFound)
 #[tokio::test]
-async fn ut_rs_014a_get_content_not_found() {
+async fn test_get_content_not_found() {
     let svc = make_service(
         |repo| {
             *repo.find_by_uri_result.lock().unwrap() = Ok(None);
@@ -792,7 +792,7 @@ async fn ut_rs_014a_get_content_not_found() {
 
 /// UT-RS-014b: GET content policy deleted (dangling ref) -> Err(PolicyIdInvalid)
 #[tokio::test]
-async fn ut_rs_014b_get_content_policy_deleted() {
+async fn test_get_content_policy_deleted() {
     let svc = make_service(
         |repo| {
             *repo.find_by_uri_result.lock().unwrap() = Ok(Some(make_entity()));
@@ -817,7 +817,7 @@ async fn ut_rs_014b_get_content_policy_deleted() {
 
 /// UT-RS-015: GET content policy deny -> Err(NotFound) – resource is hidden
 #[tokio::test]
-async fn ut_rs_015_get_content_policy_deny() {
+async fn test_get_content_policy_deny() {
     let svc = make_service(
         |repo| {
             *repo.find_by_uri_result.lock().unwrap() = Ok(Some(make_entity()));
@@ -842,7 +842,7 @@ async fn ut_rs_015_get_content_policy_deny() {
 
 /// UT-RS-016: GET content backend error -> Err(BackendError)
 #[tokio::test]
-async fn ut_rs_016_get_content_backend_error() {
+async fn test_get_content_backend_error() {
     let svc = make_service(
         |repo| {
             *repo.find_by_uri_result.lock().unwrap() = Ok(Some(make_entity()));
@@ -873,7 +873,7 @@ async fn ut_rs_016_get_content_backend_error() {
 
 /// UT-RS-017: GET content JWE encrypt -> content is JWE encrypted
 #[tokio::test]
-async fn ut_rs_017_get_content_jwe_encrypt() {
+async fn test_get_content_jwe_encrypt() {
     let mut entity = make_entity();
     entity.export_mode = "jwe".to_string();
 
@@ -907,7 +907,7 @@ async fn ut_rs_017_get_content_jwe_encrypt() {
 
 /// UT-RS-018: GET content JWE pubkey missing -> Err(JweEncryptionFailed)
 #[tokio::test]
-async fn ut_rs_018_get_content_jwe_pubkey_missing() {
+async fn test_get_content_jwe_pubkey_missing() {
     let mut entity = make_entity();
     entity.export_mode = "jwe".to_string();
 
@@ -942,7 +942,7 @@ async fn ut_rs_018_get_content_jwe_pubkey_missing() {
 
 /// UT-RS-019: GET info success with OPA -> Ok(ResourceResponse)
 #[tokio::test]
-async fn ut_rs_019_get_info_success() {
+async fn test_get_info_success() {
     let svc = make_service(
         |repo| {
             *repo.find_by_uri_result.lock().unwrap() = Ok(Some(make_entity()));
@@ -970,7 +970,7 @@ async fn ut_rs_019_get_info_success() {
 
 /// UT-RS-019a: GET info resource not found -> Err(NotFound)
 #[tokio::test]
-async fn ut_rs_019a_get_info_not_found() {
+async fn test_get_info_not_found() {
     let svc = make_service(
         |repo| {
             *repo.find_by_uri_result.lock().unwrap() = Ok(None);
@@ -992,7 +992,7 @@ async fn ut_rs_019a_get_info_not_found() {
 
 /// UT-RS-020: GET info OPA deny -> Err(NotFound)
 #[tokio::test]
-async fn ut_rs_020_get_info_opa_deny() {
+async fn test_get_info_opa_deny() {
     let svc = make_service(
         |repo| {
             *repo.find_by_uri_result.lock().unwrap() = Ok(Some(make_entity()));
@@ -1021,7 +1021,7 @@ async fn ut_rs_020_get_info_opa_deny() {
 
 /// UT-RS-021: retrieve success -> Ok(ResourceContentResponse)
 #[tokio::test]
-async fn ut_rs_021_retrieve_success() {
+async fn test_retrieve_success() {
     let svc = make_service(
         |repo| {
             *repo.find_by_uri_result.lock().unwrap() = Ok(Some(make_entity()));
@@ -1049,7 +1049,7 @@ async fn ut_rs_021_retrieve_success() {
 
 /// UT-RS-022: retrieve policy deny -> Err(NotFound)
 #[tokio::test]
-async fn ut_rs_022_retrieve_policy_deny() {
+async fn test_retrieve_policy_deny() {
     let svc = make_service(
         |repo| {
             *repo.find_by_uri_result.lock().unwrap() = Ok(Some(make_entity()));
@@ -1084,7 +1084,7 @@ async fn ut_rs_022_retrieve_policy_deny() {
 /// Mock:     authz Allow, policy valid, backend exists, repo not found -> insert succeeds
 /// Assert:   result.is_ok()
 #[tokio::test]
-async fn ut_rs_023_post_create_optional_fields_none() {
+async fn test_post_create_optional_fields_none() {
     let svc = make_service(
         |repo| {
             *repo.find_by_uri_result.lock().unwrap() = Ok(None);
@@ -1122,7 +1122,7 @@ async fn ut_rs_023_post_create_optional_fields_none() {
 /// Mock:     repo returns entity, backend exists, delete succeeds
 /// Assert:   result.is_ok()
 #[tokio::test]
-async fn ut_rs_024_delete_success_with_backend_cleanup() {
+async fn test_delete_success_with_backend_cleanup() {
     let svc = make_service(
         |repo| {
             *repo.find_by_uri_result.lock().unwrap() = Ok(Some(make_entity()));
@@ -1146,7 +1146,7 @@ async fn ut_rs_024_delete_success_with_backend_cleanup() {
 // ===========================================================================
 
 #[tokio::test]
-async fn ut_rs_025_retrieve_success() {
+async fn test_retrieve_preserves_content_type() {
     let svc = make_service(
         |repo| { *repo.find_by_uri_result.lock().unwrap() = Ok(Some(make_entity())); },
         |policy| { *policy.get_policy_content_result.lock().unwrap() = Ok("package x\n\ndefault attestation_valid = true".into()); },
@@ -1160,7 +1160,7 @@ async fn ut_rs_025_retrieve_success() {
 }
 
 #[tokio::test]
-async fn ut_rs_026_retrieve_policy_not_matched() {
+async fn test_retrieve_policy_not_matched() {
     let svc = make_service(
         |repo| { *repo.find_by_uri_result.lock().unwrap() = Ok(Some(make_entity())); },
         |policy| { *policy.get_policy_content_result.lock().unwrap() = Ok("package x\n\ndefault allow = false".into()); },
@@ -1171,7 +1171,7 @@ async fn ut_rs_026_retrieve_policy_not_matched() {
 }
 
 #[tokio::test]
-async fn ut_rs_027_retrieve_resource_not_found() {
+async fn test_retrieve_resource_not_found() {
     let svc = make_service(
         |repo| { *repo.find_by_uri_result.lock().unwrap() = Ok(None); },
         |_| {}, |_| {},
@@ -1181,7 +1181,7 @@ async fn ut_rs_027_retrieve_resource_not_found() {
 }
 
 #[tokio::test]
-async fn ut_rs_028_retrieve_jwe_encrypt() {
+async fn test_retrieve_jwe_encrypt() {
     let mut entity = make_entity(); entity.export_mode = "jwe".to_string();
     let svc = make_service(
         |repo| { *repo.find_by_uri_result.lock().unwrap() = Ok(Some(entity)); },
@@ -1194,7 +1194,7 @@ async fn ut_rs_028_retrieve_jwe_encrypt() {
 }
 
 #[tokio::test]
-async fn ut_rs_029_retrieve_jwe_no_pubkey() {
+async fn test_retrieve_jwe_no_pubkey() {
     let mut entity = make_entity(); entity.export_mode = "jwe".to_string();
     let svc = make_service(
         |repo| { *repo.find_by_uri_result.lock().unwrap() = Ok(Some(entity)); },
@@ -1210,17 +1210,17 @@ async fn ut_rs_029_retrieve_jwe_no_pubkey() {
 // ===========================================================================
 
 #[test]
-fn ut_rs_030_already_exists_is_409() {
+fn test_already_exists_is_409() {
     assert_eq!(ResourceError::AlreadyExists { uri: "test".into() }.http_status(), 409);
 }
 
 #[test]
-fn ut_rs_031_permission_denied_is_403() {
+fn test_permission_denied_is_403() {
     assert_eq!(ResourceError::PermissionDenied.http_status(), 403);
 }
 
 #[test]
-fn ut_rs_032_not_found_is_404() {
+fn test_not_found_is_404() {
     assert_eq!(ResourceError::NotFound.http_status(), 404);
 }
 
@@ -1229,7 +1229,7 @@ fn ut_rs_032_not_found_is_404() {
 // ===========================================================================
 
 #[tokio::test]
-async fn ut_rs_033_update_returns_created_true() {
+async fn test_update_returns_created_true() {
     let svc = make_service(
         |repo| { *repo.find_by_uri_result.lock().unwrap() = Ok(None); },
         |policy| { *policy.validate_policy_result.lock().unwrap() = Ok(true); },
@@ -1240,7 +1240,7 @@ async fn ut_rs_033_update_returns_created_true() {
 }
 
 #[tokio::test]
-async fn ut_rs_034_update_returns_created_false() {
+async fn test_update_returns_created_false() {
     let svc = make_service(
         |repo| { *repo.find_by_uri_result.lock().unwrap() = Ok(Some(make_entity())); *repo.update_result.lock().unwrap() = Ok(1); },
         |policy| { *policy.validate_policy_result.lock().unwrap() = Ok(true); },

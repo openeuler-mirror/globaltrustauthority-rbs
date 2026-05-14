@@ -13,7 +13,8 @@
 #![allow(clippy::needless_for_each)] // utoipa `OpenApi` derive
 
 use rbs_api_types::{
-    API_VERSION, BuildMetadata, CreatePolicyRequest, CreateResourceRequest, ErrorBody,
+    API_VERSION, AttestRequest, AttestResponse, AuthChallengeResponse, BuildMetadata,
+    ChallengeRequest, CreatePolicyRequest, CreateResourceRequest, ErrorBody,
     PolicyListResponse, PolicyResponse, RbsVersion, ResourceContentResponse,
     ResourceInfoResponse, ResourceResponse, UpdatePolicyRequest, UpdateResourceRequest,
     UserCreateRequest, UserListResponse, UserResponse, UserUpdateRequest,
@@ -67,6 +68,7 @@ impl Modify for SecurityAddon {
         (name = "Admin", description = "User management CRUD — `GET/POST/PUT/DELETE /rbs/v0/users` (admin or self). Requires BearerToken."),
         (name = "Policy", description = "Policy CRUD — `GET/POST/PUT/DELETE /rbs/v0/resource/policy`. Requires BearerToken."),
         (name = "Resource", description = "Resource CRUD — `GET/POST/PUT/DELETE /rbs/v0/{provider}/{repo}/{type}/{name}`. Supports AttestToken and BearerToken."),
+        (name = "Attestation", description = "Attestation challenge and token issuance via `GET /rbs/v0/challenge` and `POST /rbs/v0/attest`. No authentication required."),
     ),
     modifiers(&SecurityAddon),
     paths(
@@ -76,6 +78,8 @@ impl Modify for SecurityAddon {
         crate::routes::admin::get_user,
         crate::routes::admin::update_user,
         crate::routes::admin::delete_user,
+        crate::routes::attestation::get_challenge,
+        crate::routes::attestation::attest,
         crate::routes::policy::list_policies,
         crate::routes::policy::create_policy,
         crate::routes::policy::get_policy,
@@ -95,6 +99,7 @@ impl Modify for SecurityAddon {
         CreatePolicyRequest, UpdatePolicyRequest, PolicyResponse, PolicyListResponse,
         CreateResourceRequest, UpdateResourceRequest, ResourceResponse,
         ResourceContentResponse, ResourceInfoResponse,
+        AttestRequest, AttestResponse, AuthChallengeResponse, ChallengeRequest,
     ))
 )]
 pub struct ApiDoc;

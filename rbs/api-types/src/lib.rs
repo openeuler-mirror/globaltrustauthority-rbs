@@ -48,7 +48,7 @@ pub mod user;
 
 // Re-export types from auth module
 pub use auth::{
-    AttestRequest, AttestResponse, AttesterData, AuthChallengeResponse, RbcEvidenceItem,
+    AttestRequest, AttestResponse, AttesterData, AuthChallengeResponse, ChallengeRequest, RbcEvidenceItem,
     RbcEvidencesPayload, RbcMeasurement,
 };
 
@@ -82,8 +82,8 @@ pub use openapi::{BuildMetadata, ErrorBody, RbsVersion};
 // Re-export types from policy module
 pub use policy::{
     BatchDeleteQuery, CreatePolicyRequest, PolicyListQuery, PolicyListResponse, PolicyResponse,
-    UpdatePolicyRequest,
+    UpdatePolicyRequest, validate_policy_id,
 };
 
 // Re-export types from user module
-pub use user::{AuthType, Role, UserCreateRequest, UserListResponse, UserResponse, UserUpdateRequest};
+pub use user::{AuthType, Role, UserCreateRequest, UserListQuery, UserListResponse, UserResponse, UserUpdateRequest};

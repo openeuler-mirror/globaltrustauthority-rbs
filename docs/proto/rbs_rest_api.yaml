@@ -13,6 +13,79 @@ servers:
 - url: http://localhost:6666
   description: Default local development (see `rbs.yaml` `rest.listen_addr`)
 paths:
+  /rbs/v0/attest:
+    post:
+      tags:
+      - Attestation
+      summary: Submit attestation evidence and obtain token
+      operationId: postAttest
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttestRequest'
+        required: true
+      responses:
+        '200':
+          description: Attestation token (JSON).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttestResponse'
+        '400':
+          description: Invalid request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Provider not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - {}
+  /rbs/v0/challenge:
+    get:
+      tags:
+      - Attestation
+      summary: Obtain an attestation challenge (nonce)
+      operationId: getAuthChallenge
+      parameters:
+      - name: as_provider
+        in: query
+        description: Target provider ID for challenge
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Challenge payload with nonce (JSON).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthChallengeResponse'
+        '500':
+          description: Internal server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: Attestation provider unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - {}
   /rbs/v0/resource/policy:
     get:
       tags:
@@ -28,14 +101,14 @@ paths:
           type: string
       - name: limit
         in: query
-        description: Page size
+        description: Page size (1..100, default 10)
         required: false
         schema:
           type: integer
           format: int64
       - name: offset
         in: query
-        description: Page offset
+        description: Offset (0..100000, default 0)
         required: false
         schema:
           type: integer
@@ -335,18 +408,30 @@ paths:
       parameters:
       - name: limit
         in: query
-        description: Page size (1..100, default 50)
+        description: Page size (1..100, default 10)
         required: false
         schema:
           type: integer
           format: int64
       - name: offset
         in: query
-        description: Offset (>=0, default 0)
+        description: Offset (0..100000, default 0)
         required: false
         schema:
           type: integer
           format: int64
+      - name: role
+        in: query
+        description: Filter by role (admin or user)
+        required: false
+        schema:
+          $ref: '#/components/schemas/Role'
+      - name: enabled
+        in: query
+        description: Filter by enabled status
+        required: false
+        schema:
+          type: boolean
       responses:
         '200':
           description: Paginated user list
@@ -975,6 +1060,66 @@ paths:
       - {}
 components:
   schemas:
+    AttestRequest:
+      type: object
+      description: Request body for POST /rbs/v0/attest.
+      properties:
+        as_provider:
+          type:
+          - string
+          - 'null'
+          description: Optional attestation backend id (e.g. gta); default is deployment-specific.
+        rbc_evidences:
+          $ref: '#/components/schemas/RbcEvidencesPayload'
+          description: Evidence bundle from RBC.
+        attester_data:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/AttesterData'
+            description: Top-level attester metadata; used if measurement-level attester_data is absent.
+    AttestResponse:
+      type: object
+      description: Response for POST /rbs/v0/attest.
+      required:
+      - token
+      properties:
+        token:
+          type: string
+          description: AttestToken or session JWT for subsequent Bearer resource access.
+    AttesterData:
+      type: object
+      description: |-
+        Optional attester-supplied metadata.
+
+        Same structure for top-level `attester_data` on AttestRequest
+        and for `measurements[].attester_data`. If a measurement defines `attester_data`,
+        it wins for that measurement; otherwise the top-level `attester_data` applies.
+
+        `runtime_data` must not duplicate the challenge nonce (nonce lives only under
+        `rbc_evidences.measurements[].nonce`).
+      properties:
+        runtime_data:
+          type:
+          - object
+          - 'null'
+          description: |-
+            Key/value runtime fields (e.g. attester_pubkey as JWK for encrypted resource return);
+            excludes nonce.
+          additionalProperties: {}
+          propertyNames:
+            type: string
+    AuthChallengeResponse:
+      type: object
+      description: Response for GET /rbs/v0/challenge (attestation challenge).
+      required:
+      - nonce
+      properties:
+        nonce:
+          type: string
+          description: |-
+            Challenge value for binding attestation (opaque; often Base64).
+            Use the field value as-is in `rbc_evidences.measurements[].nonce`
+            for POST /rbs/v0/attest and POST .../retrieve.
     AuthType:
       type: string
       description: Authentication type. Add new types here.
@@ -1000,6 +1145,15 @@ components:
           type: string
           description: Build timestamp (UTC), typically RFC 3339, or empty when not embedded at build.
           example: 2026-04-20T00:00:00Z
+    ChallengeRequest:
+      type: object
+      description: Query parameter for GET /rbs/v0/challenge (challenge request).
+      properties:
+        as_provider:
+          type:
+          - string
+          - 'null'
+          description: Optional attestation backend id (e.g. gta); default is deployment-specific.
     CreatePolicyRequest:
       type: object
       description: Policy create request body.
@@ -1070,7 +1224,6 @@ components:
       - policy_id
       - policy_name
       - policy_version
-      - policy_content
       - content_type
       - created_at
       - updated_at
@@ -1096,6 +1249,78 @@ components:
           - 'null'
           items:
             type: string
+    RbcEvidenceItem:
+      type: object
+      description: Single attestation artifact within a measurement (backend-specific detail).
+      properties:
+        attester_type:
+          type:
+          - string
+          - 'null'
+          description: Plugin or attester kind (e.g. tpm_boot).
+        evidence:
+          description: Evidence payload (string or object per attestation backend).
+        policy_ids:
+          type:
+          - array
+          - 'null'
+          items:
+            type: string
+          description: Policy identifiers evaluated for this evidence.
+    RbcEvidencesPayload:
+      type: object
+      description: |-
+        Evidence JSON produced by RBC (`collect_evidence`) or equivalent.
+
+        Typical GTA-oriented shape includes a non-empty `measurements` array;
+        deployments may add other keys or per-backend wrappers.
+      properties:
+        agent_version:
+          type:
+          - string
+          - 'null'
+          description: Optional agent or collector version string.
+        measurements:
+          type: array
+          items:
+            $ref: '#/components/schemas/RbcMeasurement'
+          description: At least one entry required for standard attest flows; each entry carries nonce and evidences.
+    RbcMeasurement:
+      type: object
+      description: One node or attestation unit inside the evidence bundle.
+      required:
+      - nonce
+      properties:
+        nonce:
+          type: string
+          description: Must equal the `nonce` field from GET /rbs/v0/challenge (same string, no transformation).
+        node_id:
+          type:
+          - string
+          - 'null'
+          description: Optional node or workload identifier.
+        nonce_type:
+          type:
+          - string
+          - 'null'
+          description: Optional hint for nonce interpretation (backend-specific).
+        token_fmt:
+          type:
+          - string
+          - 'null'
+          description: Optional desired token format hint (backend-specific).
+        attester_data:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/AttesterData'
+            description: Attester-supplied metadata for this measurement.
+        evidences:
+          type:
+          - array
+          - 'null'
+          items:
+            $ref: '#/components/schemas/RbcEvidenceItem'
+          description: Collected attestation artifacts for this measurement.
     RbsVersion:
       type: object
       description: JSON emitted by `GET /rbs/version` (`service_name`, `api_version`, structured `build`).
@@ -1276,10 +1501,7 @@ components:
           - 'null'
           description: Base64-encoded PEM public key (mutually exclusive with `jwk`).
         jwk:
-          type:
-          - string
-          - 'null'
-          description: Base64-encoded JWK public key JSON object (mutually exclusive with `public_key`).
+          description: JWK public key JSON object (mutually exclusive with `public_key`).
     UserListResponse:
       type: object
       description: Paginated response for GET /rbs/v0/users.
@@ -1364,10 +1586,7 @@ components:
           - 'null'
           description: Base64-encoded PEM public key (mutually exclusive with `jwk`).
         jwk:
-          type:
-          - string
-          - 'null'
-          description: Base64-encoded JWK public key JSON object (mutually exclusive with `public_key`).
+          description: JWK public key JSON object (mutually exclusive with `public_key`).
   securitySchemes:
     attestAuth:
       type: http
@@ -1388,3 +1607,5 @@ tags:
   description: Policy CRUD — `GET/POST/PUT/DELETE /rbs/v0/resource/policy`. Requires BearerToken.
 - name: Resource
   description: Resource CRUD — `GET/POST/PUT/DELETE /rbs/v0/{provider}/{repo}/{type}/{name}`. Supports AttestToken and BearerToken.
+- name: Attestation
+  description: Attestation challenge and token issuance via `GET /rbs/v0/challenge` and `POST /rbs/v0/attest`. No authentication required.

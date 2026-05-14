@@ -15,7 +15,7 @@
 use actix_web::web;
 
 pub mod admin;
-pub mod auth;
+pub mod attestation;
 pub mod error;
 pub mod policy;
 pub mod resource;
@@ -25,8 +25,8 @@ pub use error::not_found;
 
 /// Configures routes under /rbs/v0 (scope is already /v0 when called from server).
 pub fn config(cfg: &mut web::ServiceConfig) {
-    cfg.route("/challenge", web::get().to(auth::get_challenge))
-    .route("/attest", web::post().to(auth::attest))
+    cfg.route("/challenge", web::get().to(attestation::get_challenge))
+    .route("/attest", web::post().to(attestation::attest))
     // Policy routes
     .route("/resource/policy", web::get().to(policy::list_policies))
     .route("/resource/policy", web::post().to(policy::create_policy))

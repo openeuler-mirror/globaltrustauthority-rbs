@@ -19,8 +19,24 @@ use serde_json::Value;
 type Result<T> = std::result::Result<T, RbsError>;
 
 /// Maximum size for a PEM-encoded public key (10 KB).
-/// A typical RSA-4096 PEM is ~800 bytes; anything larger is suspicious.
 const MAX_KEY_SIZE: usize = 10240;
+
+/// Get the curve NID from an EC_GROUP.
+#[inline]
+fn group_curve_nid(group: &openssl::ec::EcGroupRef) -> openssl::nid::Nid {
+    if let Some(nid) = group.curve_name() {
+        return nid;
+    }
+    let degree = group.degree();
+    if degree == 256 {
+        openssl::nid::Nid::X9_62_PRIME256V1
+    } else if degree == 384 {
+        openssl::nid::Nid::SECP384R1
+    } else {
+        // Unsupported curve (P-521 or unknown)
+        openssl::nid::Nid::from_raw(0)
+    }
+}
 
 /// Decode a base64-encoded string and return the UTF-8 contents.
 pub fn decode_base64_input(input: &str, field_name: &str) -> Result<String> {
@@ -48,7 +64,22 @@ pub fn validate_and_derive_alg(pem: &str) -> Result<String> {
 
     match pkey.id() {
         openssl::pkey::Id::RSA => Ok("RSA".to_string()),
-        openssl::pkey::Id::EC => Ok("EC".to_string()),
+        openssl::pkey::Id::EC => {
+            let ec_key = pkey.ec_key()
+                .map_err(|_| RbsError::InvalidParameter("Invalid EC key".to_string()))?;
+            let group = ec_key.group();
+            let nid = group_curve_nid(group);
+
+            if nid == openssl::nid::Nid::X9_62_PRIME256V1 {
+                Ok("EC".to_string())
+            } else if nid == openssl::nid::Nid::SECP384R1 {
+                Ok("EC".to_string())
+            } else {
+                Err(RbsError::InvalidParameter(
+                    "Unsupported EC curve. Supported: P-256 (ES256), P-384 (ES384)".to_string()
+                ))
+            }
+        }
         openssl::pkey::Id::ED25519 => Ok("Ed25519".to_string()),
         _ => Err(RbsError::InvalidParameter("Unsupported key type".to_string())),
     }
@@ -77,13 +108,6 @@ pub fn jwk_to_pem(jwk: &Value) -> Result<String> {
     }
 }
 
-/// Decode a base64-encoded JWK JSON string and convert to PEM.
-pub fn jwk_from_base64(base64_jwk: &str) -> Result<String> {
-    let json_str = decode_base64_input(base64_jwk, "jwk")?;
-    let jwk: Value = serde_json::from_str(&json_str)
-        .map_err(|_| RbsError::InvalidParameter("invalid jwk format".to_string()))?;
-    jwk_to_pem(&jwk)
-}
 
 fn jwk_rsa_to_pem(jwk: &Value) -> Result<String> {
     let n_b64 = jwk.get("n")
@@ -147,15 +171,15 @@ mod tests {
     use super::*;
 
     const VALID_RSA_PEM: &str = concat!(
-        "-----BEGIN PUBLIC KEY-----\n",
-        "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA7JOjGVgMbclDvZ0zW8by\n",
-        "ALpLyUSNYkb5dyy9xFBEg97RI1SSx0rcOkrd7fb/aJThQ7n47OaSpaJZmNzL/phQ\n",
-        "9TnqHafrOsY8nYn1PlGbUu0yo99CLF9EOqmUpLfAkCELFumP5xt1DSJ+VN4gxVeq\n",
-        "GNAthfi7ceWKuWRgfkTif2wXJXEpCBunyTEM4nqvOZX+lMLWkvv/jaovl+PjNQyk\n",
-        "wTFjgs3EC7Cn/C35xYHRAws3iBXk8PJ7TPFiG3L2pDIP30jxTbu3taOpkAarieSg\n",
-        "rK+Dsrv9RIirzseAH3XnSOHDQDVU++8Jw421BQw/ZiYCfIye2RplBpaLcL8xhIIf\n",
-        "CwIDAQAB\n",
-        "-----END PUBLIC KEY-----\n"
+    "-----BEGIN PUBLIC KEY-----\n",
+    "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA7JOjGVgMbclDvZ0zW8by\n",
+    "ALpLyUSNYkb5dyy9xFBEg97RI1SSx0rcOkrd7fb/aJThQ7n47OaSpaJZmNzL/phQ\n",
+    "9TnqHafrOsY8nYn1PlGbUu0yo99CLF9EOqmUpLfAkCELFumP5xt1DSJ+VN4gxVeq\n",
+    "GNAthfi7ceWKuWRgfkTif2wXJXEpCBunyTEM4nqvOZX+lMLWkvv/jaovl+PjNQyk\n",
+    "wTFjgs3EC7Cn/C35xYHRAws3iBXk8PJ7TPFiG3L2pDIP30jxTbu3taOpkAarieSg\n",
+    "rK+Dsrv9RIirzseAH3XnSOHDQDVU++8Jw421BQw/ZiYCfIye2RplBpaLcL8xhIIf\n",
+    "CwIDAQAB\n",
+    "-----END PUBLIC KEY-----\n"
     );
 
     #[test]
@@ -259,28 +283,6 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    #[test]
-    fn jwk_from_base64_valid() {
-        // Base64 of {"kty":"RSA","n":"test","e":"AQAB"} - minimal RSA JWK
-        // Base64 decoding succeeds, but JWK fields are garbage
-        // openssl can parse this but produces a meaningless key
-        let result = jwk_from_base64("eyJrdHkiOiJSU0EiLCJuIjoidGVzdCIsImUiOiJBUUFCIn0=");
-        // Result depends on whether openssl accepts "test" as valid RSA modulus bytes
-        // This test mainly verifies base64 decoding works
-        assert!(result.is_ok() || result.is_err()); // Just verify it runs
-    }
-
-    #[test]
-    fn jwk_from_base64_invalid_base64() {
-        let result = jwk_from_base64("not!!!base64");
-        assert!(result.is_err());
-        match result {
-            Err(RbsError::InvalidParameter(msg)) => {
-                assert!(msg.contains("invalid base64 encoding for jwk"));
-            }
-            _ => panic!("Expected InvalidParameter error"),
-        }
-    }
 
     #[test]
     fn validate_and_derive_alg_returns_ed25519_for_ed25519() {

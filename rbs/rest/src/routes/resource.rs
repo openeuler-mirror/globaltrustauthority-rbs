@@ -20,6 +20,7 @@ use rbs_api_types::{
 use rbs_core::auth::{Auth, TokenType};
 use rbs_core::RbsCore;
 use std::sync::Arc;
+use validator::Validate;
 
 use crate::middleware::OptAuthContext;
 
@@ -64,6 +65,9 @@ pub async fn create_resource(
 ) -> HttpResponse {
     let ctx = match require_auth(&req) { Ok(c) => c, Err(r) => return r };
     let mut cr = body.into_inner();
+    if let Err(e) = Validate::validate(&cr) {
+        return HttpResponse::BadRequest().json(ErrorBody::new(e.to_string()));
+    }
     cr.uri = build_uri(&path.into_inner());
     match core.resource().create(&ctx, &cr).await {
         Ok(resp) => HttpResponse::Created().json(resp),
@@ -133,7 +137,11 @@ pub async fn update_resource(
 ) -> HttpResponse {
     let ctx = match require_auth(&req) { Ok(c) => c, Err(r) => return r };
     let uri = build_uri(&path.into_inner());
-    match core.resource().update(&ctx, &uri, &body.into_inner()).await {
+    let body = body.into_inner();
+    if let Err(e) = Validate::validate(&body) {
+        return HttpResponse::BadRequest().json(ErrorBody::new(e.to_string()));
+    }
+    match core.resource().update(&ctx, &uri, &body).await {
         Ok((resp, true)) => HttpResponse::Created().json(resp),
         Ok((resp, false)) => HttpResponse::Ok().json(resp),
         Err(e) => error_response(e.to_string(), e.http_status()),

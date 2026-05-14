@@ -13,7 +13,7 @@
 //! Admin / user management routes (`/rbs/v0/users`).
 
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
-use rbs_api_types::{ErrorBody, UserCreateRequest, UserListResponse, UserResponse, UserUpdateRequest};
+use rbs_api_types::{ErrorBody, Role, UserCreateRequest, UserListQuery, UserListResponse, UserResponse, UserUpdateRequest};
 use rbs_core::RbsCore;
 use std::sync::Arc;
 
@@ -28,8 +28,10 @@ use crate::middleware::OptAuthContext;
     tags = ["Admin"],
     security(("bearerAuth" = [])),
     params(
-        ("limit" = Option<i64>, Query, description = "Page size (1..100, default 50)"),
-        ("offset" = Option<i64>, Query, description = "Offset (>=0, default 0)"),
+        ("limit" = Option<i64>, Query, description = "Page size (1..100, default 10)"),
+        ("offset" = Option<i64>, Query, description = "Offset (0..100000, default 0)"),
+        ("role" = Option<Role>, Query, description = "Filter by role (admin or user)"),
+        ("enabled" = Option<bool>, Query, description = "Filter by enabled status"),
     ),
     responses(
         (status = 200, description = "Paginated user list", body = UserListResponse),
@@ -47,31 +49,20 @@ pub async fn list_users(
 
     // Apply defaults before validation
     let mut query = query.into_inner();
-    query.limit = Some(query.limit.unwrap_or(50));
+    query.limit = Some(query.limit.unwrap_or(10));
     query.offset = Some(query.offset.unwrap_or(0));
 
     if let Err(e) = validator::Validate::validate(&query) {
         return HttpResponse::BadRequest().json(ErrorBody { error: e.to_string() });
     }
 
-    let limit = query.limit.unwrap();
-    let offset = query.offset.unwrap();
-
     match auth_ctx {
-        Some(ctx) => match core.admin().list_users(limit, offset, &ctx).await {
+        Some(ctx) => match core.admin().list_users(&query, &ctx).await {
             Ok(resp) => HttpResponse::Ok().json(resp),
             Err(e) => map_err(e),
         },
         None => HttpResponse::Unauthorized().json(ErrorBody { error: "Unauthorized".to_string() }),
     }
-}
-
-#[derive(serde::Deserialize, validator::Validate)]
-pub struct UserListQuery {
-    #[validate(range(min = 1, max = 100))]
-    limit: Option<i64>,
-    #[validate(range(min = 0))]
-    offset: Option<i64>,
 }
 
 /// `POST /rbs/v0/users`: Create user (admin only).

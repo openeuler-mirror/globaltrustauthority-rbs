@@ -26,7 +26,7 @@ use rbs_core::policy_engine;
 fn admin_bearer() -> AuthContext {
     AuthContext::Bearer(BearerContext {
         iss: "https://auth.example.com".to_string(),
-        sub: "admin-user".to_string(),
+        sub: "Administrator".to_string(),
         role: "admin".to_string(),
         claims: serde_json::Value::Null,
         token_type: TokenType::Bearer,
@@ -59,7 +59,7 @@ fn attest_ctx() -> AuthContext {
 
 /// UT-PE-001: Bearer(admin) + AdminOnly → Allow (full round-trip)
 #[tokio::test]
-async fn ut_pe_001() {
+async fn test_admin_bearer_with_admin_only_allows() {
     let facade = AuthzFacade::new(Arc::new(policy_engine::RealPolicyEngine));
     let result = facade
         .check(&admin_bearer())
@@ -82,7 +82,7 @@ async fn ut_pe_001() {
 ///   - role == "admin"
 /// All three conditions are satisfied here.
 #[tokio::test]
-async fn ut_pe_002() {
+async fn test_admin_role_with_admin_only_allows() {
     let facade = AuthzFacade::new(Arc::new(policy_engine::RealPolicyEngine));
     let result = facade
         .check(&admin_bearer())
@@ -105,7 +105,7 @@ async fn ut_pe_002() {
 /// bearer context has role == "user", so the policy does not match
 /// and `policy_matched` stays `false` (default deny).
 #[tokio::test]
-async fn ut_pe_003() {
+async fn test_user_role_with_admin_only_denies() {
     let facade = AuthzFacade::new(Arc::new(policy_engine::RealPolicyEngine));
     let result = facade
         .check(&user_bearer("user1"))
@@ -131,7 +131,7 @@ async fn ut_pe_003() {
 /// test accesses the `policy_engine` crate directly (available as a
 /// transitive dependency of `rbs-core`).
 #[tokio::test]
-async fn ut_pe_004() {
+async fn test_syntax_error_rego_evaluation_fails() {
     let input = serde_json::json!({"test": "data"});
     let invalid_rego = "this is not valid rego syntax {";
 
@@ -152,7 +152,7 @@ async fn ut_pe_004() {
 /// `AuthzError::MissingField("action")` when `build_input()` is
 /// invoked inside the facade.
 #[tokio::test]
-async fn ut_pe_005() {
+async fn test_missing_action_returns_missing_field() {
     let facade = AuthzFacade::new(Arc::new(policy_engine::RealPolicyEngine));
     let result = facade
         .check(&user_bearer("user1"))
@@ -173,7 +173,7 @@ async fn ut_pe_005() {
 /// UT-PE-006: user role + UserScoped action → Allow
 /// Verifies that ensure_allowed() works without resource_type (method removed from builder).
 #[tokio::test]
-async fn ut_pe_006() {
+async fn test_user_scoped_action_allows() {
     let facade = AuthzFacade::new(Arc::new(policy_engine::RealPolicyEngine));
     let result = facade
         .check(&user_bearer("user1"))
@@ -195,7 +195,7 @@ async fn ut_pe_006() {
 /// returns `AuthzError::Denied` without building the policy input or
 /// consulting the policy engine.
 #[tokio::test]
-async fn ut_pe_007() {
+async fn test_attest_token_directly_denies() {
     let facade = AuthzFacade::new(Arc::new(policy_engine::RealPolicyEngine));
     let ctx = attest_ctx();
 
@@ -215,7 +215,7 @@ async fn ut_pe_007() {
 ///   - required_role == "UserScoped"
 /// No role-level restriction applies.
 #[tokio::test]
-async fn ut_pe_008() {
+async fn test_bearer_user_scoped_allows() {
     let facade = AuthzFacade::new(Arc::new(policy_engine::RealPolicyEngine));
     let result = facade
         .check(&user_bearer("user1"))
@@ -260,7 +260,7 @@ async fn ut_pe_008() {
 /// (e.g., `input.sub == input.resource_owner`), or add the check in the
 /// authorization service layer before calling the facade.
 #[tokio::test]
-async fn ut_pe_009() {
+async fn test_user_scoped_cross_user_sub_mismatch() {
     let facade = AuthzFacade::new(Arc::new(policy_engine::RealPolicyEngine));
     // Bearer sub="user1" -- the resource owner is "user2"
     let ctx = user_bearer("user1");

@@ -4,16 +4,16 @@
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *     http://license.coscl.org.cn/MulanPSL2
- * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY OR FIT FOR A PARTICULAR
- * PURPOSE.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS
+ * OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY OR FIT FOR A
+ * PARTICULAR PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
 
 //! Attestation routes (`/rbs/v0/challenge`).
 
-use actix_web::{web, HttpResponse};
-use rbs_api_types::{AttestRequest, AttestResponse, AuthChallengeResponse, ErrorBody};
+use actix_web::{web, http::StatusCode, HttpResponse};
+use rbs_api_types::{AttestRequest, AttestResponse, AuthChallengeResponse, ChallengeRequest, ErrorBody};
 use rbs_core::RbsCore;
 use std::sync::Arc;
 
@@ -26,29 +26,26 @@ use std::sync::Arc;
     tags = ["Attestation"],
     security(()),
     params(
-        ("as_provider" = Option<String>, Query, description = "Attestation provider name")
+        ("as_provider" = Option<String>, Query, description = "Target provider ID for challenge")
     ),
     responses(
         (status = 200, description = "Challenge payload with nonce (JSON).", body = AuthChallengeResponse),
-        (status = 400, description = "Invalid parameter.", body = ErrorBody),
-        (status = 404, description = "Provider not found.", body = ErrorBody),
+        (status = 503, description = "Attestation provider unavailable.", body = ErrorBody),
         (status = 500, description = "Internal server error.", body = ErrorBody),
     )
 )]
 pub async fn get_challenge(
     core: web::Data<Arc<RbsCore>>,
-    query: web::Query<ChallengeQuery>,
+    query: web::Query<ChallengeRequest>,
 ) -> HttpResponse {
     let as_provider = query.as_provider.as_deref();
     match core.attestation().get_auth_challenge(as_provider).await {
         Ok(resp) => HttpResponse::Ok().json(resp),
-        Err(e) => HttpResponse::Ok().json(ErrorBody::new(e.to_string())),
+        Err(e) => HttpResponse::build(
+            StatusCode::from_u16(e.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+        )
+        .json(ErrorBody::new(e.external_message())),
     }
-}
-
-#[derive(serde::Deserialize)]
-pub struct ChallengeQuery {
-    as_provider: Option<String>,
 }
 
 /// `POST /rbs/v0/attest`: 200 with `AttestResponse` JSON (token).
@@ -73,6 +70,9 @@ pub async fn attest(
 ) -> HttpResponse {
     match core.attestation().attest(body.into_inner()).await {
         Ok(resp) => HttpResponse::Ok().json(resp),
-        Err(e) => HttpResponse::Ok().json(ErrorBody::new(e.to_string())),
+        Err(e) => HttpResponse::build(
+            StatusCode::from_u16(e.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+        )
+        .json(ErrorBody::new(e.external_message())),
     }
 }
