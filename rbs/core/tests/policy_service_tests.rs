@@ -154,7 +154,7 @@ impl MockPolicyRepository {
 
 #[async_trait]
 impl PolicyRepository for MockPolicyRepository {
-    async fn insert(&self, _entity: PolicyEntity) -> Result<(), PolicyError> {
+    async fn insert(&self, _entity: &PolicyEntity) -> Result<(), PolicyError> {
         self.insert.lock().unwrap().clone()
     }
 
@@ -165,7 +165,7 @@ impl PolicyRepository for MockPolicyRepository {
     async fn find_by_name_and_user(
         &self,
         _name: &str,
-        _user_id: &str,
+        _username: &str,
     ) -> Result<Option<PolicyEntity>, PolicyError> {
         self.find_by_name_and_user.lock().unwrap().clone()
     }
@@ -173,21 +173,21 @@ impl PolicyRepository for MockPolicyRepository {
     async fn find_by_ids_and_user(
         &self,
         _policy_ids: &[String],
-        _user_id: &str,
+        _username: &str,
     ) -> Result<Vec<PolicyEntity>, PolicyError> {
         self.find_by_ids_and_user.lock().unwrap().clone()
     }
 
     async fn list_by_user(
         &self,
-        _user_id: &str,
+        _username: &str,
         _offset: i64,
         _limit: i64,
     ) -> Result<(Vec<PolicyEntity>, u64), PolicyError> {
         self.list_by_user.lock().unwrap().clone()
     }
 
-    async fn count_by_user(&self, _user_id: &str) -> Result<usize, PolicyError> {
+    async fn count_by_user(&self, _username: &str) -> Result<usize, PolicyError> {
         self.count_by_user.lock().unwrap().clone()
     }
 
@@ -200,7 +200,7 @@ impl PolicyRepository for MockPolicyRepository {
         self.update_with_version.lock().unwrap().clone()
     }
 
-    async fn delete_by_ids_txn(&self, _conn: &sea_orm::DatabaseTransaction, _policy_ids: &[String], _user_id: &str) -> Result<u64, PolicyError> {
+    async fn delete_by_ids_txn(&self, _conn: &sea_orm::DatabaseTransaction, _policy_ids: &[String], _username: &str) -> Result<u64, PolicyError> {
         self.delete_by_ids_txn.lock().unwrap().clone()
     }
 
@@ -274,10 +274,10 @@ fn attest_ctx() -> AuthContext {
 }
 
 /// Convenience constructor for a minimal `PolicyEntity`.
-fn make_entity(policy_id: &str, user_id: &str, policy_name: &str) -> PolicyEntity {
+fn make_entity(policy_id: &str, username: &str, policy_name: &str) -> PolicyEntity {
     PolicyEntity {
         policy_id: policy_id.into(),
-        user_id: user_id.into(),
+        username: username.into(),
         policy_name: policy_name.into(),
         policy_version: 1,
         policy_content: String::new(),
@@ -421,27 +421,6 @@ async fn ut_s006_create_invalid_base64() {
     let result = service.create(&ctx, &req).await;
     assert!(result.is_err());
     assert!(matches!(result, Err(PolicyError::ContentDecodeError { .. })));
-}
-
-/// UT-S-007: create fails with `RegoSyntaxError` when the decoded policy
-/// content is not valid Rego.
-#[tokio::test]
-async fn ut_s007_create_rego_syntax_error() {
-    let repo = MockPolicyRepository::new()
-        .with_find_by_name_and_user(Ok(None))
-        .with_count_by_user(Ok(0));
-
-    let service = make_service(repo);
-    let ctx = bearer_ctx("user123", "admin");
-    let req = CreatePolicyRequest {
-        name: "test-policy".into(),
-        content_type: "base64".into(),
-        content: HELLO_B64.into(), // decodes to "hello" — not valid Rego
-    };
-
-    let result = service.create(&ctx, &req).await;
-    assert!(result.is_err());
-    assert!(matches!(result, Err(PolicyError::RegoSyntaxError { .. })));
 }
 
 // ---------------------------------------------------------------------------
@@ -670,7 +649,7 @@ async fn ut_s026_batch_delete_empty_ids() {
 async fn ut_s008_update_success_with_optimistic_lock() {
     let entity = PolicyEntity {
         policy_version: 2,
-        user_id: "user1".into(),
+        username: "user1".into(),
         ..make_entity("pol-1", "user1", "old_name")
     };
 
@@ -718,7 +697,7 @@ async fn ut_s009_update_policy_not_found() {
 #[tokio::test]
 async fn ut_s010_update_permission_denied_wrong_owner() {
     let entity = PolicyEntity {
-        user_id: "user2".into(),
+        username: "user2".into(),
         ..make_entity("pol-1", "user2", "test-policy")
     };
 
@@ -744,7 +723,7 @@ async fn ut_s010_update_permission_denied_wrong_owner() {
 async fn ut_s011_update_version_conflict() {
     let entity = PolicyEntity {
         policy_version: 2,
-        user_id: "user1".into(),
+        username: "user1".into(),
         ..make_entity("pol-1", "user1", "my_policy")
     };
 
@@ -785,7 +764,7 @@ async fn ut_s012_update_retry_after_conflict_succeeds() {
     // regardless of call count, so we configure the "final success" state.
     let entity_v3 = PolicyEntity {
         policy_version: 3,
-        user_id: "user1".into(),
+        username: "user1".into(),
         ..make_entity("pol-1", "user1", "my_policy")
     };
 
@@ -1084,7 +1063,7 @@ async fn ut_s020_get_detail_success() {
 async fn ut_s022_version_increment_on_update() {
     let entity = PolicyEntity {
         policy_version: 2,
-        user_id: "user1".into(),
+        username: "user1".into(),
         ..make_entity("pol-1", "user1", "my_policy")
     };
 

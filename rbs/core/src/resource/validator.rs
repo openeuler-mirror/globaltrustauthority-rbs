@@ -102,28 +102,15 @@ impl ResourceValidator {
         Ok(())
     }
 
-    pub fn decode_and_check_additional_info(&self, info: Option<&str>) -> Result<Option<String>, ResourceError> {
+    pub fn validate_additional_info(&self, info: Option<&str>) -> Result<(), ResourceError> {
         match info {
-            None => Ok(None),
+            None => Ok(()),
             Some(s) if s.is_empty() => Err(ResourceError::ParamInvalid { field: "additional_info" }),
-            Some(encoded) => {
-                use base64::Engine;
-                let decoded = base64::engine::general_purpose::STANDARD
-                    .decode(encoded)
-                    .map_err(|_| ResourceError::ParamInvalid { field: "additional_info" })?;
-
-                if decoded.is_empty() {
+            Some(s) => {
+                if s.chars().count() > self.config.max_additional_info_len {
                     return Err(ResourceError::ParamInvalid { field: "additional_info" });
                 }
-
-                let size_kb = decoded.len() / 1024;
-                if size_kb > self.config.max_additional_info_kb {
-                    return Err(ResourceError::ParamInvalid { field: "additional_info" });
-                }
-
-                String::from_utf8(decoded)
-                    .map(Some)
-                    .map_err(|_| ResourceError::ParamInvalid { field: "additional_info" })
+                Ok(())
             },
         }
     }

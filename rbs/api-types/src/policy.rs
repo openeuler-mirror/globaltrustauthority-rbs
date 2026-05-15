@@ -31,8 +31,8 @@ pub struct PolicyResponse {
     pub policy_version: i32,
     pub policy_content: String,
     pub content_type: String,
-    pub created_at: i64,
-    pub updated_at: i64,
+    pub created_at: String,
+    pub updated_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub applied_resources: Option<Vec<String>>,
 }

@@ -218,57 +218,51 @@ fn ut_rv_028() {
 // additional_info  (UT-RV-013 .. 015, 033 .. 035)
 // ===========================================================================
 
-/// UT-RV-013: additional_info "!!!" (invalid base64) -> Err(ParamInvalid {field: "additional_info"})
+/// UT-RV-013: additional_info valid plaintext -> Ok(())
 #[test]
 fn ut_rv_013() {
     let v = validator();
-    let result = v.decode_and_check_additional_info(Some("!!!"));
-    assert!(matches!(
-        result,
-        Err(ResourceError::ParamInvalid { field: "additional_info" })
-    ));
+    let result = v.validate_additional_info(Some("hello world"));
+    assert!(result.is_ok());
 }
 
-/// UT-RV-014: additional_info decoded 129KB (>128KB) -> Err(ParamInvalid)
+/// UT-RV-014: additional_info >512 chars -> Err(ParamInvalid)
 #[test]
 fn ut_rv_014() {
-    use base64::Engine as _;
-
     let v = validator();
-    let raw = "x".repeat(129 * 1024);
-    let encoded = base64::engine::general_purpose::STANDARD.encode(raw.as_bytes());
-    let result = v.decode_and_check_additional_info(Some(&encoded));
+    let raw = "x".repeat(513);
+    let result = v.validate_additional_info(Some(&raw));
     assert!(matches!(
         result,
         Err(ResourceError::ParamInvalid { field: "additional_info" })
     ));
 }
 
-/// UT-RV-015: additional_info None -> Ok(None)
+/// UT-RV-015: additional_info None -> Ok(())
 #[test]
 fn ut_rv_015() {
     let v = validator();
-    let result = v.decode_and_check_additional_info(None);
-    assert!(matches!(result, Ok(None)));
+    let result = v.validate_additional_info(None);
+    assert!(result.is_ok());
 }
 
 /// UT-RV-033: additional_info Some("") (empty string) -> Err(ParamInvalid)
 #[test]
 fn ut_rv_033() {
     let v = validator();
-    let result = v.decode_and_check_additional_info(Some(""));
+    let result = v.validate_additional_info(Some(""));
     assert!(matches!(
         result,
         Err(ResourceError::ParamInvalid { field: "additional_info" })
     ));
 }
 
-/// UT-RV-034: additional_info Some("dGVzdA==") (valid, decodes to "test") -> Ok(Some("test"))
+/// UT-RV-034: additional_info valid plaintext -> Ok(())
 #[test]
 fn ut_rv_034() {
     let v = validator();
-    let result = v.decode_and_check_additional_info(Some("dGVzdA=="));
-    assert!(matches!(result, Ok(Some(decoded)) if decoded == "test"));
+    let result = v.validate_additional_info(Some("valid plaintext info"));
+    assert!(result.is_ok());
 }
 
 // ===========================================================================

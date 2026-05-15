@@ -142,21 +142,3 @@ fn test_decode_and_check_size_rejects_non_utf8_content() {
     assert!(matches!(result, Err(PolicyError::ContentDecodeError { .. })));
 }
 
-// ============ validate_rego_syntax tests (UT-V-012, UT-V-013) ============
-
-/// UT-V-012: Rego that does not start with "package" is rejected.
-#[test]
-fn test_validate_rego_syntax_rejects_invalid_syntax() {
-    let validator = PolicyValidator::new(PolicyConfig::default());
-    let result = validator.validate_rego_syntax("hello world");
-    assert!(matches!(result, Err(PolicyError::RegoSyntaxError { .. })));
-}
-
-/// UT-V-013: well-formed Rego with "package" and "allow" rule is accepted.
-#[test]
-fn test_validate_rego_syntax_accepts_valid_syntax() {
-    let validator = PolicyValidator::new(PolicyConfig::default());
-    let rego = "package rbs\n\ndefault allow = false\nallow { input.role == \"admin\" }";
-    let result = validator.validate_rego_syntax(rego);
-    assert!(result.is_ok());
-}

@@ -57,20 +57,4 @@ impl PolicyValidator {
         })
     }
 
-    /// Validate Rego syntax of the decoded policy content.
-    pub fn validate_rego_syntax(&self, plaintext: &str) -> Result<(), PolicyError> {
-        // Simple heuristic: must start with "package"
-        let trimmed = plaintext.trim();
-        if !trimmed.starts_with("package ") {
-            return Err(PolicyError::RegoSyntaxError {
-                details: "Rego must start with 'package' declaration".to_string(),
-            });
-        }
-        if !trimmed.contains("allow") && !trimmed.contains("deny") {
-            return Err(PolicyError::RegoSyntaxError {
-                details: "Rego must contain an 'allow' or 'deny' rule".to_string(),
-            });
-        }
-        Ok(())
-    }
 }

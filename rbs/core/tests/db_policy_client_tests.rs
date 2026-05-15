@@ -22,16 +22,16 @@ async fn setup() -> (DbPolicyClient, SeaOrmPolicyRepository, SeaOrmResourceRepos
 fn make_resource(uri: &str, user: &str, pid: &str) -> ResourceEntity {
     let s: Vec<&str> = uri.trim_start_matches("/rbs/v0/").split('/').collect();
     ResourceEntity {
-        user_id: user.into(), provider_name: s[0].into(), repo_name: s[1].into(),
+        username: user.into(), provider_name: s[0].into(), repo_name: s[1].into(),
         res_type: s[2].into(), res_name: s[3].into(), res_info: None,
-        create_time: 1000, update_time: 1000, content_type: None,
+        created_at: 1000, updated_at: 1000, content_type: None,
         export_mode: "jwe".into(), policy_id: pid.into(),
     }
 }
 
 fn make_entity(id: &str, user: &str, name: &str) -> PolicyEntity {
     PolicyEntity {
-        policy_id: id.into(), user_id: user.into(), policy_name: name.into(),
+        policy_id: id.into(), username: user.into(), policy_name: name.into(),
         policy_version: 1, policy_content: "cGFja2FnZSB4Cg==".into(), // "package x\n" base64
         content_type: "base64".into(), created_at: 1000, updated_at: 1000,
     }
@@ -42,7 +42,7 @@ fn make_entity(id: &str, user: &str, name: &str) -> PolicyEntity {
 #[tokio::test]
 async fn validate_policy_true_when_exists() {
     let (client, repo, _res_repo) = setup().await;
-    repo.insert(make_entity("p1", "user1", "a")).await.unwrap();
+    repo.insert(&make_entity("p1", "user1", "a")).await.unwrap();
     let valid = client.validate_policy("p1", "user1").await.unwrap();
     assert!(valid);
 }
@@ -50,7 +50,7 @@ async fn validate_policy_true_when_exists() {
 #[tokio::test]
 async fn validate_policy_false_when_wrong_user() {
     let (client, repo, _res_repo) = setup().await;
-    repo.insert(make_entity("p1", "user1", "a")).await.unwrap();
+    repo.insert(&make_entity("p1", "user1", "a")).await.unwrap();
     let valid = client.validate_policy("p1", "other").await.unwrap();
     assert!(!valid);
 }
@@ -67,7 +67,7 @@ async fn validate_policy_false_when_not_exists() {
 #[tokio::test]
 async fn get_policy_content_decodes_base64() {
     let (client, repo, _res_repo) = setup().await;
-    repo.insert(make_entity("p1", "user1", "a")).await.unwrap();
+    repo.insert(&make_entity("p1", "user1", "a")).await.unwrap();
     let content = client.get_policy_content("p1").await.unwrap();
     assert_eq!(content, "package x\n");
 }
@@ -84,7 +84,7 @@ async fn get_policy_content_not_found_returns_error() {
 #[tokio::test]
 async fn relation_res_ids_returns_uris() {
     let (client, repo, res_repo) = setup().await;
-    repo.insert(make_entity("p1", "user1", "a")).await.unwrap();
+    repo.insert(&make_entity("p1", "user1", "a")).await.unwrap();
     res_repo.insert(&make_resource("/rbs/v0/vault/default/secret/x", "u1", "p1")).await.unwrap();
     res_repo.insert(&make_resource("/rbs/v0/vault/default/cert/y", "u1", "p1")).await.unwrap();
 

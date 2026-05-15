@@ -663,6 +663,12 @@ paths:
         required: true
         schema:
           type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateResourceRequest'
+        required: true
       responses:
         '200':
           description: Resource updated
@@ -726,6 +732,12 @@ paths:
         required: true
         schema:
           type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateResourceRequest'
+        required: true
       responses:
         '201':
           description: Resource created
@@ -855,7 +867,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ResourceInfoResponse'
+                $ref: '#/components/schemas/ResourceResponse'
         '401':
           description: Unauthorized
           content:
@@ -888,6 +900,11 @@ paths:
       tags:
       - Resource
       summary: Retrieve resource with attestation evidence
+      description: |-
+        The client submits RBC evidences in the request body. The service calls the
+        configured attestation backend to verify the evidence and obtain an attest
+        token, then uses the token claims (including `tee-pubkey`) for Rego policy
+        evaluation and JWE encryption of the resource content.
       operationId: retrieveResource
       parameters:
       - name: res_provider
@@ -921,18 +938,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ResourceContentResponse'
-        '401':
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorBody'
-        '403':
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorBody'
         '404':
           description: Resource not found or access denied
           content:
@@ -941,6 +946,12 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
         '500':
           description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '502':
+          description: Attestation backend error
           content:
             application/json:
               schema:
@@ -1076,11 +1087,9 @@ components:
         content_type:
           type: string
         created_at:
-          type: integer
-          format: int64
+          type: string
         updated_at:
-          type: integer
-          format: int64
+          type: string
         applied_resources:
           type:
           - array
@@ -1113,15 +1122,20 @@ components:
 
         `content` is always base64-encoded JWE ciphertext (Compact Serialization).
       required:
+      - uri
       - content
-      - content_type
       - export_mode
       properties:
+        uri:
+          type: string
+          description: Canonical resource URI for the returned object.
         content:
           type: string
           description: Base64-encoded JWE ciphertext.
         content_type:
-          type: string
+          type:
+          - string
+          - 'null'
           description: Original MIME type hint for decoding after JWE decryption.
         export_mode:
           type: string
@@ -1144,11 +1158,9 @@ components:
         policy_id:
           type: string
         created_at:
-          type: integer
-          format: int64
+          type: string
         updated_at:
-          type: integer
-          format: int64
+          type: string
         content_type:
           type:
           - string
@@ -1160,8 +1172,8 @@ components:
       description: Resource metadata returned after create or update.
       required:
       - uri
-      - user_id
       - provider_name
+      - repository_name
       - resource_type
       - resource_name
       - created_at
@@ -1171,20 +1183,18 @@ components:
       properties:
         uri:
           type: string
-        user_id:
-          type: string
         provider_name:
+          type: string
+        repository_name:
           type: string
         resource_type:
           type: string
         resource_name:
           type: string
         created_at:
-          type: integer
-          format: int64
+          type: string
         updated_at:
-          type: integer
-          format: int64
+          type: string
         content_type:
           type:
           - string
@@ -1193,6 +1203,10 @@ components:
           type: string
         policy_id:
           type: string
+        additional_info:
+          type:
+          - string
+          - 'null'
     Role:
       type: string
       description: User role. `Admin` is pre-configured and cannot be created via the API.

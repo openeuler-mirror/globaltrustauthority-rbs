@@ -20,13 +20,15 @@ use rbs_api_types::{
 #[test]
 fn test_resource_content_response() {
     let json = serde_json::json!({
+        "uri": "/rbs/v0/vault/repo1/secret/mykey",
         "content": "SGVsbG9Xb3JsZA==",
         "content_type": "application/json",
         "export_mode": "jwe"
     });
     let resp: ResourceContentResponse = serde_json::from_value(json).unwrap();
+    assert_eq!(resp.uri, "/rbs/v0/vault/repo1/secret/mykey");
     assert_eq!(resp.content, "SGVsbG9Xb3JsZA==");
-    assert_eq!(resp.content_type, "application/json");
+    assert_eq!(resp.content_type.as_deref(), Some("application/json"));
     assert_eq!(resp.export_mode, "jwe");
 }
 
@@ -36,8 +38,8 @@ fn test_resource_info_response() {
         "uri": "/rbs/v0/provider1/repo1/key/mykey",
         "user_id": "user1",
         "policy_id": "pol-001",
-        "created_at": 1704067200000_i64,
-        "updated_at": 1704153600000_i64,
+        "created_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-02T00:00:00Z",
         "content_type": "application/json",
         "export_mode": "jwe"
     });
@@ -98,18 +100,19 @@ fn test_update_resource_request() {
 fn test_resource_response() {
     let json = serde_json::json!({
         "uri": "/rbs/v0/vault/repo1/secret/mykey",
-        "user_id": "user1",
         "provider_name": "vault",
+        "repository_name": "repo1",
         "resource_type": "secret",
         "resource_name": "mykey",
-        "created_at": 1704067200000_i64,
-        "updated_at": 1704153600000_i64,
+        "created_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-02T00:00:00Z",
         "content_type": "json",
         "export_mode": "jwe",
         "policy_id": "pol-001"
     });
     let resp: ResourceResponse = serde_json::from_value(json).unwrap();
     assert_eq!(resp.uri, "/rbs/v0/vault/repo1/secret/mykey");
+    assert_eq!(resp.repository_name, "repo1");
     assert_eq!(resp.export_mode, "jwe");
     assert_eq!(resp.policy_id, "pol-001");
 }

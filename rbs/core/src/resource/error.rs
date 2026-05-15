@@ -18,6 +18,9 @@ pub enum ResourceError {
     #[error("resource not found")]
     NotFound,
 
+    #[error("version conflict: resource was modified by another request")]
+    VersionConflict,
+
     #[error("backend not found for resource")]
     BackendNotFound,
 
@@ -35,7 +38,7 @@ impl ResourceError {
     pub fn http_status(&self) -> u16 {
         match self {
             ResourceError::PermissionDenied => 403,
-            ResourceError::AlreadyExists { .. } => 409,
+            ResourceError::AlreadyExists { .. } | ResourceError::VersionConflict => 409,
             ResourceError::ParamInvalid { .. }
             | ResourceError::PolicyIdInvalid(_)
             | ResourceError::BackendNotFound

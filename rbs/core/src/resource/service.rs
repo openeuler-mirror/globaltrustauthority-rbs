@@ -1,3 +1,4 @@
+use chrono::Timelike;
 use std::sync::Arc;
 
 use base64::Engine;
@@ -10,7 +11,7 @@ use super::error::ResourceError;
 use super::repository::ResourceRepository;
 use super::validator::ResourceValidator;
 use super::{
-    CreateResourceRequest, ResourceContentResponse, ResourceInfoResponse, ResourceResponse,
+    CreateResourceRequest, ResourceContentResponse, ResourceResponse,
     UpdateResourceRequest, ATTEST_TEE_PUBKEY_KEY, BEARER_ENC_PUBKEY_KEY,
 };
 
@@ -21,6 +22,12 @@ pub struct ResourceService {
     pub backend_provider: BackendProvider,
     pub policy_client: Arc<dyn PolicyClient>,
     pub validator: ResourceValidator,
+}
+
+fn millis_to_rfc3339(ms: i64) -> String {
+    chrono::DateTime::from_timestamp_millis(ms)
+        .map(|dt| dt.with_nanosecond(0).unwrap_or(dt).to_rfc3339())
+        .unwrap_or_default()
 }
 
 impl ResourceService {
@@ -45,10 +52,10 @@ impl ResourceService {
         if req.policy_id.is_empty() { return Err(ResourceError::ParamInvalid { field: "policy_id" }); }
         if let Some(ref ct) = req.content_type { self.validator.validate_content_type(ct)?; }
         if let Some(ref em) = req.export_mode { self.validator.validate_export_mode(em)?; }
-        let _ = self.validator.decode_and_check_additional_info(req.additional_info.as_deref())?;
+        self.validator.validate_additional_info(req.additional_info.as_deref())?;
 
-        let user_id = ctx.sub();
-        let valid = self.policy_client.validate_policy(&req.policy_id, user_id).await?;
+        let username = ctx.sub();
+        let valid = self.policy_client.validate_policy(&req.policy_id, username).await?;
         if !valid { return Err(ResourceError::PolicyIdInvalid(req.policy_id.clone())); }
 
         let backend = self.backend_provider.get_backend(&parsed.res_provider)
@@ -61,20 +68,22 @@ impl ResourceService {
 
         let now = chrono::Utc::now().timestamp_millis();
         let entity = super::repository::ResourceEntity {
-            user_id: user_id.to_string(), provider_name: parsed.res_provider,
+            username: username.to_string(), provider_name: parsed.res_provider,
             repo_name: parsed.repository_name, res_type: parsed.resource_type,
             res_name: parsed.resource_name, res_info: req.additional_info.clone(),
-            create_time: now, update_time: now, content_type: req.content_type.clone(),
+            created_at: now, updated_at: now, content_type: req.content_type.clone(),
             export_mode: req.export_mode.clone().unwrap_or_else(|| "jwe".to_string()),
             policy_id: req.policy_id.clone(),
         };
         self.repo.insert(&entity).await?;
         Ok(ResourceResponse {
-            uri: req.uri.clone(), user_id: entity.user_id, provider_name: entity.provider_name,
+            uri: req.uri.clone(), provider_name: entity.provider_name,
+            repository_name: entity.repo_name,
             resource_type: entity.res_type, resource_name: entity.res_name,
-            created_at: entity.create_time, updated_at: entity.update_time,
+            created_at: millis_to_rfc3339(entity.created_at), updated_at: millis_to_rfc3339(entity.updated_at),
             content_type: entity.content_type, export_mode: entity.export_mode,
             policy_id: entity.policy_id,
+            additional_info: entity.res_info,
         })
     }
 
@@ -90,11 +99,11 @@ impl ResourceService {
         if req.policy_id.is_empty() { return Err(ResourceError::ParamInvalid { field: "policy_id" }); }
         if let Some(ref ct) = req.content_type { self.validator.validate_content_type(ct)?; }
         if let Some(ref em) = req.export_mode { self.validator.validate_export_mode(em)?; }
-        let _ = self.validator.decode_and_check_additional_info(req.additional_info.as_deref())?;
-        let user_id = ctx.sub();
+        self.validator.validate_additional_info(req.additional_info.as_deref())?;
+        let username = ctx.sub();
 
         // ── step 2b: policy and backend check (for both create and update) ──
-        let valid = self.policy_client.validate_policy(&req.policy_id, user_id).await?;
+        let valid = self.policy_client.validate_policy(&req.policy_id, username).await?;
         if !valid { return Err(ResourceError::PolicyIdInvalid(req.policy_id.clone())); }
         let backend = self.backend_provider.get_backend(&parsed.res_provider)
             .ok_or_else(|| ResourceError::BackendUnsupported { provider: parsed.res_provider.clone() })?;
@@ -104,30 +113,34 @@ impl ResourceService {
         let now = chrono::Utc::now().timestamp_millis();
 
         if let Some(existing_entity) = existing {
-            if existing_entity.user_id != user_id { return Err(ResourceError::PermissionDenied); }
+            if existing_entity.username != username { return Err(ResourceError::PermissionDenied); }
             let updated = super::repository::ResourceEntity {
-                user_id: existing_entity.user_id, provider_name: existing_entity.provider_name,
+                username: existing_entity.username, provider_name: existing_entity.provider_name,
                 repo_name: existing_entity.repo_name, res_type: existing_entity.res_type,
                 res_name: existing_entity.res_name,
                 res_info: req.additional_info.clone().or(existing_entity.res_info),
-                create_time: existing_entity.create_time, update_time: now,
+                created_at: existing_entity.created_at, updated_at: now,
                 content_type: req.content_type.clone().or(existing_entity.content_type),
                 export_mode: req.export_mode.clone().unwrap_or(existing_entity.export_mode),
                 policy_id: req.policy_id.clone(),
             };
-            self.repo.update(uri, &updated).await?;
-            Ok((ResourceResponse { uri: uri.to_string(), user_id: updated.user_id, provider_name: updated.provider_name, resource_type: updated.res_type, resource_name: updated.res_name, created_at: updated.create_time, updated_at: updated.update_time, content_type: updated.content_type, export_mode: updated.export_mode, policy_id: updated.policy_id }, false))
+            let old_update_time = existing_entity.updated_at;
+            let affected = self.repo.update(uri, &updated, old_update_time).await?;
+            if affected == 0 {
+                return Err(ResourceError::VersionConflict);
+            }
+            Ok((ResourceResponse { uri: uri.to_string(), provider_name: updated.provider_name, repository_name: updated.repo_name, resource_type: updated.res_type, resource_name: updated.res_name, created_at: millis_to_rfc3339(updated.created_at), updated_at: millis_to_rfc3339(updated.updated_at), content_type: updated.content_type, export_mode: updated.export_mode, policy_id: updated.policy_id, additional_info: updated.res_info }, false))
         } else {
             let entity = super::repository::ResourceEntity {
-                user_id: user_id.to_string(), provider_name: parsed.res_provider,
+                username: username.to_string(), provider_name: parsed.res_provider,
                 repo_name: parsed.repository_name, res_type: parsed.resource_type,
                 res_name: parsed.resource_name, res_info: req.additional_info.clone(),
-                create_time: now, update_time: now, content_type: req.content_type.clone(),
+                created_at: now, updated_at: now, content_type: req.content_type.clone(),
                 export_mode: req.export_mode.clone().unwrap_or_else(|| "jwe".to_string()),
                 policy_id: req.policy_id.clone(),
             };
             self.repo.insert(&entity).await?;
-            Ok((ResourceResponse { uri: uri.to_string(), user_id: entity.user_id, provider_name: entity.provider_name, resource_type: entity.res_type, resource_name: entity.res_name, created_at: entity.create_time, updated_at: entity.update_time, content_type: entity.content_type, export_mode: entity.export_mode, policy_id: entity.policy_id }, true))
+            Ok((ResourceResponse { uri: uri.to_string(), provider_name: entity.provider_name, repository_name: entity.repo_name, resource_type: entity.res_type, resource_name: entity.res_name, created_at: millis_to_rfc3339(entity.created_at), updated_at: millis_to_rfc3339(entity.updated_at), content_type: entity.content_type, export_mode: entity.export_mode, policy_id: entity.policy_id, additional_info: entity.res_info }, true))
         }
     }
 
@@ -137,8 +150,8 @@ impl ResourceService {
         self.authz.check_action(ctx, Action::Delete, RequiredRole::UserScoped).await.map_err(|_| ResourceError::PermissionDenied)?;
         let _parsed = self.validator.validate_uri(uri)?;
         let entity = self.repo.find_by_uri(uri).await?.ok_or(ResourceError::NotFound)?;
-        if entity.user_id != ctx.sub() { return Err(ResourceError::PermissionDenied); }
-        self.repo.delete(uri, &entity.user_id).await?;
+        if entity.username != ctx.sub() { return Err(ResourceError::PermissionDenied); }
+        self.repo.delete(uri, &entity.username).await?;
         Ok(())
     }
 
@@ -157,14 +170,14 @@ impl ResourceService {
         let rego = self.policy_client.get_policy_content(&entity.policy_id).await?;
 
         // step 4: authorisation (AuthzFacade branches on token type internally)
-        self.authz.check_resource_get(ctx, &entity.user_id, &rego).await
+        self.authz.check_resource_get(ctx, &entity.username, &rego).await
             .map_err(|_| ResourceError::NotFound)?;
 
         // step 5: backend fetch
         let backend = self.backend_provider.get_backend(&parsed.res_provider)
             .ok_or_else(|| ResourceError::BackendUnsupported { provider: parsed.res_provider.clone() })?;
         let raw_content = backend.get_resource_content(uri).await?;
-        let content_type = entity.content_type.clone().unwrap_or_else(|| "application/octet-stream".to_string());
+        let content_type = entity.content_type.clone();
 
         // step 6: JWE encrypt + base64 encode
         let pubkey = match ctx {
@@ -183,14 +196,16 @@ impl ResourceService {
         })?;
         let encrypted = Self::jwe_encrypt(&raw_content, &pubkey)?;
         let encoded = base64::engine::general_purpose::STANDARD.encode(&encrypted);
-        Ok(ResourceContentResponse { content: encoded, content_type, export_mode: entity.export_mode })
+        Ok(ResourceContentResponse {
+            uri: uri.to_string(), content: encoded, content_type, export_mode: entity.export_mode,
+        })
     }
 
     // ── GET /info ──────────────────────────────────────────────────────
 
     pub async fn get_info(
         &self, ctx: &AuthContext, uri: &str,
-    ) -> Result<ResourceInfoResponse, ResourceError> {
+    ) -> Result<ResourceResponse, ResourceError> {
         // step 1: parameter validation
         let _parsed = self.validator.validate_uri(uri)?;
 
@@ -201,14 +216,18 @@ impl ResourceService {
         let rego = self.policy_client.get_policy_content(&entity.policy_id).await?;
 
         // step 4: authorisation
-        self.authz.check_resource_get(ctx, &entity.user_id, &rego).await
+        self.authz.check_resource_get(ctx, &entity.username, &rego).await
             .map_err(|_| ResourceError::NotFound)?;
 
         // step 5: return metadata (no backend fetch)
-        Ok(ResourceInfoResponse {
-            uri: uri.to_string(), user_id: entity.user_id, policy_id: entity.policy_id,
-            created_at: entity.create_time, updated_at: entity.update_time,
+        Ok(ResourceResponse {
+            uri: uri.to_string(),
+            provider_name: entity.provider_name, repository_name: entity.repo_name,
+            resource_type: entity.res_type, resource_name: entity.res_name,
+            created_at: millis_to_rfc3339(entity.created_at), updated_at: millis_to_rfc3339(entity.updated_at),
             content_type: entity.content_type, export_mode: entity.export_mode,
+            policy_id: entity.policy_id,
+            additional_info: entity.res_info,
         })
     }
 
@@ -228,14 +247,14 @@ impl ResourceService {
 
         // step 4: authorisation — unified via AuthzChecker (Attest path evaluates rego)
         let auth_ctx = AuthContext::Attest(attest_ctx.clone());
-        self.authz.check_resource_get(&auth_ctx, &entity.user_id, &rego).await
+        self.authz.check_resource_get(&auth_ctx, &entity.username, &rego).await
             .map_err(|_| ResourceError::NotFound)?;
 
         // step 5: backend fetch
         let backend = self.backend_provider.get_backend(&parsed.res_provider)
             .ok_or_else(|| ResourceError::BackendUnsupported { provider: parsed.res_provider.clone() })?;
         let raw_content = backend.get_resource_content(uri).await?;
-        let content_type = entity.content_type.clone().unwrap_or_else(|| "application/octet-stream".to_string());
+        let content_type = entity.content_type.clone();
 
         // step 6: JWE encrypt + base64 encode
         let pubkey = attest_ctx.claims.get("attester_data")
@@ -248,7 +267,9 @@ impl ResourceService {
             })?;
         let encrypted = Self::jwe_encrypt(&raw_content, &pubkey)?;
         let encoded = base64::engine::general_purpose::STANDARD.encode(&encrypted);
-        Ok(ResourceContentResponse { content: encoded, content_type, export_mode: entity.export_mode })
+        Ok(ResourceContentResponse {
+            uri: uri.to_string(), content: encoded, content_type, export_mode: entity.export_mode,
+        })
     }
 
     /// Convert a JSON value (String or Object) to a string representation.

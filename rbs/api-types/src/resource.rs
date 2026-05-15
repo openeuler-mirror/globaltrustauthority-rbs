@@ -66,16 +66,18 @@ pub struct UpdateResourceRequest {
 #[serde(rename_all = "snake_case")]
 pub struct ResourceResponse {
     pub uri: String,
-    pub user_id: String,
     pub provider_name: String,
+    pub repository_name: String,
     pub resource_type: String,
     pub resource_name: String,
-    pub created_at: i64,
-    pub updated_at: i64,
+    pub created_at: String,
+    pub updated_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content_type: Option<String>,
     pub export_mode: String,
     pub policy_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub additional_info: Option<String>,
 }
 
 // ── Content ─────────────────────────────────────────────────────────────────
@@ -86,10 +88,13 @@ pub struct ResourceResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct ResourceContentResponse {
+    /// Canonical resource URI for the returned object.
+    pub uri: String,
     /// Base64-encoded JWE ciphertext.
     pub content: String,
     /// Original MIME type hint for decoding after JWE decryption.
-    pub content_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_type: Option<String>,
     /// Export mode (currently always "jwe").
     pub export_mode: String,
 }
@@ -103,8 +108,8 @@ pub struct ResourceInfoResponse {
     pub uri: String,
     pub user_id: String,
     pub policy_id: String,
-    pub created_at: i64,
-    pub updated_at: i64,
+    pub created_at: String,
+    pub updated_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content_type: Option<String>,
     pub export_mode: String,

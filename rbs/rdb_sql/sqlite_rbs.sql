@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS t_user_info (
 
 CREATE TABLE IF NOT EXISTS t_res_policy (
     policy_id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
+    username TEXT NOT NULL,
     policy_name TEXT NOT NULL,
     policy_version INTEGER NOT NULL DEFAULT 1,
     policy_content TEXT NOT NULL,
@@ -25,22 +25,22 @@ CREATE TABLE IF NOT EXISTS t_res_policy (
     updated_at INTEGER NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_res_policy_user_id ON t_res_policy(user_id);
+CREATE INDEX IF NOT EXISTS idx_res_policy_username ON t_res_policy(username);
 
 CREATE TABLE IF NOT EXISTS t_res_info (
-    user_id TEXT NOT NULL,
+    username TEXT NOT NULL,
     provider_name TEXT NOT NULL,
     repo_name TEXT NOT NULL,
     res_type TEXT NOT NULL,
     res_name TEXT NOT NULL,
     res_info TEXT,
-    create_time INTEGER NOT NULL,
-    update_time INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
     content_type TEXT,
     export_mode TEXT NOT NULL DEFAULT 'jwe',
     policy_id TEXT NOT NULL,
-    PRIMARY KEY (user_id, provider_name, repo_name, res_type, res_name)
+    PRIMARY KEY (username, provider_name, repo_name, res_type, res_name)
 );
 
-CREATE INDEX IF NOT EXISTS idx_res_info_user_id ON t_res_info(user_id);
+CREATE INDEX IF NOT EXISTS idx_res_info_username ON t_res_info(username);
 CREATE INDEX IF NOT EXISTS idx_res_info_policy_id ON t_res_info(policy_id);

@@ -53,12 +53,12 @@ impl DbPolicyClient {
 
 #[async_trait::async_trait]
 impl PolicyClient for DbPolicyClient {
-    async fn validate_policy(&self, policy_id: &str, user_id: &str) -> Result<bool, ResourceError> {
+    async fn validate_policy(&self, policy_id: &str, username: &str) -> Result<bool, ResourceError> {
         use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
         use crate::policy::repository::entity;
         let exists = entity::Entity::find()
             .filter(entity::Column::PolicyId.eq(policy_id.to_owned()))
-            .filter(entity::Column::UserId.eq(user_id.to_owned()))
+            .filter(entity::Column::Username.eq(username.to_owned()))
             .one(self.db.as_ref())
             .await
             .map_err(|e| ResourceError::BackendError { detail: e.to_string() })?;
@@ -80,7 +80,7 @@ impl PolicyClient for DbPolicyClient {
             .map_err(|e| ResourceError::BackendError { detail: e.to_string() })
     }
 
-    async fn relation_res_ids(&self, policy_id: &str, _user_id: &str) -> Result<Vec<String>, ResourceError> {
+    async fn relation_res_ids(&self, policy_id: &str, _username: &str) -> Result<Vec<String>, ResourceError> {
         use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
         use crate::resource::repository::entity;
         let rows = entity::Entity::find()
@@ -103,9 +103,9 @@ impl PolicyClient for DbPolicyClient {
 /// PolicyClient trait - isolates calls to the policy management module.
 #[async_trait::async_trait]
 pub trait PolicyClient: Send + Sync {
-    async fn validate_policy(&self, policy_id: &str, user_id: &str) -> Result<bool, ResourceError>;
+    async fn validate_policy(&self, policy_id: &str, username: &str) -> Result<bool, ResourceError>;
 
     async fn get_policy_content(&self, policy_id: &str) -> Result<String, ResourceError>;
 
-    async fn relation_res_ids(&self, policy_id: &str, user_id: &str) -> Result<Vec<String>, ResourceError>;
+    async fn relation_res_ids(&self, policy_id: &str, username: &str) -> Result<Vec<String>, ResourceError>;
 }

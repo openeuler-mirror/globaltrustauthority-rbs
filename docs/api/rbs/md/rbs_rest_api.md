@@ -1367,8 +1367,8 @@ func main() {
       "policy_version": 0,
       "policy_content": "string",
       "content_type": "string",
-      "created_at": 0,
-      "updated_at": 0,
+      "created_at": "string",
+      "updated_at": "string",
       "applied_resources": [
         "string"
       ]
@@ -1581,8 +1581,8 @@ func main() {
   "policy_version": 0,
   "policy_content": "string",
   "content_type": "string",
-  "created_at": 0,
-  "updated_at": 0,
+  "created_at": "string",
+  "updated_at": "string",
   "applied_resources": [
     "string"
   ]
@@ -1960,8 +1960,8 @@ func main() {
   "policy_version": 0,
   "policy_content": "string",
   "content_type": "string",
-  "created_at": 0,
-  "updated_at": 0,
+  "created_at": "string",
+  "updated_at": "string",
   "applied_resources": [
     "string"
   ]
@@ -2173,8 +2173,8 @@ func main() {
   "policy_version": 0,
   "policy_content": "string",
   "content_type": "string",
-  "created_at": 0,
-  "updated_at": 0,
+  "created_at": "string",
+  "updated_at": "string",
   "applied_resources": [
     "string"
   ]
@@ -2551,6 +2551,7 @@ func main() {
 
 ```json
 {
+  "uri": "string",
   "content": "string",
   "content_type": "string",
   "export_mode": "string"
@@ -2743,8 +2744,8 @@ func main() {
   "provider_name": "string",
   "resource_type": "string",
   "resource_name": "string",
-  "created_at": 0,
-  "updated_at": 0,
+  "created_at": "string",
+  "updated_at": "string",
   "content_type": "string",
   "export_mode": "string",
   "policy_id": "string"
@@ -2937,8 +2938,8 @@ func main() {
   "provider_name": "string",
   "resource_type": "string",
   "resource_name": "string",
-  "created_at": 0,
-  "updated_at": 0,
+  "created_at": "string",
+  "updated_at": "string",
   "content_type": "string",
   "export_mode": "string",
   "policy_id": "string"
@@ -3314,8 +3315,8 @@ func main() {
   "uri": "string",
   "user_id": "string",
   "policy_id": "string",
-  "created_at": 0,
-  "updated_at": 0,
+  "created_at": "string",
+  "updated_at": "string",
   "content_type": "string",
   "export_mode": "string"
 }
@@ -3481,6 +3482,11 @@ func main() {
 
 *Retrieve resource with attestation evidence*
 
+The client submits RBC evidences in the request body. The service calls the
+configured attestation backend to verify the evidence and obtain an attest
+token, then uses the token claims (including `tee-pubkey`) for Rego policy
+evaluation and JWE encryption of the resource content.
+
 <h3 id="retrieveresource-parameters">Parameters</h3>
 
 |Name|In|Type|Required|Description|
@@ -3496,6 +3502,7 @@ func main() {
 
 ```json
 {
+  "uri": "string",
   "content": "string",
   "content_type": "string",
   "export_mode": "string"
@@ -3507,10 +3514,9 @@ func main() {
 |Status|Meaning|Description|Schema|
 |---|---|---|---|
 |200|[OK](https://tools.ietf.org/html/rfc7231#section-6.3.1)|Resource content (base64-encoded JWE)|[ResourceContentResponse](#schemaresourcecontentresponse)|
-|401|[Unauthorized](https://tools.ietf.org/html/rfc7235#section-3.1)|Unauthorized|[ErrorBody](#schemaerrorbody)|
-|403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Resource not found or access denied|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
+|502|[Bad Gateway](https://tools.ietf.org/html/rfc7231#section-6.6.3)|Attestation backend error|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -3665,8 +3671,8 @@ Error payload for HTTP error responses (e.g. 500).
       "policy_version": 0,
       "policy_content": "string",
       "content_type": "string",
-      "created_at": 0,
-      "updated_at": 0,
+      "created_at": "string",
+      "updated_at": "string",
       "applied_resources": [
         "string"
       ]
@@ -3700,8 +3706,8 @@ Policy list response.
   "policy_version": 0,
   "policy_content": "string",
   "content_type": "string",
-  "created_at": 0,
-  "updated_at": 0,
+  "created_at": "string",
+  "updated_at": "string",
   "applied_resources": [
     "string"
   ]
@@ -3720,8 +3726,8 @@ Policy response returned to callers.
 |policy_version|integer(int32)|true|none|none|
 |policy_content|string|true|none|none|
 |content_type|string|true|none|none|
-|created_at|integer(int64)|true|none|none|
-|updated_at|integer(int64)|true|none|none|
+|created_at|string|true|none|none|
+|updated_at|string|true|none|none|
 |applied_resources|array,null|false|none|none|
 
 <h2 id="tocS_RbsVersion">RbsVersion</h2>
@@ -3763,6 +3769,7 @@ JSON emitted by `GET /rbs/version` (`service_name`, `api_version`, structured `b
 
 ```json
 {
+  "uri": "string",
   "content": "string",
   "content_type": "string",
   "export_mode": "string"
@@ -3778,8 +3785,9 @@ Resource content returned by GET and POST .../retrieve.
 
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
+|uri|string|true|none|Canonical resource URI for the returned object.|
 |content|string|true|none|Base64-encoded JWE ciphertext.|
-|content_type|string|true|none|Original MIME type hint for decoding after JWE decryption.|
+|content_type|string,null|false|none|Original MIME type hint for decoding after JWE decryption.|
 |export_mode|string|true|none|Export mode (currently always "jwe").|
 
 <h2 id="tocS_ResourceInfoResponse">ResourceInfoResponse</h2>
@@ -3794,8 +3802,8 @@ Resource content returned by GET and POST .../retrieve.
   "uri": "string",
   "user_id": "string",
   "policy_id": "string",
-  "created_at": 0,
-  "updated_at": 0,
+  "created_at": "string",
+  "updated_at": "string",
   "content_type": "string",
   "export_mode": "string"
 }
@@ -3811,8 +3819,8 @@ Resource metadata returned by GET .../info (no secret material).
 |uri|string|true|none|none|
 |user_id|string|true|none|none|
 |policy_id|string|true|none|none|
-|created_at|integer(int64)|true|none|none|
-|updated_at|integer(int64)|true|none|none|
+|created_at|string|true|none|none|
+|updated_at|string|true|none|none|
 |content_type|string,null|false|none|none|
 |export_mode|string|true|none|none|
 
@@ -3830,8 +3838,8 @@ Resource metadata returned by GET .../info (no secret material).
   "provider_name": "string",
   "resource_type": "string",
   "resource_name": "string",
-  "created_at": 0,
-  "updated_at": 0,
+  "created_at": "string",
+  "updated_at": "string",
   "content_type": "string",
   "export_mode": "string",
   "policy_id": "string"
@@ -3850,8 +3858,8 @@ Resource metadata returned after create or update.
 |provider_name|string|true|none|none|
 |resource_type|string|true|none|none|
 |resource_name|string|true|none|none|
-|created_at|integer(int64)|true|none|none|
-|updated_at|integer(int64)|true|none|none|
+|created_at|string|true|none|none|
+|updated_at|string|true|none|none|
 |content_type|string,null|false|none|none|
 |export_mode|string|true|none|none|
 |policy_id|string|true|none|none|

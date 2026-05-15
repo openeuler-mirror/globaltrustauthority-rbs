@@ -75,15 +75,15 @@ impl ResourceRepository for MockResourceRepository {
         self.find_by_uri_result.lock().unwrap().clone()
     }
 
-    async fn update(&self, _uri: &str, _entity: &ResourceEntity) -> MockResult<u64> {
+    async fn update(&self, _uri: &str, _entity: &ResourceEntity, _old_update_time: i64) -> MockResult<u64> {
         self.update_result.lock().unwrap().clone()
     }
 
-    async fn delete(&self, _uri: &str, _user_id: &str) -> MockResult<u64> {
+    async fn delete(&self, _uri: &str, _username: &str) -> MockResult<u64> {
         self.delete_result.lock().unwrap().clone()
     }
 
-    async fn list_by_user(&self, _user_id: &str) -> MockResult<Vec<ResourceEntity>> {
+    async fn list_by_user(&self, _username: &str) -> MockResult<Vec<ResourceEntity>> {
         self.list_by_user_result.lock().unwrap().clone()
     }
 
@@ -113,7 +113,7 @@ impl MockPolicyClient {
 
 #[async_trait]
 impl PolicyClient for MockPolicyClient {
-    async fn validate_policy(&self, _policy_id: &str, _user_id: &str) -> MockResult<bool> {
+    async fn validate_policy(&self, _policy_id: &str, _username: &str) -> MockResult<bool> {
         self.validate_policy_result.lock().unwrap().clone()
     }
 
@@ -121,7 +121,7 @@ impl PolicyClient for MockPolicyClient {
         self.get_policy_content_result.lock().unwrap().clone()
     }
 
-    async fn relation_res_ids(&self, _policy_id: &str, _user_id: &str) -> MockResult<Vec<String>> {
+    async fn relation_res_ids(&self, _policy_id: &str, _username: &str) -> MockResult<Vec<String>> {
         self.relation_res_ids_result.lock().unwrap().clone()
     }
 }
@@ -175,14 +175,14 @@ const TEST_POLICY_ID: &str = "pol-001";
 /// Build a `ResourceEntity` for use in mock returns.
 fn make_entity() -> ResourceEntity {
     ResourceEntity {
-        user_id: TEST_USER.to_string(),
+        username: TEST_USER.to_string(),
         provider_name: "vault".to_string(),
         repo_name: "default".to_string(),
         res_type: "secret".to_string(),
         res_name: "mykey".to_string(),
         res_info: None,
-        create_time: 1000,
-        update_time: 1000,
+        created_at: 1000,
+        updated_at: 1000,
         content_type: Some("text".to_string()),
         export_mode: "jwe".to_string(),
         policy_id: TEST_POLICY_ID.to_string(),
@@ -572,7 +572,7 @@ async fn ut_rs_008_put_create_when_not_exists() {
 #[tokio::test]
 async fn ut_rs_009_put_update_permission_denied_different_user() {
     let mut entity = make_entity();
-    entity.user_id = OTHER_USER.to_string(); // owned by OTHER_USER
+    entity.username = OTHER_USER.to_string(); // owned by OTHER_USER
 
     let svc = make_service(
         |repo| {
@@ -662,7 +662,7 @@ async fn ut_rs_012_delete_not_found() {
 #[tokio::test]
 async fn ut_rs_013_delete_permission_denied_different_user() {
     let mut entity = make_entity();
-    entity.user_id = OTHER_USER.to_string();
+    entity.username = OTHER_USER.to_string();
 
     let svc = make_service(
         |repo| {
@@ -761,7 +761,7 @@ async fn ut_rs_014_get_content_success() {
     match &result {
         Ok(resp) => {
             assert!(!resp.content.is_empty(), "content should not be empty");
-            assert_eq!(resp.content_type, "text");
+            assert_eq!(resp.content_type.as_deref(), Some("text"));
             assert_eq!(resp.export_mode, "jwe");
         }
         Err(e) => panic!("Expected Ok(ResourceContentResponse), got Err({:?})", e),
@@ -940,7 +940,7 @@ async fn ut_rs_018_get_content_jwe_pubkey_missing() {
 // Tests – GET info
 // ---------------------------------------------------------------------------
 
-/// UT-RS-019: GET info success with OPA -> Ok(ResourceInfoResponse)
+/// UT-RS-019: GET info success with OPA -> Ok(ResourceResponse)
 #[tokio::test]
 async fn ut_rs_019_get_info_success() {
     let svc = make_service(
@@ -962,10 +962,9 @@ async fn ut_rs_019_get_info_success() {
     match &result {
         Ok(info) => {
             assert_eq!(info.uri, TEST_URI);
-            assert_eq!(info.user_id, TEST_USER);
             assert_eq!(info.policy_id, TEST_POLICY_ID);
         }
-        Err(e) => panic!("Expected Ok(ResourceInfoResponse), got Err({:?})", e),
+        Err(e) => panic!("Expected Ok(ResourceResponse), got Err({:?})", e),
     }
 }
 
@@ -1156,7 +1155,7 @@ async fn ut_rs_025_retrieve_success() {
     let result = svc.retrieve(&attest_payload(), TEST_URI).await;
     assert!(result.is_ok(), "retrieve should succeed: {:?}", result.err());
     let resp = result.unwrap();
-    assert_eq!(resp.content_type, "text");
+    assert_eq!(resp.content_type.as_deref(), Some("text"));
     assert!(!resp.content.is_empty());
 }
 

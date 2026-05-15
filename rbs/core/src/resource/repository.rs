@@ -5,14 +5,14 @@ use super::error::ResourceError;
 /// Resource entity stored in t_res_info.
 #[derive(Debug, Clone)]
 pub struct ResourceEntity {
-    pub user_id: String,
+    pub username: String,
     pub provider_name: String,
     pub repo_name: String,
     pub res_type: String,
     pub res_name: String,
     pub res_info: Option<String>,
-    pub create_time: i64,
-    pub update_time: i64,
+    pub created_at: i64,
+    pub updated_at: i64,
     pub content_type: Option<String>,
     pub export_mode: String,
     pub policy_id: String,
@@ -47,14 +47,14 @@ impl SeaOrmResourceRepository {
 impl ResourceRepository for SeaOrmResourceRepository {
     async fn insert(&self, entity: &ResourceEntity) -> Result<(), ResourceError> {
         let model = entity::ActiveModel {
-            user_id: sea_orm::Set(entity.user_id.clone()),
+            username: sea_orm::Set(entity.username.clone()),
             provider_name: sea_orm::Set(entity.provider_name.clone()),
             repo_name: sea_orm::Set(entity.repo_name.clone()),
             res_type: sea_orm::Set(entity.res_type.clone()),
             res_name: sea_orm::Set(entity.res_name.clone()),
             res_info: sea_orm::Set(entity.res_info.clone()),
-            create_time: sea_orm::Set(entity.create_time),
-            update_time: sea_orm::Set(entity.update_time),
+            created_at: sea_orm::Set(entity.created_at),
+            updated_at: sea_orm::Set(entity.updated_at),
             content_type: sea_orm::Set(entity.content_type.clone()),
             export_mode: sea_orm::Set(entity.export_mode.clone()),
             policy_id: sea_orm::Set(entity.policy_id.clone()),
@@ -76,20 +76,20 @@ impl ResourceRepository for SeaOrmResourceRepository {
             .await
             .map_err(|e| ResourceError::BackendError { detail: e.to_string() })?;
         Ok(model.map(|m| ResourceEntity {
-            user_id: m.user_id, provider_name: m.provider_name, repo_name: m.repo_name,
+            username: m.username, provider_name: m.provider_name, repo_name: m.repo_name,
             res_type: m.res_type, res_name: m.res_name, res_info: m.res_info,
-            create_time: m.create_time, update_time: m.update_time,
+            created_at: m.created_at, updated_at: m.updated_at,
             content_type: m.content_type, export_mode: m.export_mode, policy_id: m.policy_id,
         }))
     }
 
-    async fn update(&self, uri: &str, entity: &ResourceEntity) -> Result<u64, ResourceError> {
+    async fn update(&self, uri: &str, entity: &ResourceEntity, old_update_time: i64) -> Result<u64, ResourceError> {
         let _ = parse_uri(uri)?;
         use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
         use entity::ActiveModel;
         let active = ActiveModel {
             res_info: Set(entity.res_info.clone()),
-            update_time: Set(entity.update_time),
+            updated_at: Set(entity.updated_at),
             content_type: Set(entity.content_type.clone()),
             export_mode: Set(entity.export_mode.clone()),
             policy_id: Set(entity.policy_id.clone()),
@@ -101,14 +101,15 @@ impl ResourceRepository for SeaOrmResourceRepository {
             .filter(entity::Column::RepoName.eq(entity.repo_name.clone()))
             .filter(entity::Column::ResType.eq(entity.res_type.clone()))
             .filter(entity::Column::ResName.eq(entity.res_name.clone()))
-            .filter(entity::Column::UserId.eq(entity.user_id.clone()))
+            .filter(entity::Column::Username.eq(entity.username.clone()))
+            .filter(entity::Column::UpdatedAt.eq(old_update_time))
             .exec(self.db.as_ref())
             .await
             .map_err(|e| ResourceError::BackendError { detail: e.to_string() })?;
         Ok(result.rows_affected)
     }
 
-    async fn delete(&self, uri: &str, user_id: &str) -> Result<u64, ResourceError> {
+    async fn delete(&self, uri: &str, username: &str) -> Result<u64, ResourceError> {
         let (prov, repo, rtype, rname) = parse_uri(uri)?;
         use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
         let result = entity::Entity::delete_many()
@@ -116,25 +117,25 @@ impl ResourceRepository for SeaOrmResourceRepository {
             .filter(entity::Column::RepoName.eq(repo))
             .filter(entity::Column::ResType.eq(rtype))
             .filter(entity::Column::ResName.eq(rname))
-            .filter(entity::Column::UserId.eq(user_id))
+            .filter(entity::Column::Username.eq(username))
             .exec(self.db.as_ref())
             .await
             .map_err(|e| ResourceError::BackendError { detail: e.to_string() })?;
         Ok(result.rows_affected)
     }
 
-    async fn list_by_user(&self, user_id: &str) -> Result<Vec<ResourceEntity>, ResourceError> {
+    async fn list_by_user(&self, username: &str) -> Result<Vec<ResourceEntity>, ResourceError> {
         use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
         let models = entity::Entity::find()
-            .filter(entity::Column::UserId.eq(user_id))
-            .order_by_desc(entity::Column::CreateTime)
+            .filter(entity::Column::Username.eq(username))
+            .order_by_desc(entity::Column::CreatedAt)
             .all(self.db.as_ref())
             .await
             .map_err(|e| ResourceError::BackendError { detail: e.to_string() })?;
         Ok(models.into_iter().map(|m| ResourceEntity {
-            user_id: m.user_id, provider_name: m.provider_name, repo_name: m.repo_name,
+            username: m.username, provider_name: m.provider_name, repo_name: m.repo_name,
             res_type: m.res_type, res_name: m.res_name, res_info: m.res_info,
-            create_time: m.create_time, update_time: m.update_time,
+            created_at: m.created_at, updated_at: m.updated_at,
             content_type: m.content_type, export_mode: m.export_mode, policy_id: m.policy_id,
         }).collect())
     }
@@ -147,9 +148,9 @@ impl ResourceRepository for SeaOrmResourceRepository {
             .await
             .map_err(|e| ResourceError::BackendError { detail: e.to_string() })?;
         Ok(models.into_iter().map(|m| ResourceEntity {
-            user_id: m.user_id, provider_name: m.provider_name, repo_name: m.repo_name,
+            username: m.username, provider_name: m.provider_name, repo_name: m.repo_name,
             res_type: m.res_type, res_name: m.res_name, res_info: m.res_info,
-            create_time: m.create_time, update_time: m.update_time,
+            created_at: m.created_at, updated_at: m.updated_at,
             content_type: m.content_type, export_mode: m.export_mode, policy_id: m.policy_id,
         }).collect())
     }
@@ -161,9 +162,9 @@ impl ResourceRepository for SeaOrmResourceRepository {
 pub trait ResourceRepository: Send + Sync {
     async fn insert(&self, entity: &ResourceEntity) -> Result<(), ResourceError>;
     async fn find_by_uri(&self, uri: &str) -> Result<Option<ResourceEntity>, ResourceError>;
-    async fn update(&self, uri: &str, entity: &ResourceEntity) -> Result<u64, ResourceError>;
-    async fn delete(&self, uri: &str, user_id: &str) -> Result<u64, ResourceError>;
-    async fn list_by_user(&self, user_id: &str) -> Result<Vec<ResourceEntity>, ResourceError>;
+    async fn update(&self, uri: &str, entity: &ResourceEntity, old_update_time: i64) -> Result<u64, ResourceError>;
+    async fn delete(&self, uri: &str, username: &str) -> Result<u64, ResourceError>;
+    async fn list_by_user(&self, username: &str) -> Result<Vec<ResourceEntity>, ResourceError>;
     async fn find_by_policy_id(&self, policy_id: &str) -> Result<Vec<ResourceEntity>, ResourceError>;
 }
 
@@ -176,7 +177,7 @@ pub(crate) mod entity {
     #[sea_orm(table_name = "t_res_info")]
     pub struct Model {
         #[sea_orm(primary_key, auto_increment = false)]
-        pub user_id: String,
+        pub username: String,
         #[sea_orm(primary_key, auto_increment = false)]
         pub provider_name: String,
         #[sea_orm(primary_key, auto_increment = false)]
@@ -186,8 +187,8 @@ pub(crate) mod entity {
         #[sea_orm(primary_key, auto_increment = false)]
         pub res_name: String,
         pub res_info: Option<String>,
-        pub create_time: i64,
-        pub update_time: i64,
+        pub created_at: i64,
+        pub updated_at: i64,
         pub content_type: Option<String>,
         pub export_mode: String,
         pub policy_id: String,

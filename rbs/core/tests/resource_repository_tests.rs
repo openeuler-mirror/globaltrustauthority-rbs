@@ -26,9 +26,9 @@ async fn setup() -> (SeaOrmResourceRepository, Arc<DatabaseConnection>) {
 fn make_entity(uri: &str, user: &str, policy_id: &str) -> ResourceEntity {
     let (prov, repo, rtype, rname) = parse_test_uri(uri);
     ResourceEntity {
-        user_id: user.into(), provider_name: prov, repo_name: repo,
+        username: user.into(), provider_name: prov, repo_name: repo,
         res_type: rtype, res_name: rname, res_info: None,
-        create_time: 1000, update_time: 1000,
+        created_at: 1000, updated_at: 1000,
         content_type: None, export_mode: "jwe".into(), policy_id: policy_id.into(),
     }
 }
@@ -118,7 +118,8 @@ async fn update_resource_success() {
     let mut updated = entity.clone();
     updated.export_mode = "jwe".to_string();
     updated.content_type = Some("json".to_string());
-    let affected = repo.update("/rbs/v0/vault/default/secret/mykey", &updated).await.unwrap();
+    let old_time = entity.updated_at;
+    let affected = repo.update("/rbs/v0/vault/default/secret/mykey", &updated, old_time).await.unwrap();
     assert_eq!(affected, 1);
     let row = repo.find_by_uri("/rbs/v0/vault/default/secret/mykey").await.unwrap().unwrap();
     assert_eq!(row.export_mode, "jwe");
@@ -129,7 +130,7 @@ async fn update_resource_success() {
 async fn update_resource_not_found() {
     let (repo, _db) = setup().await;
     let entity = make_entity("/rbs/v0/vault/default/secret/nonexistent", "user1", "pol-1");
-    let affected = repo.update("/rbs/v0/vault/default/secret/nonexistent", &entity).await.unwrap();
+    let affected = repo.update("/rbs/v0/vault/default/secret/nonexistent", &entity, entity.updated_at).await.unwrap();
     assert_eq!(affected, 0);
 }
 

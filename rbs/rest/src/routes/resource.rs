@@ -14,9 +14,10 @@
 
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, http::StatusCode};
 use rbs_api_types::{
-    CreateResourceRequest, ErrorBody, ResourceContentResponse, ResourceInfoResponse,
+    CreateResourceRequest, ErrorBody, ResourceContentResponse,
     ResourceResponse, UpdateResourceRequest,
 };
+use rbs_core::auth::{Auth, TokenType};
 use rbs_core::RbsCore;
 use std::sync::Arc;
 
@@ -42,6 +43,7 @@ fn build_uri(path: &str) -> String { format!("/rbs/v0/{}", path) }
     summary = "Create resource",
     tags = ["Resource"],
     security(("bearerAuth" = [])),
+    request_body = CreateResourceRequest,
     params(
         ("res_provider" = String, Path, description = "Resource provider name"),
         ("repository_name" = String, Path, description = "Repository name"),
@@ -110,6 +112,7 @@ pub async fn get_resource(
     summary = "Update or create resource",
     tags = ["Resource"],
     security(("bearerAuth" = [])),
+    request_body = UpdateResourceRequest,
     params(
         ("res_provider" = String, Path, description = "Resource provider name"),
         ("repository_name" = String, Path, description = "Repository name"),
@@ -185,7 +188,7 @@ pub async fn delete_resource(
         ("resource_name" = String, Path, description = "Resource name"),
     ),
     responses(
-        (status = 200, description = "Resource metadata", body = ResourceInfoResponse),
+        (status = 200, description = "Resource metadata", body = ResourceResponse),
         (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody),
         (status = 404, description = "Resource not found", body = ErrorBody),
@@ -203,7 +206,12 @@ pub async fn get_resource_info(
     }
 }
 
-/// `POST /rbs/v0/{uri}/retrieve`: Retrieve resource with attestation.
+/// `POST /rbs/v0/{uri}/retrieve`: Retrieve resource with attestation evidence.
+///
+/// The client submits RBC evidences in the request body. The service calls the
+/// configured attestation backend to verify the evidence and obtain an attest
+/// token, then uses the token claims (including `tee-pubkey`) for Rego policy
+/// evaluation and JWE encryption of the resource content.
 #[utoipa::path(
     post,
     path = "/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}/retrieve",
@@ -219,24 +227,35 @@ pub async fn get_resource_info(
     ),
     responses(
         (status = 200, description = "Resource content (base64-encoded JWE)", body = ResourceContentResponse),
-        (status = 401, description = "Unauthorized", body = ErrorBody),
-        (status = 403, description = "Forbidden", body = ErrorBody),
         (status = 404, description = "Resource not found or access denied", body = ErrorBody),
+        (status = 502, description = "Attestation backend error", body = ErrorBody),
         (status = 500, description = "Internal error", body = ErrorBody),
     )
 )]
 pub async fn retrieve_resource(
-    core: web::Data<Arc<RbsCore>>, path: web::Path<String>,
-    _body: web::Json<rbs_api_types::ResourceRetrieveRequest>, req: HttpRequest,
+    core: web::Data<Arc<RbsCore>>,
+    auth: web::Data<Arc<dyn Auth>>,
+    path: web::Path<String>,
+    body: web::Json<rbs_api_types::ResourceRetrieveRequest>,
+    _req: HttpRequest,
 ) -> HttpResponse {
     let uri = build_uri(&path.into_inner());
-    // AttestContext must come from auth middleware when Attest token is used.
-    let attest_ctx = req.extensions().get::<OptAuthContext>().and_then(|c| c.0.clone());
-    let attest = match attest_ctx {
-        Some(rbs_core::AuthContext::Attest(a)) => a,
-        _ => rbs_core::AttestContext { claims: serde_json::Value::Null, token_type: rbs_core::TokenType::Attest },
+
+    // Step 1: call attestation backend with evidence to obtain an attest token.
+    let attest_resp = match core.attestation().attest(body.into_inner()).await {
+        Ok(resp) => resp,
+        Err(e) => return error_response(e.to_string(), 502),
     };
-    match core.resource().retrieve(&attest, &uri).await {
+
+    // Step 2: parse the attest token to extract claims (containing tee-pubkey etc.).
+    let attest_ctx = match auth.authenticate(&attest_resp.token, TokenType::Attest).await {
+        Ok(rbs_core::AuthContext::Attest(ctx)) => ctx,
+        Ok(_) => return error_response("attest token resolved to unexpected auth context", 500),
+        Err(e) => return error_response(e.to_string(), 500),
+    };
+
+    // Step 3: retrieve resource content — policy evaluation + backend fetch + JWE encrypt + base64.
+    match core.resource().retrieve(&attest_ctx, &uri).await {
         Ok(resp) => HttpResponse::Ok().json(resp),
         Err(e) => error_response(e.to_string(), e.http_status()),
     }

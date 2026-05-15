@@ -24,9 +24,6 @@ pub enum PolicyError {
     #[error("policy content too large: {size_kb}KB exceeds max {max_kb}KB")]
     ContentTooLarge { size_kb: usize, max_kb: usize },
 
-    #[error("Rego syntax error: {details}")]
-    RegoSyntaxError { details: String },
-
     #[error("policy not found")]
     NotFound,
 
@@ -38,6 +35,9 @@ pub enum PolicyError {
 
     #[error("invalid parameter: {field}")]
     ParamInvalid { field: &'static str },
+
+    #[error("internal database error: {detail}")]
+    BackendError { detail: String },
 }
 
 impl PolicyError {
@@ -50,16 +50,19 @@ impl PolicyError {
             | PolicyError::UnsupportedContentType { .. }
             | PolicyError::ContentDecodeError { .. }
             | PolicyError::ContentTooLarge { .. }
-            | PolicyError::RegoSyntaxError { .. }
             | PolicyError::ParamInvalid { .. } => 400,
             PolicyError::BeingReferenced { .. } => 409,
             PolicyError::NotFound => 404,
             PolicyError::VersionConflict { .. } => 409,
+            PolicyError::BackendError { .. } => 502,
         }
     }
 
     pub fn external_message(&self) -> String {
-        self.to_string()
+        match self {
+            PolicyError::BackendError { .. } => "internal database error".to_string(),
+            other => other.to_string(),
+        }
     }
 }
 

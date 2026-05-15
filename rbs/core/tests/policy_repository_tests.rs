@@ -25,7 +25,7 @@ async fn setup() -> (SeaOrmPolicyRepository, Arc<DatabaseConnection>) {
 
 fn make_entity(id: &str, user: &str, name: &str) -> PolicyEntity {
     PolicyEntity {
-        policy_id: id.into(), user_id: user.into(), policy_name: name.into(),
+        policy_id: id.into(), username: user.into(), policy_name: name.into(),
         policy_version: 1, policy_content: "base64content".into(),
         content_type: "base64".into(), created_at: 1000, updated_at: 1000,
     }
@@ -38,24 +38,24 @@ async fn insert_success_then_find_by_id() {
     let (repo, _db) = setup().await;
     let entity = make_entity("p1", "user1", "policy-one");
 
-    repo.insert(entity).await.expect("insert should succeed");
+    repo.insert(&entity).await.expect("insert should succeed");
 
     let found = repo.find_by_id("p1").await.expect("find_by_id");
     assert!(found.is_some());
     let row = found.unwrap();
     assert_eq!(row.policy_name, "policy-one");
-    assert_eq!(row.user_id, "user1");
+    assert_eq!(row.username, "user1");
     assert_eq!(row.policy_version, 1);
 }
 
 #[tokio::test]
 async fn insert_duplicate_primary_key_returns_error() {
     let (repo, _db) = setup().await;
-    repo.insert(make_entity("dup", "user1", "first")).await.unwrap();
+    repo.insert(&make_entity("dup", "user1", "first")).await.unwrap();
 
-    let result = repo.insert(make_entity("dup", "user1", "second")).await;
+    let result = repo.insert(&make_entity("dup", "user1", "second")).await;
     assert!(result.is_err());
-    assert!(matches!(result.unwrap_err(), PolicyError::ParamInvalid { .. }));
+    assert!(matches!(result.unwrap_err(), PolicyError::BackendError { .. }));
 }
 
 // ── SQL-02: find_by_id ────────────────────────────────────────────────
@@ -72,7 +72,7 @@ async fn find_by_id_not_found_returns_none() {
 #[tokio::test]
 async fn find_by_name_and_user_found() {
     let (repo, _db) = setup().await;
-    repo.insert(make_entity("p1", "user1", "my-policy")).await.unwrap();
+    repo.insert(&make_entity("p1", "user1", "my-policy")).await.unwrap();
 
     let found = repo.find_by_name_and_user("my-policy", "user1").await.unwrap();
     assert!(found.is_some());
@@ -82,7 +82,7 @@ async fn find_by_name_and_user_found() {
 #[tokio::test]
 async fn find_by_name_and_user_not_found_wrong_name() {
     let (repo, _db) = setup().await;
-    repo.insert(make_entity("p1", "user1", "my-policy")).await.unwrap();
+    repo.insert(&make_entity("p1", "user1", "my-policy")).await.unwrap();
 
     let found = repo.find_by_name_and_user("wrong-name", "user1").await.unwrap();
     assert!(found.is_none());
@@ -91,7 +91,7 @@ async fn find_by_name_and_user_not_found_wrong_name() {
 #[tokio::test]
 async fn find_by_name_and_user_not_found_wrong_user() {
     let (repo, _db) = setup().await;
-    repo.insert(make_entity("p1", "user1", "my-policy")).await.unwrap();
+    repo.insert(&make_entity("p1", "user1", "my-policy")).await.unwrap();
 
     let found = repo.find_by_name_and_user("my-policy", "other-user").await.unwrap();
     assert!(found.is_none());
@@ -109,7 +109,7 @@ async fn find_by_ids_empty_returns_empty() {
 #[tokio::test]
 async fn find_by_ids_single_match() {
     let (repo, _db) = setup().await;
-    repo.insert(make_entity("p1", "user1", "a")).await.unwrap();
+    repo.insert(&make_entity("p1", "user1", "a")).await.unwrap();
     let result = repo.find_by_ids_and_user(&["p1".into()], "user1").await.unwrap();
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].policy_id, "p1");
@@ -118,8 +118,8 @@ async fn find_by_ids_single_match() {
 #[tokio::test]
 async fn find_by_ids_multiple_match() {
     let (repo, _db) = setup().await;
-    repo.insert(make_entity("p1", "user1", "a")).await.unwrap();
-    repo.insert(make_entity("p2", "user1", "b")).await.unwrap();
+    repo.insert(&make_entity("p1", "user1", "a")).await.unwrap();
+    repo.insert(&make_entity("p2", "user1", "b")).await.unwrap();
     let result = repo.find_by_ids_and_user(&["p1".into(), "p2".into()], "user1").await.unwrap();
     assert_eq!(result.len(), 2);
 }
@@ -127,7 +127,7 @@ async fn find_by_ids_multiple_match() {
 #[tokio::test]
 async fn find_by_ids_wrong_user_filters_out() {
     let (repo, _db) = setup().await;
-    repo.insert(make_entity("p1", "user1", "a")).await.unwrap();
+    repo.insert(&make_entity("p1", "user1", "a")).await.unwrap();
     let result = repo.find_by_ids_and_user(&["p1".into()], "other-user").await.unwrap();
     assert!(result.is_empty());
 }
@@ -135,7 +135,7 @@ async fn find_by_ids_wrong_user_filters_out() {
 #[tokio::test]
 async fn find_by_ids_mixed_match_and_missing() {
     let (repo, _db) = setup().await;
-    repo.insert(make_entity("p1", "user1", "a")).await.unwrap();
+    repo.insert(&make_entity("p1", "user1", "a")).await.unwrap();
     // p2 never inserted
     let result = repo.find_by_ids_and_user(&["p1".into(), "p2".into()], "user1").await.unwrap();
     assert_eq!(result.len(), 1);
@@ -154,9 +154,9 @@ async fn count_by_user_zero_when_none() {
 #[tokio::test]
 async fn count_by_user_counts_only_own_policies() {
     let (repo, _db) = setup().await;
-    repo.insert(make_entity("p1", "user1", "a")).await.unwrap();
-    repo.insert(make_entity("p2", "user1", "b")).await.unwrap();
-    repo.insert(make_entity("p3", "user2", "c")).await.unwrap();
+    repo.insert(&make_entity("p1", "user1", "a")).await.unwrap();
+    repo.insert(&make_entity("p2", "user1", "b")).await.unwrap();
+    repo.insert(&make_entity("p3", "user2", "c")).await.unwrap();
 
     assert_eq!(repo.count_by_user("user1").await.unwrap(), 2);
     assert_eq!(repo.count_by_user("user3").await.unwrap(), 0);
@@ -175,9 +175,9 @@ async fn list_by_user_empty_returns_zero() {
 #[tokio::test]
 async fn list_by_user_returns_all_for_user() {
     let (repo, _db) = setup().await;
-    repo.insert(make_entity("p1", "u1", "a")).await.unwrap();
-    repo.insert(make_entity("p2", "u1", "b")).await.unwrap();
-    repo.insert(make_entity("p3", "u2", "c")).await.unwrap();
+    repo.insert(&make_entity("p1", "u1", "a")).await.unwrap();
+    repo.insert(&make_entity("p2", "u1", "b")).await.unwrap();
+    repo.insert(&make_entity("p3", "u2", "c")).await.unwrap();
 
     let (items, total) = repo.list_by_user("u1", 0, 10).await.unwrap();
     assert_eq!(items.len(), 2);
@@ -188,7 +188,7 @@ async fn list_by_user_returns_all_for_user() {
 async fn list_by_user_pagination_offset() {
     let (repo, _db) = setup().await;
     for i in 1..=5 {
-        repo.insert(make_entity(&format!("p{}", i), "user1", &format!("n{}", i))).await.unwrap();
+        repo.insert(&make_entity(&format!("p{}", i), "user1", &format!("n{}", i))).await.unwrap();
     }
     let (items, total) = repo.list_by_user("user1", 2, 10).await.unwrap();
     assert_eq!(items.len(), 3); // 5 total, offset 2 → 3 remaining
@@ -199,7 +199,7 @@ async fn list_by_user_pagination_offset() {
 async fn list_by_user_pagination_limit() {
     let (repo, _db) = setup().await;
     for i in 1..=5 {
-        repo.insert(make_entity(&format!("p{}", i), "user1", &format!("n{}", i))).await.unwrap();
+        repo.insert(&make_entity(&format!("p{}", i), "user1", &format!("n{}", i))).await.unwrap();
     }
     let (items, total) = repo.list_by_user("user1", 0, 2).await.unwrap();
     assert_eq!(items.len(), 2);
@@ -211,7 +211,7 @@ async fn list_by_user_pagination_limit() {
 #[tokio::test]
 async fn delete_existing_removes_row() {
     let (repo, _db) = setup().await;
-    repo.insert(make_entity("p1", "user1", "a")).await.unwrap();
+    repo.insert(&make_entity("p1", "user1", "a")).await.unwrap();
     repo.delete("p1").await.unwrap();
     let found = repo.find_by_id("p1").await.unwrap();
     assert!(found.is_none());
@@ -229,7 +229,7 @@ async fn delete_non_existing_does_not_error() {
 #[tokio::test]
 async fn update_with_version_success() {
     let (repo, _db) = setup().await;
-    repo.insert(make_entity("p1", "user1", "old-name")).await.unwrap();
+    repo.insert(&make_entity("p1", "user1", "old-name")).await.unwrap();
     let updated = make_entity("p1", "user1", "new-name");
     let affected = repo.update_with_version("p1", 1, updated).await.unwrap();
     assert_eq!(affected, 1);
@@ -241,7 +241,7 @@ async fn update_with_version_success() {
 #[tokio::test]
 async fn update_with_version_conflict_returns_zero() {
     let (repo, _db) = setup().await;
-    repo.insert(make_entity("p1", "user1", "v1")).await.unwrap();
+    repo.insert(&make_entity("p1", "user1", "v1")).await.unwrap();
     // expected_version = 999 does not match current version = 1
     let affected = repo.update_with_version("p1", 999, make_entity("p1", "user1", "v2")).await.unwrap();
     assert_eq!(affected, 0);
@@ -252,7 +252,7 @@ async fn update_with_version_conflict_returns_zero() {
 #[tokio::test]
 async fn delete_by_ids_txn_single() {
     let (repo, _db) = setup().await;
-    repo.insert(make_entity("p1", "user1", "a")).await.unwrap();
+    repo.insert(&make_entity("p1", "user1", "a")).await.unwrap();
     let txn = _db.begin().await.unwrap();
     let affected = repo.delete_by_ids_txn(&txn, &["p1".into()], "user1").await.unwrap();
     assert_eq!(affected, 1);
@@ -263,9 +263,9 @@ async fn delete_by_ids_txn_single() {
 #[tokio::test]
 async fn delete_by_ids_txn_multiple() {
     let (repo, _db) = setup().await;
-    repo.insert(make_entity("p1", "user1", "a")).await.unwrap();
-    repo.insert(make_entity("p2", "user1", "b")).await.unwrap();
-    repo.insert(make_entity("p3", "user2", "c")).await.unwrap();
+    repo.insert(&make_entity("p1", "user1", "a")).await.unwrap();
+    repo.insert(&make_entity("p2", "user1", "b")).await.unwrap();
+    repo.insert(&make_entity("p3", "user2", "c")).await.unwrap();
     let txn = _db.begin().await.unwrap();
     let affected = repo.delete_by_ids_txn(&txn, &["p1".into(), "p2".into(), "p3".into()], "user1").await.unwrap();
     assert_eq!(affected, 2); // only p1, p2 belong to user1

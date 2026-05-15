@@ -274,7 +274,7 @@ async fn ut_pe_009() {
         .await;
 
     // DESIRED ASSERTION (uncomment when sub-matching is implemented):
-    //   assert_eq!(result, Ok(AuthzError::Denied));
+    //   assert_eq!(result, Err(AuthzError::Denied));
     //
     // Because the current rego does not check sub ownership, we instead
     // verify the actual behavior (Allow) and flag the gap:

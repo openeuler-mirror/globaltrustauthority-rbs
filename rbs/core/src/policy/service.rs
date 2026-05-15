@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use chrono::Timelike;
 use sea_orm::TransactionTrait;
 
 use super::config::PolicyConfig;
@@ -34,6 +35,12 @@ pub struct PolicyService {
     pub config: PolicyConfig,
 }
 
+fn millis_to_rfc3339(ms: i64) -> String {
+    chrono::DateTime::from_timestamp_millis(ms)
+        .map(|dt| dt.with_nanosecond(0).unwrap_or(dt).to_rfc3339())
+        .unwrap_or_default()
+}
+
 impl PolicyService {
     pub fn new(
         repo: Arc<dyn PolicyRepository>,
@@ -49,7 +56,7 @@ impl PolicyService {
     // Helper: generate a UUID-like policy ID (UUID without dashes).
     // ---------------------------------------------------------------------------
     fn generate_policy_id() -> String {
-        uuid::Uuid::new_v4().simple().to_string()
+        uuid::Uuid::new_v4().to_string()
     }
 
     /// Create a new policy.
@@ -60,28 +67,25 @@ impl PolicyService {
 
         // ── step 2: data validation ──
         self.validator.validate_name(&req.name)?;
-        let user_id = ctx.sub();
+        let username = ctx.sub();
 
         // name duplicate check
-        if let Some(_existing) = self.repo.find_by_name_and_user(&req.name, user_id).await? {
+        if let Some(_existing) = self.repo.find_by_name_and_user(&req.name, username).await? {
             return Err(PolicyError::NameDuplicate { name: req.name.clone() });
         }
 
         // count limit check
-        let count = self.repo.count_by_user(user_id).await?;
+        let count = self.repo.count_by_user(username).await?;
         self.validator.check_user_policy_count(count)?;
 
         // content decode and size check
-        let _decoded = self.validator.decode_and_check_size(&req.content_type, &req.content)?;
-
-        // Rego syntax check
-        self.validator.validate_rego_syntax(&_decoded)?;
+        self.validator.decode_and_check_size(&req.content_type, &req.content)?;
 
         // ── step 3: execute ──
         let now = chrono::Utc::now().timestamp_millis();
         let entity = PolicyEntity {
             policy_id: Self::generate_policy_id(),
-            user_id: user_id.to_string(),
+            username: username.to_string(),
             policy_name: req.name.clone(),
             policy_version: 1,
             policy_content: req.content.clone(),
@@ -89,7 +93,7 @@ impl PolicyService {
             created_at: now,
             updated_at: now,
         };
-        self.repo.insert(entity.clone()).await?;
+        self.repo.insert(&entity).await?;
 
         Ok(PolicyResponse {
             policy_id: entity.policy_id,
@@ -97,8 +101,8 @@ impl PolicyService {
             policy_version: entity.policy_version,
             policy_content: entity.policy_content,
             content_type: entity.content_type,
-            created_at: entity.created_at,
-            updated_at: entity.updated_at,
+            created_at: millis_to_rfc3339(entity.created_at),
+            updated_at: millis_to_rfc3339(entity.updated_at),
             applied_resources: None,
         })
     }
@@ -116,7 +120,7 @@ impl PolicyService {
 
         // ── step 2: data validation ──
         self.validator.validate_name(&req.name)?;
-        let user_id = ctx.sub();
+        let username = ctx.sub();
 
         // find existing policy
         let existing = self
@@ -126,13 +130,13 @@ impl PolicyService {
             .ok_or(PolicyError::NotFound)?;
 
         // ownership check
-        if existing.user_id != user_id {
+        if existing.username != username {
             return Err(PolicyError::PermissionDenied);
         }
 
         // name duplicate check (only if name changed)
         if req.name != existing.policy_name {
-            if let Some(conflict) = self.repo.find_by_name_and_user(&req.name, user_id).await? {
+            if let Some(conflict) = self.repo.find_by_name_and_user(&req.name, username).await? {
                 if conflict.policy_id != policy_id {
                     return Err(PolicyError::NameDuplicate { name: req.name.clone() });
                 }
@@ -140,16 +144,13 @@ impl PolicyService {
         }
 
         // content decode and size check
-        let _decoded = self.validator.decode_and_check_size(&req.content_type, &req.content)?;
-
-        // Rego syntax check
-        self.validator.validate_rego_syntax(&_decoded)?;
+        self.validator.decode_and_check_size(&req.content_type, &req.content)?;
 
         // ── step 3: execute with optimistic lock ──
         let now = chrono::Utc::now().timestamp_millis();
         let updated_entity = PolicyEntity {
             policy_id: policy_id.to_string(),
-            user_id: user_id.to_string(),
+            username: username.to_string(),
             policy_name: req.name.clone(),
             policy_version: existing.policy_version, // will be incremented by update_with_version
             policy_content: req.content.clone(),
@@ -177,8 +178,8 @@ impl PolicyService {
             policy_version: new_version,
             policy_content: req.content.clone(),
             content_type: req.content_type.clone(),
-            created_at: existing.created_at,
-            updated_at: now,
+            created_at: millis_to_rfc3339(existing.created_at),
+            updated_at: millis_to_rfc3339(now),
             applied_resources: None,
         })
     }
@@ -194,11 +195,11 @@ impl PolicyService {
         // ── step 1: permission check ──
         self.authz.check(ctx).action(Action::Delete).required_role(RequiredRole::UserScoped).ensure_allowed().await.map_err(|_| PolicyError::PermissionDenied)?;
 
-        let user_id = ctx.sub();
+        let username = ctx.sub();
 
         // ── step 2: full validation (collect all errors) ──
         let mut referenced_names: Vec<String> = Vec::new();
-        let entities = self.repo.find_by_ids_and_user(policy_ids, user_id).await?;
+        let entities = self.repo.find_by_ids_and_user(policy_ids, username).await?;
 
         // Check for missing policies
         if entities.len() != policy_ids.len() {
@@ -212,10 +213,10 @@ impl PolicyService {
 
         // Check ownership and references
         for entity in &entities {
-            if entity.user_id != user_id {
+            if entity.username != username {
                 return Err(PolicyError::PermissionDenied);
             }
-            let refs = self.resource_client.relation_res_ids(&entity.policy_id, user_id).await?;
+            let refs = self.resource_client.relation_res_ids(&entity.policy_id, username).await?;
             if !refs.is_empty() {
                 referenced_names.push(entity.policy_name.clone());
             }
@@ -229,7 +230,7 @@ impl PolicyService {
         let db = self.repo.db_connection();
         let txn = db.begin().await.map_err(|_| PolicyError::ParamInvalid { field: "db" })?;
 
-        let affected = self.repo.delete_by_ids_txn(&txn, policy_ids, user_id).await?;
+        let affected = self.repo.delete_by_ids_txn(&txn, policy_ids, username).await?;
         if affected as usize != policy_ids.len() {
             let _ = txn.rollback().await;
             return Err(PolicyError::NotFound);
@@ -246,7 +247,7 @@ impl PolicyService {
         // TODO: auth module under active development — AuthzFacade API may change.
         self.authz.check(ctx).action(Action::Get).required_role(RequiredRole::UserScoped).ensure_allowed().await.map_err(|_| PolicyError::PermissionDenied)?;
 
-        let user_id = ctx.sub();
+        let username = ctx.sub();
 
         // ── step 2: execute ──
         let limit = if query.limit > self.config.max_page_size as i64 {
@@ -261,12 +262,12 @@ impl PolicyService {
             if ids.is_empty() {
                 (vec![], 0u64)
             } else {
-                let entities = self.repo.find_by_ids_and_user(ids, user_id).await?;
+                let entities = self.repo.find_by_ids_and_user(ids, username).await?;
                 let count = entities.len() as u64;
                 (entities, count)
             }
         } else {
-            self.repo.list_by_user(user_id, query.offset, limit).await?
+            self.repo.list_by_user(username, query.offset, limit).await?
         };
 
         let items = items
@@ -277,8 +278,8 @@ impl PolicyService {
                 policy_version: e.policy_version,
                 policy_content: String::new(), // content NOT included in list
                 content_type: e.content_type,
-                created_at: e.created_at,
-                updated_at: e.updated_at,
+                created_at: millis_to_rfc3339(e.created_at),
+                updated_at: millis_to_rfc3339(e.updated_at),
                 applied_resources: None,
             })
             .collect();
@@ -292,7 +293,7 @@ impl PolicyService {
         // TODO: auth module under active development — AuthzFacade API may change.
         self.authz.check(ctx).action(Action::Get).required_role(RequiredRole::UserScoped).ensure_allowed().await.map_err(|_| PolicyError::PermissionDenied)?;
 
-        let user_id = ctx.sub();
+        let username = ctx.sub();
 
         // ── step 2: execute ──
         let entity = self
@@ -302,12 +303,12 @@ impl PolicyService {
             .ok_or(PolicyError::NotFound)?;
 
         // ownership check
-        if entity.user_id != user_id {
+        if entity.username != username {
             return Err(PolicyError::PermissionDenied);
         }
 
         // get applied resources
-        let applied_resources = self.resource_client.relation_res_ids(policy_id, user_id).await?;
+        let applied_resources = self.resource_client.relation_res_ids(policy_id, username).await?;
 
         Ok(PolicyResponse {
             policy_id: entity.policy_id,
@@ -315,8 +316,8 @@ impl PolicyService {
             policy_version: entity.policy_version,
             policy_content: entity.policy_content,
             content_type: entity.content_type,
-            created_at: entity.created_at,
-            updated_at: entity.updated_at,
+            created_at: millis_to_rfc3339(entity.created_at),
+            updated_at: millis_to_rfc3339(entity.updated_at),
             applied_resources: Some(applied_resources),
         })
     }

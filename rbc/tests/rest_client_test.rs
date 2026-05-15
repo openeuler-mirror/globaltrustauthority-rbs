@@ -58,7 +58,8 @@ async fn test_get_resource_with_bearer_token() {
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "uri": uri,
             "content": "c2VjcmV0LWRhdGE=",
-            "content_type": "jwe"
+            "content_type": "jwe",
+            "export_mode": "jwe"
         })))
         .mount(&mock_server)
         .await;
@@ -92,7 +93,8 @@ async fn test_get_resource_by_evidence_returns_content() {
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "uri": uri,
             "content": "ZW5jcnlwdGVkLWNvbnRlbnQ=",
-            "content_type": "jwe"
+            "content_type": "jwe",
+            "export_mode": "jwe"
         })))
         .mount(&mock_server)
         .await;
