@@ -12,6 +12,21 @@
 
 //! Policy management module.
 
+pub mod config;
+pub mod error;
+pub mod repository;
+pub mod service;
+pub mod validator;
+
+pub use config::PolicyConfig;
+pub use error::PolicyError;
+pub use repository::{PolicyEntity, PolicyRepository, SeaOrmPolicyRepository};
+pub use service::PolicyService;
+pub use validator::PolicyValidator;
+
+// Types from service module (design-doc aligned) - available under policy::service::
+// CreatePolicyRequest, UpdatePolicyRequest, PolicyQuery, PolicyResponse, PolicyListResponse
+
 use rbs_api_types::error::RbsError;
 use serde::{Deserialize, Serialize};
 
@@ -101,7 +116,12 @@ impl PolicyManager {
     }
 
     /// Update policy by id.
-    pub async fn update(&self, _policy_id: &str, _req: &PolicyUpdateRequest, _auth_ctx: Option<AuthContext>) -> Result<Option<PolicyResponse>> {
+    pub async fn update(
+        &self,
+        _policy_id: &str,
+        _req: &PolicyUpdateRequest,
+        _auth_ctx: Option<AuthContext>,
+    ) -> Result<Option<PolicyResponse>> {
         Err(RbsError::NotImplemented)
     }
 
@@ -111,7 +131,13 @@ impl PolicyManager {
     }
 
     /// List policies with pagination.
-    pub async fn list(&self, _ids: Option<&str>, _limit: i64, _offset: i64, _auth_ctx: Option<AuthContext>) -> Result<PolicyListResponse> {
+    pub async fn list(
+        &self,
+        _ids: Option<&str>,
+        _limit: i64,
+        _offset: i64,
+        _auth_ctx: Option<AuthContext>,
+    ) -> Result<PolicyListResponse> {
         Err(RbsError::NotImplemented)
     }
 }

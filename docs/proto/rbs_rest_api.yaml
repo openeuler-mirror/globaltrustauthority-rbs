@@ -13,6 +13,319 @@ servers:
 - url: http://localhost:6666
   description: Default local development (see `rbs.yaml` `rest.listen_addr`)
 paths:
+  /rbs/v0/resource/policy:
+    get:
+      tags:
+      - Policy
+      summary: List policies
+      operationId: listPolicies
+      parameters:
+      - name: ids
+        in: query
+        description: Comma-separated policy IDs
+        required: false
+        schema:
+          type: string
+      - name: limit
+        in: query
+        description: Page size
+        required: false
+        schema:
+          type: integer
+          format: int64
+      - name: offset
+        in: query
+        description: Page offset
+        required: false
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: Policy list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyListResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+    post:
+      tags:
+      - Policy
+      summary: Create a policy
+      operationId: createPolicy
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePolicyRequest'
+        required: true
+      responses:
+        '201':
+          description: Policy created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '409':
+          description: Conflict (name duplicate / count exceeded)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+    delete:
+      tags:
+      - Policy
+      summary: Batch delete policies
+      operationId: batchDeletePolicies
+      parameters:
+      - name: ids
+        in: query
+        description: Comma-separated policy IDs
+        required: true
+        schema:
+          type: string
+      responses:
+        '204':
+          description: Policies deleted
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '409':
+          description: Policy is referenced by resources
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+  /rbs/v0/resource/policy/{policy_id}:
+    get:
+      tags:
+      - Policy
+      summary: Get policy detail
+      operationId: getPolicy
+      parameters:
+      - name: policy_id
+        in: path
+        description: Policy ID
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Policy detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+    put:
+      tags:
+      - Policy
+      summary: Update a policy
+      operationId: updatePolicy
+      parameters:
+      - name: policy_id
+        in: path
+        description: Policy ID
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePolicyRequest'
+        required: true
+      responses:
+        '200':
+          description: Policy updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '409':
+          description: Version conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+    delete:
+      tags:
+      - Policy
+      summary: Delete a policy
+      operationId: deletePolicy
+      parameters:
+      - name: policy_id
+        in: path
+        description: Policy ID
+        required: true
+        schema:
+          type: string
+      responses:
+        '204':
+          description: Policy deleted
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '409':
+          description: Policy is referenced by resources
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
   /rbs/v0/users:
     get:
       tags:
@@ -297,6 +610,20 @@ components:
           type: string
           description: Build timestamp (UTC), typically RFC 3339, or empty when not embedded at build.
           example: 2026-04-20T00:00:00Z
+    CreatePolicyRequest:
+      type: object
+      description: Policy create request body.
+      required:
+      - name
+      - content_type
+      - content
+      properties:
+        name:
+          type: string
+        content_type:
+          type: string
+        content:
+          type: string
     ErrorBody:
       type: object
       description: Error payload for HTTP error responses (e.g. 500).
@@ -308,6 +635,56 @@ components:
           description: |-
             Error string for the caller: may be a stable code, a short machine-oriented label,
             or a concise human-readable message. Must not include stack traces or secrets.
+    PolicyListResponse:
+      type: object
+      description: Policy list response.
+      required:
+      - items
+      - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PolicyResponse'
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+    PolicyResponse:
+      type: object
+      description: Policy response returned to callers.
+      required:
+      - policy_id
+      - policy_name
+      - policy_version
+      - policy_content
+      - content_type
+      - created_at
+      - updated_at
+      properties:
+        policy_id:
+          type: string
+        policy_name:
+          type: string
+        policy_version:
+          type: integer
+          format: int32
+        policy_content:
+          type: string
+        content_type:
+          type: string
+        created_at:
+          type: integer
+          format: int64
+        updated_at:
+          type: integer
+          format: int64
+        applied_resources:
+          type:
+          - array
+          - 'null'
+          items:
+            type: string
     RbsVersion:
       type: object
       description: JSON emitted by `GET /rbs/version` (`service_name`, `api_version`, structured `build`).
@@ -333,6 +710,20 @@ components:
       enum:
       - admin
       - user
+    UpdatePolicyRequest:
+      type: object
+      description: Policy update request body.
+      required:
+      - name
+      - content_type
+      - content
+      properties:
+        name:
+          type: string
+        content_type:
+          type: string
+        content:
+          type: string
     UserCreateRequest:
       type: object
       description: Request body for POST /rbs/v0/users (create user).
@@ -459,3 +850,5 @@ tags:
   description: '`RbsCore::system` — service identity and API/build version via `GET /rbs/version` (system metadata). Does not require authentication.'
 - name: Admin
   description: User management CRUD — `GET/POST/PUT/DELETE /rbs/v0/users` (admin or self). Requires BearerToken.
+- name: Policy
+  description: Policy CRUD — `GET/POST/PUT/DELETE /rbs/v0/resource/policy`. Requires BearerToken.

@@ -13,8 +13,9 @@
 #![allow(clippy::needless_for_each)] // utoipa `OpenApi` derive
 
 use rbs_api_types::{
-    API_VERSION, BuildMetadata, ErrorBody, RbsVersion, UserCreateRequest, UserListResponse,
-    UserResponse, UserUpdateRequest,
+    API_VERSION, BuildMetadata, CreatePolicyRequest, ErrorBody, PolicyListResponse, PolicyResponse,
+    RbsVersion, UpdatePolicyRequest, UserCreateRequest, UserListResponse, UserResponse,
+    UserUpdateRequest,
 };
 use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::{Modify, OpenApi};
@@ -53,6 +54,7 @@ impl Modify for SecurityAddon {
     tags(
         (name = "System", description = "`RbsCore::system` — service identity and API/build version via `GET /rbs/version` (system metadata). Does not require authentication."),
         (name = "Admin", description = "User management CRUD — `GET/POST/PUT/DELETE /rbs/v0/users` (admin or self). Requires BearerToken."),
+        (name = "Policy", description = "Policy CRUD — `GET/POST/PUT/DELETE /rbs/v0/resource/policy`. Requires BearerToken."),
     ),
     modifiers(&SecurityAddon),
     paths(
@@ -62,10 +64,17 @@ impl Modify for SecurityAddon {
         crate::routes::admin::get_user,
         crate::routes::admin::update_user,
         crate::routes::admin::delete_user,
+        crate::routes::policy::list_policies,
+        crate::routes::policy::create_policy,
+        crate::routes::policy::get_policy,
+        crate::routes::policy::update_policy,
+        crate::routes::policy::delete_policy,
+        crate::routes::policy::batch_delete_policies,
     ),
     components(schemas(
         RbsVersion, BuildMetadata, ErrorBody,
         UserCreateRequest, UserUpdateRequest, UserResponse, UserListResponse,
+        CreatePolicyRequest, UpdatePolicyRequest, PolicyResponse, PolicyListResponse,
     ))
 )]
 pub struct ApiDoc;
