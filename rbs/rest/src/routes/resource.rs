@@ -13,8 +13,10 @@
 //! Resource routes (`/rbs/v0/{res_provider}/{...}`).
 
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, http::StatusCode};
-use rbs_api_types::ErrorBody;
-use rbs_core::resource::service::{CreateResourceRequest, UpdateResourceRequest};
+use rbs_api_types::{
+    CreateResourceRequest, ErrorBody, ResourceContentResponse, ResourceInfoResponse,
+    ResourceResponse, UpdateResourceRequest,
+};
 use rbs_core::RbsCore;
 use std::sync::Arc;
 
@@ -33,6 +35,27 @@ fn error_response(e: impl ToString, status: u16) -> HttpResponse {
 fn build_uri(path: &str) -> String { format!("/rbs/v0/{}", path) }
 
 /// `POST /rbs/v0/{uri}`: Create resource.
+#[utoipa::path(
+    post,
+    path = "/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}",
+    operation_id = "createResource",
+    summary = "Create resource",
+    tags = ["Resource"],
+    security(("bearerAuth" = [])),
+    params(
+        ("res_provider" = String, Path, description = "Resource provider name"),
+        ("repository_name" = String, Path, description = "Repository name"),
+        ("resource_type" = String, Path, description = "Resource type (secret, cert, etc.)"),
+        ("resource_name" = String, Path, description = "Resource name"),
+    ),
+    responses(
+        (status = 201, description = "Resource created", body = ResourceResponse),
+        (status = 401, description = "Unauthorized", body = ErrorBody),
+        (status = 403, description = "Forbidden", body = ErrorBody),
+        (status = 409, description = "Resource already exists", body = ErrorBody),
+        (status = 500, description = "Internal error", body = ErrorBody),
+    )
+)]
 pub async fn create_resource(
     core: web::Data<Arc<RbsCore>>, path: web::Path<String>,
     body: web::Json<CreateResourceRequest>, req: HttpRequest,
@@ -47,6 +70,27 @@ pub async fn create_resource(
 }
 
 /// `GET /rbs/v0/{uri}`: Retrieve resource content.
+#[utoipa::path(
+    get,
+    path = "/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}",
+    operation_id = "getResource",
+    summary = "Get resource content",
+    tags = ["Resource"],
+    security(("bearerAuth" = []), ("attestAuth" = [])),
+    params(
+        ("res_provider" = String, Path, description = "Resource provider name"),
+        ("repository_name" = String, Path, description = "Repository name"),
+        ("resource_type" = String, Path, description = "Resource type (secret, cert, etc.)"),
+        ("resource_name" = String, Path, description = "Resource name"),
+    ),
+    responses(
+        (status = 200, description = "Resource content (base64-encoded JWE)", body = ResourceContentResponse),
+        (status = 401, description = "Unauthorized", body = ErrorBody),
+        (status = 403, description = "Forbidden", body = ErrorBody),
+        (status = 404, description = "Resource not found or access denied", body = ErrorBody),
+        (status = 500, description = "Internal error", body = ErrorBody),
+    )
+)]
 pub async fn get_resource(
     core: web::Data<Arc<RbsCore>>, path: web::Path<String>, req: HttpRequest,
 ) -> HttpResponse {
@@ -59,6 +103,27 @@ pub async fn get_resource(
 }
 
 /// `PUT /rbs/v0/{uri}`: Update or create resource.
+#[utoipa::path(
+    put,
+    path = "/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}",
+    operation_id = "updateResource",
+    summary = "Update or create resource",
+    tags = ["Resource"],
+    security(("bearerAuth" = [])),
+    params(
+        ("res_provider" = String, Path, description = "Resource provider name"),
+        ("repository_name" = String, Path, description = "Repository name"),
+        ("resource_type" = String, Path, description = "Resource type (secret, cert, etc.)"),
+        ("resource_name" = String, Path, description = "Resource name"),
+    ),
+    responses(
+        (status = 200, description = "Resource updated", body = ResourceResponse),
+        (status = 201, description = "Resource created", body = ResourceResponse),
+        (status = 401, description = "Unauthorized", body = ErrorBody),
+        (status = 403, description = "Forbidden", body = ErrorBody),
+        (status = 500, description = "Internal error", body = ErrorBody),
+    )
+)]
 pub async fn update_resource(
     core: web::Data<Arc<RbsCore>>, path: web::Path<String>,
     body: web::Json<UpdateResourceRequest>, req: HttpRequest,
@@ -73,6 +138,27 @@ pub async fn update_resource(
 }
 
 /// `DELETE /rbs/v0/{uri}`: Delete resource.
+#[utoipa::path(
+    delete,
+    path = "/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}",
+    operation_id = "deleteResource",
+    summary = "Delete resource",
+    tags = ["Resource"],
+    security(("bearerAuth" = [])),
+    params(
+        ("res_provider" = String, Path, description = "Resource provider name"),
+        ("repository_name" = String, Path, description = "Repository name"),
+        ("resource_type" = String, Path, description = "Resource type (secret, cert, etc.)"),
+        ("resource_name" = String, Path, description = "Resource name"),
+    ),
+    responses(
+        (status = 204, description = "Resource deleted"),
+        (status = 401, description = "Unauthorized", body = ErrorBody),
+        (status = 403, description = "Forbidden", body = ErrorBody),
+        (status = 404, description = "Resource not found", body = ErrorBody),
+        (status = 500, description = "Internal error", body = ErrorBody),
+    )
+)]
 pub async fn delete_resource(
     core: web::Data<Arc<RbsCore>>, path: web::Path<String>, req: HttpRequest,
 ) -> HttpResponse {
@@ -85,6 +171,27 @@ pub async fn delete_resource(
 }
 
 /// `GET /rbs/v0/{uri}/info`: Get resource metadata.
+#[utoipa::path(
+    get,
+    path = "/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}/info",
+    operation_id = "getResourceInfo",
+    summary = "Get resource metadata",
+    tags = ["Resource"],
+    security(("bearerAuth" = []), ("attestAuth" = [])),
+    params(
+        ("res_provider" = String, Path, description = "Resource provider name"),
+        ("repository_name" = String, Path, description = "Repository name"),
+        ("resource_type" = String, Path, description = "Resource type (secret, cert, etc.)"),
+        ("resource_name" = String, Path, description = "Resource name"),
+    ),
+    responses(
+        (status = 200, description = "Resource metadata", body = ResourceInfoResponse),
+        (status = 401, description = "Unauthorized", body = ErrorBody),
+        (status = 403, description = "Forbidden", body = ErrorBody),
+        (status = 404, description = "Resource not found", body = ErrorBody),
+        (status = 500, description = "Internal error", body = ErrorBody),
+    )
+)]
 pub async fn get_resource_info(
     core: web::Data<Arc<RbsCore>>, path: web::Path<String>, req: HttpRequest,
 ) -> HttpResponse {
@@ -97,6 +204,27 @@ pub async fn get_resource_info(
 }
 
 /// `POST /rbs/v0/{uri}/retrieve`: Retrieve resource with attestation.
+#[utoipa::path(
+    post,
+    path = "/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}/retrieve",
+    operation_id = "retrieveResource",
+    summary = "Retrieve resource with attestation evidence",
+    tags = ["Resource"],
+    security(()),
+    params(
+        ("res_provider" = String, Path, description = "Resource provider name"),
+        ("repository_name" = String, Path, description = "Repository name"),
+        ("resource_type" = String, Path, description = "Resource type (secret, cert, etc.)"),
+        ("resource_name" = String, Path, description = "Resource name"),
+    ),
+    responses(
+        (status = 200, description = "Resource content (base64-encoded JWE)", body = ResourceContentResponse),
+        (status = 401, description = "Unauthorized", body = ErrorBody),
+        (status = 403, description = "Forbidden", body = ErrorBody),
+        (status = 404, description = "Resource not found or access denied", body = ErrorBody),
+        (status = 500, description = "Internal error", body = ErrorBody),
+    )
+)]
 pub async fn retrieve_resource(
     core: web::Data<Arc<RbsCore>>, path: web::Path<String>,
     _body: web::Json<rbs_api_types::ResourceRetrieveRequest>, req: HttpRequest,

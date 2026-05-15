@@ -94,7 +94,7 @@ mod tests {
     #[test]
     fn test_attest_context_clone() {
         let claims = serde_json::json!({
-            "tee_pubkey": "test_pubkey",
+            "tee-pubkey": "test_pubkey",
             "nonce": "test_nonce",
             "evidence": "test_evidence"
         });
@@ -163,7 +163,7 @@ mod tests {
     #[test]
     fn test_attest_context_raw_claims() {
         let claims = serde_json::json!({
-            "tee_pubkey": "0x1234...",
+            "tee-pubkey": "0x1234...",
             "nonce": "random-nonce-value",
             "tee_evidence": {
                 "quote": "base64-quote-data"
@@ -175,7 +175,7 @@ mod tests {
             token_type: TokenType::Attest,
         };
 
-        assert_eq!(ctx.claims["tee_pubkey"], "0x1234...");
+        assert_eq!(ctx.claims["tee-pubkey"], "0x1234...");
         assert_eq!(ctx.claims["nonce"], "random-nonce-value");
         assert!(ctx.claims["tee_evidence"].is_object());
     }

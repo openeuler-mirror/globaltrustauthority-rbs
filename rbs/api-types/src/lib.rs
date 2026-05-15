@@ -71,8 +71,9 @@ pub use error::RbsError;
 
 // Re-export types from resource module
 pub use resource::{
-    ResourceContentResponse, ResourceInfoResponse, ResourceMetadataResponse,
-    ResourceRetrieveRequest, ResourceUpsertRequest,
+    CreateResourceRequest, ResourceContentResponse, ResourceInfoResponse,
+    ResourceResponse, ResourceRetrieveRequest, UpdateResourceRequest,
+    ATTEST_TEE_PUBKEY_KEY, BEARER_ENC_PUBKEY_KEY,
 };
 
 // Re-export types from openapi module (with ToSchema and example attributes)

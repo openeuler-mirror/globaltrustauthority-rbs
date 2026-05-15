@@ -346,7 +346,7 @@ async fn resource_update_wired() {
         .set_json(&serde_json::json!({
             "policy_id": "pol-001",
             "content_type": "text/plain",
-            "export_mode": "plain"
+            "export_mode": "jwe"
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -463,7 +463,7 @@ async fn resource_create_with_attest_denied() {
         .set_json(&serde_json::json!({
             "policy_id": "pol-001",
             "content_type": "text/plain",
-            "export_mode": "plain"
+            "export_mode": "jwe"
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;

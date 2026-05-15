@@ -568,6 +568,385 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
       security:
       - bearerAuth: []
+  /rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}:
+    get:
+      tags:
+      - Resource
+      summary: Get resource content
+      operationId: getResource
+      parameters:
+      - name: res_provider
+        in: path
+        description: Resource provider name
+        required: true
+        schema:
+          type: string
+      - name: repository_name
+        in: path
+        description: Repository name
+        required: true
+        schema:
+          type: string
+      - name: resource_type
+        in: path
+        description: Resource type (secret, cert, etc.)
+        required: true
+        schema:
+          type: string
+      - name: resource_name
+        in: path
+        description: Resource name
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Resource content (base64-encoded JWE)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceContentResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Resource not found or access denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+      - attestAuth: []
+    put:
+      tags:
+      - Resource
+      summary: Update or create resource
+      operationId: updateResource
+      parameters:
+      - name: res_provider
+        in: path
+        description: Resource provider name
+        required: true
+        schema:
+          type: string
+      - name: repository_name
+        in: path
+        description: Repository name
+        required: true
+        schema:
+          type: string
+      - name: resource_type
+        in: path
+        description: Resource type (secret, cert, etc.)
+        required: true
+        schema:
+          type: string
+      - name: resource_name
+        in: path
+        description: Resource name
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Resource updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceResponse'
+        '201':
+          description: Resource created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+    post:
+      tags:
+      - Resource
+      summary: Create resource
+      operationId: createResource
+      parameters:
+      - name: res_provider
+        in: path
+        description: Resource provider name
+        required: true
+        schema:
+          type: string
+      - name: repository_name
+        in: path
+        description: Repository name
+        required: true
+        schema:
+          type: string
+      - name: resource_type
+        in: path
+        description: Resource type (secret, cert, etc.)
+        required: true
+        schema:
+          type: string
+      - name: resource_name
+        in: path
+        description: Resource name
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Resource created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '409':
+          description: Resource already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+    delete:
+      tags:
+      - Resource
+      summary: Delete resource
+      operationId: deleteResource
+      parameters:
+      - name: res_provider
+        in: path
+        description: Resource provider name
+        required: true
+        schema:
+          type: string
+      - name: repository_name
+        in: path
+        description: Repository name
+        required: true
+        schema:
+          type: string
+      - name: resource_type
+        in: path
+        description: Resource type (secret, cert, etc.)
+        required: true
+        schema:
+          type: string
+      - name: resource_name
+        in: path
+        description: Resource name
+        required: true
+        schema:
+          type: string
+      responses:
+        '204':
+          description: Resource deleted
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+  /rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}/info:
+    get:
+      tags:
+      - Resource
+      summary: Get resource metadata
+      operationId: getResourceInfo
+      parameters:
+      - name: res_provider
+        in: path
+        description: Resource provider name
+        required: true
+        schema:
+          type: string
+      - name: repository_name
+        in: path
+        description: Repository name
+        required: true
+        schema:
+          type: string
+      - name: resource_type
+        in: path
+        description: Resource type (secret, cert, etc.)
+        required: true
+        schema:
+          type: string
+      - name: resource_name
+        in: path
+        description: Resource name
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Resource metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceInfoResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+      - attestAuth: []
+  /rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}/retrieve:
+    post:
+      tags:
+      - Resource
+      summary: Retrieve resource with attestation evidence
+      operationId: retrieveResource
+      parameters:
+      - name: res_provider
+        in: path
+        description: Resource provider name
+        required: true
+        schema:
+          type: string
+      - name: repository_name
+        in: path
+        description: Repository name
+        required: true
+        schema:
+          type: string
+      - name: resource_type
+        in: path
+        description: Resource type (secret, cert, etc.)
+        required: true
+        schema:
+          type: string
+      - name: resource_name
+        in: path
+        description: Resource name
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Resource content (base64-encoded JWE)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceContentResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Resource not found or access denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - {}
   /rbs/version:
     get:
       tags:
@@ -624,6 +1003,29 @@ components:
           type: string
         content:
           type: string
+    CreateResourceRequest:
+      type: object
+      description: Request body for `POST /rbs/v0/{uri}` — create a resource.
+      required:
+      - uri
+      - policy_id
+      properties:
+        uri:
+          type: string
+        policy_id:
+          type: string
+        content_type:
+          type:
+          - string
+          - 'null'
+        export_mode:
+          type:
+          - string
+          - 'null'
+        additional_info:
+          type:
+          - string
+          - 'null'
     ErrorBody:
       type: object
       description: Error payload for HTTP error responses (e.g. 500).
@@ -704,6 +1106,93 @@ components:
         build:
           $ref: '#/components/schemas/BuildMetadata'
           description: Build metadata (`version`, `git_hash`, `build_date`) for this binary; same shape as in the exported `OpenAPI` schema.
+    ResourceContentResponse:
+      type: object
+      description: |-
+        Resource content returned by GET and POST .../retrieve.
+
+        `content` is always base64-encoded JWE ciphertext (Compact Serialization).
+      required:
+      - content
+      - content_type
+      - export_mode
+      properties:
+        content:
+          type: string
+          description: Base64-encoded JWE ciphertext.
+        content_type:
+          type: string
+          description: Original MIME type hint for decoding after JWE decryption.
+        export_mode:
+          type: string
+          description: Export mode (currently always "jwe").
+    ResourceInfoResponse:
+      type: object
+      description: Resource metadata returned by GET .../info (no secret material).
+      required:
+      - uri
+      - user_id
+      - policy_id
+      - created_at
+      - updated_at
+      - export_mode
+      properties:
+        uri:
+          type: string
+        user_id:
+          type: string
+        policy_id:
+          type: string
+        created_at:
+          type: integer
+          format: int64
+        updated_at:
+          type: integer
+          format: int64
+        content_type:
+          type:
+          - string
+          - 'null'
+        export_mode:
+          type: string
+    ResourceResponse:
+      type: object
+      description: Resource metadata returned after create or update.
+      required:
+      - uri
+      - user_id
+      - provider_name
+      - resource_type
+      - resource_name
+      - created_at
+      - updated_at
+      - export_mode
+      - policy_id
+      properties:
+        uri:
+          type: string
+        user_id:
+          type: string
+        provider_name:
+          type: string
+        resource_type:
+          type: string
+        resource_name:
+          type: string
+        created_at:
+          type: integer
+          format: int64
+        updated_at:
+          type: integer
+          format: int64
+        content_type:
+          type:
+          - string
+          - 'null'
+        export_mode:
+          type: string
+        policy_id:
+          type: string
     Role:
       type: string
       description: User role. `Admin` is pre-configured and cannot be created via the API.
@@ -724,6 +1213,26 @@ components:
           type: string
         content:
           type: string
+    UpdateResourceRequest:
+      type: object
+      description: Request body for `PUT /rbs/v0/{uri}` — update or create a resource.
+      required:
+      - policy_id
+      properties:
+        policy_id:
+          type: string
+        content_type:
+          type:
+          - string
+          - 'null'
+        export_mode:
+          type:
+          - string
+          - 'null'
+        additional_info:
+          type:
+          - string
+          - 'null'
     UserCreateRequest:
       type: object
       description: Request body for POST /rbs/v0/users (create user).
@@ -840,6 +1349,11 @@ components:
         jwk:
           description: JWK public key object (mutually exclusive with `public_key`).
   securitySchemes:
+    attestAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Attest
+      description: Attest Token. Obtain via POST /rbs/v0/attest.
     bearerAuth:
       type: http
       scheme: bearer
@@ -852,3 +1366,5 @@ tags:
   description: User management CRUD — `GET/POST/PUT/DELETE /rbs/v0/users` (admin or self). Requires BearerToken.
 - name: Policy
   description: Policy CRUD — `GET/POST/PUT/DELETE /rbs/v0/resource/policy`. Requires BearerToken.
+- name: Resource
+  description: Resource CRUD — `GET/POST/PUT/DELETE /rbs/v0/{provider}/{repo}/{type}/{name}`. Supports AttestToken and BearerToken.

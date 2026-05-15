@@ -25,7 +25,7 @@ impl Default for ResourceConfig {
                 "jwk".to_string(),
                 "jwe".to_string(),
             ],
-            allowed_export_modes: vec!["plain".to_string(), "jwe".to_string()],
+            allowed_export_modes: vec!["jwe".to_string()],
             configured_backends: vec!["vault".to_string()],
         }
     }

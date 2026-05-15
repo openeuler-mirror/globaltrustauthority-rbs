@@ -27,9 +27,10 @@ use rbs_core::auth::context::{AttestContext, AuthContext, BearerContext, TokenTy
 use rbs_core::resource::adapter::{BackendProvider, PolicyClient, ResourceBackend};
 use rbs_core::resource::error::ResourceError;
 use rbs_core::resource::repository::{ResourceEntity, ResourceRepository};
-use rbs_core::resource::service::{
-    CreateResourceRequest, ResourceService, UpdateResourceRequest,
+use rbs_core::resource::{
+    CreateResourceRequest, UpdateResourceRequest,
 };
+use rbs_core::resource::service::ResourceService;
 use rbs_core::resource::validator::ResourceValidator;
 use rbs_core::resource::ResourceConfig;
 
@@ -183,7 +184,7 @@ fn make_entity() -> ResourceEntity {
         create_time: 1000,
         update_time: 1000,
         content_type: Some("text".to_string()),
-        export_mode: "plain".to_string(),
+        export_mode: "jwe".to_string(),
         policy_id: TEST_POLICY_ID.to_string(),
     }
 }
@@ -194,7 +195,7 @@ fn create_req() -> CreateResourceRequest {
         uri: TEST_URI.to_string(),
         policy_id: TEST_POLICY_ID.to_string(),
         content_type: Some("text".to_string()),
-        export_mode: Some("plain".to_string()),
+        export_mode: Some("jwe".to_string()),
         additional_info: None,
     }
 }
@@ -204,7 +205,7 @@ fn update_req() -> UpdateResourceRequest {
     UpdateResourceRequest {
         policy_id: TEST_POLICY_ID.to_string(),
         content_type: Some("text".to_string()),
-        export_mode: Some("plain".to_string()),
+        export_mode: Some("jwe".to_string()),
         additional_info: None,
     }
 }
@@ -242,12 +243,12 @@ fn attest_ctx() -> AuthContext {
 /// Valid EC P-256 public JWK (RFC 7515 Appendix A.1 test vector).
 const EC_P256_JWK: &str = r#"{"kty":"EC","crv":"P-256","x":"MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4","y":"4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM"}"#;
 
-/// Attestation context used for retrieve calls (nested attester_data.runtime_data.tee_pubkey).
+/// Attestation context used for retrieve calls (nested attester_data.runtime_data.tee-pubkey).
 fn attest_payload() -> AttestContext {
     AttestContext {
         claims: json!({
             "nonce": "abc123",
-            "attester_data": {"runtime_data": {"tee_pubkey": EC_P256_JWK}}
+            "attester_data": {"runtime_data": {"tee-pubkey": EC_P256_JWK}}
         }),
         token_type: TokenType::Attest,
     }
@@ -262,18 +263,18 @@ fn attest_payload_no_pubkey() -> AttestContext {
     }
 }
 
-/// Attest AuthContext with tee_pubkey (nested: attester_data.runtime_data.tee_pubkey).
+/// Attest AuthContext with tee-pubkey (nested: attester_data.runtime_data.tee-pubkey).
 fn attest_with_pubkey() -> AuthContext {
     AuthContext::Attest(AttestContext {
         claims: json!({
             "nonce": "abc123",
-            "attester_data": {"runtime_data": {"tee_pubkey": EC_P256_JWK}}
+            "attester_data": {"runtime_data": {"tee-pubkey": EC_P256_JWK}}
         }),
         token_type: TokenType::Attest,
     })
 }
 
-/// Attest AuthContext without tee_pubkey — for JWE missing-key tests.
+/// Attest AuthContext without tee-pubkey — for JWE missing-key tests.
 #[allow(dead_code)]
 fn attest_without_pubkey() -> AuthContext {
     AuthContext::Attest(AttestContext {
@@ -755,12 +756,13 @@ async fn ut_rs_014_get_content_success() {
     );
 
     let result = svc
-        .get_content(&bearer_ctx(TEST_USER), TEST_URI)
+        .get_content(&attest_with_pubkey(), TEST_URI)
         .await;
     match &result {
         Ok(resp) => {
             assert!(!resp.content.is_empty(), "content should not be empty");
             assert_eq!(resp.content_type, "text");
+            assert_eq!(resp.export_mode, "jwe");
         }
         Err(e) => panic!("Expected Ok(ResourceContentResponse), got Err({:?})", e),
     }
@@ -810,43 +812,6 @@ async fn ut_rs_014b_get_content_policy_deleted() {
     match result {
         Err(ResourceError::PolicyIdInvalid(_)) => {}
         _ => panic!("Expected PolicyIdInvalid, got {:?}", result),
-    }
-}
-
-/// UT-RS-014c: GET content export_mode=plain -> plain content returned
-#[tokio::test]
-async fn ut_rs_014c_get_content_export_mode_plain() {
-    let mut entity = make_entity();
-    entity.export_mode = "plain".to_string();
-
-    let svc = make_service(
-        |repo| {
-            *repo.find_by_uri_result.lock().unwrap() = Ok(Some(entity));
-        },
-        |policy| {
-            *policy.get_policy_content_result.lock().unwrap() =
-                Ok("package example; result = {\"policy_matched\": true}".to_string());
-        },
-        |bp| {
-            bp.register(
-                "vault",
-                Arc::new(MockResourceBackend::with_content(b"plain-text-content".to_vec())),
-            );
-        },
-    );
-
-    let result = svc
-        .get_content(&bearer_ctx(TEST_USER), TEST_URI)
-        .await;
-    match &result {
-        Ok(resp) => {
-            assert_eq!(
-                resp.content.as_slice(),
-                b"plain-text-content",
-                "plain mode should return content as-is"
-            );
-        }
-        Err(e) => panic!("Expected Ok with plain content, got Err({:?})", e),
     }
 }
 
@@ -933,7 +898,8 @@ async fn ut_rs_017_get_content_jwe_encrypt() {
         .await;
     match &result {
         Ok(resp) => {
-            assert_ne!(resp.content, b"raw-data", "JWE content should be encrypted");
+            assert_ne!(resp.content.as_bytes(), b"raw-data", "JWE content should be encrypted");
+            assert_eq!(resp.export_mode, "jwe");
         }
         Err(e) => panic!("Expected Ok with JWE content, got Err({:?})", e),
     }
@@ -1225,7 +1191,7 @@ async fn ut_rs_028_retrieve_jwe_encrypt() {
     );
     let result = svc.retrieve(&attest_payload(), TEST_URI).await;
     assert!(result.is_ok(), "JWE retrieve should succeed: {:?}", result.err());
-    assert_ne!(result.unwrap().content, b"secret-data".to_vec(), "JWE content should not be plaintext");
+    assert_ne!(result.unwrap().content.as_bytes(), b"secret-data", "JWE content should not be plaintext");
 }
 
 #[tokio::test]

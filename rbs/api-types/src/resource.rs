@@ -12,101 +12,105 @@
 
 //! Resource-related types.
 //!
-//! Covers resource content, metadata, upsert requests, and retrieve.
+//! All request/response structs for the Resource module live here and
+//! are shared between the REST handler, core service, and OpenAPI doc generation.
 
 use serde::{Deserialize, Serialize};
 
 use super::auth::AttestRequest;
 
+// ── Token claim key name constants ──────────────────────────────────────────
+
+/// Key name for TEE public key in AttestToken claims (nested under
+/// `attester_data.runtime_data` or at root level).
+pub const ATTEST_TEE_PUBKEY_KEY: &str = "tee-pubkey";
+
+/// Key name for encryption public key in BearerToken claims (at root level).
+pub const BEARER_ENC_PUBKEY_KEY: &str = "enc-pubkey";
+
+// ── Create ──────────────────────────────────────────────────────────────────
+
+/// Request body for `POST /rbs/v0/{uri}` — create a resource.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct CreateResourceRequest {
+    pub uri: String,
+    pub policy_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub export_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub additional_info: Option<String>,
+}
+
+// ── Update ──────────────────────────────────────────────────────────────────
+
+/// Request body for `PUT /rbs/v0/{uri}` — update or create a resource.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct UpdateResourceRequest {
+    pub policy_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub export_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub additional_info: Option<String>,
+}
+
+// ── Response (create / update) ──────────────────────────────────────────────
+
+/// Resource metadata returned after create or update.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct ResourceResponse {
+    pub uri: String,
+    pub user_id: String,
+    pub provider_name: String,
+    pub resource_type: String,
+    pub resource_name: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_type: Option<String>,
+    pub export_mode: String,
+    pub policy_id: String,
+}
+
+// ── Content ─────────────────────────────────────────────────────────────────
+
 /// Resource content returned by GET and POST .../retrieve.
+///
+/// `content` is always base64-encoded JWE ciphertext (Compact Serialization).
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct ResourceContentResponse {
-    /// Canonical resource URI for the returned object.
-    pub uri: String,
-    /// Resource bytes, Base64-encoded unless documented otherwise by the provider.
+    /// Base64-encoded JWE ciphertext.
     pub content: String,
-    /// Optional MIME type hint for decoding `content`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content_type: Option<String>,
+    /// Original MIME type hint for decoding after JWE decryption.
+    pub content_type: String,
+    /// Export mode (currently always "jwe").
+    pub export_mode: String,
 }
 
-/// Request body for PUT /rbs/v0/{...}/{resource_name}.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub struct ResourceUpsertRequest {
-    /// Resource payload (plain or Base64 per deployment convention;
-    /// must match provider expectations).
-    pub content: String,
-    /// Optional MIME type for stored object metadata.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content_type: Option<String>,
+// ── Info (metadata) ─────────────────────────────────────────────────────────
 
-}
-
-/// Read-only metadata for an existing resource (no secret material).
-///
-/// Returned by GET .../info. Field presence depends on provider and deployment;
-/// clients must tolerate omitted keys.
+/// Resource metadata returned by GET .../info (no secret material).
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct ResourceInfoResponse {
-    /// Canonical URI of the resource.
     pub uri: String,
-    /// Path segment echo.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub res_provider: Option<String>,
-    /// Path segment echo.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub repository_name: Option<String>,
-    /// Path segment echo.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub resource_type: Option<String>,
-    /// Path segment echo.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub resource_name: Option<String>,
-    /// Creation time (RFC 3339), if tracked.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub created_at: Option<String>,
-    /// Last modification time (RFC 3339), if tracked.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub updated_at: Option<String>,
-    /// The single bound resource policy identifier for this resource, if any.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub policy_id: Option<String>,
-    /// Stored MIME type hint for the payload (no body returned by this operation).
+    pub user_id: String,
+    pub policy_id: String,
+    pub created_at: i64,
+    pub updated_at: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content_type: Option<String>,
-    /// Declared byte length of stored content, if known.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content_length: Option<i64>,
+    pub export_mode: String,
 }
 
-/// Metadata returned after create/update.
-///
-/// Additional fields allowed per provider.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub struct ResourceMetadataResponse {
-    /// Canonical URI of the resource.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub uri: Option<String>,
-    /// Path segment `res_provider` echoed for convenience.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub res_provider: Option<String>,
-    /// Path segment `repository_name` echoed for convenience.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub repository_name: Option<String>,
-    /// Path segment `resource_type` echoed; one of key, secret, cert.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub resource_type: Option<String>,
-    /// Path segment `resource_name` echoed for convenience.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub resource_name: Option<String>,
+// ── Retrieve ────────────────────────────────────────────────────────────────
 
-}
-
-/// Same JSON object as POST /rbs/v0/attest; binds evidence to POST .../retrieve path resource.
-///
-/// This is a type alias for AttestRequest as the request shape is identical.
+/// Same shape as AttestRequest; binds evidence to the POST .../retrieve path.
 pub type ResourceRetrieveRequest = AttestRequest;

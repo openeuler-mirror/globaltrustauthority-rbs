@@ -29,7 +29,7 @@ fn make_entity(uri: &str, user: &str, policy_id: &str) -> ResourceEntity {
         user_id: user.into(), provider_name: prov, repo_name: repo,
         res_type: rtype, res_name: rname, res_info: None,
         create_time: 1000, update_time: 1000,
-        content_type: None, export_mode: "plain".into(), policy_id: policy_id.into(),
+        content_type: None, export_mode: "jwe".into(), policy_id: policy_id.into(),
     }
 }
 

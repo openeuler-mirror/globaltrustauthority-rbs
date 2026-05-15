@@ -25,7 +25,7 @@ fn make_resource(uri: &str, user: &str, pid: &str) -> ResourceEntity {
         user_id: user.into(), provider_name: s[0].into(), repo_name: s[1].into(),
         res_type: s[2].into(), res_name: s[3].into(), res_info: None,
         create_time: 1000, update_time: 1000, content_type: None,
-        export_mode: "plain".into(), policy_id: pid.into(),
+        export_mode: "jwe".into(), policy_id: pid.into(),
     }
 }
 

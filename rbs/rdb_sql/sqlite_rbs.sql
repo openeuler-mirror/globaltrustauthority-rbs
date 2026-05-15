@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS t_res_info (
     create_time INTEGER NOT NULL,
     update_time INTEGER NOT NULL,
     content_type TEXT,
-    export_mode TEXT NOT NULL DEFAULT 'plain',
+    export_mode TEXT NOT NULL DEFAULT 'jwe',
     policy_id TEXT NOT NULL,
     PRIMARY KEY (user_id, provider_name, repo_name, res_type, res_name)
 );

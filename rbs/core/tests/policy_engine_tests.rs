@@ -46,7 +46,7 @@ fn user_bearer(sub: &str) -> AuthContext {
 fn attest_ctx() -> AuthContext {
     AuthContext::Attest(AttestContext {
         claims: serde_json::json!({
-            "tee_pubkey": "test-pubkey",
+            "tee-pubkey": "test-pubkey",
             "nonce": "test-nonce",
         }),
         token_type: TokenType::Attest,

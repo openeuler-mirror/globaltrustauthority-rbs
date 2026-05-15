@@ -203,12 +203,15 @@ fn ut_rv_012() {
     assert!(result.is_ok());
 }
 
-/// UT-RV-028: export_mode "plain" -> Ok(())
+/// UT-RV-028: export_mode "plain" (removed) -> Err(ParamInvalid {field: "export_mode"})
 #[test]
 fn ut_rv_028() {
     let v = validator();
     let result = v.validate_export_mode("plain");
-    assert!(result.is_ok());
+    assert!(matches!(
+        result,
+        Err(ResourceError::ParamInvalid { field: "export_mode" })
+    ));
 }
 
 // ===========================================================================

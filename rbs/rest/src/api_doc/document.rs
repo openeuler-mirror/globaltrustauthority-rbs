@@ -13,9 +13,10 @@
 #![allow(clippy::needless_for_each)] // utoipa `OpenApi` derive
 
 use rbs_api_types::{
-    API_VERSION, BuildMetadata, CreatePolicyRequest, ErrorBody, PolicyListResponse, PolicyResponse,
-    RbsVersion, UpdatePolicyRequest, UserCreateRequest, UserListResponse, UserResponse,
-    UserUpdateRequest,
+    API_VERSION, BuildMetadata, CreatePolicyRequest, CreateResourceRequest, ErrorBody,
+    PolicyListResponse, PolicyResponse, RbsVersion, ResourceContentResponse,
+    ResourceInfoResponse, ResourceResponse, UpdatePolicyRequest, UpdateResourceRequest,
+    UserCreateRequest, UserListResponse, UserResponse, UserUpdateRequest,
 };
 use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::{Modify, OpenApi};
@@ -32,6 +33,16 @@ impl Modify for SecurityAddon {
                         .scheme(HttpAuthScheme::Bearer)
                         .bearer_format("JWT")
                         .description(Some("JWT Bearer Token. Obtain via Admin API or attestation."))
+                        .build(),
+                ),
+            );
+            components.add_security_scheme(
+                "attestAuth",
+                SecurityScheme::Http(
+                    HttpBuilder::new()
+                        .scheme(HttpAuthScheme::Bearer)
+                        .bearer_format("Attest")
+                        .description(Some("Attest Token. Obtain via POST /rbs/v0/attest."))
                         .build(),
                 ),
             );
@@ -55,6 +66,7 @@ impl Modify for SecurityAddon {
         (name = "System", description = "`RbsCore::system` — service identity and API/build version via `GET /rbs/version` (system metadata). Does not require authentication."),
         (name = "Admin", description = "User management CRUD — `GET/POST/PUT/DELETE /rbs/v0/users` (admin or self). Requires BearerToken."),
         (name = "Policy", description = "Policy CRUD — `GET/POST/PUT/DELETE /rbs/v0/resource/policy`. Requires BearerToken."),
+        (name = "Resource", description = "Resource CRUD — `GET/POST/PUT/DELETE /rbs/v0/{provider}/{repo}/{type}/{name}`. Supports AttestToken and BearerToken."),
     ),
     modifiers(&SecurityAddon),
     paths(
@@ -70,11 +82,19 @@ impl Modify for SecurityAddon {
         crate::routes::policy::update_policy,
         crate::routes::policy::delete_policy,
         crate::routes::policy::batch_delete_policies,
+        crate::routes::resource::create_resource,
+        crate::routes::resource::get_resource,
+        crate::routes::resource::update_resource,
+        crate::routes::resource::delete_resource,
+        crate::routes::resource::get_resource_info,
+        crate::routes::resource::retrieve_resource,
     ),
     components(schemas(
         RbsVersion, BuildMetadata, ErrorBody,
         UserCreateRequest, UserUpdateRequest, UserResponse, UserListResponse,
         CreatePolicyRequest, UpdatePolicyRequest, PolicyResponse, PolicyListResponse,
+        CreateResourceRequest, UpdateResourceRequest, ResourceResponse,
+        ResourceContentResponse, ResourceInfoResponse,
     ))
 )]
 pub struct ApiDoc;

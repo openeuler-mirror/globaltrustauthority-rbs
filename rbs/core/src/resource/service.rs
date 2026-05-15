@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
-
+use base64::Engine;
 use crate::auth::authz::{Action, RequiredRole};
 use crate::auth::authz_checker::AuthzChecker;
 use crate::auth::context::{AttestContext, AuthContext};
@@ -10,59 +9,10 @@ use super::adapter::{BackendProvider, PolicyClient};
 use super::error::ResourceError;
 use super::repository::ResourceRepository;
 use super::validator::ResourceValidator;
-
-/// Request to create a new resource.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreateResourceRequest {
-    pub uri: String,
-    pub policy_id: String,
-    pub content_type: Option<String>,
-    pub export_mode: Option<String>,
-    pub additional_info: Option<String>,
-}
-
-/// Request to update an existing resource.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UpdateResourceRequest {
-    pub policy_id: String,
-    pub content_type: Option<String>,
-    pub export_mode: Option<String>,
-    pub additional_info: Option<String>,
-}
-
-/// Resource response returned to callers.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ResourceResponse {
-    pub uri: String,
-    pub user_id: String,
-    pub provider_name: String,
-    pub resource_type: String,
-    pub resource_name: String,
-    pub created_at: i64,
-    pub updated_at: i64,
-    pub content_type: Option<String>,
-    pub export_mode: String,
-    pub policy_id: String,
-}
-
-/// Resource content response.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ResourceContentResponse {
-    pub content: Vec<u8>,
-    pub content_type: String,
-}
-
-/// Resource info (metadata) response.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ResourceInfoResponse {
-    pub uri: String,
-    pub user_id: String,
-    pub policy_id: String,
-    pub created_at: i64,
-    pub updated_at: i64,
-    pub content_type: Option<String>,
-    pub export_mode: String,
-}
+use super::{
+    CreateResourceRequest, ResourceContentResponse, ResourceInfoResponse, ResourceResponse,
+    UpdateResourceRequest, ATTEST_TEE_PUBKEY_KEY, BEARER_ENC_PUBKEY_KEY,
+};
 
 /// ResourceService - single struct holding all dependencies.
 pub struct ResourceService {
@@ -115,7 +65,7 @@ impl ResourceService {
             repo_name: parsed.repository_name, res_type: parsed.resource_type,
             res_name: parsed.resource_name, res_info: req.additional_info.clone(),
             create_time: now, update_time: now, content_type: req.content_type.clone(),
-            export_mode: req.export_mode.clone().unwrap_or_else(|| "plain".to_string()),
+            export_mode: req.export_mode.clone().unwrap_or_else(|| "jwe".to_string()),
             policy_id: req.policy_id.clone(),
         };
         self.repo.insert(&entity).await?;
@@ -173,7 +123,7 @@ impl ResourceService {
                 repo_name: parsed.repository_name, res_type: parsed.resource_type,
                 res_name: parsed.resource_name, res_info: req.additional_info.clone(),
                 create_time: now, update_time: now, content_type: req.content_type.clone(),
-                export_mode: req.export_mode.clone().unwrap_or_else(|| "plain".to_string()),
+                export_mode: req.export_mode.clone().unwrap_or_else(|| "jwe".to_string()),
                 policy_id: req.policy_id.clone(),
             };
             self.repo.insert(&entity).await?;
@@ -216,29 +166,24 @@ impl ResourceService {
         let raw_content = backend.get_resource_content(uri).await?;
         let content_type = entity.content_type.clone().unwrap_or_else(|| "application/octet-stream".to_string());
 
-        // step 6: JWE encryption if export_mode == jwe
-        if entity.export_mode == "jwe" {
-            let pubkey = match ctx {
-                AuthContext::Attest(a) => {
-                    // AttestToken: claims.attester_data.runtime_data.tee_pubkey
-                    a.claims.get("attester_data")
-                        .and_then(|ad| ad.get("runtime_data"))
-                        .and_then(|rd| rd.get("tee_pubkey"))
-                        .and_then(|v| Self::json_value_to_string(&v))
-                }
-                AuthContext::Bearer(b) => {
-                    // BearerToken: claims.tee_pubkey (flat, at root)
-                    b.claims.get("tee_pubkey").and_then(|v| Self::json_value_to_string(&v))
-                }
-            };
-            let pubkey = pubkey.ok_or_else(|| ResourceError::JweEncryptionFailed {
-                reason: "tee_pubkey not found in token claims".to_string(),
-            })?;
-            let encrypted = Self::jwe_encrypt(&raw_content, &pubkey)?;
-            Ok(ResourceContentResponse { content: encrypted, content_type })
-        } else {
-            Ok(ResourceContentResponse { content: raw_content, content_type })
-        }
+        // step 6: JWE encrypt + base64 encode
+        let pubkey = match ctx {
+            AuthContext::Attest(a) => {
+                a.claims.get("attester_data")
+                    .and_then(|ad| ad.get("runtime_data"))
+                    .and_then(|rd| rd.get(ATTEST_TEE_PUBKEY_KEY))
+                    .and_then(|v| Self::json_value_to_string(&v))
+            }
+            AuthContext::Bearer(b) => {
+                b.claims.get(BEARER_ENC_PUBKEY_KEY).and_then(|v| Self::json_value_to_string(&v))
+            }
+        };
+        let pubkey = pubkey.ok_or_else(|| ResourceError::JweEncryptionFailed {
+            reason: format!("{ATTEST_TEE_PUBKEY_KEY} or {BEARER_ENC_PUBKEY_KEY} not found in token claims"),
+        })?;
+        let encrypted = Self::jwe_encrypt(&raw_content, &pubkey)?;
+        let encoded = base64::engine::general_purpose::STANDARD.encode(&encrypted);
+        Ok(ResourceContentResponse { content: encoded, content_type, export_mode: entity.export_mode })
     }
 
     // ── GET /info ──────────────────────────────────────────────────────
@@ -292,21 +237,18 @@ impl ResourceService {
         let raw_content = backend.get_resource_content(uri).await?;
         let content_type = entity.content_type.clone().unwrap_or_else(|| "application/octet-stream".to_string());
 
-        // step 6: JWE encryption if export_mode == jwe
-        if entity.export_mode == "jwe" {
-            let pubkey = attest_ctx.claims.get("attester_data")
-                .and_then(|ad| ad.get("runtime_data"))
-                .and_then(|rd| rd.get("tee_pubkey"))
-                .and_then(|v| Self::json_value_to_string(&v))
-                .or_else(|| attest_ctx.claims.get("tee_pubkey").and_then(|v| Self::json_value_to_string(&v)))
-                .ok_or_else(|| ResourceError::JweEncryptionFailed {
-                    reason: "tee_pubkey not found in attestation claims".to_string(),
-                })?;
-            let encrypted = Self::jwe_encrypt(&raw_content, &pubkey)?;
-            Ok(ResourceContentResponse { content: encrypted, content_type })
-        } else {
-            Ok(ResourceContentResponse { content: raw_content, content_type })
-        }
+        // step 6: JWE encrypt + base64 encode
+        let pubkey = attest_ctx.claims.get("attester_data")
+            .and_then(|ad| ad.get("runtime_data"))
+            .and_then(|rd| rd.get(ATTEST_TEE_PUBKEY_KEY))
+            .and_then(|v| Self::json_value_to_string(&v))
+            .or_else(|| attest_ctx.claims.get(ATTEST_TEE_PUBKEY_KEY).and_then(|v| Self::json_value_to_string(&v)))
+            .ok_or_else(|| ResourceError::JweEncryptionFailed {
+                reason: format!("{ATTEST_TEE_PUBKEY_KEY} not found in attestation claims"),
+            })?;
+        let encrypted = Self::jwe_encrypt(&raw_content, &pubkey)?;
+        let encoded = base64::engine::general_purpose::STANDARD.encode(&encrypted);
+        Ok(ResourceContentResponse { content: encoded, content_type, export_mode: entity.export_mode })
     }
 
     /// Convert a JSON value (String or Object) to a string representation.

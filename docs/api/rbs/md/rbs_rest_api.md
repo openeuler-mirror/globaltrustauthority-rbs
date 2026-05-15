@@ -15,6 +15,8 @@ License: <a href="http://license.coscl.org.cn/MulanPSL2">Mulan Permissive Softwa
 
 # Authentication
 
+- HTTP Authentication, scheme: bearer Attest Token. Obtain via POST /rbs/v0/attest.
+
 - HTTP Authentication, scheme: bearer JWT Bearer Token. Obtain via Admin API or attestation.
 
 <h1 id="rbs-rest-api-system">System</h1>
@@ -1189,6 +1191,2332 @@ To perform this operation, you must be authenticated by means of one of the foll
 bearerAuth
 </aside>
 
+<h1 id="rbs-rest-api-policy">Policy</h1>
+
+Policy CRUD — `GET/POST/PUT/DELETE /rbs/v0/resource/policy`. Requires BearerToken.
+
+## listPolicies
+
+<a id="opIdlistPolicies"></a>
+
+> Code samples
+
+```shell
+# You can also use wget
+curl -X GET http://localhost:6666/rbs/v0/resource/policy \
+  -H 'Accept: application/json' \
+  -H 'Authorization: Bearer {access-token}'
+
+```
+
+```http
+GET http://localhost:6666/rbs/v0/resource/policy HTTP/1.1
+Host: localhost:6666
+Accept: application/json
+
+```
+
+```javascript
+
+const headers = {
+  'Accept':'application/json',
+  'Authorization':'Bearer {access-token}'
+};
+
+fetch('http://localhost:6666/rbs/v0/resource/policy',
+{
+  method: 'GET',
+
+  headers: headers
+})
+.then(function(res) {
+    return res.json();
+}).then(function(body) {
+    console.log(body);
+});
+
+```
+
+```ruby
+require 'rest-client'
+require 'json'
+
+headers = {
+  'Accept' => 'application/json',
+  'Authorization' => 'Bearer {access-token}'
+}
+
+result = RestClient.get 'http://localhost:6666/rbs/v0/resource/policy',
+  params: {
+  }, headers: headers
+
+p JSON.parse(result)
+
+```
+
+```python
+import requests
+headers = {
+  'Accept': 'application/json',
+  'Authorization': 'Bearer {access-token}'
+}
+
+r = requests.get('http://localhost:6666/rbs/v0/resource/policy', headers = headers)
+
+print(r.json())
+
+```
+
+```php
+<?php
+
+require 'vendor/autoload.php';
+
+$headers = array(
+    'Accept' => 'application/json',
+    'Authorization' => 'Bearer {access-token}',
+);
+
+$client = new \GuzzleHttp\Client();
+
+// Define array of request body.
+$request_body = array();
+
+try {
+    $response = $client->request('GET','http://localhost:6666/rbs/v0/resource/policy', array(
+        'headers' => $headers,
+        'json' => $request_body,
+       )
+    );
+    print_r($response->getBody()->getContents());
+ }
+ catch (\GuzzleHttp\Exception\BadResponseException $e) {
+    // handle exception or api errors.
+    print_r($e->getMessage());
+ }
+
+ // ...
+
+```
+
+```java
+URL obj = new URL("http://localhost:6666/rbs/v0/resource/policy");
+HttpURLConnection con = (HttpURLConnection) obj.openConnection();
+con.setRequestMethod("GET");
+int responseCode = con.getResponseCode();
+BufferedReader in = new BufferedReader(
+    new InputStreamReader(con.getInputStream()));
+String inputLine;
+StringBuffer response = new StringBuffer();
+while ((inputLine = in.readLine()) != null) {
+    response.append(inputLine);
+}
+in.close();
+System.out.println(response.toString());
+
+```
+
+```go
+package main
+
+import (
+       "bytes"
+       "net/http"
+)
+
+func main() {
+
+    headers := map[string][]string{
+        "Accept": []string{"application/json"},
+        "Authorization": []string{"Bearer {access-token}"},
+    }
+
+    data := bytes.NewBuffer([]byte{jsonReq})
+    req, err := http.NewRequest("GET", "http://localhost:6666/rbs/v0/resource/policy", data)
+    req.Header = headers
+
+    client := &http.Client{}
+    resp, err := client.Do(req)
+    // ...
+}
+
+```
+
+`GET /rbs/v0/resource/policy`
+
+*List policies*
+
+<h3 id="listpolicies-parameters">Parameters</h3>
+
+|Name|In|Type|Required|Description|
+|---|---|---|---|---|
+|ids|query|string|false|Comma-separated policy IDs|
+|limit|query|integer(int64)|false|Page size|
+|offset|query|integer(int64)|false|Page offset|
+
+> Example responses
+
+> 200 Response
+
+```json
+{
+  "items": [
+    {
+      "policy_id": "string",
+      "policy_name": "string",
+      "policy_version": 0,
+      "policy_content": "string",
+      "content_type": "string",
+      "created_at": 0,
+      "updated_at": 0,
+      "applied_resources": [
+        "string"
+      ]
+    }
+  ],
+  "total": 0
+}
+```
+
+<h3 id="listpolicies-responses">Responses</h3>
+
+|Status|Meaning|Description|Schema|
+|---|---|---|---|
+|200|[OK](https://tools.ietf.org/html/rfc7231#section-6.3.1)|Policy list|[PolicyListResponse](#schemapolicylistresponse)|
+|401|[Unauthorized](https://tools.ietf.org/html/rfc7235#section-3.1)|Unauthorized|[ErrorBody](#schemaerrorbody)|
+|403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
+|500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
+
+<aside class="warning">
+To perform this operation, you must be authenticated by means of one of the following methods:
+bearerAuth
+</aside>
+
+## createPolicy
+
+<a id="opIdcreatePolicy"></a>
+
+> Code samples
+
+```shell
+# You can also use wget
+curl -X POST http://localhost:6666/rbs/v0/resource/policy \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json' \
+  -H 'Authorization: Bearer {access-token}'
+
+```
+
+```http
+POST http://localhost:6666/rbs/v0/resource/policy HTTP/1.1
+Host: localhost:6666
+Content-Type: application/json
+Accept: application/json
+
+```
+
+```javascript
+const inputBody = '{
+  "name": "string",
+  "content_type": "string",
+  "content": "string"
+}';
+const headers = {
+  'Content-Type':'application/json',
+  'Accept':'application/json',
+  'Authorization':'Bearer {access-token}'
+};
+
+fetch('http://localhost:6666/rbs/v0/resource/policy',
+{
+  method: 'POST',
+  body: inputBody,
+  headers: headers
+})
+.then(function(res) {
+    return res.json();
+}).then(function(body) {
+    console.log(body);
+});
+
+```
+
+```ruby
+require 'rest-client'
+require 'json'
+
+headers = {
+  'Content-Type' => 'application/json',
+  'Accept' => 'application/json',
+  'Authorization' => 'Bearer {access-token}'
+}
+
+result = RestClient.post 'http://localhost:6666/rbs/v0/resource/policy',
+  params: {
+  }, headers: headers
+
+p JSON.parse(result)
+
+```
+
+```python
+import requests
+headers = {
+  'Content-Type': 'application/json',
+  'Accept': 'application/json',
+  'Authorization': 'Bearer {access-token}'
+}
+
+r = requests.post('http://localhost:6666/rbs/v0/resource/policy', headers = headers)
+
+print(r.json())
+
+```
+
+```php
+<?php
+
+require 'vendor/autoload.php';
+
+$headers = array(
+    'Content-Type' => 'application/json',
+    'Accept' => 'application/json',
+    'Authorization' => 'Bearer {access-token}',
+);
+
+$client = new \GuzzleHttp\Client();
+
+// Define array of request body.
+$request_body = array();
+
+try {
+    $response = $client->request('POST','http://localhost:6666/rbs/v0/resource/policy', array(
+        'headers' => $headers,
+        'json' => $request_body,
+       )
+    );
+    print_r($response->getBody()->getContents());
+ }
+ catch (\GuzzleHttp\Exception\BadResponseException $e) {
+    // handle exception or api errors.
+    print_r($e->getMessage());
+ }
+
+ // ...
+
+```
+
+```java
+URL obj = new URL("http://localhost:6666/rbs/v0/resource/policy");
+HttpURLConnection con = (HttpURLConnection) obj.openConnection();
+con.setRequestMethod("POST");
+int responseCode = con.getResponseCode();
+BufferedReader in = new BufferedReader(
+    new InputStreamReader(con.getInputStream()));
+String inputLine;
+StringBuffer response = new StringBuffer();
+while ((inputLine = in.readLine()) != null) {
+    response.append(inputLine);
+}
+in.close();
+System.out.println(response.toString());
+
+```
+
+```go
+package main
+
+import (
+       "bytes"
+       "net/http"
+)
+
+func main() {
+
+    headers := map[string][]string{
+        "Content-Type": []string{"application/json"},
+        "Accept": []string{"application/json"},
+        "Authorization": []string{"Bearer {access-token}"},
+    }
+
+    data := bytes.NewBuffer([]byte{jsonReq})
+    req, err := http.NewRequest("POST", "http://localhost:6666/rbs/v0/resource/policy", data)
+    req.Header = headers
+
+    client := &http.Client{}
+    resp, err := client.Do(req)
+    // ...
+}
+
+```
+
+`POST /rbs/v0/resource/policy`
+
+*Create a policy*
+
+> Body parameter
+
+```json
+{
+  "name": "string",
+  "content_type": "string",
+  "content": "string"
+}
+```
+
+<h3 id="createpolicy-parameters">Parameters</h3>
+
+|Name|In|Type|Required|Description|
+|---|---|---|---|---|
+|body|body|[CreatePolicyRequest](#schemacreatepolicyrequest)|true|none|
+
+> Example responses
+
+> 201 Response
+
+```json
+{
+  "policy_id": "string",
+  "policy_name": "string",
+  "policy_version": 0,
+  "policy_content": "string",
+  "content_type": "string",
+  "created_at": 0,
+  "updated_at": 0,
+  "applied_resources": [
+    "string"
+  ]
+}
+```
+
+<h3 id="createpolicy-responses">Responses</h3>
+
+|Status|Meaning|Description|Schema|
+|---|---|---|---|
+|201|[Created](https://tools.ietf.org/html/rfc7231#section-6.3.2)|Policy created|[PolicyResponse](#schemapolicyresponse)|
+|400|[Bad Request](https://tools.ietf.org/html/rfc7231#section-6.5.1)|Bad request|[ErrorBody](#schemaerrorbody)|
+|401|[Unauthorized](https://tools.ietf.org/html/rfc7235#section-3.1)|Unauthorized|[ErrorBody](#schemaerrorbody)|
+|403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
+|409|[Conflict](https://tools.ietf.org/html/rfc7231#section-6.5.8)|Conflict (name duplicate / count exceeded)|[ErrorBody](#schemaerrorbody)|
+|500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
+
+<aside class="warning">
+To perform this operation, you must be authenticated by means of one of the following methods:
+bearerAuth
+</aside>
+
+## batchDeletePolicies
+
+<a id="opIdbatchDeletePolicies"></a>
+
+> Code samples
+
+```shell
+# You can also use wget
+curl -X DELETE http://localhost:6666/rbs/v0/resource/policy?ids=string \
+  -H 'Accept: application/json' \
+  -H 'Authorization: Bearer {access-token}'
+
+```
+
+```http
+DELETE http://localhost:6666/rbs/v0/resource/policy?ids=string HTTP/1.1
+Host: localhost:6666
+Accept: application/json
+
+```
+
+```javascript
+
+const headers = {
+  'Accept':'application/json',
+  'Authorization':'Bearer {access-token}'
+};
+
+fetch('http://localhost:6666/rbs/v0/resource/policy?ids=string',
+{
+  method: 'DELETE',
+
+  headers: headers
+})
+.then(function(res) {
+    return res.json();
+}).then(function(body) {
+    console.log(body);
+});
+
+```
+
+```ruby
+require 'rest-client'
+require 'json'
+
+headers = {
+  'Accept' => 'application/json',
+  'Authorization' => 'Bearer {access-token}'
+}
+
+result = RestClient.delete 'http://localhost:6666/rbs/v0/resource/policy',
+  params: {
+  'ids' => 'string'
+}, headers: headers
+
+p JSON.parse(result)
+
+```
+
+```python
+import requests
+headers = {
+  'Accept': 'application/json',
+  'Authorization': 'Bearer {access-token}'
+}
+
+r = requests.delete('http://localhost:6666/rbs/v0/resource/policy', params={
+  'ids': 'string'
+}, headers = headers)
+
+print(r.json())
+
+```
+
+```php
+<?php
+
+require 'vendor/autoload.php';
+
+$headers = array(
+    'Accept' => 'application/json',
+    'Authorization' => 'Bearer {access-token}',
+);
+
+$client = new \GuzzleHttp\Client();
+
+// Define array of request body.
+$request_body = array();
+
+try {
+    $response = $client->request('DELETE','http://localhost:6666/rbs/v0/resource/policy', array(
+        'headers' => $headers,
+        'json' => $request_body,
+       )
+    );
+    print_r($response->getBody()->getContents());
+ }
+ catch (\GuzzleHttp\Exception\BadResponseException $e) {
+    // handle exception or api errors.
+    print_r($e->getMessage());
+ }
+
+ // ...
+
+```
+
+```java
+URL obj = new URL("http://localhost:6666/rbs/v0/resource/policy?ids=string");
+HttpURLConnection con = (HttpURLConnection) obj.openConnection();
+con.setRequestMethod("DELETE");
+int responseCode = con.getResponseCode();
+BufferedReader in = new BufferedReader(
+    new InputStreamReader(con.getInputStream()));
+String inputLine;
+StringBuffer response = new StringBuffer();
+while ((inputLine = in.readLine()) != null) {
+    response.append(inputLine);
+}
+in.close();
+System.out.println(response.toString());
+
+```
+
+```go
+package main
+
+import (
+       "bytes"
+       "net/http"
+)
+
+func main() {
+
+    headers := map[string][]string{
+        "Accept": []string{"application/json"},
+        "Authorization": []string{"Bearer {access-token}"},
+    }
+
+    data := bytes.NewBuffer([]byte{jsonReq})
+    req, err := http.NewRequest("DELETE", "http://localhost:6666/rbs/v0/resource/policy", data)
+    req.Header = headers
+
+    client := &http.Client{}
+    resp, err := client.Do(req)
+    // ...
+}
+
+```
+
+`DELETE /rbs/v0/resource/policy`
+
+*Batch delete policies*
+
+<h3 id="batchdeletepolicies-parameters">Parameters</h3>
+
+|Name|In|Type|Required|Description|
+|---|---|---|---|---|
+|ids|query|string|true|Comma-separated policy IDs|
+
+> Example responses
+
+> 400 Response
+
+```json
+{
+  "error": "string"
+}
+```
+
+<h3 id="batchdeletepolicies-responses">Responses</h3>
+
+|Status|Meaning|Description|Schema|
+|---|---|---|---|
+|204|[No Content](https://tools.ietf.org/html/rfc7231#section-6.3.5)|Policies deleted|None|
+|400|[Bad Request](https://tools.ietf.org/html/rfc7231#section-6.5.1)|Bad request|[ErrorBody](#schemaerrorbody)|
+|401|[Unauthorized](https://tools.ietf.org/html/rfc7235#section-3.1)|Unauthorized|[ErrorBody](#schemaerrorbody)|
+|403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
+|404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Not found|[ErrorBody](#schemaerrorbody)|
+|409|[Conflict](https://tools.ietf.org/html/rfc7231#section-6.5.8)|Policy is referenced by resources|[ErrorBody](#schemaerrorbody)|
+|500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
+
+<aside class="warning">
+To perform this operation, you must be authenticated by means of one of the following methods:
+bearerAuth
+</aside>
+
+## getPolicy
+
+<a id="opIdgetPolicy"></a>
+
+> Code samples
+
+```shell
+# You can also use wget
+curl -X GET http://localhost:6666/rbs/v0/resource/policy/{policy_id} \
+  -H 'Accept: application/json' \
+  -H 'Authorization: Bearer {access-token}'
+
+```
+
+```http
+GET http://localhost:6666/rbs/v0/resource/policy/{policy_id} HTTP/1.1
+Host: localhost:6666
+Accept: application/json
+
+```
+
+```javascript
+
+const headers = {
+  'Accept':'application/json',
+  'Authorization':'Bearer {access-token}'
+};
+
+fetch('http://localhost:6666/rbs/v0/resource/policy/{policy_id}',
+{
+  method: 'GET',
+
+  headers: headers
+})
+.then(function(res) {
+    return res.json();
+}).then(function(body) {
+    console.log(body);
+});
+
+```
+
+```ruby
+require 'rest-client'
+require 'json'
+
+headers = {
+  'Accept' => 'application/json',
+  'Authorization' => 'Bearer {access-token}'
+}
+
+result = RestClient.get 'http://localhost:6666/rbs/v0/resource/policy/{policy_id}',
+  params: {
+  }, headers: headers
+
+p JSON.parse(result)
+
+```
+
+```python
+import requests
+headers = {
+  'Accept': 'application/json',
+  'Authorization': 'Bearer {access-token}'
+}
+
+r = requests.get('http://localhost:6666/rbs/v0/resource/policy/{policy_id}', headers = headers)
+
+print(r.json())
+
+```
+
+```php
+<?php
+
+require 'vendor/autoload.php';
+
+$headers = array(
+    'Accept' => 'application/json',
+    'Authorization' => 'Bearer {access-token}',
+);
+
+$client = new \GuzzleHttp\Client();
+
+// Define array of request body.
+$request_body = array();
+
+try {
+    $response = $client->request('GET','http://localhost:6666/rbs/v0/resource/policy/{policy_id}', array(
+        'headers' => $headers,
+        'json' => $request_body,
+       )
+    );
+    print_r($response->getBody()->getContents());
+ }
+ catch (\GuzzleHttp\Exception\BadResponseException $e) {
+    // handle exception or api errors.
+    print_r($e->getMessage());
+ }
+
+ // ...
+
+```
+
+```java
+URL obj = new URL("http://localhost:6666/rbs/v0/resource/policy/{policy_id}");
+HttpURLConnection con = (HttpURLConnection) obj.openConnection();
+con.setRequestMethod("GET");
+int responseCode = con.getResponseCode();
+BufferedReader in = new BufferedReader(
+    new InputStreamReader(con.getInputStream()));
+String inputLine;
+StringBuffer response = new StringBuffer();
+while ((inputLine = in.readLine()) != null) {
+    response.append(inputLine);
+}
+in.close();
+System.out.println(response.toString());
+
+```
+
+```go
+package main
+
+import (
+       "bytes"
+       "net/http"
+)
+
+func main() {
+
+    headers := map[string][]string{
+        "Accept": []string{"application/json"},
+        "Authorization": []string{"Bearer {access-token}"},
+    }
+
+    data := bytes.NewBuffer([]byte{jsonReq})
+    req, err := http.NewRequest("GET", "http://localhost:6666/rbs/v0/resource/policy/{policy_id}", data)
+    req.Header = headers
+
+    client := &http.Client{}
+    resp, err := client.Do(req)
+    // ...
+}
+
+```
+
+`GET /rbs/v0/resource/policy/{policy_id}`
+
+*Get policy detail*
+
+<h3 id="getpolicy-parameters">Parameters</h3>
+
+|Name|In|Type|Required|Description|
+|---|---|---|---|---|
+|policy_id|path|string|true|Policy ID|
+
+> Example responses
+
+> 200 Response
+
+```json
+{
+  "policy_id": "string",
+  "policy_name": "string",
+  "policy_version": 0,
+  "policy_content": "string",
+  "content_type": "string",
+  "created_at": 0,
+  "updated_at": 0,
+  "applied_resources": [
+    "string"
+  ]
+}
+```
+
+<h3 id="getpolicy-responses">Responses</h3>
+
+|Status|Meaning|Description|Schema|
+|---|---|---|---|
+|200|[OK](https://tools.ietf.org/html/rfc7231#section-6.3.1)|Policy detail|[PolicyResponse](#schemapolicyresponse)|
+|401|[Unauthorized](https://tools.ietf.org/html/rfc7235#section-3.1)|Unauthorized|[ErrorBody](#schemaerrorbody)|
+|403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
+|404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Not found|[ErrorBody](#schemaerrorbody)|
+|500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
+
+<aside class="warning">
+To perform this operation, you must be authenticated by means of one of the following methods:
+bearerAuth
+</aside>
+
+## updatePolicy
+
+<a id="opIdupdatePolicy"></a>
+
+> Code samples
+
+```shell
+# You can also use wget
+curl -X PUT http://localhost:6666/rbs/v0/resource/policy/{policy_id} \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json' \
+  -H 'Authorization: Bearer {access-token}'
+
+```
+
+```http
+PUT http://localhost:6666/rbs/v0/resource/policy/{policy_id} HTTP/1.1
+Host: localhost:6666
+Content-Type: application/json
+Accept: application/json
+
+```
+
+```javascript
+const inputBody = '{
+  "name": "string",
+  "content_type": "string",
+  "content": "string"
+}';
+const headers = {
+  'Content-Type':'application/json',
+  'Accept':'application/json',
+  'Authorization':'Bearer {access-token}'
+};
+
+fetch('http://localhost:6666/rbs/v0/resource/policy/{policy_id}',
+{
+  method: 'PUT',
+  body: inputBody,
+  headers: headers
+})
+.then(function(res) {
+    return res.json();
+}).then(function(body) {
+    console.log(body);
+});
+
+```
+
+```ruby
+require 'rest-client'
+require 'json'
+
+headers = {
+  'Content-Type' => 'application/json',
+  'Accept' => 'application/json',
+  'Authorization' => 'Bearer {access-token}'
+}
+
+result = RestClient.put 'http://localhost:6666/rbs/v0/resource/policy/{policy_id}',
+  params: {
+  }, headers: headers
+
+p JSON.parse(result)
+
+```
+
+```python
+import requests
+headers = {
+  'Content-Type': 'application/json',
+  'Accept': 'application/json',
+  'Authorization': 'Bearer {access-token}'
+}
+
+r = requests.put('http://localhost:6666/rbs/v0/resource/policy/{policy_id}', headers = headers)
+
+print(r.json())
+
+```
+
+```php
+<?php
+
+require 'vendor/autoload.php';
+
+$headers = array(
+    'Content-Type' => 'application/json',
+    'Accept' => 'application/json',
+    'Authorization' => 'Bearer {access-token}',
+);
+
+$client = new \GuzzleHttp\Client();
+
+// Define array of request body.
+$request_body = array();
+
+try {
+    $response = $client->request('PUT','http://localhost:6666/rbs/v0/resource/policy/{policy_id}', array(
+        'headers' => $headers,
+        'json' => $request_body,
+       )
+    );
+    print_r($response->getBody()->getContents());
+ }
+ catch (\GuzzleHttp\Exception\BadResponseException $e) {
+    // handle exception or api errors.
+    print_r($e->getMessage());
+ }
+
+ // ...
+
+```
+
+```java
+URL obj = new URL("http://localhost:6666/rbs/v0/resource/policy/{policy_id}");
+HttpURLConnection con = (HttpURLConnection) obj.openConnection();
+con.setRequestMethod("PUT");
+int responseCode = con.getResponseCode();
+BufferedReader in = new BufferedReader(
+    new InputStreamReader(con.getInputStream()));
+String inputLine;
+StringBuffer response = new StringBuffer();
+while ((inputLine = in.readLine()) != null) {
+    response.append(inputLine);
+}
+in.close();
+System.out.println(response.toString());
+
+```
+
+```go
+package main
+
+import (
+       "bytes"
+       "net/http"
+)
+
+func main() {
+
+    headers := map[string][]string{
+        "Content-Type": []string{"application/json"},
+        "Accept": []string{"application/json"},
+        "Authorization": []string{"Bearer {access-token}"},
+    }
+
+    data := bytes.NewBuffer([]byte{jsonReq})
+    req, err := http.NewRequest("PUT", "http://localhost:6666/rbs/v0/resource/policy/{policy_id}", data)
+    req.Header = headers
+
+    client := &http.Client{}
+    resp, err := client.Do(req)
+    // ...
+}
+
+```
+
+`PUT /rbs/v0/resource/policy/{policy_id}`
+
+*Update a policy*
+
+> Body parameter
+
+```json
+{
+  "name": "string",
+  "content_type": "string",
+  "content": "string"
+}
+```
+
+<h3 id="updatepolicy-parameters">Parameters</h3>
+
+|Name|In|Type|Required|Description|
+|---|---|---|---|---|
+|policy_id|path|string|true|Policy ID|
+|body|body|[UpdatePolicyRequest](#schemaupdatepolicyrequest)|true|none|
+
+> Example responses
+
+> 200 Response
+
+```json
+{
+  "policy_id": "string",
+  "policy_name": "string",
+  "policy_version": 0,
+  "policy_content": "string",
+  "content_type": "string",
+  "created_at": 0,
+  "updated_at": 0,
+  "applied_resources": [
+    "string"
+  ]
+}
+```
+
+<h3 id="updatepolicy-responses">Responses</h3>
+
+|Status|Meaning|Description|Schema|
+|---|---|---|---|
+|200|[OK](https://tools.ietf.org/html/rfc7231#section-6.3.1)|Policy updated|[PolicyResponse](#schemapolicyresponse)|
+|400|[Bad Request](https://tools.ietf.org/html/rfc7231#section-6.5.1)|Bad request|[ErrorBody](#schemaerrorbody)|
+|401|[Unauthorized](https://tools.ietf.org/html/rfc7235#section-3.1)|Unauthorized|[ErrorBody](#schemaerrorbody)|
+|403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
+|404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Not found|[ErrorBody](#schemaerrorbody)|
+|409|[Conflict](https://tools.ietf.org/html/rfc7231#section-6.5.8)|Version conflict|[ErrorBody](#schemaerrorbody)|
+|500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
+
+<aside class="warning">
+To perform this operation, you must be authenticated by means of one of the following methods:
+bearerAuth
+</aside>
+
+## deletePolicy
+
+<a id="opIddeletePolicy"></a>
+
+> Code samples
+
+```shell
+# You can also use wget
+curl -X DELETE http://localhost:6666/rbs/v0/resource/policy/{policy_id} \
+  -H 'Accept: application/json' \
+  -H 'Authorization: Bearer {access-token}'
+
+```
+
+```http
+DELETE http://localhost:6666/rbs/v0/resource/policy/{policy_id} HTTP/1.1
+Host: localhost:6666
+Accept: application/json
+
+```
+
+```javascript
+
+const headers = {
+  'Accept':'application/json',
+  'Authorization':'Bearer {access-token}'
+};
+
+fetch('http://localhost:6666/rbs/v0/resource/policy/{policy_id}',
+{
+  method: 'DELETE',
+
+  headers: headers
+})
+.then(function(res) {
+    return res.json();
+}).then(function(body) {
+    console.log(body);
+});
+
+```
+
+```ruby
+require 'rest-client'
+require 'json'
+
+headers = {
+  'Accept' => 'application/json',
+  'Authorization' => 'Bearer {access-token}'
+}
+
+result = RestClient.delete 'http://localhost:6666/rbs/v0/resource/policy/{policy_id}',
+  params: {
+  }, headers: headers
+
+p JSON.parse(result)
+
+```
+
+```python
+import requests
+headers = {
+  'Accept': 'application/json',
+  'Authorization': 'Bearer {access-token}'
+}
+
+r = requests.delete('http://localhost:6666/rbs/v0/resource/policy/{policy_id}', headers = headers)
+
+print(r.json())
+
+```
+
+```php
+<?php
+
+require 'vendor/autoload.php';
+
+$headers = array(
+    'Accept' => 'application/json',
+    'Authorization' => 'Bearer {access-token}',
+);
+
+$client = new \GuzzleHttp\Client();
+
+// Define array of request body.
+$request_body = array();
+
+try {
+    $response = $client->request('DELETE','http://localhost:6666/rbs/v0/resource/policy/{policy_id}', array(
+        'headers' => $headers,
+        'json' => $request_body,
+       )
+    );
+    print_r($response->getBody()->getContents());
+ }
+ catch (\GuzzleHttp\Exception\BadResponseException $e) {
+    // handle exception or api errors.
+    print_r($e->getMessage());
+ }
+
+ // ...
+
+```
+
+```java
+URL obj = new URL("http://localhost:6666/rbs/v0/resource/policy/{policy_id}");
+HttpURLConnection con = (HttpURLConnection) obj.openConnection();
+con.setRequestMethod("DELETE");
+int responseCode = con.getResponseCode();
+BufferedReader in = new BufferedReader(
+    new InputStreamReader(con.getInputStream()));
+String inputLine;
+StringBuffer response = new StringBuffer();
+while ((inputLine = in.readLine()) != null) {
+    response.append(inputLine);
+}
+in.close();
+System.out.println(response.toString());
+
+```
+
+```go
+package main
+
+import (
+       "bytes"
+       "net/http"
+)
+
+func main() {
+
+    headers := map[string][]string{
+        "Accept": []string{"application/json"},
+        "Authorization": []string{"Bearer {access-token}"},
+    }
+
+    data := bytes.NewBuffer([]byte{jsonReq})
+    req, err := http.NewRequest("DELETE", "http://localhost:6666/rbs/v0/resource/policy/{policy_id}", data)
+    req.Header = headers
+
+    client := &http.Client{}
+    resp, err := client.Do(req)
+    // ...
+}
+
+```
+
+`DELETE /rbs/v0/resource/policy/{policy_id}`
+
+*Delete a policy*
+
+<h3 id="deletepolicy-parameters">Parameters</h3>
+
+|Name|In|Type|Required|Description|
+|---|---|---|---|---|
+|policy_id|path|string|true|Policy ID|
+
+> Example responses
+
+> 401 Response
+
+```json
+{
+  "error": "string"
+}
+```
+
+<h3 id="deletepolicy-responses">Responses</h3>
+
+|Status|Meaning|Description|Schema|
+|---|---|---|---|
+|204|[No Content](https://tools.ietf.org/html/rfc7231#section-6.3.5)|Policy deleted|None|
+|401|[Unauthorized](https://tools.ietf.org/html/rfc7235#section-3.1)|Unauthorized|[ErrorBody](#schemaerrorbody)|
+|403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
+|404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Not found|[ErrorBody](#schemaerrorbody)|
+|409|[Conflict](https://tools.ietf.org/html/rfc7231#section-6.5.8)|Policy is referenced by resources|[ErrorBody](#schemaerrorbody)|
+|500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
+
+<aside class="warning">
+To perform this operation, you must be authenticated by means of one of the following methods:
+bearerAuth
+</aside>
+
+<h1 id="rbs-rest-api-resource">Resource</h1>
+
+Resource CRUD — `GET/POST/PUT/DELETE /rbs/v0/{provider}/{repo}/{type}/{name}`. Supports AttestToken and BearerToken.
+
+## getResource
+
+<a id="opIdgetResource"></a>
+
+> Code samples
+
+```shell
+# You can also use wget
+curl -X GET http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name} \
+  -H 'Accept: application/json' \
+  -H 'Authorization: Bearer {access-token}'
+
+```
+
+```http
+GET http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name} HTTP/1.1
+Host: localhost:6666
+Accept: application/json
+
+```
+
+```javascript
+
+const headers = {
+  'Accept':'application/json',
+  'Authorization':'Bearer {access-token}'
+};
+
+fetch('http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}',
+{
+  method: 'GET',
+
+  headers: headers
+})
+.then(function(res) {
+    return res.json();
+}).then(function(body) {
+    console.log(body);
+});
+
+```
+
+```ruby
+require 'rest-client'
+require 'json'
+
+headers = {
+  'Accept' => 'application/json',
+  'Authorization' => 'Bearer {access-token}'
+}
+
+result = RestClient.get 'http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}',
+  params: {
+  }, headers: headers
+
+p JSON.parse(result)
+
+```
+
+```python
+import requests
+headers = {
+  'Accept': 'application/json',
+  'Authorization': 'Bearer {access-token}'
+}
+
+r = requests.get('http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}', headers = headers)
+
+print(r.json())
+
+```
+
+```php
+<?php
+
+require 'vendor/autoload.php';
+
+$headers = array(
+    'Accept' => 'application/json',
+    'Authorization' => 'Bearer {access-token}',
+);
+
+$client = new \GuzzleHttp\Client();
+
+// Define array of request body.
+$request_body = array();
+
+try {
+    $response = $client->request('GET','http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}', array(
+        'headers' => $headers,
+        'json' => $request_body,
+       )
+    );
+    print_r($response->getBody()->getContents());
+ }
+ catch (\GuzzleHttp\Exception\BadResponseException $e) {
+    // handle exception or api errors.
+    print_r($e->getMessage());
+ }
+
+ // ...
+
+```
+
+```java
+URL obj = new URL("http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}");
+HttpURLConnection con = (HttpURLConnection) obj.openConnection();
+con.setRequestMethod("GET");
+int responseCode = con.getResponseCode();
+BufferedReader in = new BufferedReader(
+    new InputStreamReader(con.getInputStream()));
+String inputLine;
+StringBuffer response = new StringBuffer();
+while ((inputLine = in.readLine()) != null) {
+    response.append(inputLine);
+}
+in.close();
+System.out.println(response.toString());
+
+```
+
+```go
+package main
+
+import (
+       "bytes"
+       "net/http"
+)
+
+func main() {
+
+    headers := map[string][]string{
+        "Accept": []string{"application/json"},
+        "Authorization": []string{"Bearer {access-token}"},
+    }
+
+    data := bytes.NewBuffer([]byte{jsonReq})
+    req, err := http.NewRequest("GET", "http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}", data)
+    req.Header = headers
+
+    client := &http.Client{}
+    resp, err := client.Do(req)
+    // ...
+}
+
+```
+
+`GET /rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}`
+
+*Get resource content*
+
+<h3 id="getresource-parameters">Parameters</h3>
+
+|Name|In|Type|Required|Description|
+|---|---|---|---|---|
+|res_provider|path|string|true|Resource provider name|
+|repository_name|path|string|true|Repository name|
+|resource_type|path|string|true|Resource type (secret, cert, etc.)|
+|resource_name|path|string|true|Resource name|
+
+> Example responses
+
+> 200 Response
+
+```json
+{
+  "content": "string",
+  "content_type": "string",
+  "export_mode": "string"
+}
+```
+
+<h3 id="getresource-responses">Responses</h3>
+
+|Status|Meaning|Description|Schema|
+|---|---|---|---|
+|200|[OK](https://tools.ietf.org/html/rfc7231#section-6.3.1)|Resource content (base64-encoded JWE)|[ResourceContentResponse](#schemaresourcecontentresponse)|
+|401|[Unauthorized](https://tools.ietf.org/html/rfc7235#section-3.1)|Unauthorized|[ErrorBody](#schemaerrorbody)|
+|403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
+|404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Resource not found or access denied|[ErrorBody](#schemaerrorbody)|
+|500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
+
+<aside class="warning">
+To perform this operation, you must be authenticated by means of one of the following methods:
+bearerAuth, attestAuth
+</aside>
+
+## updateResource
+
+<a id="opIdupdateResource"></a>
+
+> Code samples
+
+```shell
+# You can also use wget
+curl -X PUT http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name} \
+  -H 'Accept: application/json' \
+  -H 'Authorization: Bearer {access-token}'
+
+```
+
+```http
+PUT http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name} HTTP/1.1
+Host: localhost:6666
+Accept: application/json
+
+```
+
+```javascript
+
+const headers = {
+  'Accept':'application/json',
+  'Authorization':'Bearer {access-token}'
+};
+
+fetch('http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}',
+{
+  method: 'PUT',
+
+  headers: headers
+})
+.then(function(res) {
+    return res.json();
+}).then(function(body) {
+    console.log(body);
+});
+
+```
+
+```ruby
+require 'rest-client'
+require 'json'
+
+headers = {
+  'Accept' => 'application/json',
+  'Authorization' => 'Bearer {access-token}'
+}
+
+result = RestClient.put 'http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}',
+  params: {
+  }, headers: headers
+
+p JSON.parse(result)
+
+```
+
+```python
+import requests
+headers = {
+  'Accept': 'application/json',
+  'Authorization': 'Bearer {access-token}'
+}
+
+r = requests.put('http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}', headers = headers)
+
+print(r.json())
+
+```
+
+```php
+<?php
+
+require 'vendor/autoload.php';
+
+$headers = array(
+    'Accept' => 'application/json',
+    'Authorization' => 'Bearer {access-token}',
+);
+
+$client = new \GuzzleHttp\Client();
+
+// Define array of request body.
+$request_body = array();
+
+try {
+    $response = $client->request('PUT','http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}', array(
+        'headers' => $headers,
+        'json' => $request_body,
+       )
+    );
+    print_r($response->getBody()->getContents());
+ }
+ catch (\GuzzleHttp\Exception\BadResponseException $e) {
+    // handle exception or api errors.
+    print_r($e->getMessage());
+ }
+
+ // ...
+
+```
+
+```java
+URL obj = new URL("http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}");
+HttpURLConnection con = (HttpURLConnection) obj.openConnection();
+con.setRequestMethod("PUT");
+int responseCode = con.getResponseCode();
+BufferedReader in = new BufferedReader(
+    new InputStreamReader(con.getInputStream()));
+String inputLine;
+StringBuffer response = new StringBuffer();
+while ((inputLine = in.readLine()) != null) {
+    response.append(inputLine);
+}
+in.close();
+System.out.println(response.toString());
+
+```
+
+```go
+package main
+
+import (
+       "bytes"
+       "net/http"
+)
+
+func main() {
+
+    headers := map[string][]string{
+        "Accept": []string{"application/json"},
+        "Authorization": []string{"Bearer {access-token}"},
+    }
+
+    data := bytes.NewBuffer([]byte{jsonReq})
+    req, err := http.NewRequest("PUT", "http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}", data)
+    req.Header = headers
+
+    client := &http.Client{}
+    resp, err := client.Do(req)
+    // ...
+}
+
+```
+
+`PUT /rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}`
+
+*Update or create resource*
+
+<h3 id="updateresource-parameters">Parameters</h3>
+
+|Name|In|Type|Required|Description|
+|---|---|---|---|---|
+|res_provider|path|string|true|Resource provider name|
+|repository_name|path|string|true|Repository name|
+|resource_type|path|string|true|Resource type (secret, cert, etc.)|
+|resource_name|path|string|true|Resource name|
+
+> Example responses
+
+> 200 Response
+
+```json
+{
+  "uri": "string",
+  "user_id": "string",
+  "provider_name": "string",
+  "resource_type": "string",
+  "resource_name": "string",
+  "created_at": 0,
+  "updated_at": 0,
+  "content_type": "string",
+  "export_mode": "string",
+  "policy_id": "string"
+}
+```
+
+<h3 id="updateresource-responses">Responses</h3>
+
+|Status|Meaning|Description|Schema|
+|---|---|---|---|
+|200|[OK](https://tools.ietf.org/html/rfc7231#section-6.3.1)|Resource updated|[ResourceResponse](#schemaresourceresponse)|
+|201|[Created](https://tools.ietf.org/html/rfc7231#section-6.3.2)|Resource created|[ResourceResponse](#schemaresourceresponse)|
+|401|[Unauthorized](https://tools.ietf.org/html/rfc7235#section-3.1)|Unauthorized|[ErrorBody](#schemaerrorbody)|
+|403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
+|500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
+
+<aside class="warning">
+To perform this operation, you must be authenticated by means of one of the following methods:
+bearerAuth
+</aside>
+
+## createResource
+
+<a id="opIdcreateResource"></a>
+
+> Code samples
+
+```shell
+# You can also use wget
+curl -X POST http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name} \
+  -H 'Accept: application/json' \
+  -H 'Authorization: Bearer {access-token}'
+
+```
+
+```http
+POST http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name} HTTP/1.1
+Host: localhost:6666
+Accept: application/json
+
+```
+
+```javascript
+
+const headers = {
+  'Accept':'application/json',
+  'Authorization':'Bearer {access-token}'
+};
+
+fetch('http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}',
+{
+  method: 'POST',
+
+  headers: headers
+})
+.then(function(res) {
+    return res.json();
+}).then(function(body) {
+    console.log(body);
+});
+
+```
+
+```ruby
+require 'rest-client'
+require 'json'
+
+headers = {
+  'Accept' => 'application/json',
+  'Authorization' => 'Bearer {access-token}'
+}
+
+result = RestClient.post 'http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}',
+  params: {
+  }, headers: headers
+
+p JSON.parse(result)
+
+```
+
+```python
+import requests
+headers = {
+  'Accept': 'application/json',
+  'Authorization': 'Bearer {access-token}'
+}
+
+r = requests.post('http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}', headers = headers)
+
+print(r.json())
+
+```
+
+```php
+<?php
+
+require 'vendor/autoload.php';
+
+$headers = array(
+    'Accept' => 'application/json',
+    'Authorization' => 'Bearer {access-token}',
+);
+
+$client = new \GuzzleHttp\Client();
+
+// Define array of request body.
+$request_body = array();
+
+try {
+    $response = $client->request('POST','http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}', array(
+        'headers' => $headers,
+        'json' => $request_body,
+       )
+    );
+    print_r($response->getBody()->getContents());
+ }
+ catch (\GuzzleHttp\Exception\BadResponseException $e) {
+    // handle exception or api errors.
+    print_r($e->getMessage());
+ }
+
+ // ...
+
+```
+
+```java
+URL obj = new URL("http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}");
+HttpURLConnection con = (HttpURLConnection) obj.openConnection();
+con.setRequestMethod("POST");
+int responseCode = con.getResponseCode();
+BufferedReader in = new BufferedReader(
+    new InputStreamReader(con.getInputStream()));
+String inputLine;
+StringBuffer response = new StringBuffer();
+while ((inputLine = in.readLine()) != null) {
+    response.append(inputLine);
+}
+in.close();
+System.out.println(response.toString());
+
+```
+
+```go
+package main
+
+import (
+       "bytes"
+       "net/http"
+)
+
+func main() {
+
+    headers := map[string][]string{
+        "Accept": []string{"application/json"},
+        "Authorization": []string{"Bearer {access-token}"},
+    }
+
+    data := bytes.NewBuffer([]byte{jsonReq})
+    req, err := http.NewRequest("POST", "http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}", data)
+    req.Header = headers
+
+    client := &http.Client{}
+    resp, err := client.Do(req)
+    // ...
+}
+
+```
+
+`POST /rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}`
+
+*Create resource*
+
+<h3 id="createresource-parameters">Parameters</h3>
+
+|Name|In|Type|Required|Description|
+|---|---|---|---|---|
+|res_provider|path|string|true|Resource provider name|
+|repository_name|path|string|true|Repository name|
+|resource_type|path|string|true|Resource type (secret, cert, etc.)|
+|resource_name|path|string|true|Resource name|
+
+> Example responses
+
+> 201 Response
+
+```json
+{
+  "uri": "string",
+  "user_id": "string",
+  "provider_name": "string",
+  "resource_type": "string",
+  "resource_name": "string",
+  "created_at": 0,
+  "updated_at": 0,
+  "content_type": "string",
+  "export_mode": "string",
+  "policy_id": "string"
+}
+```
+
+<h3 id="createresource-responses">Responses</h3>
+
+|Status|Meaning|Description|Schema|
+|---|---|---|---|
+|201|[Created](https://tools.ietf.org/html/rfc7231#section-6.3.2)|Resource created|[ResourceResponse](#schemaresourceresponse)|
+|401|[Unauthorized](https://tools.ietf.org/html/rfc7235#section-3.1)|Unauthorized|[ErrorBody](#schemaerrorbody)|
+|403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
+|409|[Conflict](https://tools.ietf.org/html/rfc7231#section-6.5.8)|Resource already exists|[ErrorBody](#schemaerrorbody)|
+|500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
+
+<aside class="warning">
+To perform this operation, you must be authenticated by means of one of the following methods:
+bearerAuth
+</aside>
+
+## deleteResource
+
+<a id="opIddeleteResource"></a>
+
+> Code samples
+
+```shell
+# You can also use wget
+curl -X DELETE http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name} \
+  -H 'Accept: application/json' \
+  -H 'Authorization: Bearer {access-token}'
+
+```
+
+```http
+DELETE http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name} HTTP/1.1
+Host: localhost:6666
+Accept: application/json
+
+```
+
+```javascript
+
+const headers = {
+  'Accept':'application/json',
+  'Authorization':'Bearer {access-token}'
+};
+
+fetch('http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}',
+{
+  method: 'DELETE',
+
+  headers: headers
+})
+.then(function(res) {
+    return res.json();
+}).then(function(body) {
+    console.log(body);
+});
+
+```
+
+```ruby
+require 'rest-client'
+require 'json'
+
+headers = {
+  'Accept' => 'application/json',
+  'Authorization' => 'Bearer {access-token}'
+}
+
+result = RestClient.delete 'http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}',
+  params: {
+  }, headers: headers
+
+p JSON.parse(result)
+
+```
+
+```python
+import requests
+headers = {
+  'Accept': 'application/json',
+  'Authorization': 'Bearer {access-token}'
+}
+
+r = requests.delete('http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}', headers = headers)
+
+print(r.json())
+
+```
+
+```php
+<?php
+
+require 'vendor/autoload.php';
+
+$headers = array(
+    'Accept' => 'application/json',
+    'Authorization' => 'Bearer {access-token}',
+);
+
+$client = new \GuzzleHttp\Client();
+
+// Define array of request body.
+$request_body = array();
+
+try {
+    $response = $client->request('DELETE','http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}', array(
+        'headers' => $headers,
+        'json' => $request_body,
+       )
+    );
+    print_r($response->getBody()->getContents());
+ }
+ catch (\GuzzleHttp\Exception\BadResponseException $e) {
+    // handle exception or api errors.
+    print_r($e->getMessage());
+ }
+
+ // ...
+
+```
+
+```java
+URL obj = new URL("http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}");
+HttpURLConnection con = (HttpURLConnection) obj.openConnection();
+con.setRequestMethod("DELETE");
+int responseCode = con.getResponseCode();
+BufferedReader in = new BufferedReader(
+    new InputStreamReader(con.getInputStream()));
+String inputLine;
+StringBuffer response = new StringBuffer();
+while ((inputLine = in.readLine()) != null) {
+    response.append(inputLine);
+}
+in.close();
+System.out.println(response.toString());
+
+```
+
+```go
+package main
+
+import (
+       "bytes"
+       "net/http"
+)
+
+func main() {
+
+    headers := map[string][]string{
+        "Accept": []string{"application/json"},
+        "Authorization": []string{"Bearer {access-token}"},
+    }
+
+    data := bytes.NewBuffer([]byte{jsonReq})
+    req, err := http.NewRequest("DELETE", "http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}", data)
+    req.Header = headers
+
+    client := &http.Client{}
+    resp, err := client.Do(req)
+    // ...
+}
+
+```
+
+`DELETE /rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}`
+
+*Delete resource*
+
+<h3 id="deleteresource-parameters">Parameters</h3>
+
+|Name|In|Type|Required|Description|
+|---|---|---|---|---|
+|res_provider|path|string|true|Resource provider name|
+|repository_name|path|string|true|Repository name|
+|resource_type|path|string|true|Resource type (secret, cert, etc.)|
+|resource_name|path|string|true|Resource name|
+
+> Example responses
+
+> 401 Response
+
+```json
+{
+  "error": "string"
+}
+```
+
+<h3 id="deleteresource-responses">Responses</h3>
+
+|Status|Meaning|Description|Schema|
+|---|---|---|---|
+|204|[No Content](https://tools.ietf.org/html/rfc7231#section-6.3.5)|Resource deleted|None|
+|401|[Unauthorized](https://tools.ietf.org/html/rfc7235#section-3.1)|Unauthorized|[ErrorBody](#schemaerrorbody)|
+|403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
+|404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Resource not found|[ErrorBody](#schemaerrorbody)|
+|500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
+
+<aside class="warning">
+To perform this operation, you must be authenticated by means of one of the following methods:
+bearerAuth
+</aside>
+
+## getResourceInfo
+
+<a id="opIdgetResourceInfo"></a>
+
+> Code samples
+
+```shell
+# You can also use wget
+curl -X GET http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}/info \
+  -H 'Accept: application/json' \
+  -H 'Authorization: Bearer {access-token}'
+
+```
+
+```http
+GET http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}/info HTTP/1.1
+Host: localhost:6666
+Accept: application/json
+
+```
+
+```javascript
+
+const headers = {
+  'Accept':'application/json',
+  'Authorization':'Bearer {access-token}'
+};
+
+fetch('http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}/info',
+{
+  method: 'GET',
+
+  headers: headers
+})
+.then(function(res) {
+    return res.json();
+}).then(function(body) {
+    console.log(body);
+});
+
+```
+
+```ruby
+require 'rest-client'
+require 'json'
+
+headers = {
+  'Accept' => 'application/json',
+  'Authorization' => 'Bearer {access-token}'
+}
+
+result = RestClient.get 'http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}/info',
+  params: {
+  }, headers: headers
+
+p JSON.parse(result)
+
+```
+
+```python
+import requests
+headers = {
+  'Accept': 'application/json',
+  'Authorization': 'Bearer {access-token}'
+}
+
+r = requests.get('http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}/info', headers = headers)
+
+print(r.json())
+
+```
+
+```php
+<?php
+
+require 'vendor/autoload.php';
+
+$headers = array(
+    'Accept' => 'application/json',
+    'Authorization' => 'Bearer {access-token}',
+);
+
+$client = new \GuzzleHttp\Client();
+
+// Define array of request body.
+$request_body = array();
+
+try {
+    $response = $client->request('GET','http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}/info', array(
+        'headers' => $headers,
+        'json' => $request_body,
+       )
+    );
+    print_r($response->getBody()->getContents());
+ }
+ catch (\GuzzleHttp\Exception\BadResponseException $e) {
+    // handle exception or api errors.
+    print_r($e->getMessage());
+ }
+
+ // ...
+
+```
+
+```java
+URL obj = new URL("http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}/info");
+HttpURLConnection con = (HttpURLConnection) obj.openConnection();
+con.setRequestMethod("GET");
+int responseCode = con.getResponseCode();
+BufferedReader in = new BufferedReader(
+    new InputStreamReader(con.getInputStream()));
+String inputLine;
+StringBuffer response = new StringBuffer();
+while ((inputLine = in.readLine()) != null) {
+    response.append(inputLine);
+}
+in.close();
+System.out.println(response.toString());
+
+```
+
+```go
+package main
+
+import (
+       "bytes"
+       "net/http"
+)
+
+func main() {
+
+    headers := map[string][]string{
+        "Accept": []string{"application/json"},
+        "Authorization": []string{"Bearer {access-token}"},
+    }
+
+    data := bytes.NewBuffer([]byte{jsonReq})
+    req, err := http.NewRequest("GET", "http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}/info", data)
+    req.Header = headers
+
+    client := &http.Client{}
+    resp, err := client.Do(req)
+    // ...
+}
+
+```
+
+`GET /rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}/info`
+
+*Get resource metadata*
+
+<h3 id="getresourceinfo-parameters">Parameters</h3>
+
+|Name|In|Type|Required|Description|
+|---|---|---|---|---|
+|res_provider|path|string|true|Resource provider name|
+|repository_name|path|string|true|Repository name|
+|resource_type|path|string|true|Resource type (secret, cert, etc.)|
+|resource_name|path|string|true|Resource name|
+
+> Example responses
+
+> 200 Response
+
+```json
+{
+  "uri": "string",
+  "user_id": "string",
+  "policy_id": "string",
+  "created_at": 0,
+  "updated_at": 0,
+  "content_type": "string",
+  "export_mode": "string"
+}
+```
+
+<h3 id="getresourceinfo-responses">Responses</h3>
+
+|Status|Meaning|Description|Schema|
+|---|---|---|---|
+|200|[OK](https://tools.ietf.org/html/rfc7231#section-6.3.1)|Resource metadata|[ResourceInfoResponse](#schemaresourceinforesponse)|
+|401|[Unauthorized](https://tools.ietf.org/html/rfc7235#section-3.1)|Unauthorized|[ErrorBody](#schemaerrorbody)|
+|403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
+|404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Resource not found|[ErrorBody](#schemaerrorbody)|
+|500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
+
+<aside class="warning">
+To perform this operation, you must be authenticated by means of one of the following methods:
+bearerAuth, attestAuth
+</aside>
+
+## retrieveResource
+
+<a id="opIdretrieveResource"></a>
+
+> Code samples
+
+```shell
+# You can also use wget
+curl -X POST http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}/retrieve \
+  -H 'Accept: application/json'
+
+```
+
+```http
+POST http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}/retrieve HTTP/1.1
+Host: localhost:6666
+Accept: application/json
+
+```
+
+```javascript
+
+const headers = {
+  'Accept':'application/json'
+};
+
+fetch('http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}/retrieve',
+{
+  method: 'POST',
+
+  headers: headers
+})
+.then(function(res) {
+    return res.json();
+}).then(function(body) {
+    console.log(body);
+});
+
+```
+
+```ruby
+require 'rest-client'
+require 'json'
+
+headers = {
+  'Accept' => 'application/json'
+}
+
+result = RestClient.post 'http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}/retrieve',
+  params: {
+  }, headers: headers
+
+p JSON.parse(result)
+
+```
+
+```python
+import requests
+headers = {
+  'Accept': 'application/json'
+}
+
+r = requests.post('http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}/retrieve', headers = headers)
+
+print(r.json())
+
+```
+
+```php
+<?php
+
+require 'vendor/autoload.php';
+
+$headers = array(
+    'Accept' => 'application/json',
+);
+
+$client = new \GuzzleHttp\Client();
+
+// Define array of request body.
+$request_body = array();
+
+try {
+    $response = $client->request('POST','http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}/retrieve', array(
+        'headers' => $headers,
+        'json' => $request_body,
+       )
+    );
+    print_r($response->getBody()->getContents());
+ }
+ catch (\GuzzleHttp\Exception\BadResponseException $e) {
+    // handle exception or api errors.
+    print_r($e->getMessage());
+ }
+
+ // ...
+
+```
+
+```java
+URL obj = new URL("http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}/retrieve");
+HttpURLConnection con = (HttpURLConnection) obj.openConnection();
+con.setRequestMethod("POST");
+int responseCode = con.getResponseCode();
+BufferedReader in = new BufferedReader(
+    new InputStreamReader(con.getInputStream()));
+String inputLine;
+StringBuffer response = new StringBuffer();
+while ((inputLine = in.readLine()) != null) {
+    response.append(inputLine);
+}
+in.close();
+System.out.println(response.toString());
+
+```
+
+```go
+package main
+
+import (
+       "bytes"
+       "net/http"
+)
+
+func main() {
+
+    headers := map[string][]string{
+        "Accept": []string{"application/json"},
+    }
+
+    data := bytes.NewBuffer([]byte{jsonReq})
+    req, err := http.NewRequest("POST", "http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}/retrieve", data)
+    req.Header = headers
+
+    client := &http.Client{}
+    resp, err := client.Do(req)
+    // ...
+}
+
+```
+
+`POST /rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}/retrieve`
+
+*Retrieve resource with attestation evidence*
+
+<h3 id="retrieveresource-parameters">Parameters</h3>
+
+|Name|In|Type|Required|Description|
+|---|---|---|---|---|
+|res_provider|path|string|true|Resource provider name|
+|repository_name|path|string|true|Repository name|
+|resource_type|path|string|true|Resource type (secret, cert, etc.)|
+|resource_name|path|string|true|Resource name|
+
+> Example responses
+
+> 200 Response
+
+```json
+{
+  "content": "string",
+  "content_type": "string",
+  "export_mode": "string"
+}
+```
+
+<h3 id="retrieveresource-responses">Responses</h3>
+
+|Status|Meaning|Description|Schema|
+|---|---|---|---|
+|200|[OK](https://tools.ietf.org/html/rfc7231#section-6.3.1)|Resource content (base64-encoded JWE)|[ResourceContentResponse](#schemaresourcecontentresponse)|
+|401|[Unauthorized](https://tools.ietf.org/html/rfc7235#section-3.1)|Unauthorized|[ErrorBody](#schemaerrorbody)|
+|403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
+|404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Resource not found or access denied|[ErrorBody](#schemaerrorbody)|
+|500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
+
+<aside class="warning">
+To perform this operation, you must be authenticated by means of one of the following methods:
+None
+</aside>
+
 # Schemas
 
 <h2 id="tocS_AuthType">AuthType</h2>
@@ -1243,6 +3571,62 @@ Build-time identity for the running binary.
 |git_hash|string|true|none|Git commit hash at build time (hex), or empty when not embedded at build.|
 |build_date|string|true|none|Build timestamp (UTC), typically RFC 3339, or empty when not embedded at build.|
 
+<h2 id="tocS_CreatePolicyRequest">CreatePolicyRequest</h2>
+<!-- backwards compatibility -->
+<a id="schemacreatepolicyrequest"></a>
+<a id="schema_CreatePolicyRequest"></a>
+<a id="tocScreatepolicyrequest"></a>
+<a id="tocscreatepolicyrequest"></a>
+
+```json
+{
+  "name": "string",
+  "content_type": "string",
+  "content": "string"
+}
+
+```
+
+Policy create request body.
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|name|string|true|none|none|
+|content_type|string|true|none|none|
+|content|string|true|none|none|
+
+<h2 id="tocS_CreateResourceRequest">CreateResourceRequest</h2>
+<!-- backwards compatibility -->
+<a id="schemacreateresourcerequest"></a>
+<a id="schema_CreateResourceRequest"></a>
+<a id="tocScreateresourcerequest"></a>
+<a id="tocscreateresourcerequest"></a>
+
+```json
+{
+  "uri": "string",
+  "policy_id": "string",
+  "content_type": "string",
+  "export_mode": "string",
+  "additional_info": "string"
+}
+
+```
+
+Request body for `POST /rbs/v0/{uri}` — create a resource.
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|uri|string|true|none|none|
+|policy_id|string|true|none|none|
+|content_type|string,null|false|none|none|
+|export_mode|string,null|false|none|none|
+|additional_info|string,null|false|none|none|
+
 <h2 id="tocS_ErrorBody">ErrorBody</h2>
 <!-- backwards compatibility -->
 <a id="schemaerrorbody"></a>
@@ -1264,6 +3648,81 @@ Error payload for HTTP error responses (e.g. 500).
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
 |error|string|true|none|Error string for the caller: may be a stable code, a short machine-oriented label,<br>or a concise human-readable message. Must not include stack traces or secrets.|
+
+<h2 id="tocS_PolicyListResponse">PolicyListResponse</h2>
+<!-- backwards compatibility -->
+<a id="schemapolicylistresponse"></a>
+<a id="schema_PolicyListResponse"></a>
+<a id="tocSpolicylistresponse"></a>
+<a id="tocspolicylistresponse"></a>
+
+```json
+{
+  "items": [
+    {
+      "policy_id": "string",
+      "policy_name": "string",
+      "policy_version": 0,
+      "policy_content": "string",
+      "content_type": "string",
+      "created_at": 0,
+      "updated_at": 0,
+      "applied_resources": [
+        "string"
+      ]
+    }
+  ],
+  "total": 0
+}
+
+```
+
+Policy list response.
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|items|[[PolicyResponse](#schemapolicyresponse)]|true|none|[Policy response returned to callers.]|
+|total|integer(int64)|true|none|none|
+
+<h2 id="tocS_PolicyResponse">PolicyResponse</h2>
+<!-- backwards compatibility -->
+<a id="schemapolicyresponse"></a>
+<a id="schema_PolicyResponse"></a>
+<a id="tocSpolicyresponse"></a>
+<a id="tocspolicyresponse"></a>
+
+```json
+{
+  "policy_id": "string",
+  "policy_name": "string",
+  "policy_version": 0,
+  "policy_content": "string",
+  "content_type": "string",
+  "created_at": 0,
+  "updated_at": 0,
+  "applied_resources": [
+    "string"
+  ]
+}
+
+```
+
+Policy response returned to callers.
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|policy_id|string|true|none|none|
+|policy_name|string|true|none|none|
+|policy_version|integer(int32)|true|none|none|
+|policy_content|string|true|none|none|
+|content_type|string|true|none|none|
+|created_at|integer(int64)|true|none|none|
+|updated_at|integer(int64)|true|none|none|
+|applied_resources|array,null|false|none|none|
 
 <h2 id="tocS_RbsVersion">RbsVersion</h2>
 <!-- backwards compatibility -->
@@ -1295,6 +3754,108 @@ JSON emitted by `GET /rbs/version` (`service_name`, `api_version`, structured `b
 |api_version|string|true|none|Published API contract version string.|
 |build|[BuildMetadata](#schemabuildmetadata)|true|none|Build metadata (`version`, `git_hash`, `build_date`) for this binary; same shape as in the exported `OpenAPI` schema.|
 
+<h2 id="tocS_ResourceContentResponse">ResourceContentResponse</h2>
+<!-- backwards compatibility -->
+<a id="schemaresourcecontentresponse"></a>
+<a id="schema_ResourceContentResponse"></a>
+<a id="tocSresourcecontentresponse"></a>
+<a id="tocsresourcecontentresponse"></a>
+
+```json
+{
+  "content": "string",
+  "content_type": "string",
+  "export_mode": "string"
+}
+
+```
+
+Resource content returned by GET and POST .../retrieve.
+
+`content` is always base64-encoded JWE ciphertext (Compact Serialization).
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|content|string|true|none|Base64-encoded JWE ciphertext.|
+|content_type|string|true|none|Original MIME type hint for decoding after JWE decryption.|
+|export_mode|string|true|none|Export mode (currently always "jwe").|
+
+<h2 id="tocS_ResourceInfoResponse">ResourceInfoResponse</h2>
+<!-- backwards compatibility -->
+<a id="schemaresourceinforesponse"></a>
+<a id="schema_ResourceInfoResponse"></a>
+<a id="tocSresourceinforesponse"></a>
+<a id="tocsresourceinforesponse"></a>
+
+```json
+{
+  "uri": "string",
+  "user_id": "string",
+  "policy_id": "string",
+  "created_at": 0,
+  "updated_at": 0,
+  "content_type": "string",
+  "export_mode": "string"
+}
+
+```
+
+Resource metadata returned by GET .../info (no secret material).
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|uri|string|true|none|none|
+|user_id|string|true|none|none|
+|policy_id|string|true|none|none|
+|created_at|integer(int64)|true|none|none|
+|updated_at|integer(int64)|true|none|none|
+|content_type|string,null|false|none|none|
+|export_mode|string|true|none|none|
+
+<h2 id="tocS_ResourceResponse">ResourceResponse</h2>
+<!-- backwards compatibility -->
+<a id="schemaresourceresponse"></a>
+<a id="schema_ResourceResponse"></a>
+<a id="tocSresourceresponse"></a>
+<a id="tocsresourceresponse"></a>
+
+```json
+{
+  "uri": "string",
+  "user_id": "string",
+  "provider_name": "string",
+  "resource_type": "string",
+  "resource_name": "string",
+  "created_at": 0,
+  "updated_at": 0,
+  "content_type": "string",
+  "export_mode": "string",
+  "policy_id": "string"
+}
+
+```
+
+Resource metadata returned after create or update.
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|uri|string|true|none|none|
+|user_id|string|true|none|none|
+|provider_name|string|true|none|none|
+|resource_type|string|true|none|none|
+|resource_name|string|true|none|none|
+|created_at|integer(int64)|true|none|none|
+|updated_at|integer(int64)|true|none|none|
+|content_type|string,null|false|none|none|
+|export_mode|string|true|none|none|
+|policy_id|string|true|none|none|
+
 <h2 id="tocS_Role">Role</h2>
 <!-- backwards compatibility -->
 <a id="schemarole"></a>
@@ -1321,6 +3882,60 @@ User role. `Admin` is pre-configured and cannot be created via the API.
 |---|---|
 |*anonymous*|admin|
 |*anonymous*|user|
+
+<h2 id="tocS_UpdatePolicyRequest">UpdatePolicyRequest</h2>
+<!-- backwards compatibility -->
+<a id="schemaupdatepolicyrequest"></a>
+<a id="schema_UpdatePolicyRequest"></a>
+<a id="tocSupdatepolicyrequest"></a>
+<a id="tocsupdatepolicyrequest"></a>
+
+```json
+{
+  "name": "string",
+  "content_type": "string",
+  "content": "string"
+}
+
+```
+
+Policy update request body.
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|name|string|true|none|none|
+|content_type|string|true|none|none|
+|content|string|true|none|none|
+
+<h2 id="tocS_UpdateResourceRequest">UpdateResourceRequest</h2>
+<!-- backwards compatibility -->
+<a id="schemaupdateresourcerequest"></a>
+<a id="schema_UpdateResourceRequest"></a>
+<a id="tocSupdateresourcerequest"></a>
+<a id="tocsupdateresourcerequest"></a>
+
+```json
+{
+  "policy_id": "string",
+  "content_type": "string",
+  "export_mode": "string",
+  "additional_info": "string"
+}
+
+```
+
+Request body for `PUT /rbs/v0/{uri}` — update or create a resource.
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|policy_id|string|true|none|none|
+|content_type|string,null|false|none|none|
+|export_mode|string,null|false|none|none|
+|additional_info|string,null|false|none|none|
 
 <h2 id="tocS_UserCreateRequest">UserCreateRequest</h2>
 <!-- backwards compatibility -->
