@@ -55,7 +55,7 @@ impl AdminManager {
     pub fn new(config: AdminConfig) -> Self {
         Self {
             config,
-            authz: AuthzFacade::new(),
+            authz: AuthzFacade::new(std::sync::Arc::new(crate::policy_engine::RealPolicyEngine)),
         }
     }
 

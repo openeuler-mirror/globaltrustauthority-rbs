@@ -13,203 +13,103 @@
 //! Resource routes (`/rbs/v0/{res_provider}/{...}`).
 
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, http::StatusCode};
-use rbs_api_types::{
-    error::RbsError, ErrorBody, ResourceContentResponse, ResourceInfoResponse, ResourceMetadataResponse,
-    ResourceRetrieveRequest, ResourceUpsertRequest,
-};
+use rbs_api_types::ErrorBody;
+use rbs_core::resource::service::{CreateResourceRequest, UpdateResourceRequest};
 use rbs_core::RbsCore;
 use std::sync::Arc;
 
 use crate::middleware::OptAuthContext;
 
-/// `GET /rbs/v0/{uri}`: Retrieve resource content.
-#[utoipa::path(
-    get,
-    path = "/rbs/v0/{uri:.+}",
-    operation_id = "getResource",
-    summary = "Get resource content by URI",
-    tags = ["Resource"],
-    security(()),
-    params(
-        ("uri" = String, Path, description = "Resource URI (format: {res_provider}/{repository_name}/{resource_type}/{resource_name})")
-    ),
-    responses(
-        (status = 200, description = "Resource content (JSON).", body = ResourceContentResponse),
-        (status = 400, description = "Invalid URI or request.", body = ErrorBody),
-        (status = 404, description = "Resource not found.", body = ErrorBody),
-        (status = 409, description = "Resource conflict.", body = ErrorBody),
-        (status = 429, description = "Rate limit exceeded.", body = ErrorBody),
-        (status = 503, description = "Provider not found or unavailable.", body = ErrorBody),
-        (status = 500, description = "Internal server error.", body = ErrorBody),
-    )
-)]
-pub async fn get_resource(
-    core: web::Data<Arc<RbsCore>>,
-    path: web::Path<String>,
-    req: HttpRequest,
+fn require_auth(req: &HttpRequest) -> Result<rbs_core::AuthContext, HttpResponse> {
+    req.extensions().get::<OptAuthContext>().and_then(|c| c.0.clone())
+        .ok_or_else(|| HttpResponse::Unauthorized().json(ErrorBody::new("authentication required".to_string())))
+}
+
+fn error_response(e: impl ToString, status: u16) -> HttpResponse {
+    HttpResponse::build(StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR))
+        .json(ErrorBody::new(e.to_string()))
+}
+
+fn build_uri(path: &str) -> String { format!("/rbs/v0/{}", path) }
+
+/// `POST /rbs/v0/{uri}`: Create resource.
+pub async fn create_resource(
+    core: web::Data<Arc<RbsCore>>, path: web::Path<String>,
+    body: web::Json<CreateResourceRequest>, req: HttpRequest,
 ) -> HttpResponse {
-    let opt_ctx = req.extensions()
-        .get::<OptAuthContext>()
-        .and_then(|ctx| ctx.0.clone());
-    let uri = path.into_inner();
-    match core.resource().get(&uri, opt_ctx).await {
-        Ok(Some(resp)) => HttpResponse::Ok().json(resp),
-        Ok(None) => HttpResponse::NotFound().json(ErrorBody::new(RbsError::ResourceNotFound.external_message())),
-        Err(e) => HttpResponse::build(StatusCode::from_u16(e.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR))
-            .json(ErrorBody::new(e.external_message())),
+    let ctx = match require_auth(&req) { Ok(c) => c, Err(r) => return r };
+    let mut cr = body.into_inner();
+    cr.uri = build_uri(&path.into_inner());
+    match core.resource().create(&ctx, &cr).await {
+        Ok(resp) => HttpResponse::Created().json(resp),
+        Err(e) => error_response(e.to_string(), e.http_status()),
     }
 }
 
-/// `PUT /rbs/v0/{uri}`: Create or update resource.
-#[utoipa::path(
-    put,
-    path = "/rbs/v0/{uri:.+}",
-    operation_id = "upsertResource",
-    summary = "Create or update resource",
-    tags = ["Resource"],
-    security(()),
-    params(
-        ("uri" = String, Path, description = "Resource URI")
-    ),
-    request_body = ResourceUpsertRequest,
-    responses(
-        (status = 200, description = "Resource metadata (JSON).", body = ResourceMetadataResponse),
-        (status = 400, description = "Invalid URI or request.", body = ErrorBody),
-        (status = 404, description = "Provider not found.", body = ErrorBody),
-        (status = 409, description = "Resource conflict.", body = ErrorBody),
-        (status = 429, description = "Rate limit exceeded.", body = ErrorBody),
-        (status = 503, description = "Provider not found or unavailable.", body = ErrorBody),
-        (status = 500, description = "Internal server error.", body = ErrorBody),
-    )
-)]
-pub async fn upsert_resource(
-    core: web::Data<Arc<RbsCore>>,
-    path: web::Path<String>,
-    body: web::Json<ResourceUpsertRequest>,
-    req: HttpRequest,
+/// `GET /rbs/v0/{uri}`: Retrieve resource content.
+pub async fn get_resource(
+    core: web::Data<Arc<RbsCore>>, path: web::Path<String>, req: HttpRequest,
 ) -> HttpResponse {
-    let opt_ctx = req.extensions()
-        .get::<OptAuthContext>()
-        .and_then(|ctx| ctx.0.clone());
-    let uri = path.into_inner();
-    match core.resource().upsert(&uri, &body.into_inner(), opt_ctx).await {
+    let ctx = match require_auth(&req) { Ok(c) => c, Err(r) => return r };
+    let uri = build_uri(&path.into_inner());
+    match core.resource().get_content(&ctx, &uri).await {
         Ok(resp) => HttpResponse::Ok().json(resp),
-        Err(e) => HttpResponse::build(StatusCode::from_u16(e.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR))
-            .json(ErrorBody::new(e.external_message())),
+        Err(e) => error_response(e.to_string(), e.http_status()),
+    }
+}
+
+/// `PUT /rbs/v0/{uri}`: Update or create resource.
+pub async fn update_resource(
+    core: web::Data<Arc<RbsCore>>, path: web::Path<String>,
+    body: web::Json<UpdateResourceRequest>, req: HttpRequest,
+) -> HttpResponse {
+    let ctx = match require_auth(&req) { Ok(c) => c, Err(r) => return r };
+    let uri = build_uri(&path.into_inner());
+    match core.resource().update(&ctx, &uri, &body.into_inner()).await {
+        Ok((resp, true)) => HttpResponse::Created().json(resp),
+        Ok((resp, false)) => HttpResponse::Ok().json(resp),
+        Err(e) => error_response(e.to_string(), e.http_status()),
     }
 }
 
 /// `DELETE /rbs/v0/{uri}`: Delete resource.
-#[utoipa::path(
-    delete,
-    path = "/rbs/v0/{uri:.+}",
-    operation_id = "deleteResource",
-    summary = "Delete resource by URI",
-    tags = ["Resource"],
-    security(()),
-    params(
-        ("uri" = String, Path, description = "Resource URI")
-    ),
-    responses(
-        (status = 204, description = "Resource deleted."),
-        (status = 400, description = "Invalid URI or request.", body = ErrorBody),
-        (status = 404, description = "Resource or provider not found.", body = ErrorBody),
-        (status = 429, description = "Rate limit exceeded.", body = ErrorBody),
-        (status = 503, description = "Provider not found or unavailable.", body = ErrorBody),
-        (status = 500, description = "Internal server error.", body = ErrorBody),
-    )
-)]
 pub async fn delete_resource(
-    core: web::Data<Arc<RbsCore>>,
-    path: web::Path<String>,
-    req: HttpRequest,
+    core: web::Data<Arc<RbsCore>>, path: web::Path<String>, req: HttpRequest,
 ) -> HttpResponse {
-    let opt_ctx = req.extensions()
-        .get::<OptAuthContext>()
-        .and_then(|ctx| ctx.0.clone());
-    let uri = path.into_inner();
-    match core.resource().delete(&uri, opt_ctx).await {
+    let ctx = match require_auth(&req) { Ok(c) => c, Err(r) => return r };
+    let uri = build_uri(&path.into_inner());
+    match core.resource().delete(&ctx, &uri).await {
         Ok(()) => HttpResponse::NoContent().finish(),
-        Err(e) => HttpResponse::build(StatusCode::from_u16(e.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR))
-            .json(ErrorBody::new(e.external_message())),
+        Err(e) => error_response(e.to_string(), e.http_status()),
     }
 }
 
-/// `GET /rbs/v0/{uri}/info`: Get resource metadata (no content).
-#[utoipa::path(
-    get,
-    path = "/rbs/v0/{uri}/info",
-    operation_id = "getResourceInfo",
-    summary = "Get resource metadata by URI",
-    tags = ["Resource"],
-    security(()),
-    params(
-        ("uri" = String, Path, description = "Resource URI")
-    ),
-    responses(
-        (status = 200, description = "Resource metadata (JSON).", body = ResourceInfoResponse),
-        (status = 400, description = "Invalid URI or request.", body = ErrorBody),
-        (status = 404, description = "Resource not found.", body = ErrorBody),
-        (status = 409, description = "Resource conflict.", body = ErrorBody),
-        (status = 429, description = "Rate limit exceeded.", body = ErrorBody),
-        (status = 503, description = "Provider not found or unavailable.", body = ErrorBody),
-        (status = 500, description = "Internal server error.", body = ErrorBody),
-    )
-)]
+/// `GET /rbs/v0/{uri}/info`: Get resource metadata.
 pub async fn get_resource_info(
-    core: web::Data<Arc<RbsCore>>,
-    path: web::Path<String>,
-    req: HttpRequest,
+    core: web::Data<Arc<RbsCore>>, path: web::Path<String>, req: HttpRequest,
 ) -> HttpResponse {
-    let opt_ctx = req.extensions()
-        .get::<OptAuthContext>()
-        .and_then(|ctx| ctx.0.clone());
-    let uri = path.into_inner();
-    match core.resource().info(&uri, opt_ctx).await {
-        Ok(Some(resp)) => HttpResponse::Ok().json(resp),
-        Ok(None) => HttpResponse::NotFound().json(ErrorBody::new(RbsError::ResourceNotFound.external_message())),
-        Err(e) => HttpResponse::build(StatusCode::from_u16(e.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR))
-            .json(ErrorBody::new(e.external_message())),
+    let ctx = match require_auth(&req) { Ok(c) => c, Err(r) => return r };
+    let uri = build_uri(&path.into_inner());
+    match core.resource().get_info(&ctx, &uri).await {
+        Ok(resp) => HttpResponse::Ok().json(resp),
+        Err(e) => error_response(e.to_string(), e.http_status()),
     }
 }
 
 /// `POST /rbs/v0/{uri}/retrieve`: Retrieve resource with attestation.
-#[utoipa::path(
-    post,
-    path = "/rbs/v0/{uri}/retrieve",
-    operation_id = "retrieveResource",
-    summary = "Retrieve resource content with attestation evidence",
-    tags = ["Resource"],
-    security(()),
-    params(
-        ("uri" = String, Path, description = "Resource URI")
-    ),
-    request_body = ResourceRetrieveRequest,
-    responses(
-        (status = 200, description = "Resource content (JSON).", body = ResourceContentResponse),
-        (status = 400, description = "Invalid URI or request.", body = ErrorBody),
-        (status = 404, description = "Resource not found.", body = ErrorBody),
-        (status = 409, description = "Resource conflict.", body = ErrorBody),
-        (status = 429, description = "Rate limit exceeded.", body = ErrorBody),
-        (status = 503, description = "Provider not found or unavailable.", body = ErrorBody),
-        (status = 500, description = "Internal server error.", body = ErrorBody),
-    )
-)]
 pub async fn retrieve_resource(
-    core: web::Data<Arc<RbsCore>>,
-    path: web::Path<String>,
-    _body: web::Json<ResourceRetrieveRequest>,
-    req: HttpRequest,
+    core: web::Data<Arc<RbsCore>>, path: web::Path<String>,
+    _body: web::Json<rbs_api_types::ResourceRetrieveRequest>, req: HttpRequest,
 ) -> HttpResponse {
-    let opt_ctx = req.extensions()
-        .get::<OptAuthContext>()
-        .and_then(|ctx| ctx.0.clone());
-    let uri = path.into_inner();
-    // TODO: Verify attestation token before retrieval
-    match core.resource().get(&uri, opt_ctx).await {
-        Ok(Some(resp)) => HttpResponse::Ok().json(resp),
-        Ok(None) => HttpResponse::NotFound().json(ErrorBody::new(RbsError::ResourceNotFound.external_message())),
-        Err(e) => HttpResponse::build(StatusCode::from_u16(e.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR))
-            .json(ErrorBody::new(e.external_message())),
+    let uri = build_uri(&path.into_inner());
+    // AttestContext must come from auth middleware when Attest token is used.
+    let attest_ctx = req.extensions().get::<OptAuthContext>().and_then(|c| c.0.clone());
+    let attest = match attest_ctx {
+        Some(rbs_core::AuthContext::Attest(a)) => a,
+        _ => rbs_core::AttestContext { claims: serde_json::Value::Null, token_type: rbs_core::TokenType::Attest },
+    };
+    match core.resource().retrieve(&attest, &uri).await {
+        Ok(resp) => HttpResponse::Ok().json(resp),
+        Err(e) => error_response(e.to_string(), e.http_status()),
     }
 }

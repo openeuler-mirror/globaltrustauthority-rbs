@@ -20,7 +20,7 @@ pub use connection::create_connection;
 pub use connection::get_connection_from_pool;
 pub use connection::init_database;
 pub use connection::init_pool;
-pub use connection::execute_sql_file_path;
+pub use connection::{create_sqlite_connection, create_sqlite_file_connection, migrate_core_tables, execute_sql_file_path};
 pub use error::DbError;
 pub use rbs_api_types::config::Database;
 

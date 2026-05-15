@@ -129,7 +129,7 @@ storage:
 #     #   type: vault
 #     #   url: "https://vault:8200"
 #     #   token: "${VAULT_TOKEN}"
-#     #   mount: "secret"
+#     #   mount_path: "secret"
 #     # ca:
 #     #   type: ca
 #     #   url: "https://ca-server:8443"

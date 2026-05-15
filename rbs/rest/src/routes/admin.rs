@@ -14,7 +14,6 @@
 
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
 use rbs_api_types::{ErrorBody, UserCreateRequest, UserListResponse, UserResponse, UserUpdateRequest};
-use validator::Validate;
 use rbs_core::RbsCore;
 use std::sync::Arc;
 

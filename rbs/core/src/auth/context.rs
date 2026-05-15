@@ -52,6 +52,17 @@ pub enum AuthContext {
     Attest(AttestContext),
 }
 
+impl AuthContext {
+    /// Extract the user identifier (sub) from the context.
+    /// Returns empty string for Attest tokens.
+    pub fn sub(&self) -> &str {
+        match self {
+            AuthContext::Bearer(b) => &b.sub,
+            AuthContext::Attest(_) => "",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

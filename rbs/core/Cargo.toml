@@ -24,10 +24,13 @@ validator.workspace = true
 reqwest.workspace = true
 chrono.workspace = true
 openssl.workspace = true
+josekit.workspace = true
 jsonwebtoken.workspace = true
 policy_engine = { git = "https://gitcode.com/openeuler/global-trust-authority", package = "policy_engine" }
 
 [dev-dependencies]
+async-trait.workspace = true
+serde_json.workspace = true
 tempfile = "3"
 # Used by `logging_init_stderr` (Unix) to redirect stderr and assert log output.
 libc = "0.2"

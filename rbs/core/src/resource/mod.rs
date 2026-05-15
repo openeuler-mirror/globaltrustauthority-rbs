@@ -12,8 +12,18 @@
 
 //! Resource Manager and Provider management.
 
-pub mod manager;
-pub mod provider;
+pub mod adapter;
+pub mod config;
+pub mod error;
+pub mod repository;
+pub mod service;
+pub mod validator;
 
-pub use manager::ResourceManager;
-pub use provider::ResourceProvider;
+pub use config::ResourceConfig;
+pub use error::ResourceError;
+pub use repository::{ResourceEntity, ResourceRepository, SeaOrmResourceRepository};
+pub use service::{
+    CreateResourceRequest, ResourceContentResponse, ResourceInfoResponse, ResourceResponse, ResourceService,
+    UpdateResourceRequest,
+};
+pub use validator::{ParsedUri, ResourceValidator};
