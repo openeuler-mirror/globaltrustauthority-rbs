@@ -10,7 +10,7 @@
  * See the Mulan PSL v2 for more details.
  */
 pub use rbc::cli::{
-    AttestArgs, ChallengeArgs, ClientAction, ClientCli, CollectEvidenceArgs, GetResourceArgs, GetTokenArgs,
+    ChallengeArgs, ClientAction, ClientCli, CollectEvidenceArgs, GetResourceArgs, GetTokenArgs,
 };
 
 use rbc::cli::{execute_action, ClientCommandContext, ClientOutput, ExecutionOptions};
@@ -23,6 +23,11 @@ use crate::config::GlobalOptions;
 use crate::error::CliError;
 
 pub fn run(cli: &ClientCli, global: &GlobalOptions) -> Result<Box<dyn Formatter>, CliError> {
+    let token_provider_type = match &cli.command {
+        ClientAction::GetToken(args) if args.evidence.is_some() => rbc::ProviderType::Rbs,
+        ClientAction::GetToken(_) => rbc::ProviderType::Native,
+        _ => global.token_provider_type,
+    };
     let context = ClientCommandContext {
         base_url: global.base_url.clone(),
         cert_path: global.cert_path.clone(),
@@ -34,7 +39,7 @@ pub fn run(cli: &ClientCli, global: &GlobalOptions) -> Result<Box<dyn Formatter>
             rest: Map::from_iter([("config_path".to_string(), Value::String(global.evidence_provider_config.clone()))]),
         }]),
         token_provider: Some(vec![ProviderRawConfig {
-            provider_type: global.token_provider_type,
+            provider_type: token_provider_type,
             enabled: true,
             rest: Map::from_iter([("config_path".to_string(), Value::String(global.token_provider_config.clone()))]),
         }]),

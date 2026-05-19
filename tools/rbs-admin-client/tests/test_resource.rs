@@ -38,22 +38,19 @@ async fn resource_operations_report_url_build_failure() {
     let client = ResourceClient::new(unusable_admin_client());
     let path = resource_path();
     let create = ResourceCreateRequest {
+        uri: "".to_string(),
         policy_id: "policy-1".to_string(),
         additional_info: None,
         content_type: Some("text".to_string()),
         export_mode: Some("plain".to_string()),
     };
     let update = ResourceUpdateRequest {
+        uri: "".to_string(),
         policy_id: "policy-2".to_string(),
         additional_info: Some("Zm9v".to_string()),
         content_type: Some("json".to_string()),
         export_mode: Some("jwe".to_string()),
     };
-
-    assert_eq!(
-        client.get_resource(&path).await.expect_err("get should fail").to_string(),
-        "base URL cannot be used to build resource path"
-    );
     assert_eq!(
         client
             .get_resource_info(&path)

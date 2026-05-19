@@ -95,8 +95,8 @@ async fn list_users_appends_pagination() {
     assert_eq!(resp.total_count, 1);
     assert_eq!(resp.limit, 20);
     assert_eq!(resp.offset, 5);
-    assert_eq!(resp.items.len(), 1);
-    assert_eq!(resp.items[0].username, "ops-user");
+    assert_eq!(resp.users.len(), 1);
+    assert_eq!(resp.users[0].username, "ops-user");
 }
 
 #[tokio::test]
@@ -123,7 +123,7 @@ async fn list_users_allows_default_filters() {
         .await
         .expect("list without optional filters should succeed");
 
-    assert!(resp.items.is_empty());
+    assert!(resp.users.is_empty());
     assert_eq!(resp.total_count, 0);
 }
 

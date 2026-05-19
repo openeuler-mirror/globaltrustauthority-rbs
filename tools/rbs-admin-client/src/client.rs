@@ -32,8 +32,8 @@ impl AdminClient {
 
         let mut client = reqwest::Client::builder()
             .default_headers(headers)
-            .timeout(Duration::from_secs(10))
-            .connect_timeout(Duration::from_secs(3));
+            .timeout(Duration::from_secs(60))
+            .connect_timeout(Duration::from_secs(10));
         if parsed_base_url.scheme() == "https" {
             client = client.https_only(true);
         }

@@ -60,7 +60,7 @@ pub struct GlobalArgs {
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
     let cli = Cli::parse();
-    let context = resolve_context(&cli.global)?;
+    let context = resolve_context(&cli.global, &cli.command)?;
     let options = ExecutionOptions { as_provider: cli.global.as_provider.clone() };
     let output = execute_action(&cli.command, &context, &options)?;
     emit_output(&output, &cli.global.format, cli.global.output_file.as_deref(), cli.global.noout)?;
@@ -84,7 +84,7 @@ fn emit_output(
     Ok(())
 }
 
-fn resolve_context(args: &GlobalArgs) -> Result<ClientCommandContext, Box<dyn std::error::Error>> {
+fn resolve_context(args: &GlobalArgs, command: &ClientAction) -> Result<ClientCommandContext, Box<dyn std::error::Error>> {
     let file_config = match args.config_path.as_deref() {
         Some(path) => Some(Config::from_file(path)?),
         None => None,
@@ -113,11 +113,22 @@ fn resolve_context(args: &GlobalArgs) -> Result<ClientCommandContext, Box<dyn st
     if let Some(provider_type) = args.token_provider_type {
         context.token_provider = Some(override_provider_type(context.token_provider.clone(), provider_type));
     }
+    if let Some(provider_type) = forced_token_provider_type(command) {
+        context.token_provider = Some(override_provider_type(context.token_provider.clone(), provider_type));
+    }
 
     if context.base_url.trim().is_empty() {
         return Err("missing RBS base URL; pass --config or --base-url".into());
     }
     Ok(context)
+}
+
+fn forced_token_provider_type(command: &ClientAction) -> Option<ProviderType> {
+    match command {
+        ClientAction::GetToken(args) if args.evidence.is_some() => Some(ProviderType::Rbs),
+        ClientAction::GetToken(_) => Some(ProviderType::Native),
+        _ => None,
+    }
 }
 
 fn context_from_config(config: &Config) -> ClientCommandContext {
@@ -184,14 +195,14 @@ mod tests {
             "get-resource",
             "--uri",
             "vault/default/demo",
-            "--token",
+            "--attest-token",
             "token-value",
         ]);
         assert_eq!(cli.global.as_provider, "gta");
         match cli.command {
             ClientAction::GetResource(args) => {
                 assert_eq!(args.uri, "vault/default/demo");
-                assert_eq!(args.token.as_deref(), Some("token-value"));
+                assert_eq!(args.attest_token.as_deref(), Some("token-value"));
             },
             _ => panic!("expected get-resource command"),
         }
@@ -270,7 +281,8 @@ mod tests {
             noout: false,
         };
 
-        let err = resolve_context(&args).expect_err("missing base url should fail");
+        let err = resolve_context(&args, &ClientAction::Challenge(rbc::cli::ChallengeArgs::default()))
+            .expect_err("missing base url should fail");
         assert!(err.to_string().contains("missing RBS base URL"));
     }
 
@@ -304,7 +316,8 @@ token_provider:
             noout: false,
         };
 
-        let context = resolve_context(&args).expect("context should resolve");
+        let context = resolve_context(&args, &ClientAction::Challenge(rbc::cli::ChallengeArgs::default()))
+            .expect("context should resolve");
         assert_eq!(context.base_url, "https://override.example.com");
         assert_eq!(context.cert_path.as_deref(), Some("/tmp/ca.pem"));
         assert_eq!(context.timeout_secs, Some(30));
@@ -319,5 +332,71 @@ token_provider:
         );
 
         let _ = std::fs::remove_file(config_path);
+    }
+
+    #[test]
+    fn resolve_context_forces_rbs_provider_for_get_token_with_evidence() {
+        let args = GlobalArgs {
+            config_path: None,
+            base_url: Some("https://override.example.com".to_string()),
+            cert: None,
+            timeout_secs: None,
+            key_algorithm: None,
+            token_provider_type: Some(ProviderType::Native),
+            as_provider: "gta".to_string(),
+            format: OutputFormat::Text,
+            output_file: None,
+            noout: false,
+        };
+        let command = ClientAction::GetToken(rbc::cli::GetTokenArgs {
+            attester_pubkey: None,
+            attester_data: None,
+            runtime_data: vec![],
+            evidence: Some("@/tmp/evidence.json".to_string()),
+            agent_config: "/tmp/agent.yaml".to_string(),
+        });
+
+        let context = resolve_context(&args, &command).expect("context should resolve");
+        assert_eq!(
+            context
+                .token_provider
+                .as_ref()
+                .and_then(|providers| providers.iter().find(|provider| provider.enabled))
+                .map(|provider| provider.provider_type),
+            Some(ProviderType::Rbs)
+        );
+    }
+
+    #[test]
+    fn resolve_context_forces_native_provider_for_get_token_without_evidence() {
+        let args = GlobalArgs {
+            config_path: None,
+            base_url: Some("https://override.example.com".to_string()),
+            cert: None,
+            timeout_secs: None,
+            key_algorithm: None,
+            token_provider_type: Some(ProviderType::Rbs),
+            as_provider: "gta".to_string(),
+            format: OutputFormat::Text,
+            output_file: None,
+            noout: false,
+        };
+        let command = ClientAction::GetToken(rbc::cli::GetTokenArgs {
+            attester_pubkey: Some("@/tmp/pubkey.pem".to_string()),
+            attester_data: None,
+            runtime_data: vec![],
+            evidence: None,
+            agent_config: "/tmp/agent.yaml".to_string(),
+        });
+
+        let context = resolve_context(&args, &command).expect("context should resolve");
+        assert_eq!(
+            context
+                .token_provider
+                .as_ref()
+                .and_then(|providers| providers.iter().find(|provider| provider.enabled))
+                .map(|provider| provider.provider_type),
+            Some(ProviderType::Native)
+        );
     }
 }

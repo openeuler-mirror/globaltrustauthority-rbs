@@ -11,7 +11,7 @@
  */
 
 use rbs_admin_client::resource_policy::{
-    ResourcePolicyClient, ResourcePolicyCreateRequest, ResourcePolicyListParams, ResourcePolicyService,
+    ResourcePolicyClient, ResourcePolicyContentType, ResourcePolicyCreateRequest, ResourcePolicyListParams, ResourcePolicyService,
     ResourcePolicyUpdateRequest,
 };
 use rbs_admin_client::AdminClient;
@@ -26,12 +26,12 @@ async fn resource_policy_operations_report_url_or_argument_failures() {
     let client = ResourcePolicyClient::new(unusable_admin_client());
     let create = ResourcePolicyCreateRequest {
         name: "allow-secret".to_string(),
-        content_type: "base64".to_string(),
+        content_type: ResourcePolicyContentType::Base64,
         content: "Zm9v".to_string(),
     };
     let update = ResourcePolicyUpdateRequest {
         name: "allow-secret-v2".to_string(),
-        content_type: "base64".to_string(),
+        content_type: ResourcePolicyContentType::Base64,
         content: "YmFy".to_string(),
     };
 

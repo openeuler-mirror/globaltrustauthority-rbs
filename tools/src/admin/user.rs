@@ -9,7 +9,8 @@
  * PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
-
+use base64::Engine;
+use base64::engine::general_purpose;
 use crate::common::clap::Page;
 use crate::common::formatter::Formatter;
 use crate::common::utils::read_path_file;
@@ -147,6 +148,7 @@ async fn execute_user_command(cli: &UserCli, service: &UserClient) -> Result<Box
         },
         UserCommand::Create(args) => {
             let (pub_key, jwk) = read_pubkey_and_jwk(&args.public_key, &args.jwk)?;
+            let pub_key = pub_key.map(|value| general_purpose::STANDARD.encode(value));
             let resp = service
                 .create(&CreateUserRequest {
                     username: args.username.clone(),
@@ -162,6 +164,7 @@ async fn execute_user_command(cli: &UserCli, service: &UserClient) -> Result<Box
         UserCommand::Update(args) => {
             validate_update_args(args)?;
             let (pub_key, jwk) = read_pubkey_and_jwk(&args.public_key, &args.jwk)?;
+            let pub_key = pub_key.map(|value| general_purpose::STANDARD.encode(value));
             let resp = service
                 .update(
                     &args.username,
@@ -243,16 +246,17 @@ impl Formatter for UserListOutput {
     fn render_text(&self) -> Result<String, CliError> {
         let resp = &self.0;
         let mut lines = vec![
-            format!("total_count: {}", resp.total_count),
-            format!("limit: {}", resp.limit),
-            format!("offset: {}", resp.offset),
-            "items:".to_string(),
+
+            "users:".to_string(),
         ];
 
-        if !resp.items.is_empty() {
-            let table = Table::new(resp.items.iter()).with(Style::psql()).to_string();
+        if !resp.users.is_empty() {
+            let table = Table::new(resp.users.iter()).with(Style::markdown()).to_string();
             lines.extend(table.lines().map(|line| line.to_string()));
         }
+        lines.push(format!("total_count: {}", resp.total_count));
+        lines.push(format!("limit: {}", resp.limit));
+        lines.push(format!("offset: {}", resp.offset));
 
         Ok(lines.join("\n"))
     }
@@ -346,7 +350,7 @@ mod tests {
         assert!(rendered.contains("ops"));
 
         let list = UserListOutput(UserListResponse {
-            items: vec![User {
+            users: vec![User {
                 id: "user-1".to_string(),
                 username: "ops".to_string(),
                 role: "user".to_string(),

@@ -84,7 +84,7 @@ pub(crate) async fn send_json<T, B>(
 ) -> Result<T, RbsAdminClientError>
 where
     T: DeserializeOwned,
-    B: Serialize + ?Sized,
+    B: Serialize + ?Sized + std::fmt::Debug,
 {
     let mut request = client.http_client.request(method, url).bearer_auth(client.bearer_token());
     if let Some(body) = body {
@@ -95,15 +95,16 @@ where
         RbsAdminClientError::ClientError("Unable to connect to the service. Please try again later.".to_string())
     })?;
     let status = response.status();
-    let body = response.text().await.map_err(|_| {
+    let body = response.text().await.map_err(|err| {
         RbsAdminClientError::ClientError("Unable to read the service response. Please try again later.".to_string())
     })?;
 
     if !status.is_success() {
+        println!("Failed to read the service response. Please try again later.{}", body);
         return Err(http_error(status, &body));
     }
 
-    serde_json::from_str(&body).map_err(|_| {
+    serde_json::from_str(&body).map_err(|_err| {
         RbsAdminClientError::ClientError(
             "The service returned an unexpected response. Please try again later.".to_string(),
         )

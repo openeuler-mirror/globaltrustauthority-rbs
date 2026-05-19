@@ -71,7 +71,7 @@ pub struct User {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UserListResponse {
-    pub items: Vec<User>,
+    pub users: Vec<User>,
     pub total_count: i64,
     pub limit: i64,
     pub offset: i64,

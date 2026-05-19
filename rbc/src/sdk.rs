@@ -145,6 +145,8 @@ impl ConfigBuilder {
 pub enum GetResourceRequest<'a> {
     /// Authorize with a pre-obtained attest token.
     ByAttestToken(&'a str),
+    /// Authorize with a bearer token.
+    ByBearerToken(&'a str),
     /// Authorize by submitting raw evidence for inline attestation.
     ByEvidence { value: &'a Value },
 }
@@ -242,7 +244,7 @@ impl Client {
         self.inner.runtime.block_on(rest.get_nonce(None))
     }
 
-    /// Begin a new session. If `attester_data` does not contain `tee_pubkey`, an ephemeral
+    /// Begin a new session. If `attester_data` does not contain `tee-pubkey`, an ephemeral
     /// key pair is generated automatically; otherwise the caller is responsible for the key.
     pub fn new_session(&self, attester_data: Option<&AttesterData>) -> Result<Session, RbcError> {
         Session::create(Rc::clone(&self.inner), attester_data, self.inner.key_type)
@@ -267,12 +269,12 @@ impl Session {
     ) -> Result<Self, RbcError> {
         let tee_pubkey = attester_data
             .and_then(|ad| ad.runtime_data.as_ref())
-            .and_then(|rd: &serde_json::Map<String, Value>| rd.get("tee_pubkey"));
+            .and_then(|rd: &serde_json::Map<String, Value>| rd.get("tee-pubkey"));
 
         if let Some(pubkey) = tee_pubkey {
             let pubkey_json = serde_json::to_string(pubkey).map_err(RbcError::JsonError)?;
             let pubkey = TeePublicKey::from_jwk_json(&pubkey_json)
-                .map_err(|e| RbcError::InvalidInput(format!("invalid tee_pubkey: {e}")))?;
+                .map_err(|e| RbcError::InvalidInput(format!("invalid tee-pubkey: {e}")))?;
             pubkey.validate_params()?;
             let effective_algorithm = pubkey.key_type();
             Ok(Self {
@@ -289,7 +291,7 @@ impl Session {
 
             let mut enriched = attester_data.cloned().unwrap_or_default();
             let jwk_value: Value = serde_json::from_str(&jwk_json)?;
-            enriched.runtime_data.get_or_insert_with(Default::default).insert("tee_pubkey".to_string(), jwk_value);
+            enriched.runtime_data.get_or_insert_with(Default::default).insert("tee-pubkey".to_string(), jwk_value);
 
             Ok(Self {
                 client,
@@ -346,7 +348,8 @@ impl Session {
         let rest = self.client.rest_client.clone();
         let resp: ResourceContentResponse = self.client.runtime.block_on(async {
             match request {
-                GetResourceRequest::ByAttestToken(token) => rest.get_resource(uri, token).await,
+                GetResourceRequest::ByAttestToken(token) => rest.get_resource_by_attest(uri, token).await,
+                GetResourceRequest::ByBearerToken(token) => rest.get_resource_by_bearer(uri, token).await,
                 GetResourceRequest::ByEvidence { value } => {
                     let rbc_evidences: RbcEvidencesPayload = serde_json::from_value(value.clone())
                         .map_err(|e| RbcError::InvalidInput(format!("invalid evidence: {e}")))?;
@@ -624,7 +627,7 @@ token_provider:
         assert!(session.ephemeral_key.is_some());
 
         let rd = session.enriched_attester_data.as_ref().unwrap().runtime_data.as_ref().unwrap();
-        assert!(rd.contains_key("tee_pubkey"), "tee_pubkey must be injected");
+        assert!(rd.contains_key("tee-pubkey"), "tee-pubkey must be injected");
     }
 
     #[test]
@@ -637,7 +640,7 @@ token_provider:
         let session = Session::create(Rc::clone(&client.inner), Some(&attester_data), KeyType::Ec).unwrap();
 
         let rd = session.enriched_attester_data.as_ref().unwrap().runtime_data.as_ref().unwrap();
-        assert!(rd.contains_key("tee_pubkey"), "tee_pubkey must be injected");
+        assert!(rd.contains_key("tee-pubkey"), "tee-pubkey must be injected");
         assert_eq!(rd["user_field"], "user_value", "pre-existing field must be preserved");
     }
 
@@ -647,7 +650,7 @@ token_provider:
         let mut runtime_data = serde_json::Map::new();
         // Valid P-256 public JWK (test vector, not a real key)
         runtime_data.insert(
-            "tee_pubkey".to_string(),
+            "tee-pubkey".to_string(),
             json!({
                 "kty": "EC",
                 "crv": "P-256",
@@ -669,7 +672,7 @@ token_provider:
         let client = make_test_client();
         let mut runtime_data = serde_json::Map::new();
         runtime_data.insert(
-            "tee_pubkey".to_string(),
+            "tee-pubkey".to_string(),
             json!({
                 "kty": "EC",
                 "crv": "P-256",

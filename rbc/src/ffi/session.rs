@@ -30,7 +30,7 @@ use crate::sdk::GetResourceRequest;
 
 /// Begin a new session. `attester_data_json` may be NULL. If non-NULL it must
 /// be a JSON object matching `AttesterData` (per `rbs_api.yaml`); if its
-/// `runtime_data.tee_pubkey` is present the caller is responsible for the
+/// `runtime_data.tee-pubkey` is present the caller is responsible for the
 /// matching private key (pass it to `RbcSessionDecryptContent`).
 #[export_name = "RbcSessionNew"]
 pub extern "C" fn rbc_session_new(
@@ -647,13 +647,13 @@ mod tests {
         let plaintext = b"ffi encrypted pem roundtrip";
         let jwe = pubkey.encrypt_jwe(plaintext).unwrap();
 
-        // Session must be created with the caller's tee_pubkey so caller_manages_key = true.
-        let attester_data_json = format!(r#"{{"runtime_data":{{"tee_pubkey":{pubkey_json}}}}}"#);
+        // Session must be created with the caller's tee-pubkey so caller_manages_key = true.
+        let attester_data_json = format!(r#"{{"runtime_data":{{"tee-pubkey":{pubkey_json}}}}}"#);
         let attester_data_c = CString::new(attester_data_json).unwrap();
         let client = make_mock_client_handle();
         let mut session: *mut RbcSession = ptr::null_mut();
         let code = rbc_session_new(client, attester_data_c.as_ptr(), &mut session);
-        assert_eq!(code, RbcErrorCode::Ok, "expected Ok creating session with tee_pubkey");
+        assert_eq!(code, RbcErrorCode::Ok, "expected Ok creating session with tee-pubkey");
 
         let jwe_c = CString::new(jwe).unwrap();
         let pem_c = CString::new(enc_pem_str).unwrap();
