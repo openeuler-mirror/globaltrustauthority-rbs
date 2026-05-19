@@ -14,202 +14,249 @@
 
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, http::StatusCode};
 use rbs_api_types::{
-    error::RbsError, ErrorBody, ResourceContentResponse, ResourceInfoResponse, ResourceMetadataResponse,
-    ResourceRetrieveRequest, ResourceUpsertRequest,
+    CreateResourceRequest, ErrorBody, ResourceContentResponse,
+    ResourceResponse, UpdateResourceRequest,
 };
+use rbs_core::auth::{Auth, TokenType};
 use rbs_core::RbsCore;
 use std::sync::Arc;
 
 use crate::middleware::OptAuthContext;
 
-/// `GET /rbs/v0/{uri}`: Retrieve resource content.
+fn require_auth(req: &HttpRequest) -> Result<rbs_core::AuthContext, HttpResponse> {
+    req.extensions().get::<OptAuthContext>().and_then(|c| c.0.clone())
+        .ok_or_else(|| HttpResponse::Unauthorized().json(ErrorBody::new("authentication required".to_string())))
+}
+
+fn error_response(e: impl ToString, status: u16) -> HttpResponse {
+    HttpResponse::build(StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR))
+        .json(ErrorBody::new(e.to_string()))
+}
+
+fn build_uri(path: &str) -> String { format!("/rbs/v0/{}", path) }
+
+/// `POST /rbs/v0/{uri}`: Create resource.
 #[utoipa::path(
-    get,
-    path = "/rbs/v0/{uri:.+}",
-    operation_id = "getResource",
-    summary = "Get resource content by URI",
+    post,
+    path = "/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}",
+    operation_id = "createResource",
+    summary = "Create resource",
     tags = ["Resource"],
-    security(()),
+    security(("bearerAuth" = [])),
+    request_body = CreateResourceRequest,
     params(
-        ("uri" = String, Path, description = "Resource URI (format: {res_provider}/{repository_name}/{resource_type}/{resource_name})")
+        ("res_provider" = String, Path, description = "Resource provider name"),
+        ("repository_name" = String, Path, description = "Repository name"),
+        ("resource_type" = String, Path, description = "Resource type (secret, cert, etc.)"),
+        ("resource_name" = String, Path, description = "Resource name"),
     ),
     responses(
-        (status = 200, description = "Resource content (JSON).", body = ResourceContentResponse),
-        (status = 400, description = "Invalid URI or request.", body = ErrorBody),
-        (status = 404, description = "Resource not found.", body = ErrorBody),
-        (status = 409, description = "Resource conflict.", body = ErrorBody),
-        (status = 429, description = "Rate limit exceeded.", body = ErrorBody),
-        (status = 503, description = "Provider not found or unavailable.", body = ErrorBody),
-        (status = 500, description = "Internal server error.", body = ErrorBody),
+        (status = 201, description = "Resource created", body = ResourceResponse),
+        (status = 401, description = "Unauthorized", body = ErrorBody),
+        (status = 403, description = "Forbidden", body = ErrorBody),
+        (status = 409, description = "Resource already exists", body = ErrorBody),
+        (status = 500, description = "Internal error", body = ErrorBody),
     )
 )]
-pub async fn get_resource(
-    core: web::Data<Arc<RbsCore>>,
-    path: web::Path<String>,
-    req: HttpRequest,
+pub async fn create_resource(
+    core: web::Data<Arc<RbsCore>>, path: web::Path<String>,
+    body: web::Json<CreateResourceRequest>, req: HttpRequest,
 ) -> HttpResponse {
-    let opt_ctx = req.extensions()
-        .get::<OptAuthContext>()
-        .and_then(|ctx| ctx.0.clone());
-    let uri = path.into_inner();
-    match core.resource().get(&uri, opt_ctx).await {
-        Ok(Some(resp)) => HttpResponse::Ok().json(resp),
-        Ok(None) => HttpResponse::NotFound().json(ErrorBody::new(RbsError::ResourceNotFound.external_message())),
-        Err(e) => HttpResponse::build(StatusCode::from_u16(e.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR))
-            .json(ErrorBody::new(e.external_message())),
+    let ctx = match require_auth(&req) { Ok(c) => c, Err(r) => return r };
+    let mut cr = body.into_inner();
+    cr.uri = build_uri(&path.into_inner());
+    match core.resource().create(&ctx, &cr).await {
+        Ok(resp) => HttpResponse::Created().json(resp),
+        Err(e) => error_response(e.to_string(), e.http_status()),
     }
 }
 
-/// `PUT /rbs/v0/{uri}`: Create or update resource.
+/// `GET /rbs/v0/{uri}`: Retrieve resource content.
 #[utoipa::path(
-    put,
-    path = "/rbs/v0/{uri:.+}",
-    operation_id = "upsertResource",
-    summary = "Create or update resource",
+    get,
+    path = "/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}",
+    operation_id = "getResource",
+    summary = "Get resource content",
     tags = ["Resource"],
-    security(()),
+    security(("bearerAuth" = []), ("attestAuth" = [])),
     params(
-        ("uri" = String, Path, description = "Resource URI")
+        ("res_provider" = String, Path, description = "Resource provider name"),
+        ("repository_name" = String, Path, description = "Repository name"),
+        ("resource_type" = String, Path, description = "Resource type (secret, cert, etc.)"),
+        ("resource_name" = String, Path, description = "Resource name"),
     ),
-    request_body = ResourceUpsertRequest,
     responses(
-        (status = 200, description = "Resource metadata (JSON).", body = ResourceMetadataResponse),
-        (status = 400, description = "Invalid URI or request.", body = ErrorBody),
-        (status = 404, description = "Provider not found.", body = ErrorBody),
-        (status = 409, description = "Resource conflict.", body = ErrorBody),
-        (status = 429, description = "Rate limit exceeded.", body = ErrorBody),
-        (status = 503, description = "Provider not found or unavailable.", body = ErrorBody),
-        (status = 500, description = "Internal server error.", body = ErrorBody),
+        (status = 200, description = "Resource content (base64-encoded JWE)", body = ResourceContentResponse),
+        (status = 401, description = "Unauthorized", body = ErrorBody),
+        (status = 403, description = "Forbidden", body = ErrorBody),
+        (status = 404, description = "Resource not found or access denied", body = ErrorBody),
+        (status = 500, description = "Internal error", body = ErrorBody),
     )
 )]
-pub async fn upsert_resource(
-    core: web::Data<Arc<RbsCore>>,
-    path: web::Path<String>,
-    body: web::Json<ResourceUpsertRequest>,
-    req: HttpRequest,
+pub async fn get_resource(
+    core: web::Data<Arc<RbsCore>>, path: web::Path<String>, req: HttpRequest,
 ) -> HttpResponse {
-    let opt_ctx = req.extensions()
-        .get::<OptAuthContext>()
-        .and_then(|ctx| ctx.0.clone());
-    let uri = path.into_inner();
-    match core.resource().upsert(&uri, &body.into_inner(), opt_ctx).await {
+    let ctx = match require_auth(&req) { Ok(c) => c, Err(r) => return r };
+    let uri = build_uri(&path.into_inner());
+    match core.resource().get_content(&ctx, &uri).await {
         Ok(resp) => HttpResponse::Ok().json(resp),
-        Err(e) => HttpResponse::build(StatusCode::from_u16(e.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR))
-            .json(ErrorBody::new(e.external_message())),
+        Err(e) => error_response(e.to_string(), e.http_status()),
+    }
+}
+
+/// `PUT /rbs/v0/{uri}`: Update or create resource.
+#[utoipa::path(
+    put,
+    path = "/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}",
+    operation_id = "updateResource",
+    summary = "Update or create resource",
+    tags = ["Resource"],
+    security(("bearerAuth" = [])),
+    request_body = UpdateResourceRequest,
+    params(
+        ("res_provider" = String, Path, description = "Resource provider name"),
+        ("repository_name" = String, Path, description = "Repository name"),
+        ("resource_type" = String, Path, description = "Resource type (secret, cert, etc.)"),
+        ("resource_name" = String, Path, description = "Resource name"),
+    ),
+    responses(
+        (status = 200, description = "Resource updated", body = ResourceResponse),
+        (status = 201, description = "Resource created", body = ResourceResponse),
+        (status = 401, description = "Unauthorized", body = ErrorBody),
+        (status = 403, description = "Forbidden", body = ErrorBody),
+        (status = 500, description = "Internal error", body = ErrorBody),
+    )
+)]
+pub async fn update_resource(
+    core: web::Data<Arc<RbsCore>>, path: web::Path<String>,
+    body: web::Json<UpdateResourceRequest>, req: HttpRequest,
+) -> HttpResponse {
+    let ctx = match require_auth(&req) { Ok(c) => c, Err(r) => return r };
+    let uri = build_uri(&path.into_inner());
+    match core.resource().update(&ctx, &uri, &body.into_inner()).await {
+        Ok((resp, true)) => HttpResponse::Created().json(resp),
+        Ok((resp, false)) => HttpResponse::Ok().json(resp),
+        Err(e) => error_response(e.to_string(), e.http_status()),
     }
 }
 
 /// `DELETE /rbs/v0/{uri}`: Delete resource.
 #[utoipa::path(
     delete,
-    path = "/rbs/v0/{uri:.+}",
+    path = "/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}",
     operation_id = "deleteResource",
-    summary = "Delete resource by URI",
+    summary = "Delete resource",
     tags = ["Resource"],
-    security(()),
+    security(("bearerAuth" = [])),
     params(
-        ("uri" = String, Path, description = "Resource URI")
+        ("res_provider" = String, Path, description = "Resource provider name"),
+        ("repository_name" = String, Path, description = "Repository name"),
+        ("resource_type" = String, Path, description = "Resource type (secret, cert, etc.)"),
+        ("resource_name" = String, Path, description = "Resource name"),
     ),
     responses(
-        (status = 204, description = "Resource deleted."),
-        (status = 400, description = "Invalid URI or request.", body = ErrorBody),
-        (status = 404, description = "Resource or provider not found.", body = ErrorBody),
-        (status = 429, description = "Rate limit exceeded.", body = ErrorBody),
-        (status = 503, description = "Provider not found or unavailable.", body = ErrorBody),
-        (status = 500, description = "Internal server error.", body = ErrorBody),
+        (status = 204, description = "Resource deleted"),
+        (status = 401, description = "Unauthorized", body = ErrorBody),
+        (status = 403, description = "Forbidden", body = ErrorBody),
+        (status = 404, description = "Resource not found", body = ErrorBody),
+        (status = 500, description = "Internal error", body = ErrorBody),
     )
 )]
 pub async fn delete_resource(
-    core: web::Data<Arc<RbsCore>>,
-    path: web::Path<String>,
-    req: HttpRequest,
+    core: web::Data<Arc<RbsCore>>, path: web::Path<String>, req: HttpRequest,
 ) -> HttpResponse {
-    let opt_ctx = req.extensions()
-        .get::<OptAuthContext>()
-        .and_then(|ctx| ctx.0.clone());
-    let uri = path.into_inner();
-    match core.resource().delete(&uri, opt_ctx).await {
+    let ctx = match require_auth(&req) { Ok(c) => c, Err(r) => return r };
+    let uri = build_uri(&path.into_inner());
+    match core.resource().delete(&ctx, &uri).await {
         Ok(()) => HttpResponse::NoContent().finish(),
-        Err(e) => HttpResponse::build(StatusCode::from_u16(e.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR))
-            .json(ErrorBody::new(e.external_message())),
+        Err(e) => error_response(e.to_string(), e.http_status()),
     }
 }
 
-/// `GET /rbs/v0/{uri}/info`: Get resource metadata (no content).
+/// `GET /rbs/v0/{uri}/info`: Get resource metadata.
 #[utoipa::path(
     get,
-    path = "/rbs/v0/{uri}/info",
+    path = "/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}/info",
     operation_id = "getResourceInfo",
-    summary = "Get resource metadata by URI",
+    summary = "Get resource metadata",
     tags = ["Resource"],
-    security(()),
+    security(("bearerAuth" = []), ("attestAuth" = [])),
     params(
-        ("uri" = String, Path, description = "Resource URI")
+        ("res_provider" = String, Path, description = "Resource provider name"),
+        ("repository_name" = String, Path, description = "Repository name"),
+        ("resource_type" = String, Path, description = "Resource type (secret, cert, etc.)"),
+        ("resource_name" = String, Path, description = "Resource name"),
     ),
     responses(
-        (status = 200, description = "Resource metadata (JSON).", body = ResourceInfoResponse),
-        (status = 400, description = "Invalid URI or request.", body = ErrorBody),
-        (status = 404, description = "Resource not found.", body = ErrorBody),
-        (status = 409, description = "Resource conflict.", body = ErrorBody),
-        (status = 429, description = "Rate limit exceeded.", body = ErrorBody),
-        (status = 503, description = "Provider not found or unavailable.", body = ErrorBody),
-        (status = 500, description = "Internal server error.", body = ErrorBody),
+        (status = 200, description = "Resource metadata", body = ResourceResponse),
+        (status = 401, description = "Unauthorized", body = ErrorBody),
+        (status = 403, description = "Forbidden", body = ErrorBody),
+        (status = 404, description = "Resource not found", body = ErrorBody),
+        (status = 500, description = "Internal error", body = ErrorBody),
     )
 )]
 pub async fn get_resource_info(
-    core: web::Data<Arc<RbsCore>>,
-    path: web::Path<String>,
-    req: HttpRequest,
+    core: web::Data<Arc<RbsCore>>, path: web::Path<String>, req: HttpRequest,
 ) -> HttpResponse {
-    let opt_ctx = req.extensions()
-        .get::<OptAuthContext>()
-        .and_then(|ctx| ctx.0.clone());
-    let uri = path.into_inner();
-    match core.resource().info(&uri, opt_ctx).await {
-        Ok(Some(resp)) => HttpResponse::Ok().json(resp),
-        Ok(None) => HttpResponse::NotFound().json(ErrorBody::new(RbsError::ResourceNotFound.external_message())),
-        Err(e) => HttpResponse::build(StatusCode::from_u16(e.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR))
-            .json(ErrorBody::new(e.external_message())),
+    let ctx = match require_auth(&req) { Ok(c) => c, Err(r) => return r };
+    let uri = build_uri(&path.into_inner());
+    match core.resource().get_info(&ctx, &uri).await {
+        Ok(resp) => HttpResponse::Ok().json(resp),
+        Err(e) => error_response(e.to_string(), e.http_status()),
     }
 }
 
-/// `POST /rbs/v0/{uri}/retrieve`: Retrieve resource with attestation.
+/// `POST /rbs/v0/{uri}/retrieve`: Retrieve resource with attestation evidence.
+///
+/// The client submits RBC evidences in the request body. The service calls the
+/// configured attestation backend to verify the evidence and obtain an attest
+/// token, then uses the token claims (including `tee-pubkey`) for Rego policy
+/// evaluation and JWE encryption of the resource content.
 #[utoipa::path(
     post,
-    path = "/rbs/v0/{uri}/retrieve",
+    path = "/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}/retrieve",
     operation_id = "retrieveResource",
-    summary = "Retrieve resource content with attestation evidence",
+    summary = "Retrieve resource with attestation evidence",
     tags = ["Resource"],
     security(()),
     params(
-        ("uri" = String, Path, description = "Resource URI")
+        ("res_provider" = String, Path, description = "Resource provider name"),
+        ("repository_name" = String, Path, description = "Repository name"),
+        ("resource_type" = String, Path, description = "Resource type (secret, cert, etc.)"),
+        ("resource_name" = String, Path, description = "Resource name"),
     ),
-    request_body = ResourceRetrieveRequest,
     responses(
-        (status = 200, description = "Resource content (JSON).", body = ResourceContentResponse),
-        (status = 400, description = "Invalid URI or request.", body = ErrorBody),
-        (status = 404, description = "Resource not found.", body = ErrorBody),
-        (status = 409, description = "Resource conflict.", body = ErrorBody),
-        (status = 429, description = "Rate limit exceeded.", body = ErrorBody),
-        (status = 503, description = "Provider not found or unavailable.", body = ErrorBody),
-        (status = 500, description = "Internal server error.", body = ErrorBody),
+        (status = 200, description = "Resource content (base64-encoded JWE)", body = ResourceContentResponse),
+        (status = 404, description = "Resource not found or access denied", body = ErrorBody),
+        (status = 502, description = "Attestation backend error", body = ErrorBody),
+        (status = 500, description = "Internal error", body = ErrorBody),
     )
 )]
 pub async fn retrieve_resource(
     core: web::Data<Arc<RbsCore>>,
+    auth: web::Data<Arc<dyn Auth>>,
     path: web::Path<String>,
-    _body: web::Json<ResourceRetrieveRequest>,
-    req: HttpRequest,
+    body: web::Json<rbs_api_types::ResourceRetrieveRequest>,
+    _req: HttpRequest,
 ) -> HttpResponse {
-    let opt_ctx = req.extensions()
-        .get::<OptAuthContext>()
-        .and_then(|ctx| ctx.0.clone());
-    let uri = path.into_inner();
-    // TODO: Verify attestation token before retrieval
-    match core.resource().get(&uri, opt_ctx).await {
-        Ok(Some(resp)) => HttpResponse::Ok().json(resp),
-        Ok(None) => HttpResponse::NotFound().json(ErrorBody::new(RbsError::ResourceNotFound.external_message())),
-        Err(e) => HttpResponse::build(StatusCode::from_u16(e.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR))
-            .json(ErrorBody::new(e.external_message())),
+    let uri = build_uri(&path.into_inner());
+
+    // Step 1: call attestation backend with evidence to obtain an attest token.
+    let attest_resp = match core.attestation().attest(body.into_inner()).await {
+        Ok(resp) => resp,
+        Err(e) => return error_response(e.to_string(), 502),
+    };
+
+    // Step 2: parse the attest token to extract claims (containing tee-pubkey etc.).
+    let attest_ctx = match auth.authenticate(&attest_resp.token, TokenType::Attest).await {
+        Ok(rbs_core::AuthContext::Attest(ctx)) => ctx,
+        Ok(_) => return error_response("attest token resolved to unexpected auth context", 500),
+        Err(e) => return error_response(e.to_string(), 500),
+    };
+
+    // Step 3: retrieve resource content — policy evaluation + backend fetch + JWE encrypt + base64.
+    match core.resource().retrieve(&attest_ctx, &uri).await {
+        Ok(resp) => HttpResponse::Ok().json(resp),
+        Err(e) => error_response(e.to_string(), e.http_status()),
     }
 }

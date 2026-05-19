@@ -13,7 +13,7 @@
 //! Authorization errors.
 
 /// Authorization errors
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, PartialEq, thiserror::Error)]
 pub enum AuthzError {
     #[error("access denied")]
     Denied,

@@ -42,6 +42,7 @@ pub mod config;
 pub mod constants;
 pub mod error;
 pub mod openapi;
+pub mod policy;
 pub mod resource;
 pub mod user;
 
@@ -70,12 +71,19 @@ pub use error::RbsError;
 
 // Re-export types from resource module
 pub use resource::{
-    ResourceContentResponse, ResourceInfoResponse, ResourceMetadataResponse,
-    ResourceRetrieveRequest, ResourceUpsertRequest,
+    CreateResourceRequest, ResourceContentResponse, ResourceInfoResponse,
+    ResourceResponse, ResourceRetrieveRequest, UpdateResourceRequest,
+    ATTEST_TEE_PUBKEY_KEY, BEARER_ENC_PUBKEY_KEY,
 };
 
 // Re-export types from openapi module (with ToSchema and example attributes)
 pub use openapi::{BuildMetadata, ErrorBody, RbsVersion};
+
+// Re-export types from policy module
+pub use policy::{
+    BatchDeleteQuery, CreatePolicyRequest, PolicyListQuery, PolicyListResponse, PolicyResponse,
+    UpdatePolicyRequest,
+};
 
 // Re-export types from user module
 pub use user::{AuthType, Role, UserCreateRequest, UserListResponse, UserResponse, UserUpdateRequest};

@@ -41,6 +41,7 @@ use crate::attestation::provider::AttestationProvider;
 /// GTA Challenge response from `GET /challenge`.
 #[derive(Debug, Clone, Deserialize)]
 struct GtaChallengeResponse {
+    #[allow(dead_code)]
     service_version: String,
     nonce: String,
 }
@@ -75,12 +76,14 @@ struct GtaEvidence {
 /// GTA Attest response from `POST /attest`.
 #[derive(Debug, Clone, Deserialize)]
 struct GtaAttestResponse {
+    #[allow(dead_code)]
     service_version: String,
     tokens: Vec<GtaToken>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 struct GtaToken {
+    #[allow(dead_code)]
     node_id: String,
     token: String,
 }
@@ -248,6 +251,7 @@ enum GtaError {
     /// Response parse error.
     ParseError(String),
     /// Request validation error.
+    #[allow(dead_code)]
     ValidationError(String),
 }
 

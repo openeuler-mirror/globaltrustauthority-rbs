@@ -94,7 +94,8 @@ fn test_passport_mode_with_rbs_attest() {
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "uri": "test-key",
                 "content": resource_content,
-                "content_type": "application/octet-stream"
+                "content_type": "application/octet-stream",
+                "export_mode": "jwe"
             })))
             .mount(&server)
             .await;

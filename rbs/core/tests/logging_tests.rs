@@ -12,7 +12,7 @@
 
 //! Logging integration tests.
 
-use rbs_core::{init_logging, LogRotationConfig, LoggingConfig, RotationCompression};
+use rbs_core::{init_logging, LogRotationConfig, LoggingConfig};
 use serial_test::serial;
 use std::fs;
 use tempfile::tempdir;
@@ -164,6 +164,7 @@ fn init_logging_stderr_succeeds_without_file_path() {
 #[cfg(unix)]
 mod permissions {
     use super::*;
+    use rbs_core::RotationCompression;
 
     use std::os::unix::fs::PermissionsExt;
 

@@ -41,3 +41,28 @@ pub fn evaluate_policy(
         PolicyEngineError::PolicyEvaluationError(e.to_string())
     })
 }
+
+/// Policy engine abstraction — decouples OPA evaluation from the GTA policy_engine crate.
+pub trait PolicyEngine: Send + Sync {
+    fn evaluate(
+        &self,
+        input: &Value,
+        policy: &str,
+        is_safe_mode: bool,
+    ) -> Result<Value, PolicyEngineError>;
+}
+
+/// Real policy engine backed by the GTA `policy_engine` crate.
+#[derive(Debug, Clone)]
+pub struct RealPolicyEngine;
+
+impl PolicyEngine for RealPolicyEngine {
+    fn evaluate(
+        &self,
+        input: &Value,
+        policy: &str,
+        is_safe_mode: bool,
+    ) -> Result<Value, PolicyEngineError> {
+        evaluate_policy(input, policy, is_safe_mode)
+    }
+}

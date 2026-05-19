@@ -14,11 +14,13 @@
 
 pub mod authn;
 pub mod authz;
+pub mod authz_checker;
 pub mod context;
 pub mod error;
 
 // Re-export auth module types
 pub use authn::{Auth, Authenticator, AttestTokenVerifier, BearerTokenVerifier, UserKeyProvider};
 pub use authz::{Action, AuthzError, AuthzFacade, RequiredRole};
+pub use authz_checker::{AuthzChecker, AuthzCheckerImpl};
 pub use context::{AttestContext, AuthContext, BearerContext, TokenType};
 pub use error::AuthError;

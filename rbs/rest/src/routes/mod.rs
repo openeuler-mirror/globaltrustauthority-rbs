@@ -30,6 +30,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     // Policy routes
     .route("/resource/policy", web::get().to(policy::list_policies))
     .route("/resource/policy", web::post().to(policy::create_policy))
+    .route("/resource/policy", web::delete().to(policy::batch_delete_policies))
     .route("/resource/policy/{policy_id}", web::get().to(policy::get_policy))
     .route("/resource/policy/{policy_id}", web::put().to(policy::update_policy))
     .route("/resource/policy/{policy_id}", web::delete().to(policy::delete_policy))
@@ -42,8 +43,9 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     // Resource routes (wildcard - must be last)
     .route("/{uri:.+}/info", web::get().to(resource::get_resource_info))
     .route("/{uri:.+}/retrieve", web::post().to(resource::retrieve_resource))
+    .route("/{uri:.+}", web::post().to(resource::create_resource))
     .route("/{uri:.+}", web::get().to(resource::get_resource))
-    .route("/{uri:.+}", web::put().to(resource::upsert_resource))
+    .route("/{uri:.+}", web::put().to(resource::update_resource))
     .route("/{uri:.+}", web::delete().to(resource::delete_resource))
     .default_service(web::to(not_found));
 }

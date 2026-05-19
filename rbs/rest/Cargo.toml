@@ -30,3 +30,4 @@ validator.workspace = true
 
 [dev-dependencies]
 async-trait.workspace = true
+actix-http = "3"

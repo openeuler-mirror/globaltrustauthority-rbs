@@ -12,8 +12,9 @@
 
 //! Authorization facade implementation.
 
-use crate::auth::context::AuthContext;
-use crate::policy_engine::evaluate_policy;
+use std::sync::Arc;
+
+use crate::policy_engine::PolicyEngine;
 
 use super::builder::AuthzRequestBuilder;
 use super::AuthzError;
@@ -21,62 +22,45 @@ use super::AuthzError;
 /// Admin policy Rego content
 const ADMIN_POLICY: &str = include_str!("../policies/admin_policy.rego");
 
-/// Authorization facade
-#[derive(Debug, Clone)]
-pub struct AuthzFacade;
+/// Authorization facade — depends on a `PolicyEngine` trait object for testability.
+#[derive(Clone)]
+pub struct AuthzFacade {
+    engine: Arc<dyn PolicyEngine>,
+}
 
 impl AuthzFacade {
-    pub fn new() -> Self {
-        Self
-    }
+    pub fn new(engine: Arc<dyn PolicyEngine>) -> Self { Self { engine } }
 
-    /// Start building authorization request
-    pub fn check<'a>(&'a self, ctx: &'a AuthContext) -> AuthzRequestBuilder<'a> {
+    pub fn check<'a>(&'a self, ctx: &'a crate::auth::context::AuthContext) -> AuthzRequestBuilder<'a> {
         AuthzRequestBuilder::new(self, ctx)
     }
 
-    /// Execute authorization
-    pub(super) async fn evaluate(
-        &self,
-        builder: AuthzRequestBuilder<'_>,
-    ) -> Result<(), AuthzError> {
-        if builder.is_bearer() {
-            let input = builder.build_input()?;
-            evaluate_policy_generic(&input, ADMIN_POLICY)
+    pub(super) async fn evaluate(&self, builder: AuthzRequestBuilder<'_>) -> Result<(), AuthzError> {
+        if builder.is_attest_token() {
+            let claims = builder.attest_claims().ok_or(AuthzError::MissingField("policy"))?;
+            let policy = builder.policy_content().ok_or(AuthzError::MissingField("policy"))?;
+            let result = self.engine.evaluate(claims, policy, true)
+                .map_err(|e| AuthzError::PolicyEvaluationFailed(e.to_string()))?;
+            let matched = result.get("policy_matched").and_then(|v| v.as_bool()).unwrap_or(false);
+            if matched { Ok(()) } else { Err(AuthzError::Denied) }
         } else {
-            let claims = builder
-                .attest_claims()
-                .ok_or(AuthzError::MissingPolicyForAttest)?;
-            let policy = builder
-                .policy_content()
-                .ok_or(AuthzError::MissingPolicyForAttest)?;
-            evaluate_policy_generic(claims, policy)
+            let input = builder.build_input()?;
+            let result = self.engine.evaluate(&input, ADMIN_POLICY, true)
+                .map_err(|e| AuthzError::PolicyEvaluationFailed(e.to_string()))?;
+            let matched = result.get("policy_matched").and_then(|v| v.as_bool()).unwrap_or(false);
+            if matched { Ok(()) } else { Err(AuthzError::Denied) }
         }
+    }
+}
+
+impl std::fmt::Debug for AuthzFacade {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AuthzFacade").finish()
     }
 }
 
 impl Default for AuthzFacade {
     fn default() -> Self {
-        Self::new()
-    }
-}
-
-fn evaluate_policy_generic(
-    input: &serde_json::Value,
-    policy: &str,
-) -> Result<(), AuthzError> {
-    match evaluate_policy(input, policy, true) {
-        Ok(result) => {
-            let matched = result
-                .get("policy_matched")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-            if matched {
-                Ok(())
-            } else {
-                Err(AuthzError::Denied)
-            }
-        }
-        Err(e) => Err(AuthzError::PolicyEvaluationFailed(e.to_string())),
+        Self::new(Arc::new(crate::policy_engine::RealPolicyEngine))
     }
 }

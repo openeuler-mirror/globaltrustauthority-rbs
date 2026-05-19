@@ -137,6 +137,9 @@ pub struct RbsConfig {
     pub auth: AuthConfig,
     #[serde(default)]
     pub admin: AdminConfig,
+    /// Resource provider backends (optional).
+    #[serde(default)]
+    pub resource: Option<ResourceProvidersConfig>,
 }
 
 /// For programmatic use; YAML omitting `rest` deserializes to `None` via `default_rest_option`.
@@ -149,6 +152,7 @@ impl Default for RbsConfig {
             attestation: AttestationConfig::default(),
             auth: AuthConfig::default(),
             admin: AdminConfig::default(),
+            resource: None,
         }
     }
 }
@@ -177,6 +181,9 @@ pub struct CoreConfig {
     pub auth: AuthConfig,
     #[serde(default)]
     pub admin: AdminConfig,
+    /// Resource provider backends (optional).
+    #[serde(default)]
+    pub resource: Option<ResourceProvidersConfig>,
 }
 
 impl Default for CoreConfig {
@@ -186,6 +193,7 @@ impl Default for CoreConfig {
             attestation: AttestationConfig::default(),
             auth: AuthConfig::default(),
             admin: AdminConfig::default(),
+            resource: None,
         }
     }
 }
@@ -531,4 +539,68 @@ pub struct AdminKeyConfig {
     pub public_key_path: Option<String>,
     /// Path to JWK key file (mutually exclusive with public_key_path).
     pub jwks_file: Option<String>,
+}
+
+// ── Resource backend configuration ──
+
+fn default_kv_version() -> String { "v2".to_string() }
+
+/// Configuration for a single resource provider backend.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ResourceProviderConfig {
+    /// Backend type: "vault" for OpenBao / HashiCorp Vault.
+    #[serde(rename = "type")]
+    pub backend_type: String,
+    /// Base URL of the backend (e.g. "http://localhost:8200").
+    pub url: String,
+    /// Authentication token for the backend.
+    pub token: String,
+    /// Mount path for the secrets engine (e.g. "secret").
+    #[serde(alias = "mount")]
+    pub mount_path: String,
+    /// KV engine version: "v1" or "v2".
+    #[serde(default = "default_kv_version")]
+    pub kv_version: String,
+    /// Whether to verify TLS certificates (default: true).
+    #[serde(default = "default_true")]
+    pub verify_ssl: bool,
+    /// Request timeout in seconds (default: 30).
+    #[serde(default = "default_timeout_u32")]
+    pub timeout: u32,
+    /// Maximum number of connections (default: 100).
+    #[serde(default = "default_max_connections_config")]
+    pub max_connections: u32,
+    /// Maximum number of retries (default: 2).
+    #[serde(default = "default_max_retries")]
+    pub max_retries: u32,
+}
+
+fn default_true() -> bool { true }
+fn default_timeout_u32() -> u32 { 30 }
+fn default_max_connections_config() -> u32 { 100 }
+fn default_max_retries() -> u32 { 2 }
+
+impl Default for ResourceProviderConfig {
+    fn default() -> Self {
+        Self {
+            backend_type: "vault".to_string(),
+            url: String::new(),
+            token: String::new(),
+            mount_path: "secret".to_string(),
+            kv_version: default_kv_version(),
+            verify_ssl: default_true(),
+            timeout: default_timeout_u32(),
+            max_connections: default_max_connections_config(),
+            max_retries: default_max_retries(),
+        }
+    }
+}
+
+/// Resource providers configuration: backends indexed by provider name.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ResourceProvidersConfig {
+    /// Resource backends indexed by provider name (e.g. "vault").
+    pub backends: HashMap<String, ResourceProviderConfig>,
 }

@@ -67,6 +67,26 @@ pub async fn init_pool(config: &Database) -> Result<Arc<DatabaseConnection>, DbE
     Ok(conn.clone())
 }
 
+/// Create an in-memory SQLite connection for testing.
+pub async fn create_sqlite_connection() -> Result<DatabaseConnection, DbError> {
+    let opt = ConnectOptions::new("sqlite::memory:".to_string());
+    Db::connect(opt).await.map_err(|e| DbError::ConnectionError(e.to_string()))
+}
+
+/// Create a file-based SQLite connection.
+pub async fn create_sqlite_file_connection(path: &str) -> Result<DatabaseConnection, DbError> {
+    let opt = ConnectOptions::new(format!("sqlite:{}", path));
+    Db::connect(opt).await.map_err(|e| DbError::ConnectionError(e.to_string()))
+}
+
+/// Run core table migration using the unified SQL schema script.
+/// The script path is relative to the `rbs/core/` package directory.
+pub async fn migrate_core_tables(db: &DatabaseConnection) -> Result<(), DbError> {
+    execute_sql_file_path(db, "../rdb_sql/sqlite_rbs.sql")
+        .await
+        .map_err(|e| DbError::ConnectionError(e.to_string()))
+}
+
 /// Execute SQL file path on the database connection pool
 pub async fn execute_sql_file_path(db: &DatabaseConnection, sql_file_path: &str) -> Result<(), Box<dyn Error>> {
     let sql_content = std::fs::read_to_string(sql_file_path)?;
