@@ -86,4 +86,4 @@ pub use policy::{
 };
 
 // Re-export types from user module
-pub use user::{AuthType, Role, UserCreateRequest, UserListQuery, UserListResponse, UserResponse, UserUpdateRequest};
+pub use user::{AuthType, Role, UserCreateRequest, UserListQuery, UserListResponse, UserResponse, UserUpdateRequest, USERNAME_MAX_LEN, validate_username};

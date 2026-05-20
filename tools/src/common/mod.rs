@@ -27,7 +27,7 @@ pub static URL_MAX_LEN: usize = 8192;
 
 pub static JWT: &str = "jwt";
 pub static JWKS: &str = "jwks";
-pub static USERNAME_MAX_LEN: usize = 64;
+pub static USERNAME_MAX_LEN: usize = 36;
 
 pub const DEFAULT_PAGE_LIMIT: i64 = 10;
 pub const MIN_PAGE_LIMIT: i64 = 1;

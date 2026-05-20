@@ -1383,7 +1383,9 @@ func main() {
       ]
     }
   ],
-  "total": 0
+  "total_count": 0,
+  "limit": 0,
+  "offset": 0
 }
 ```
 
@@ -4314,7 +4316,9 @@ Error payload for HTTP error responses (e.g. 500).
       ]
     }
   ],
-  "total": 0
+  "total_count": 0,
+  "limit": 0,
+  "offset": 0
 }
 
 ```
@@ -4326,7 +4330,9 @@ Policy list response.
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
 |items|[[PolicyResponse](#schemapolicyresponse)]|true|none|[Policy response returned to callers.]|
-|total|integer(int64)|true|none|none|
+|total_count|integer(int64)|true|none|none|
+|limit|integer(int64)|true|none|none|
+|offset|integer(int64)|true|none|none|
 
 <h2 id="tocS_PolicyResponse">PolicyResponse</h2>
 <!-- backwards compatibility -->

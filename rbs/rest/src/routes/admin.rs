@@ -13,7 +13,7 @@
 //! Admin / user management routes (`/rbs/v0/users`).
 
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
-use rbs_api_types::{ErrorBody, Role, UserCreateRequest, UserListQuery, UserListResponse, UserResponse, UserUpdateRequest};
+use rbs_api_types::{ErrorBody, Role, UserCreateRequest, UserListQuery, UserListResponse, UserResponse, UserUpdateRequest, validate_username};
 use rbs_core::RbsCore;
 use std::sync::Arc;
 
@@ -125,6 +125,9 @@ pub async fn get_user(
 ) -> HttpResponse {
     let auth_ctx = req.extensions().get::<OptAuthContext>().and_then(|ctx| ctx.0.clone());
     let username = path.into_inner();
+    if let Err(msg) = validate_username(&username) {
+        return HttpResponse::BadRequest().json(ErrorBody { error: msg });
+    }
 
     match auth_ctx {
         Some(ctx) => match core.admin().get_user(&username, &ctx).await {
@@ -165,6 +168,9 @@ pub async fn update_user(
 ) -> HttpResponse {
     let auth_ctx = req.extensions().get::<OptAuthContext>().and_then(|ctx| ctx.0.clone());
     let username = path.into_inner();
+    if let Err(msg) = validate_username(&username) {
+        return HttpResponse::BadRequest().json(ErrorBody { error: msg });
+    }
 
     match auth_ctx {
         Some(ctx) => match core.admin().update_user(&username, &body.into_inner(), &ctx).await {
@@ -201,6 +207,9 @@ pub async fn delete_user(
 ) -> HttpResponse {
     let auth_ctx = req.extensions().get::<OptAuthContext>().and_then(|ctx| ctx.0.clone());
     let username = path.into_inner();
+    if let Err(msg) = validate_username(&username) {
+        return HttpResponse::BadRequest().json(ErrorBody { error: msg });
+    }
 
     match auth_ctx {
         Some(ctx) => match core.admin().delete_user(&username, &ctx).await {

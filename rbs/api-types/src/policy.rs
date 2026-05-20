@@ -72,7 +72,9 @@ pub struct PolicyResponse {
 #[serde(rename_all = "snake_case")]
 pub struct PolicyListResponse {
     pub items: Vec<PolicyResponse>,
-    pub total: u64,
+    pub total_count: i64,
+    pub limit: i64,
+    pub offset: i64,
 }
 
 /// Query parameters for GET /rbs/v0/resource/policy.
