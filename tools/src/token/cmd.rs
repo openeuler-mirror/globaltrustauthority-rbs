@@ -31,7 +31,7 @@ use crate::error::CliError;
 use crate::token::Token;
 
 const DEFAULT_ISSUER: &str = "rbs-cli";
-const DEFAULT_SUBJECT: &str = "administrator";
+const DEFAULT_SUBJECT: &str = "Administrator";
 const DEFAULT_AUDIENCE: &str = "globaltrustauthority-rbs";
 const DEFAULT_EXP_AFTER_SECONDS: u64 = 3600;
 const ISS_MAX_LEN: usize = 128;

@@ -35,7 +35,7 @@ const DEFAULT_EC_ENC_ALGORITHM: &str = "ECDH-ES+A256KW";
 const DEFAULT_EC_CURVE: EcCurve = EcCurve::P256;
 const DEFAULT_CONTENT_ENCRYPTION_KEY: &str = "A256GCM";
 
-/// Caller-supplied tee_pubkey validation allowlists.
+/// Caller-supplied tee-pubkey validation allowlists.
 const RSA_ALLOWED_ALGS: &[&str] = &["RSA-OAEP-256", "RSA-OAEP-384", "RSA-OAEP-512"];
 // ECDH-ES (direct key agreement) and weaker key-wrap variants are excluded.
 const EC_ALLOWED_ALGS: &[&str] = &["ECDH-ES+A256KW"];
@@ -232,14 +232,14 @@ impl TeePublicKey {
     }
 
     fn validate_rsa_params(&self) -> Result<(), RbcError> {
-        let invalid = |msg: &str| Err(RbcError::InvalidInput(format!("invalid tee_pubkey: {msg}")));
+        let invalid = |msg: &str| Err(RbcError::InvalidInput(format!("invalid tee-pubkey: {msg}")));
         let n_b64 = match self.public_jwk.parameter("n").and_then(|v| v.as_str()) {
             Some(s) => s,
             None => return invalid("RSA key missing or invalid parameter 'n'"),
         };
         let n_len = base64::engine::general_purpose::URL_SAFE_NO_PAD
             .decode(n_b64)
-            .map_err(|_| RbcError::InvalidInput("invalid tee_pubkey: RSA 'n' is not valid base64url".into()))?
+            .map_err(|_| RbcError::InvalidInput("invalid tee-pubkey: RSA 'n' is not valid base64url".into()))?
             .len();
         if n_len < DEFAULT_RSA_KEY_BYTE_SIZE as usize {
             return invalid(&format!(
@@ -260,7 +260,7 @@ impl TeePublicKey {
     }
 
     fn validate_ec_params(&self) -> Result<(), RbcError> {
-        let invalid = |msg: &str| Err(RbcError::InvalidInput(format!("invalid tee_pubkey: {msg}")));
+        let invalid = |msg: &str| Err(RbcError::InvalidInput(format!("invalid tee-pubkey: {msg}")));
         let crv = match self.public_jwk.parameter("crv").and_then(|v| v.as_str()) {
             Some(c) if EC_ALLOWED_CURVES.contains(&c) => c,
             Some(c) => return invalid(&format!("unsupported EC curve '{c}'; allowed: {EC_ALLOWED_CURVES:?}")),
@@ -284,14 +284,14 @@ impl TeePublicKey {
     }
 
     fn validate_ec_coordinate(&self, coord: &str, crv: &str, expected_len: usize) -> Result<(), RbcError> {
-        let invalid = |msg: &str| Err(RbcError::InvalidInput(format!("invalid tee_pubkey: {msg}")));
+        let invalid = |msg: &str| Err(RbcError::InvalidInput(format!("invalid tee-pubkey: {msg}")));
         let b64 = match self.public_jwk.parameter(coord).and_then(|v| v.as_str()) {
             Some(s) => s,
             None => return invalid(&format!("EC key missing or invalid parameter '{coord}'")),
         };
         let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
             .decode(b64)
-            .map_err(|_| RbcError::InvalidInput(format!("invalid tee_pubkey: EC '{coord}' is not valid base64url")))?;
+            .map_err(|_| RbcError::InvalidInput(format!("invalid tee-pubkey: EC '{coord}' is not valid base64url")))?;
         if bytes.len() != expected_len {
             return invalid(&format!(
                 "EC '{coord}' length {} bytes does not match curve {crv} (expected {expected_len} bytes)",

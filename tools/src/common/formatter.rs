@@ -57,7 +57,7 @@ pub fn emit_output(output: &dyn Formatter, global: &GlobalOptions) -> Result<(),
             if global.format_explicitly_set {
                 println!("{rendered}");
             } else {
-                println!("Output written to {output_file} in json format");
+                println!("Output written to {output_file} in {} format", global.format);
             }
         }
         return Ok(());

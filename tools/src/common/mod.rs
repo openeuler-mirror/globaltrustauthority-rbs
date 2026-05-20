@@ -11,6 +11,7 @@
  */
 pub mod clap;
 pub mod formatter;
+pub mod logging;
 pub mod output;
 pub mod utils;
 pub mod validate;
@@ -37,7 +38,7 @@ pub const MIN_PAGE_OFFSET: i64 = 0;
 pub const MAX_PAGE_OFFSET: i64 = 1000000;
 
 pub const AS_PROVIDE: &str = "gta";
-pub const CLIENT_REQUEST_TIMEOUT: u64 = 10;
+pub const CLIENT_REQUEST_TIMEOUT: u64 = 60;
 
 pub static GTA_CERT_ATTESTER_TYPE_ARRAY: [&str; 8] =
     ["refvalue", "policy", "tpm_boot", "tpm", "tpm_ima", "ascend_npu", "dice", "crl"];

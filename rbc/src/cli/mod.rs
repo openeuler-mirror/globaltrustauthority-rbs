@@ -16,9 +16,9 @@ pub mod execute;
 pub mod output;
 
 pub use args::{
-    AttestArgs, AttesterArgs, ChallengeArgs, ClientAction, ClientCli, CollectEvidenceArgs, GetResourceArgs,
-    GetTokenArgs, PolicyIdsArgs,
+    AgentConfigArgs, AttesterArgs, ChallengeArgs, ClientAction, ClientCli, CollectEvidenceArgs, GetResourceArgs,
+    GetTokenArgs,
 };
-pub use context::{ClientCommandContext, ExecutionOptions};
+pub use context::{build_client_context, command_agent_config, ClientCommandContext, ClientRuntimeInputs, ExecutionOptions};
 pub use execute::{execute_action, CliError};
 pub use output::{ClientOutput, OutputFormat};

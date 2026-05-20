@@ -9,12 +9,13 @@
  * PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
-
+use base64::Engine;
+use base64::engine::general_purpose;
 use crate::common::DEFAULT_PAGE_LIMIT;
 use crate::common::MAX_PAGE_LIMIT;
-use clap::{ArgGroup, Args, Subcommand};
+use clap::{ArgGroup, Args, Subcommand, ValueEnum};
 use rbs_admin_client::resource_policy::{
-    ResourcePolicy, ResourcePolicyClient, ResourcePolicyCreateRequest, ResourcePolicyListParams,
+    ResourcePolicy, ResourcePolicyClient, ResourcePolicyContentType, ResourcePolicyCreateRequest, ResourcePolicyListParams,
     ResourcePolicyListResponse, ResourcePolicyService, ResourcePolicyUpdateRequest,
 };
 use rbs_admin_client::AdminClient;
@@ -30,6 +31,21 @@ use crate::error::CliError;
 
 const POLICY_ID_MAX_LEN: usize = 256;
 const POLICY_NAME_MAX_LEN: usize = 255;
+
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ResPolicyContentTypeArg {
+    #[default]
+    #[value(name = "base64")]
+    Base64,
+}
+
+impl From<ResPolicyContentTypeArg> for ResourcePolicyContentType {
+    fn from(value: ResPolicyContentTypeArg) -> Self {
+        match value {
+            ResPolicyContentTypeArg::Base64 => ResourcePolicyContentType::Base64,
+        }
+    }
+}
 
 #[derive(Args, Debug, Clone)]
 #[command(about = "Manage resource access policies")]
@@ -86,7 +102,7 @@ pub struct ListArgs {
 
 #[derive(Args, Debug, Clone)]
 pub struct GetArgs {
-    #[arg(value_parser = |s: &str| validate_trimmed_string_max_len(s, POLICY_ID_MAX_LEN, "policy_id"), help = "Resource policy ID")]
+    #[arg(long, value_parser = |s: &str| validate_trimmed_string_max_len(s, POLICY_ID_MAX_LEN, "policy_id"), help = "Resource policy ID")]
     pub id: String,
 }
 
@@ -95,26 +111,26 @@ pub struct CreateArgs {
     #[arg(long, value_parser = |s: &str| validate_trimmed_string_max_len(s, POLICY_NAME_MAX_LEN, "name"), help = "Resource policy name")]
     pub name: String,
 
-    #[arg(long, value_parser = read_path_file, help = "Base64 policy content or @file path")]
+    #[arg(long, value_parser = normalize_base64_policy_content, help = "Base64 policy content or @file path; raw content is Base64-encoded automatically")]
     pub content: String,
 
-    #[arg(long, default_value = "base64", value_parser = ["base64"], help = "Policy content type")]
-    pub content_type: String,
+    #[arg(long, value_enum, default_value_t, help = "Policy content type")]
+    pub content_type: ResPolicyContentTypeArg,
 }
 
 #[derive(Args, Debug, Clone)]
 pub struct UpdateArgs {
-    #[arg(value_parser = |s: &str| validate_trimmed_string_max_len(s, POLICY_ID_MAX_LEN, "policy_id"), help = "Resource policy ID")]
+    #[arg(long, value_parser = |s: &str| validate_trimmed_string_max_len(s, POLICY_ID_MAX_LEN, "policy_id"), help = "Resource policy ID")]
     pub id: String,
 
     #[arg(long, value_parser = |s: &str| validate_trimmed_string_max_len(s, POLICY_NAME_MAX_LEN, "name"), help = "Resource policy name")]
     pub name: String,
 
-    #[arg(long, value_parser = read_path_file, help = "Base64 policy content or @file path")]
+    #[arg(long, value_parser = normalize_base64_policy_content, help = "Base64 policy content or @file path; raw content is Base64-encoded automatically")]
     pub content: String,
 
-    #[arg(long, default_value = "base64", value_parser = ["base64"], help = "Policy content type")]
-    pub content_type: String,
+    #[arg(long, value_enum, default_value_t, help = "Policy content type")]
+    pub content_type: ResPolicyContentTypeArg,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -173,7 +189,7 @@ async fn execute_res_policy_command(
             let resp = service
                 .create_policy(&ResourcePolicyCreateRequest {
                     name: args.name.clone(),
-                    content_type: args.content_type.clone(),
+                    content_type: args.content_type.into(),
                     content: args.content.clone(),
                 })
                 .await?;
@@ -185,7 +201,7 @@ async fn execute_res_policy_command(
                     &args.id,
                     &ResourcePolicyUpdateRequest {
                         name: args.name.clone(),
-                        content_type: args.content_type.clone(),
+                        content_type: args.content_type.into(),
                         content: args.content.clone(),
                     },
                 )
@@ -213,7 +229,7 @@ impl Formatter for ResourcePolicyListOutput {
     fn render_text(&self) -> Result<String, CliError> {
         let mut lines = vec![format!("resource_policies: total={}", self.0.total)];
         if !self.0.items.is_empty() {
-            let table = Table::new(self.0.items.iter()).with(Style::psql()).to_string();
+            let table = Table::new(self.0.items.iter()).with(Style::markdown()).to_string();
             lines.extend(table.lines().map(|line| line.to_string()));
         }
         Ok(lines.join("\n"))
@@ -254,9 +270,21 @@ fn format_policy_multiline(policy: &ResourcePolicy) -> String {
     .join("\n")
 }
 
+fn normalize_base64_policy_content(value: &str) -> Result<String, CliError> {
+    let content = read_path_file(value)?;
+    let trimmed = content.trim();
+
+    if general_purpose::STANDARD.decode(trimmed).is_ok() {
+        Ok(trimmed.to_string())
+    } else {
+        Ok(general_purpose::STANDARD.encode(content.as_bytes()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rbs_admin_client::resource_policy::ResourcePolicyContentType;
 
     #[test]
     fn format_policy_multiline_includes_core_fields() {
@@ -265,7 +293,7 @@ mod tests {
             policy_name: "allow-secret".to_string(),
             policy_version: 2,
             policy_content: "Zm9v".to_string(),
-            content_type: "base64".to_string(),
+            content_type: ResourcePolicyContentType::Base64,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             updated_at: "2026-01-02T00:00:00Z".to_string(),
             applied_resources: Some(vec!["vault/default/secret/demo".to_string()]),
@@ -286,7 +314,7 @@ mod tests {
                 policy_name: "allow-secret".to_string(),
                 policy_version: 1,
                 policy_content: "Zm9v".to_string(),
-                content_type: "base64".to_string(),
+                content_type: ResourcePolicyContentType::Base64,
                 created_at: "2026-01-01T00:00:00Z".to_string(),
                 updated_at: "2026-01-02T00:00:00Z".to_string(),
                 applied_resources: None,
@@ -302,11 +330,37 @@ mod tests {
             policy_name: "allow-secret".to_string(),
             policy_version: 1,
             policy_content: "Zm9v".to_string(),
-            content_type: "base64".to_string(),
+            content_type: ResourcePolicyContentType::Base64,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             updated_at: "2026-01-02T00:00:00Z".to_string(),
             applied_resources: None,
         });
         assert!(mutation.render_text().expect("render mutation").contains("policy_name:"));
+    }
+
+    #[test]
+    fn normalize_base64_policy_content_accepts_inline_and_file_values() {
+        assert_eq!(normalize_base64_policy_content("Zm9v").expect("inline"), "Zm9v");
+
+        let path = std::env::temp_dir().join(format!("res-policy-b64-{}.txt", std::process::id()));
+        std::fs::write(&path, "YmFy").expect("write base64 file");
+        let value = normalize_base64_policy_content(&format!("@{}", path.display())).expect("file");
+        assert_eq!(value, "YmFy");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn normalize_base64_policy_content_encodes_raw_inline_content() {
+        let value = normalize_base64_policy_content("plain policy").expect("raw inline content");
+        assert_eq!(value, "cGxhaW4gcG9saWN5");
+    }
+
+    #[test]
+    fn normalize_base64_policy_content_encodes_raw_file_content() {
+        let path = std::env::temp_dir().join(format!("res-policy-raw-{}.txt", std::process::id()));
+        std::fs::write(&path, "allow = true").expect("write raw policy file");
+        let value = normalize_base64_policy_content(&format!("@{}", path.display())).expect("raw file");
+        assert_eq!(value, "YWxsb3cgPSB0cnVl");
+        let _ = std::fs::remove_file(path);
     }
 }

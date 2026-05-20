@@ -12,7 +12,7 @@
 
 use clap::{Args, Subcommand};
 use rbs_admin_client::resource::{
-    ResourceClient, ResourceCreateRequest, ResourceInfoResponse, ResourcePath, ResourceResponse, ResourceService,
+    ResourceClient, ResourceCreateRequest, ResourceInfoResponse, ResourcePath, ResourceService,
     ResourceUpdateRequest,
 };
 use rbs_admin_client::AdminClient;
@@ -29,6 +29,8 @@ const EXPORT_MODES: [&str; 2] = ["plain", "jwe"];
 const RESOURCE_SEGMENT_MAX_LEN: usize = 256;
 const POLICY_ID_MAX_LEN: usize = 64;
 
+const ADDITIONAL_INFO_MAX_LEN: usize = 512;
+
 #[derive(Args, Debug, Clone)]
 #[command(about = "Manage key, secret, and cert resources")]
 pub struct ResCli {
@@ -39,17 +41,10 @@ pub struct ResCli {
 #[derive(Subcommand, Debug, Clone)]
 pub enum ResCommand {
     #[command(
-        about = "Get resource content",
-        long_about = "Get resource content by resource path.\n\nExample:\n  rbs-cli res get --res-provider vault --repository-name default --resource-type secret --resource-name my-secret"
-    )]
-    Get(PathArgs),
-    #[command(
-        name = "get-res-info",
-        alias = "info",
         about = "Get resource metadata",
         long_about = "Get resource metadata without returning resource content.\n\nExample:\n  rbs-cli res get-res-info --res-provider vault --repository-name default --resource-type secret --resource-name my-secret"
     )]
-    GetResInfo(PathArgs),
+    Get(PathArgs),
     #[command(
         about = "Create a resource binding",
         long_about = "Create resource metadata for a key, secret, or cert resource.\n\nExample:\n  rbs-cli res create --res-provider vault --repository-name default --resource-type secret --resource-name my-secret --policy-id policy-1 --content-type text --export-mode plain"
@@ -70,7 +65,7 @@ pub enum ResCommand {
 #[derive(Args, Debug, Clone)]
 pub struct PathArgs {
     #[arg(long, value_parser = |s: &str| validate_resource_segment(s, RESOURCE_SEGMENT_MAX_LEN), help = "Resource provider, for example vault")]
-    pub res_provider: String,
+    pub provider_name: String,
 
     #[arg(long, value_parser = |s: &str| validate_resource_segment(s, RESOURCE_SEGMENT_MAX_LEN), help = "Repository or namespace name")]
     pub repository_name: String,
@@ -105,10 +100,10 @@ pub struct UpdateArgs {
     #[command(flatten)]
     pub path: PathArgs,
 
-    #[arg(long, value_parser = |s: &str| validate_trimmed_string_max_len(s, POLICY_ID_MAX_LEN, "policy_id"), help = "Bound resource policy ID")]
+    #[arg(long, value_parser = |s: &str| validate_trimmed_string_max_len(s, POLICY_ID_MAX_LEN, "policy-id"), help = "Bound resource policy ID")]
     pub policy_id: Option<String>,
 
-    #[arg(long, value_parser = read_path_file, help = "Optional Base64 additional_info value or @file path")]
+    #[arg(long, value_parser = |s: &str| validate_trimmed_string_max_len(s, ADDITIONAL_INFO_MAX_LEN, "additional-info"), help = "Optional Base64 additional_info value or @file path")]
     pub additional_info: Option<String>,
 
     #[arg(long, value_parser = RESOURCE_CONTENT_TYPES, help = "Resource content type: jwt, json, text, binary, jwk, or jwe")]
@@ -132,10 +127,6 @@ pub fn run(cli: &ResCli, global: &GlobalOptions) -> Result<Box<dyn Formatter>, C
 async fn execute_res_command(cli: &ResCli, service: &ResourceClient) -> Result<Box<dyn Formatter>, CliError> {
     match &cli.command {
         ResCommand::Get(args) => {
-            let resp = service.get_resource(&build_path(args)).await?;
-            Ok(Box::new(ResourceOutput(resp)))
-        },
-        ResCommand::GetResInfo(args) => {
             let resp = service.get_resource_info(&build_path(args)).await?;
             Ok(Box::new(ResourceMetadataOutput(resp)))
         },
@@ -144,6 +135,7 @@ async fn execute_res_command(cli: &ResCli, service: &ResourceClient) -> Result<B
                 .create_resource(
                     &build_path(&args.path),
                     &ResourceCreateRequest {
+                        uri: format!("{}/{}/{}/{}", &args.path.provider_name, &args.path.repository_name, &args.path.resource_type, &args.path.resource_name),
                         policy_id: args.policy_id.clone(),
                         additional_info: args.additional_info.clone(),
                         content_type: args.content_type.clone(),
@@ -159,6 +151,7 @@ async fn execute_res_command(cli: &ResCli, service: &ResourceClient) -> Result<B
                 .update_resource(
                     &build_path(&args.path),
                     &ResourceUpdateRequest {
+                        uri: format!("{}/{}/{}/{}", &args.path.provider_name, &args.path.repository_name, &args.path.resource_type, &args.path.resource_name),
                         policy_id: args.policy_id.clone().unwrap_or_default(),
                         additional_info: args.additional_info.clone(),
                         content_type: args.content_type.clone(),
@@ -192,7 +185,7 @@ fn validate_update_args(args: &UpdateArgs) -> Result<(), CliError> {
 
 fn build_path(args: &PathArgs) -> ResourcePath {
     ResourcePath {
-        res_provider: args.res_provider.clone(),
+        provider_name: args.provider_name.clone(),
         repository_name: args.repository_name.clone(),
         resource_type: args.resource_type.clone(),
         resource_name: args.resource_name.clone(),
@@ -200,25 +193,7 @@ fn build_path(args: &PathArgs) -> ResourcePath {
 }
 
 fn resource_uri(path: &ResourcePath) -> String {
-    format!("{}/{}/{}/{}", path.res_provider, path.repository_name, path.resource_type, path.resource_name)
-}
-
-#[derive(Debug, Serialize)]
-struct ResourceOutput(ResourceResponse);
-
-impl Formatter for ResourceOutput {
-    fn render_text(&self) -> Result<String, CliError> {
-        let lines = vec![
-            format!("{:<20}{}", "uri:", self.0.uri),
-            format!("{:<20}{}", "content:", self.0.content),
-            format!("{:<20}{}", "content_type:", self.0.content_type.as_deref().unwrap_or("")),
-        ];
-        Ok(lines.join("\n"))
-    }
-
-    fn render_json(&self) -> Result<String, CliError> {
-        serde_json::to_string_pretty(&self.0).map_err(|_| CliError::InternalFormat)
-    }
+    format!("{}/{}/{}/{}", path.provider_name, path.repository_name, path.resource_type, path.resource_name)
 }
 
 #[derive(Debug, Serialize)]
@@ -229,20 +204,16 @@ impl Formatter for ResourceMetadataOutput {
         let resource = &self.0;
         Ok([
             format!("{:<20}{}", "uri:", resource.uri),
-            format!("{:<20}{}", "res_provider:", resource.res_provider.as_deref().unwrap_or("")),
+            format!("{:<20}{}", "res_provider:", resource.provider_name.as_deref().unwrap_or("")),
             format!("{:<20}{}", "repository_name:", resource.repository_name.as_deref().unwrap_or("")),
             format!("{:<20}{}", "resource_type:", resource.resource_type.as_deref().unwrap_or("")),
             format!("{:<20}{}", "resource_name:", resource.resource_name.as_deref().unwrap_or("")),
             format!("{:<20}{}", "policy_id:", resource.policy_id.as_deref().unwrap_or("")),
             format!("{:<20}{}", "content_type:", resource.content_type.as_deref().unwrap_or("")),
             format!("{:<20}{}", "export_mode:", resource.export_mode.as_deref().unwrap_or("")),
-            format!(
-                "{:<20}{}",
-                "content_length:",
-                resource.content_length.map(|value| value.to_string()).unwrap_or_default()
-            ),
             format!("{:<20}{}", "created_at:", resource.created_at.as_deref().unwrap_or("")),
             format!("{:<20}{}", "updated_at:", resource.updated_at.as_deref().unwrap_or("")),
+            format!("{:<20}{}", "additional_info:", resource.additional_info.as_deref().unwrap_or("")),
         ]
         .join("\n"))
     }
@@ -258,7 +229,7 @@ mod tests {
 
     fn base_path_args() -> PathArgs {
         PathArgs {
-            res_provider: "vault".to_string(),
+            provider_name: "vault".to_string(),
             repository_name: "default".to_string(),
             resource_type: "secret".to_string(),
             resource_name: "demo".to_string(),
@@ -282,36 +253,7 @@ mod tests {
     fn build_path_and_resource_uri_match_command_arguments() {
         let path_args = base_path_args();
         let path = build_path(&path_args);
-        assert_eq!(path.res_provider, "vault");
+        assert_eq!(path.provider_name, "vault");
         assert_eq!(resource_uri(&path), "vault/default/secret/demo");
-    }
-
-    #[test]
-    fn resource_outputs_render_text() {
-        let resource = ResourceOutput(ResourceResponse {
-            uri: "vault/default/secret/demo".to_string(),
-            content: "secret".to_string(),
-            content_type: Some("text".to_string()),
-        });
-        let text = resource.render_text().expect("render resource");
-        assert!(text.contains("content:"));
-        assert!(text.contains("secret"));
-
-        let meta = ResourceMetadataOutput(ResourceInfoResponse {
-            uri: "vault/default/secret/demo".to_string(),
-            res_provider: Some("vault".to_string()),
-            repository_name: Some("default".to_string()),
-            resource_type: Some("secret".to_string()),
-            resource_name: Some("demo".to_string()),
-            created_at: Some("2026-01-01T00:00:00Z".to_string()),
-            updated_at: Some("2026-01-02T00:00:00Z".to_string()),
-            policy_id: Some("policy-1".to_string()),
-            content_type: Some("text".to_string()),
-            export_mode: Some("plain".to_string()),
-            content_length: Some(6),
-        });
-        let text = meta.render_text().expect("render metadata");
-        assert!(text.contains("policy_id:"));
-        assert!(text.contains("policy-1"));
     }
 }

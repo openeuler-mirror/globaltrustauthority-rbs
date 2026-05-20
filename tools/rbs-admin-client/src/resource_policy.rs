@@ -13,6 +13,7 @@
 use async_trait::async_trait;
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
+use std::fmt::{Display, Formatter};
 use tabled::Tabled;
 use crate::client::AdminClient;
 use crate::error::RbsAdminClientError;
@@ -25,6 +26,21 @@ pub struct ResourcePolicyClient {
     client: AdminClient,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ResourcePolicyContentType {
+    #[default]
+    Base64,
+}
+
+impl Display for ResourcePolicyContentType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Base64 => write!(f, "base64"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default, Tabled)]
 pub struct ResourcePolicy {
     pub policy_id: String,
@@ -32,7 +48,7 @@ pub struct ResourcePolicy {
     pub policy_version: i64,
     #[tabled(skip)]
     pub policy_content: String,
-    pub content_type: String,
+    pub content_type: ResourcePolicyContentType,
     pub created_at: String,
     pub updated_at: String,
     #[serde(default)]
@@ -50,14 +66,14 @@ pub struct ResourcePolicyListParams {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ResourcePolicyCreateRequest {
     pub name: String,
-    pub content_type: String,
+    pub content_type: ResourcePolicyContentType,
     pub content: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ResourcePolicyUpdateRequest {
     pub name: String,
-    pub content_type: String,
+    pub content_type: ResourcePolicyContentType,
     pub content: String,
 }
 

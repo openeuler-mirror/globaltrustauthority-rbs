@@ -24,7 +24,7 @@ use serde_json::{json, Map, Value};
 use thiserror::Error;
 use zeroize::Zeroizing;
 
-use crate::cli::args::{AttestArgs, AttesterArgs, ClientAction, CollectEvidenceArgs, GetResourceArgs, GetTokenArgs};
+use crate::cli::args::{AttesterArgs, ClientAction, CollectEvidenceArgs, GetResourceArgs, GetTokenArgs};
 use crate::cli::context::{ClientCommandContext, ExecutionOptions};
 use crate::cli::output::{ClientOutput, ResourceOutput};
 use crate::error::RbcError;
@@ -57,7 +57,6 @@ pub fn execute_action(
     match action {
         ClientAction::Challenge(_) => execute_challenge(context, options),
         ClientAction::CollectEvidence(args) => execute_collect_evidence(args, context),
-        ClientAction::Attest(args) => execute_attest(args, context, options),
         ClientAction::GetToken(args) => execute_get_token(args, context),
         ClientAction::GetResource(args) => execute_get_resource(args, context, options),
     }
@@ -79,43 +78,33 @@ fn execute_collect_evidence(
         attester_data: args.attester_data.clone(),
         runtime_data: args.runtime_data.clone(),
     })?;
-    let client = context.build_rbc_client(Some(&args.agent_config))?;
+    let client = context.build_rbc_client(None)?;
     let session = client.new_session(Some(&attester_data))?;
-    let challenge = AuthChallengeResponse { nonce: read_path_file(&args.nonce)? };
+    let challenge = AuthChallengeResponse { nonce: read_trimmed_path_value(&args.nonce)? };
     let evidence = session.collect_evidence(&challenge)?;
     Ok(ClientOutput::JsonValue(evidence))
 }
 
-fn execute_attest(
-    args: &AttestArgs,
-    context: &ClientCommandContext,
-    options: &ExecutionOptions,
-) -> Result<ClientOutput, CliError> {
-    let _ = options;
-    let evidence = read_evidence_payload(&args.evidence)?;
-    let client = context.build_rbc_client(None)?;
-    let session = client.new_session(None)?;
-    let evidence = serde_json::to_value(evidence)?;
-    let resp = session.attest(Some(&evidence))?;
-    Ok(ClientOutput::Attest(resp))
-}
-
 fn execute_get_token(args: &GetTokenArgs, context: &ClientCommandContext) -> Result<ClientOutput, CliError> {
-    validate_string_list(&args.policy.policy_ids, 10, "--policy-ids")?;
-    let client = context.build_rbc_client(Some(&args.agent_config))?;
-    let attester_data = build_attester_data(&AttesterArgs {
-        attester_pubkey: Some(args.attester_pubkey.clone()),
-        attester_data: args.attester_data.clone(),
-        runtime_data: args.runtime_data.clone(),
-    })?;
-    let session = client.new_session(Some(&attester_data))?;
-    let resp = if args.policy.policy_ids.is_empty() {
-        session.attest(None)?
-    } else {
-        let challenge = AuthChallengeResponse { nonce: String::new() };
-        let evidence = session.collect_evidence(&challenge)?;
-        let evidence = apply_policy_ids_to_evidence(evidence, &args.policy.policy_ids)?;
+    let resp = if let Some(evidence_input) = args.evidence.as_deref() {
+        let evidence = read_evidence_payload(evidence_input)?;
+        let client = context.build_rbc_client(None)?;
+        let session = client.new_session(None)?;
+        let evidence = serde_json::to_value(evidence)?;
         session.attest(Some(&evidence))?
+    } else {
+        let client = context.build_rbc_client(None)?;
+        let attester_pubkey = args
+            .attester_pubkey
+            .clone()
+            .ok_or_else(|| CliError::InvalidArgument("missing required attester-pubkey".to_string()))?;
+        let attester_data = build_attester_data(&AttesterArgs {
+            attester_pubkey: Some(attester_pubkey),
+            attester_data: args.attester_data.clone(),
+            runtime_data: args.runtime_data.clone(),
+        })?;
+        let session = client.new_session(Some(&attester_data))?;
+        session.attest(None)?
     };
     Ok(ClientOutput::Attest(resp))
 }
@@ -132,13 +121,16 @@ fn execute_get_resource(
         let evidence = read_evidence_payload(evidence_input)?;
         let evidence = serde_json::to_value(evidence)?;
         session.get_resource(&args.uri, GetResourceRequest::ByEvidence { value: &evidence })?
+    } else if let Some(token) = args.attest_token.as_deref() {
+        let token = read_trimmed_path_value(token)?;
+        session.get_resource(&args.uri, GetResourceRequest::ByAttestToken(&token))?
     } else {
         let token = args
-            .token
+            .bearer_token
             .as_deref()
-            .ok_or_else(|| CliError::InvalidArgument("missing required token; pass --token".to_string()))?;
-        let token = read_path_file(token)?;
-        session.get_resource(&args.uri, GetResourceRequest::ByAttestToken(&token))?
+            .ok_or_else(|| CliError::InvalidArgument("missing required bearer token; pass --bearer-token".to_string()))?;
+        let token = read_trimmed_path_value(token)?;
+        session.get_resource(&args.uri, GetResourceRequest::ByBearerToken(&token))?
     };
 
     let content = maybe_decrypt_resource(&session, resource.content.as_ref(), args)?;
@@ -153,6 +145,10 @@ fn read_evidence_payload(input: &str) -> Result<RbcEvidencesPayload, CliError> {
     }
     let raw = read_path_file(input)?;
     Ok(serde_json::from_str(raw.trim())?)
+}
+
+fn read_trimmed_path_value(input: &str) -> Result<String, CliError> {
+    Ok(read_path_file(input)?.trim().to_string())
 }
 
 fn build_attester_data(args: &AttesterArgs) -> Result<AttesterData, CliError> {
@@ -172,37 +168,10 @@ fn build_attester_data(args: &AttesterArgs) -> Result<AttesterData, CliError> {
     }
 
     if let Some(pubkey) = args.attester_pubkey.as_deref() {
-        runtime.insert("tee_pubkey".to_string(), public_key_to_jwk_value(pubkey)?);
+        runtime.insert("tee-pubkey".to_string(), public_key_to_jwk_value(pubkey)?);
     }
 
     Ok(data)
-}
-
-fn validate_string_list(values: &[String], max: usize, flag: &str) -> Result<(), CliError> {
-    if values.len() > max {
-        return Err(CliError::InvalidArgument(format!("{flag} supports at most {max} items; got {}", values.len())));
-    }
-    for value in values {
-        validate_not_empty(value)?;
-    }
-    Ok(())
-}
-
-fn apply_policy_ids_to_evidence(value: Value, policy_ids: &[String]) -> Result<Value, CliError> {
-    if policy_ids.is_empty() {
-        return Ok(value);
-    }
-
-    let mut payload: RbcEvidencesPayload = serde_json::from_value(value)
-        .map_err(|err| CliError::InvalidArgument(format!("invalid evidence JSON: {err}")))?;
-    for measurement in &mut payload.measurements {
-        if let Some(evidences) = &mut measurement.evidences {
-            for evidence in evidences {
-                evidence.policy_ids = Some(policy_ids.to_vec());
-            }
-        }
-    }
-    Ok(serde_json::to_value(payload)?)
 }
 
 fn parse_runtime_data_entry(entry: &str) -> Result<(String, Value), CliError> {
@@ -466,22 +435,14 @@ mod tests {
     }
 
     #[test]
-    fn apply_policy_ids_updates_each_evidence_item() {
-        let value = json!({
-            "agent_version": "1.0.0",
-            "measurements": [{
-                "nonce": "nonce",
-                "evidences": [
-                    {"attester_type": "tpm_boot", "evidence": {"quote": "a"}},
-                    {"attester_type": "tpm_ima", "evidence": {"quote": "b"}}
-                ]
-            }]
-        });
+    fn read_trimmed_path_value_trims_inline_and_file_input() {
+        assert_eq!(read_trimmed_path_value("  token-value \n").expect("inline"), "token-value");
 
-        let updated = apply_policy_ids_to_evidence(value, &["policy-a".to_string(), "policy-b".to_string()])
-            .expect("policy ids should apply");
-        let evidences = updated["measurements"][0]["evidences"].as_array().expect("evidences array");
-        assert_eq!(evidences[0]["policy_ids"], json!(["policy-a", "policy-b"]));
-        assert_eq!(evidences[1]["policy_ids"], json!(["policy-a", "policy-b"]));
+        let path = std::env::temp_dir().join(format!("rbc-trimmed-value-{}.txt", std::process::id()));
+        std::fs::write(&path, "nonce-value\n").expect("write value file");
+        let value = read_trimmed_path_value(&format!("@{}", path.display())).expect("file");
+        assert_eq!(value, "nonce-value");
+        let _ = std::fs::remove_file(path);
     }
+
 }

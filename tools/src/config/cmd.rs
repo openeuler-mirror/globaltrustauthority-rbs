@@ -16,8 +16,8 @@ use crate::common::validate::{
 use crate::common::CERT_FILE_MAX_SIZE;
 use crate::config::{GlobalCliArgs, GlobalOptions, OutputFormat, DEFAULT_BASE_URL, DEFAULT_FORMAT};
 use crate::error::CliError;
-use rbc::ProviderType;
 use std::{env, fs};
+use tracing::info;
 
 pub fn resolve_global_options(cli: &GlobalCliArgs) -> std::result::Result<GlobalOptions, CliError> {
     let env_base_url = env::var("RBS_BASE_URL").ok();
@@ -29,6 +29,13 @@ pub fn resolve_global_options(cli: &GlobalCliArgs) -> std::result::Result<Global
         format.parse::<OutputFormat>()?;
     }
 
+    let base_url_source = if cli.base_url.is_some() {
+        "cli"
+    } else if env_base_url.is_some() {
+        "env"
+    } else {
+        "default"
+    };
     let format_explicitly_set = cli.format.is_some() || env_format.is_some();
     let base_url = cli.base_url.clone().unwrap_or_else(|| env_base_url.unwrap_or_else(|| DEFAULT_BASE_URL.to_string()));
     let format = cli.format.clone().unwrap_or_else(|| {
@@ -51,22 +58,28 @@ pub fn resolve_global_options(cli: &GlobalCliArgs) -> std::result::Result<Global
     } else {
         None
     };
-    let mut token_provider = ProviderType::Native;
-    if let Some(token_provider_type) = &cli.token_provider_type {
-        token_provider = *token_provider_type;
-    }
-    let mut evidence_provider = ProviderType::Rbs;
-    if let Some(evidence_provider_type) = &cli.evidence_provider_type {
-        evidence_provider = *evidence_provider_type;
-    }
+    let token_source = if cli.token.is_some() {
+        "cli"
+    } else if token.is_some() {
+        "env"
+    } else {
+        "none"
+    };
+
+    info!(
+        base_url = %base_url,
+        base_url_source,
+        token_present = token.is_some(),
+        token_source,
+        cert_path = ?cert_path,
+        format = %format,
+        output_file = ?cli.output_file,
+        "resolved CLI/global configuration inputs"
+    );
 
     Ok(GlobalOptions {
         base_url,
         token,
-        evidence_provider_type: token_provider,
-        evidence_provider_config: cli.evidence_provider_config.clone(),
-        token_provider_type: evidence_provider,
-        token_provider_config: cli.token_provider_config.clone(),
         cert,
         cert_path,
         format,
@@ -115,10 +128,6 @@ mod tests {
         let cli = GlobalCliArgs {
             base_url: Some("http://127.0.0.1:8080".to_string()),
             token: Some("token-value".to_string()),
-            evidence_provider_type: Some(ProviderType::Rbs),
-            evidence_provider_config: "/tmp/evidence.yaml".to_string(),
-            token_provider_type: Some(ProviderType::Native),
-            token_provider_config: "/tmp/token.yaml".to_string(),
             cert: None,
             format: Some(OutputFormat::Json),
             output_file: Some("/tmp/out.json".to_string()),
@@ -131,8 +140,6 @@ mod tests {
 
         assert_eq!(options.base_url, "http://127.0.0.1:8080");
         assert_eq!(options.token.as_deref(), Some("token-value"));
-        assert_eq!(options.evidence_provider_config, "/tmp/evidence.yaml");
-        assert_eq!(options.token_provider_config, "/tmp/token.yaml");
         assert_eq!(options.format, OutputFormat::Json);
         assert_eq!(options.output_file.as_deref(), Some("/tmp/out.json"));
         assert!(options.format_explicitly_set);

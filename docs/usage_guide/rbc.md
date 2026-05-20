@@ -308,68 +308,259 @@ For the complete function list and signatures, refer to [`rbc/include/rbc.h`](..
 
 ### 7.1 rbc-cli Workflows
 
-`rbc-cli` exposes five top-level commands:
+`rbc-cli` exposes four top-level commands:
 
 ```text
 rbc-cli challenge
 rbc-cli collect-evidence
-rbc-cli attest
 rbc-cli get-token
 rbc-cli get-resource
 ```
 
 Common global options:
 
-| Option | Meaning |
-|---|---|
-| `-c`, `--config` | Path to the RBC YAML configuration file |
-| `-b`, `--base-url` | Override the RBS base URL from config |
-| `--cert` | Override the CA certificate path |
-| `--timeout-secs` | Override the request timeout |
-| `--key-algorithm` | Override the session key algorithm: `rsa` or `ec` |
-| `--token-provider-type` | Override the configured token provider: `native` or `rbs` |
-| `--as-provider` | Provider identifier attached to API requests; default `gta` |
-| `-f`, `--format` | Output format: `text` or `json` |
-| `-o`, `--output-file` | Write output to a file |
-| `--noout` | Suppress stdout output |
+| Option | Required | Default | Meaning / Notes |
+|---|---|---|---|
+| `-b`, `--base-url <BASE_URL>` | Yes | none | Base URL of the target RBS service. |
+| `--cert <CERT>` | No | unset | CA certificate file used to verify the RBS server. |
+| `--timeout-secs <TIMEOUT_SECS>` | No | unset | Request timeout in seconds. |
+| `--key-algorithm <KEY_ALGORITHM>` | No | unset | Key algorithm used for TEE key generation: `rsa` or `ec`. |
+| `--as-provider <AS_PROVIDER>` | No | `gta` | Provider identifier sent to RBS APIs. |
+| `-f`, `--format <FORMAT>` | No | `text` | Output format: `text` or `json`. |
+| `-o`, `--output-file <OUTPUT_FILE>` | No | unset | Write command output to a file. |
+| `--noout` | No | `false` | Do not print command output to stdout. |
 
-Examples:
+Command-specific options:
+
+### 7.1.1 `challenge`
+
+Request an authentication nonce from the RBS server.
+
+**Usage**
 
 ```bash
-rbc-cli --config /etc/rbc/rbc.yaml challenge
+rbc-cli challenge [OPTIONS]
+```
 
-rbc-cli --config /etc/rbc/rbc.yaml \
+**Parameters**
+
+| Option | Required | Default | Meaning / Notes |
+|---|---|---|---|
+| `--agent-config <AGENT_CONFIG>` | No | `/etc/attestation_agent/agent_config.yaml` | Path to the attestation agent config file. |
+
+**Example**
+
+```bash
+rbc-cli -b https://rbs.example.com \
+  challenge \
+  --agent-config /etc/attestation_agent/agent_config.yaml \
+  -o /tmp/nonce.txt
+```
+
+### 7.1.2 `collect-evidence`
+
+Collect local evidence using the attestation agent.
+
+**Usage**
+
+```bash
+rbc-cli collect-evidence [OPTIONS] \
+  --nonce <NONCE> \
+  --attester-pubkey <ATTESTER_PUBKEY>
+```
+
+**Parameters**
+
+| Option | Required | Default | Meaning / Notes |
+|---|---|---|---|
+| `--agent-config <AGENT_CONFIG>` | No | `/etc/attestation_agent/agent_config.yaml` | Path to the attestation agent config file. |
+| `--nonce <NONCE>` | Yes | none | Nonce to embed in collected evidence. Supports inline input or `@file`. |
+| `--attester-pubkey <ATTESTER_PUBKEY>` | Yes | none | Attester public key used to populate `tee-pubkey` in runtime data. Supports inline input or `@file`. |
+| `--attester-data <ATTESTER_DATA>` | No | unset | Attester-data JSON or `@file` path merged into the request. |
+| `--runtime-data <RUNTIME_DATA>` | No | repeatable | Runtime data entry in `key=value` form. Repeat to add multiple entries. |
+
+**Example**
+
+```bash
+rbc-cli -b https://rbs.example.com \
   collect-evidence \
   --nonce @/tmp/nonce.txt \
   --attester-pubkey @public_key.pem \
-  --output-file /tmp/evidence.json
-
-rbc-cli --config /etc/rbc/rbc.yaml \
-  --token-provider-type rbs \
-  attest \
-  --evidence @/tmp/evidence.json \
-  --output-file /tmp/token.txt
-
-rbc-cli --config /etc/rbc/rbc.yaml \
-  get-token \
-  --attester-pubkey @public_key.pem \
-  --output-file /tmp/token.txt
-
-rbc-cli --config /etc/rbc/rbc.yaml \
-  get-resource \
-  --uri default/repo/key/test-key \
-  --token @/tmp/token.txt \
-  --private-key-file private_key.pem \
-  --output-file /tmp/resource.txt
+  --agent-config /etc/attestation_agent/agent_config.yaml \
+  -o /tmp/evidence.json
 ```
 
-`get-resource` also supports evidence mode:
+### 7.1.3 `get-token`
+
+Obtain an attestation token. This command has two mutually exclusive modes:
+
+- evidence mode: `--evidence`
+- native mode: `--attester-pubkey`
+
+#### By evidence
+
+**Usage**
 
 ```bash
-rbc-cli --config /etc/rbc/rbc.yaml \
+rbc-cli get-token [OPTIONS] --evidence <EVIDENCE>
+```
+
+**Parameters**
+
+| Option | Required | Default | Meaning / Notes |
+|---|---|---|---|
+| `--agent-config <AGENT_CONFIG>` | No | `/etc/attestation_agent/agent_config.yaml` | Path to the attestation agent config file. |
+| `--evidence <EVIDENCE>` | Yes | none | Evidence JSON or `@file` path. |
+| `--attester-pubkey <ATTESTER_PUBKEY>` | No | unset | Not allowed with `--evidence`. |
+| `--attester-data <ATTESTER_DATA>` | No | unset | Not allowed with `--evidence`. |
+| `--runtime-data <RUNTIME_DATA>` | No | repeatable | Not allowed with `--evidence`. |
+
+**Example**
+
+```bash
+rbc-cli -b https://rbs.example.com \
+  get-token \
+  --evidence @/tmp/evidence.json \
+  --agent-config /etc/attestation_agent/agent_config.yaml \
+  -o /tmp/token.txt
+```
+
+#### By attester public key
+
+**Usage**
+
+```bash
+rbc-cli get-token [OPTIONS] --attester-pubkey <ATTESTER_PUBKEY>
+```
+
+**Parameters**
+
+| Option | Required | Default | Meaning / Notes |
+|---|---|---|---|
+| `--agent-config <AGENT_CONFIG>` | No | `/etc/attestation_agent/agent_config.yaml` | Path to the attestation agent config file. |
+| `--attester-pubkey <ATTESTER_PUBKEY>` | Yes | none | Attester public key used to populate `tee-pubkey` in runtime data. Supports inline input or `@file`. |
+| `--attester-data <ATTESTER_DATA>` | No | unset | Attester-data JSON or `@file` path merged into the request. |
+| `--runtime-data <RUNTIME_DATA>` | No | repeatable | Runtime data entry in `key=value` form. Repeat to add multiple entries. |
+| `--evidence <EVIDENCE>` | No | unset | Mutually exclusive with `--attester-pubkey`. |
+
+**Example**
+
+```bash
+rbc-cli -b https://rbs.example.com \
+  get-token \
+  --attester-pubkey @public_key.pem \
+  --agent-config /etc/attestation_agent/agent_config.yaml \
+  -o /tmp/token.txt
+```
+
+### 7.1.4 `get-resource`
+
+Fetch a protected resource. This command has three mutually exclusive authentication modes:
+
+- `--attest-token`
+- `--bearer-token`
+- `--evidence`
+
+#### By attest token
+
+**Usage**
+
+```bash
+rbc-cli get-resource [OPTIONS] \
+  --uri <URI> \
+  --attest-token <ATTEST_TOKEN>
+```
+
+**Parameters**
+
+| Option | Required | Default | Meaning / Notes |
+|---|---|---|---|
+| `--agent-config <AGENT_CONFIG>` | No | `/etc/attestation_agent/agent_config.yaml` | Path to the attestation agent config file. |
+| `--uri <URI>` | Yes | none | Resource URI to fetch. |
+| `--attest-token <ATTEST_TOKEN>` | Yes | none | Attestation token. Supports inline input or `@file`. |
+| `--bearer-token <BEARER_TOKEN>` | No | unset | Mutually exclusive with `--attest-token` and `--evidence`. |
+| `--evidence <EVIDENCE>` | No | unset | Mutually exclusive with `--attest-token` and `--bearer-token`. |
+| `--private-key-file <PRIVATE_KEY_FILE>` | No | unset | PEM private key used to decrypt returned content when needed. |
+| `--private-key-passphrase [<@PATH>]` | No | unset | Read the private key passphrase interactively or from `@PATH`. |
+
+**Example**
+
+```bash
+rbc-cli -b https://rbs.example.com \
   get-resource \
   --uri default/repo/key/test-key \
-  --evidence @/tmp/evidence.json
+  --attest-token @/tmp/token.txt \
+  --agent-config /etc/attestation_agent/agent_config.yaml \
+  --private-key-file private_key.pem \
+  -o /tmp/resource.txt
+```
+
+#### By bearer token
+
+**Usage**
+
+```bash
+rbc-cli get-resource [OPTIONS] \
+  --uri <URI> \
+  --bearer-token <BEARER_TOKEN>
+```
+
+**Parameters**
+
+| Option | Required | Default | Meaning / Notes |
+|---|---|---|---|
+| `--agent-config <AGENT_CONFIG>` | No | `/etc/attestation_agent/agent_config.yaml` | Path to the attestation agent config file. |
+| `--uri <URI>` | Yes | none | Resource URI to fetch. |
+| `--bearer-token <BEARER_TOKEN>` | Yes | none | Bearer token. Supports inline input or `@file`. |
+| `--attest-token <ATTEST_TOKEN>` | No | unset | Mutually exclusive with `--bearer-token` and `--evidence`. |
+| `--evidence <EVIDENCE>` | No | unset | Mutually exclusive with `--bearer-token` and `--attest-token`. |
+| `--private-key-file <PRIVATE_KEY_FILE>` | No | unset | PEM private key used to decrypt returned content when needed. |
+| `--private-key-passphrase [<@PATH>]` | No | unset | Read the private key passphrase interactively or from `@PATH`. |
+
+**Example**
+
+```bash
+rbc-cli -b https://rbs.example.com \
+  get-resource \
+  --uri default/repo/key/test-key \
+  --bearer-token @/tmp/bearer.txt \
+  --agent-config /etc/attestation_agent/agent_config.yaml \
+  --private-key-file private_key.pem \
+  -o /tmp/resource.txt
+```
+
+#### By evidence
+
+**Usage**
+
+```bash
+rbc-cli get-resource [OPTIONS] \
+  --uri <URI> \
+  --evidence <EVIDENCE>
+```
+
+**Parameters**
+
+| Option | Required | Default | Meaning / Notes |
+|---|---|---|---|
+| `--agent-config <AGENT_CONFIG>` | No | `/etc/attestation_agent/agent_config.yaml` | Path to the attestation agent config file. |
+| `--uri <URI>` | Yes | none | Resource URI to fetch. |
+| `--evidence <EVIDENCE>` | Yes | none | Evidence JSON or `@file` path. |
+| `--attest-token <ATTEST_TOKEN>` | No | unset | Mutually exclusive with `--evidence` and `--bearer-token`. |
+| `--bearer-token <BEARER_TOKEN>` | No | unset | Mutually exclusive with `--evidence` and `--attest-token`. |
+| `--private-key-file <PRIVATE_KEY_FILE>` | No | unset | PEM private key used to decrypt returned content when needed. |
+| `--private-key-passphrase [<@PATH>]` | No | unset | Read the private key passphrase interactively or from `@PATH`. |
+
+**Example**
+
+```bash
+rbc-cli -b https://rbs.example.com \
+  get-resource \
+  --uri default/repo/key/test-key \
+  --evidence @/tmp/evidence.json \
+  --agent-config /etc/attestation_agent/agent_config.yaml \
+  --private-key-file private_key.pem \
+  -o /tmp/resource.txt
 ```
 
 ### 7.2 Rust — Full Attestation Flow

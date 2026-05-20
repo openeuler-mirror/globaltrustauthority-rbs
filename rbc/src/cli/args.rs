@@ -22,14 +22,23 @@ pub struct ClientCli {
     pub command: ClientAction,
 }
 
+#[derive(Args, Debug, Clone, Default)]
+pub struct AgentConfigArgs {
+    #[arg(
+        long,
+        default_value = DEFAULT_AGENT_CONFIG,
+        value_parser = validate_file_path,
+        help = "Path to the attestation agent config file"
+    )]
+    pub agent_config: String,
+}
+
 #[derive(Subcommand, Debug, Clone)]
 pub enum ClientAction {
     #[command(about = "Request an authentication nonce from the RBS server")]
     Challenge(ChallengeArgs),
     #[command(about = "Collect local evidence using the attestation agent")]
     CollectEvidence(CollectEvidenceArgs),
-    #[command(about = "Submit evidence to the RBS server for attestation")]
-    Attest(AttestArgs),
     #[command(about = "Obtain an attestation token via the configured token provider")]
     GetToken(GetTokenArgs),
     #[command(about = "Fetch a protected resource using a token or evidence")]
@@ -37,11 +46,14 @@ pub enum ClientAction {
 }
 
 #[derive(Args, Debug, Clone, Default)]
-pub struct ChallengeArgs {}
+pub struct ChallengeArgs {
+    #[command(flatten)]
+    pub agent: AgentConfigArgs,
+}
 
 #[derive(Args, Debug, Clone, Default)]
 pub struct AttesterArgs {
-    #[arg(long, value_parser = validate_not_empty, help = "Attester public key used to populate tee_pubkey in runtime data")]
+    #[arg(long, value_parser = validate_not_empty, help = "Attester public key used to populate tee-pubkey in runtime data")]
     pub attester_pubkey: Option<String>,
 
     #[arg(long, help = "Attester-data JSON or @file path merged into the request")]
@@ -51,14 +63,11 @@ pub struct AttesterArgs {
     pub runtime_data: Vec<String>,
 }
 
-#[derive(Args, Debug, Clone, Default)]
-pub struct PolicyIdsArgs {
-    #[arg(long = "policy-ids", value_delimiter = ',', num_args = 1.., help = "Comma-separated policy IDs to attach to collected evidence")]
-    pub policy_ids: Vec<String>,
-}
-
 #[derive(Args, Debug, Clone)]
 pub struct CollectEvidenceArgs {
+    #[command(flatten)]
+    pub agent: AgentConfigArgs,
+
     #[arg(long, value_parser = validate_not_empty, help = "Nonce to embed in collected evidence")]
     pub nonce: String,
 
@@ -66,7 +75,7 @@ pub struct CollectEvidenceArgs {
         long,
         value_parser = validate_not_empty,
         required = true,
-        help = "Attester public key used to populate tee_pubkey in runtime data"
+        help = "Attester public key used to populate tee-pubkey in runtime data"
     )]
     pub attester_pubkey: String,
 
@@ -76,53 +85,62 @@ pub struct CollectEvidenceArgs {
     #[arg(long = "runtime-data", action = ArgAction::Append, help = "Runtime data entry in key=value form; repeat to add multiple entries")]
     pub runtime_data: Vec<String>,
 
-    #[arg(long, default_value = DEFAULT_AGENT_CONFIG, value_parser = validate_file_path, help = "Path to the attestation agent config file")]
-    pub agent_config: String,
 }
 
 #[derive(Args, Debug, Clone)]
-pub struct AttestArgs {
-    #[arg(long, required = true, help = "Evidence JSON or @file path")]
-    pub evidence: String,
-}
-
-#[derive(Args, Debug, Clone)]
+#[command(group(
+    ArgGroup::new("token_flow")
+        .args(["evidence", "attester_pubkey"])
+        .required(true)
+))]
 pub struct GetTokenArgs {
+    #[command(flatten)]
+    pub agent: AgentConfigArgs,
+
     #[arg(
         long,
         value_parser = validate_not_empty,
-        required = true,
-        help = "Attester public key used to populate tee_pubkey in runtime data"
+        required_unless_present = "evidence",
+        conflicts_with = "evidence",
+        help = "Attester public key used to populate tee-pubkey in runtime data"
     )]
-    pub attester_pubkey: String,
+    pub attester_pubkey: Option<String>,
 
-    #[arg(long, help = "Attester-data JSON or @file path merged into the request")]
+    #[arg(long, conflicts_with = "evidence", help = "Attester-data JSON or @file path merged into the request")]
     pub attester_data: Option<String>,
 
-    #[arg(long = "runtime-data", action = ArgAction::Append, help = "Runtime data entry in key=value form; repeat to add multiple entries")]
+    #[arg(
+        long = "runtime-data",
+        action = ArgAction::Append,
+        conflicts_with = "evidence",
+        help = "Runtime data entry in key=value form; repeat to add multiple entries"
+    )]
     pub runtime_data: Vec<String>,
 
-    #[command(flatten)]
-    pub policy: PolicyIdsArgs,
-
-    #[arg(long, default_value = DEFAULT_AGENT_CONFIG, value_parser = validate_file_path, help = "Path to the attestation agent config file")]
-    pub agent_config: String,
+    #[arg(long, help = "Evidence JSON or @file path")]
+    pub evidence: Option<String>,
 }
 
 #[derive(Args, Debug, Clone)]
 #[command(group(
     ArgGroup::new("resource_auth")
-        .args(["token", "evidence"])
+        .args(["attest_token", "bearer_token", "evidence"])
         .required(true)
 ))]
 pub struct GetResourceArgs {
+    #[command(flatten)]
+    pub agent: AgentConfigArgs,
+
     #[arg(long, value_parser = validate_not_empty, help = "Resource URI to fetch")]
     pub uri: String,
 
-    #[arg(long, value_parser = validate_not_empty, conflicts_with = "evidence", help = "Attestation token used for resource retrieval")]
-    pub token: Option<String>,
+    #[arg(long, value_parser = validate_not_empty, conflicts_with_all = ["bearer_token", "evidence"], help = "Attestation token used for resource retrieval")]
+    pub attest_token: Option<String>,
 
-    #[arg(long, conflicts_with = "token", help = "Evidence JSON or @file path")]
+    #[arg(long, value_parser = validate_not_empty, conflicts_with_all = ["attest_token", "evidence"], help = "Bearer token used for resource retrieval")]
+    pub bearer_token: Option<String>,
+
+    #[arg(long, conflicts_with_all = ["attest_token", "bearer_token"], help = "Evidence JSON or @file path")]
     pub evidence: Option<String>,
 
     #[arg(long, value_parser = validate_file_path, help = "Path to a PEM private key used to decrypt returned content when needed")]
@@ -145,8 +163,11 @@ mod tests {
             client: ClientCli,
         }
 
-        let root = Root::parse_from(["cmd", "challenge"]);
-        assert!(matches!(root.client.command, ClientAction::Challenge(_)));
+        let root = Root::parse_from(["cmd", "challenge", "--agent-config", "/tmp/agent.yaml"]);
+        match root.client.command {
+            ClientAction::Challenge(args) => assert_eq!(args.agent.agent_config, "/tmp/agent.yaml"),
+            _ => panic!("expected challenge command"),
+        }
     }
 
     #[test]
@@ -166,12 +187,29 @@ mod tests {
                 "get-resource",
                 "--uri",
                 "vault/default/demo",
-                "--token",
+                "--attest-token",
                 "token",
                 "--evidence",
                 "@/tmp/evidence.json",
             ])
             .expect_err("conflicting auth material should fail");
+        assert_eq!(matches.kind(), clap::error::ErrorKind::ArgumentConflict);
+    }
+
+    #[test]
+    fn get_resource_rejects_both_attest_and_bearer_token() {
+        let command = GetResourceArgs::augment_args(clap::Command::new("get-resource"));
+        let matches = command
+            .try_get_matches_from([
+                "get-resource",
+                "--uri",
+                "vault/default/demo",
+                "--attest-token",
+                "attest-token",
+                "--bearer-token",
+                "bearer-token",
+            ])
+            .expect_err("conflicting token types should fail");
         assert_eq!(matches.kind(), clap::error::ErrorKind::ArgumentConflict);
     }
 
@@ -201,6 +239,69 @@ mod tests {
     }
 
     #[test]
+    fn get_token_accepts_evidence_without_attester_pubkey() {
+        #[derive(Parser, Debug)]
+        struct Root {
+            #[command(flatten)]
+            client: ClientCli,
+        }
+
+        let root = Root::parse_from(["cmd", "get-token", "--evidence", "@/tmp/evidence.json"]);
+        match root.client.command {
+            ClientAction::GetToken(args) => {
+                assert_eq!(args.evidence.as_deref(), Some("@/tmp/evidence.json"));
+                assert!(args.attester_pubkey.is_none());
+            },
+            _ => panic!("expected get-token command"),
+        }
+    }
+
+    #[test]
+    fn get_token_accepts_evidence_with_agent_config() {
+        #[derive(Parser, Debug)]
+        struct Root {
+            #[command(flatten)]
+            client: ClientCli,
+        }
+
+        let root = Root::parse_from([
+            "cmd",
+            "get-token",
+            "--evidence",
+            "@/tmp/evidence.json",
+            "--agent-config",
+            "/tmp/agent.yaml",
+        ]);
+        match root.client.command {
+            ClientAction::GetToken(args) => {
+                assert_eq!(args.evidence.as_deref(), Some("@/tmp/evidence.json"));
+                assert_eq!(args.agent.agent_config, "/tmp/agent.yaml");
+            },
+            _ => panic!("expected get-token command"),
+        }
+    }
+
+    #[test]
+    fn get_token_rejects_evidence_with_attester_inputs() {
+        #[derive(Parser, Debug)]
+        struct Root {
+            #[command(flatten)]
+            client: ClientCli,
+        }
+
+        let err = Root::try_parse_from([
+            "cmd",
+            "get-token",
+            "--evidence",
+            "@/tmp/evidence.json",
+            "--attester-pubkey",
+            "@/tmp/pubkey.pem",
+        ])
+        .expect_err("conflicting get-token modes should fail");
+        assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
+    }
+
+    #[test]
     fn client_action_registers_all_commands() {
         #[derive(Parser)]
         struct Root {
@@ -215,7 +316,6 @@ mod tests {
             vec![
                 "challenge".to_string(),
                 "collect-evidence".to_string(),
-                "attest".to_string(),
                 "get-token".to_string(),
                 "get-resource".to_string()
             ]

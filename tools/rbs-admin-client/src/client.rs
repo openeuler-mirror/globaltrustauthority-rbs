@@ -13,6 +13,7 @@ use crate::error::RbsAdminClientError;
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::{Certificate, Url};
 use std::time::Duration;
+use tracing::info;
 
 #[derive(Clone, Debug)]
 pub struct AdminClient {
@@ -23,6 +24,12 @@ pub struct AdminClient {
 
 impl AdminClient {
     pub fn new(base_url: &str, bearer_token: &str, cert: &Option<Vec<u8>>) -> Result<Self, RbsAdminClientError> {
+        info!(
+            base_url = %base_url,
+            bearer_token_present = !bearer_token.is_empty(),
+            cert_present = cert.is_some(),
+            "initializing admin client"
+        );
         let parsed_base_url =
             Url::parse(base_url).map_err(|_err| RbsAdminClientError::ClientError("invalid base url".to_string()))?;
         let mut headers = HeaderMap::new();
@@ -32,8 +39,8 @@ impl AdminClient {
 
         let mut client = reqwest::Client::builder()
             .default_headers(headers)
-            .timeout(Duration::from_secs(10))
-            .connect_timeout(Duration::from_secs(3));
+            .timeout(Duration::from_secs(60))
+            .connect_timeout(Duration::from_secs(10));
         if parsed_base_url.scheme() == "https" {
             client = client.https_only(true);
         }

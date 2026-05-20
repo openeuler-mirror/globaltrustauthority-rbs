@@ -20,25 +20,17 @@ use crate::{send_empty, send_json};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ResourcePath {
-    pub res_provider: String,
+    pub provider_name: String,
     pub repository_name: String,
     pub resource_type: String,
     pub resource_name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-pub struct ResourceResponse {
-    pub uri: String,
-    pub content: String,
-    #[serde(default)]
-    pub content_type: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct ResourceInfoResponse {
     pub uri: String,
     #[serde(default)]
-    pub res_provider: Option<String>,
+    pub provider_name: Option<String>,
     #[serde(default)]
     pub repository_name: Option<String>,
     #[serde(default)]
@@ -56,11 +48,12 @@ pub struct ResourceInfoResponse {
     #[serde(default)]
     pub export_mode: Option<String>,
     #[serde(default)]
-    pub content_length: Option<i64>,
+    pub additional_info: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ResourceCreateRequest {
+    pub uri: String,
     pub policy_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub additional_info: Option<String>,
@@ -90,7 +83,7 @@ impl ResourceClient {
             .join(
                 format!(
                     "/rbs/v0/{}/{}/{}/{}",
-                    path.res_provider, path.repository_name, path.resource_type, path.resource_name
+                    path.provider_name, path.repository_name, path.resource_type, path.resource_name
                 )
                 .as_str(),
             )
@@ -103,7 +96,7 @@ impl ResourceClient {
             .join(
                 format!(
                     "/rbs/v0/{}/{}/{}/{}/info",
-                    path.res_provider, path.repository_name, path.resource_type, path.resource_name
+                    path.provider_name, path.repository_name, path.resource_type, path.resource_name
                 )
                 .as_str(),
             )
@@ -115,8 +108,6 @@ impl ResourceClient {
 
 #[async_trait]
 pub trait ResourceService {
-    async fn get_resource(&self, path: &ResourcePath) -> Result<ResourceResponse, RbsAdminClientError>;
-
     async fn get_resource_info(&self, path: &ResourcePath) -> Result<ResourceInfoResponse, RbsAdminClientError>;
 
     async fn create_resource(
@@ -136,11 +127,6 @@ pub trait ResourceService {
 
 #[async_trait]
 impl ResourceService for ResourceClient {
-    async fn get_resource(&self, path: &ResourcePath) -> Result<ResourceResponse, RbsAdminClientError> {
-        let url = self.resource_url(path)?;
-        send_json(&self.client, Method::GET, url, Option::<&()>::None).await
-    }
-
     async fn get_resource_info(&self, path: &ResourcePath) -> Result<ResourceInfoResponse, RbsAdminClientError> {
         let url = self.resource_info_url(path)?;
         send_json(&self.client, Method::GET, url, Option::<&()>::None).await

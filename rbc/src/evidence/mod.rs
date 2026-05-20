@@ -25,7 +25,7 @@ use serde_json::Value;
 ///
 /// Uses `AuthChallengeResponse` from `rbs_api_types` directly (avoids duplicating the nonce wrapper).
 /// Uses `AttesterData` from `rbs_api_types`; the ephemeral RSA public key is carried inside
-/// `runtime_data["tee_pubkey"]` as a JWK string (per OpenAPI `AttesterData` description).
+/// `runtime_data["tee-pubkey"]` as a JWK string (per OpenAPI `AttesterData` description).
 #[async_trait]
 pub trait EvidenceProvider: Send + Sync {
     async fn collect_evidence(
