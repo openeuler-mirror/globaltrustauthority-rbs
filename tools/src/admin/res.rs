@@ -185,7 +185,7 @@ fn validate_update_args(args: &UpdateArgs) -> Result<(), CliError> {
 
 fn build_path(args: &PathArgs) -> ResourcePath {
     ResourcePath {
-        res_provider: args.provider_name.clone(),
+        provider_name: args.provider_name.clone(),
         repository_name: args.repository_name.clone(),
         resource_type: args.resource_type.clone(),
         resource_name: args.resource_name.clone(),
@@ -193,7 +193,7 @@ fn build_path(args: &PathArgs) -> ResourcePath {
 }
 
 fn resource_uri(path: &ResourcePath) -> String {
-    format!("{}/{}/{}/{}", path.res_provider, path.repository_name, path.resource_type, path.resource_name)
+    format!("{}/{}/{}/{}", path.provider_name, path.repository_name, path.resource_type, path.resource_name)
 }
 
 #[derive(Debug, Serialize)]
@@ -253,7 +253,7 @@ mod tests {
     fn build_path_and_resource_uri_match_command_arguments() {
         let path_args = base_path_args();
         let path = build_path(&path_args);
-        assert_eq!(path.res_provider, "vault");
+        assert_eq!(path.provider_name, "vault");
         assert_eq!(resource_uri(&path), "vault/default/secret/demo");
     }
 }

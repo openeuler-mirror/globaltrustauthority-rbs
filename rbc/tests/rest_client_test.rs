@@ -59,7 +59,8 @@ async fn test_get_resource_with_attest_token() {
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "uri": uri,
             "content": "c2VjcmV0LWRhdGE=",
-            "content_type": "jwe"
+            "content_type": "jwe",
+            "export_mode": "jwe"
         })))
         .mount(&mock_server)
         .await;

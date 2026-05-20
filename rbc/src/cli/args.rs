@@ -22,6 +22,17 @@ pub struct ClientCli {
     pub command: ClientAction,
 }
 
+#[derive(Args, Debug, Clone, Default)]
+pub struct AgentConfigArgs {
+    #[arg(
+        long,
+        default_value = DEFAULT_AGENT_CONFIG,
+        value_parser = validate_file_path,
+        help = "Path to the attestation agent config file"
+    )]
+    pub agent_config: String,
+}
+
 #[derive(Subcommand, Debug, Clone)]
 pub enum ClientAction {
     #[command(about = "Request an authentication nonce from the RBS server")]
@@ -35,7 +46,10 @@ pub enum ClientAction {
 }
 
 #[derive(Args, Debug, Clone, Default)]
-pub struct ChallengeArgs {}
+pub struct ChallengeArgs {
+    #[command(flatten)]
+    pub agent: AgentConfigArgs,
+}
 
 #[derive(Args, Debug, Clone, Default)]
 pub struct AttesterArgs {
@@ -51,6 +65,9 @@ pub struct AttesterArgs {
 
 #[derive(Args, Debug, Clone)]
 pub struct CollectEvidenceArgs {
+    #[command(flatten)]
+    pub agent: AgentConfigArgs,
+
     #[arg(long, value_parser = validate_not_empty, help = "Nonce to embed in collected evidence")]
     pub nonce: String,
 
@@ -68,8 +85,6 @@ pub struct CollectEvidenceArgs {
     #[arg(long = "runtime-data", action = ArgAction::Append, help = "Runtime data entry in key=value form; repeat to add multiple entries")]
     pub runtime_data: Vec<String>,
 
-    #[arg(long, default_value = DEFAULT_AGENT_CONFIG, value_parser = validate_file_path, help = "Path to the attestation agent config file")]
-    pub agent_config: String,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -79,6 +94,9 @@ pub struct CollectEvidenceArgs {
         .required(true)
 ))]
 pub struct GetTokenArgs {
+    #[command(flatten)]
+    pub agent: AgentConfigArgs,
+
     #[arg(
         long,
         value_parser = validate_not_empty,
@@ -101,14 +119,6 @@ pub struct GetTokenArgs {
 
     #[arg(long, help = "Evidence JSON or @file path")]
     pub evidence: Option<String>,
-
-    #[arg(
-        long,
-        default_value = DEFAULT_AGENT_CONFIG,
-        value_parser = validate_file_path,
-        help = "Path to the attestation agent config file"
-    )]
-    pub agent_config: String,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -118,6 +128,9 @@ pub struct GetTokenArgs {
         .required(true)
 ))]
 pub struct GetResourceArgs {
+    #[command(flatten)]
+    pub agent: AgentConfigArgs,
+
     #[arg(long, value_parser = validate_not_empty, help = "Resource URI to fetch")]
     pub uri: String,
 
@@ -150,8 +163,11 @@ mod tests {
             client: ClientCli,
         }
 
-        let root = Root::parse_from(["cmd", "challenge"]);
-        assert!(matches!(root.client.command, ClientAction::Challenge(_)));
+        let root = Root::parse_from(["cmd", "challenge", "--agent-config", "/tmp/agent.yaml"]);
+        match root.client.command {
+            ClientAction::Challenge(args) => assert_eq!(args.agent.agent_config, "/tmp/agent.yaml"),
+            _ => panic!("expected challenge command"),
+        }
     }
 
     #[test]
@@ -259,7 +275,7 @@ mod tests {
         match root.client.command {
             ClientAction::GetToken(args) => {
                 assert_eq!(args.evidence.as_deref(), Some("@/tmp/evidence.json"));
-                assert_eq!(args.agent_config, "/tmp/agent.yaml");
+                assert_eq!(args.agent.agent_config, "/tmp/agent.yaml");
             },
             _ => panic!("expected get-token command"),
         }

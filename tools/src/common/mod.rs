@@ -11,6 +11,7 @@
  */
 pub mod clap;
 pub mod formatter;
+pub mod logging;
 pub mod output;
 pub mod utils;
 pub mod validate;

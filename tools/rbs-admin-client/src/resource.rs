@@ -20,7 +20,7 @@ use crate::{send_empty, send_json};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ResourcePath {
-    pub res_provider: String,
+    pub provider_name: String,
     pub repository_name: String,
     pub resource_type: String,
     pub resource_name: String,
@@ -83,7 +83,7 @@ impl ResourceClient {
             .join(
                 format!(
                     "/rbs/v0/{}/{}/{}/{}",
-                    path.res_provider, path.repository_name, path.resource_type, path.resource_name
+                    path.provider_name, path.repository_name, path.resource_type, path.resource_name
                 )
                 .as_str(),
             )
@@ -96,7 +96,7 @@ impl ResourceClient {
             .join(
                 format!(
                     "/rbs/v0/{}/{}/{}/{}/info",
-                    path.res_provider, path.repository_name, path.resource_type, path.resource_name
+                    path.provider_name, path.repository_name, path.resource_type, path.resource_name
                 )
                 .as_str(),
             )

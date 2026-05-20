@@ -19,6 +19,7 @@ pub mod user;
 use reqwest::{Method, StatusCode, Url};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use tracing::{info, warn};
 
 pub use client::AdminClient;
 pub use error::RbsAdminClientError;
@@ -31,18 +32,30 @@ pub(crate) async fn send_empty(
     method: Method,
     url: Url,
 ) -> Result<(), RbsAdminClientError> {
-    let response =
-        client.http_client.request(method, url).bearer_auth(client.bearer_token()).send().await.map_err(|_| {
+    let method_name = method.as_str().to_string();
+    let url_text = url.to_string();
+    info!(method = %method_name, url = %url_text, "sending admin request");
+    let response = client
+        .http_client
+        .request(method, url)
+        .bearer_auth(client.bearer_token())
+        .send()
+        .await
+        .map_err(|err| {
+            warn!(method = %method_name, url = %url_text, error = %err, "admin request send failed");
             RbsAdminClientError::ClientError("Unable to connect to the service. Please try again later.".to_string())
         })?;
     let status = response.status();
-    let body = response.text().await.map_err(|_| {
+    info!(method = %method_name, url = %url_text, status = %status, "received admin response");
+    let body = response.text().await.map_err(|err| {
+        warn!(method = %method_name, url = %url_text, status = %status, error = %err, "failed to read admin response body");
         RbsAdminClientError::ClientError("Unable to read the service response. Please try again later.".to_string())
     })?;
 
     if status.is_success() {
         Ok(())
     } else {
+        warn!(method = %method_name, url = %url_text, status = %status, body_len = body.len(), "admin request returned error");
         Err(http_error(status, &body))
     }
 }
@@ -56,22 +69,31 @@ pub(crate) async fn send_empty_json<B>(
 where
     B: Serialize + ?Sized,
 {
-    let response =
-        client.http_client.request(method, url).bearer_auth(client.bearer_token()).json(body).send().await.map_err(
-            |_| {
-                RbsAdminClientError::ClientError(
-                    "Unable to connect to the service. Please try again later.".to_string(),
-                )
-            },
-        )?;
+    let method_name = method.as_str().to_string();
+    let url_text = url.to_string();
+    info!(method = %method_name, url = %url_text, body_type = std::any::type_name::<B>(), "sending admin JSON request");
+    let response = client
+        .http_client
+        .request(method, url)
+        .bearer_auth(client.bearer_token())
+        .json(body)
+        .send()
+        .await
+        .map_err(|err| {
+            warn!(method = %method_name, url = %url_text, error = %err, "admin JSON request send failed");
+            RbsAdminClientError::ClientError("Unable to connect to the service. Please try again later.".to_string())
+        })?;
     let status = response.status();
-    let body = response.text().await.map_err(|_| {
+    info!(method = %method_name, url = %url_text, status = %status, "received admin response");
+    let body = response.text().await.map_err(|err| {
+        warn!(method = %method_name, url = %url_text, status = %status, error = %err, "failed to read admin response body");
         RbsAdminClientError::ClientError("Unable to read the service response. Please try again later.".to_string())
     })?;
 
     if status.is_success() {
         Ok(())
     } else {
+        warn!(method = %method_name, url = %url_text, status = %status, body_len = body.len(), "admin request returned error");
         Err(http_error(status, &body))
     }
 }
@@ -86,25 +108,37 @@ where
     T: DeserializeOwned,
     B: Serialize + ?Sized + std::fmt::Debug,
 {
+    let method_name = method.as_str().to_string();
+    let url_text = url.to_string();
+    info!(
+        method = %method_name,
+        url = %url_text,
+        body_type = ?body.as_ref().map(|_| std::any::type_name::<B>()),
+        "sending admin request expecting JSON"
+    );
     let mut request = client.http_client.request(method, url).bearer_auth(client.bearer_token());
     if let Some(body) = body {
         request = request.json(body);
     }
 
-    let response = request.send().await.map_err(|_| {
+    let response = request.send().await.map_err(|err| {
+        warn!(method = %method_name, url = %url_text, error = %err, "admin request send failed");
         RbsAdminClientError::ClientError("Unable to connect to the service. Please try again later.".to_string())
     })?;
     let status = response.status();
+    info!(method = %method_name, url = %url_text, status = %status, "received admin response");
     let body = response.text().await.map_err(|err| {
+        warn!(method = %method_name, url = %url_text, status = %status, error = %err, "failed to read admin response body");
         RbsAdminClientError::ClientError("Unable to read the service response. Please try again later.".to_string())
     })?;
 
     if !status.is_success() {
-        println!("Failed to read the service response. Please try again later.{}", body);
+        warn!(method = %method_name, url = %url_text, status = %status, body_len = body.len(), "admin request returned error");
         return Err(http_error(status, &body));
     }
 
-    serde_json::from_str(&body).map_err(|_err| {
+    serde_json::from_str(&body).map_err(|err| {
+        warn!(method = %method_name, url = %url_text, status = %status, body_len = body.len(), error = %err, "failed to deserialize admin response");
         RbsAdminClientError::ClientError(
             "The service returned an unexpected response. Please try again later.".to_string(),
         )

@@ -26,7 +26,7 @@ fn unusable_admin_client() -> AdminClient {
 
 fn resource_path() -> ResourcePath {
     ResourcePath {
-        res_provider: "vault".to_string(),
+        provider_name: "vault".to_string(),
         repository_name: "default".to_string(),
         resource_type: "secret".to_string(),
         resource_name: "demo".to_string(),

@@ -120,7 +120,7 @@ void RbcResourceFree(RbcResource *resource);
 /**
  * Begin a new session. `attester_data_json` may be NULL. If non-NULL it must
  * be a JSON object matching `AttesterData` (per `rbs_api.yaml`); if its
- * `runtime_data.tee_pubkey` is present the caller is responsible for the
+ * `runtime_data.tee-pubkey` is present the caller is responsible for the
  * matching private key (pass it to `RbcSessionDecryptContent`).
  */
 RbcErrorCode RbcSessionNew(RbcClient *client,

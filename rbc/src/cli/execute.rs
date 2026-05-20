@@ -78,7 +78,7 @@ fn execute_collect_evidence(
         attester_data: args.attester_data.clone(),
         runtime_data: args.runtime_data.clone(),
     })?;
-    let client = context.build_rbc_client(Some(&args.agent_config))?;
+    let client = context.build_rbc_client(None)?;
     let session = client.new_session(Some(&attester_data))?;
     let challenge = AuthChallengeResponse { nonce: read_trimmed_path_value(&args.nonce)? };
     let evidence = session.collect_evidence(&challenge)?;
@@ -88,12 +88,12 @@ fn execute_collect_evidence(
 fn execute_get_token(args: &GetTokenArgs, context: &ClientCommandContext) -> Result<ClientOutput, CliError> {
     let resp = if let Some(evidence_input) = args.evidence.as_deref() {
         let evidence = read_evidence_payload(evidence_input)?;
-        let client = context.build_rbc_client(Some(&args.agent_config))?;
+        let client = context.build_rbc_client(None)?;
         let session = client.new_session(None)?;
         let evidence = serde_json::to_value(evidence)?;
         session.attest(Some(&evidence))?
     } else {
-        let client = context.build_rbc_client(Some(&args.agent_config))?;
+        let client = context.build_rbc_client(None)?;
         let attester_pubkey = args
             .attester_pubkey
             .clone()

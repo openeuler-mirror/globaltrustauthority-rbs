@@ -72,7 +72,7 @@ async fn list_users_appends_pagination() {
         .and(query_param("limit", "20"))
         .and(query_param("offset", "5"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "items": [
+            "users": [
                 {
                     "id": "user-1",
                     "username": "ops-user",
@@ -109,7 +109,7 @@ async fn list_users_allows_default_filters() {
         .and(query_param("limit", "10"))
         .and(query_param("offset", "0"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "items": [],
+            "users": [],
             "total_count": 0,
             "limit": 10,
             "offset": 0

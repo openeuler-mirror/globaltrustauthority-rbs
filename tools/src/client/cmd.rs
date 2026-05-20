@@ -10,43 +10,54 @@
  * See the Mulan PSL v2 for more details.
  */
 pub use rbc::cli::{
-    ChallengeArgs, ClientAction, ClientCli, CollectEvidenceArgs, GetResourceArgs, GetTokenArgs,
+    build_client_context, command_agent_config, ChallengeArgs, ClientAction, ClientCli, ClientRuntimeInputs,
+    CollectEvidenceArgs, GetResourceArgs, GetTokenArgs,
 };
 
-use rbc::cli::{execute_action, ClientCommandContext, ClientOutput, ExecutionOptions};
-use rbc::ProviderRawConfig;
-use serde_json::{Map, Value};
+use rbc::cli::{execute_action, ClientOutput, ExecutionOptions};
+use rbc::ProviderType;
 
 use crate::common::formatter::Formatter;
 use crate::common::{AS_PROVIDE, CLIENT_REQUEST_TIMEOUT};
 use crate::config::GlobalOptions;
 use crate::error::CliError;
+use tracing::info;
 
 pub fn run(cli: &ClientCli, global: &GlobalOptions) -> Result<Box<dyn Formatter>, CliError> {
-    let token_provider_type = match &cli.command {
-        ClientAction::GetToken(args) if args.evidence.is_some() => rbc::ProviderType::Rbs,
-        ClientAction::GetToken(_) => rbc::ProviderType::Native,
-        _ => global.token_provider_type,
-    };
-    let context = ClientCommandContext {
-        base_url: global.base_url.clone(),
-        cert_path: global.cert_path.clone(),
-        timeout_secs: Some(CLIENT_REQUEST_TIMEOUT),
-        key_algorithm: rbc::tools::tee_key::KeyType::Rsa,
-        evidence_provider: Some(vec![ProviderRawConfig {
-            provider_type: global.evidence_provider_type,
-            enabled: true,
-            rest: Map::from_iter([("config_path".to_string(), Value::String(global.evidence_provider_config.clone()))]),
-        }]),
-        token_provider: Some(vec![ProviderRawConfig {
-            provider_type: token_provider_type,
-            enabled: true,
-            rest: Map::from_iter([("config_path".to_string(), Value::String(global.token_provider_config.clone()))]),
-        }]),
-    };
+    let agent_config = command_agent_config(&cli.command);
+    let context = build_client_context(
+        &ClientRuntimeInputs {
+            base_url: Some(global.base_url.clone()),
+            cert_path: global.cert_path.clone(),
+            timeout_secs: Some(CLIENT_REQUEST_TIMEOUT),
+            key_algorithm: Some(rbc::tools::tee_key::KeyType::Rsa),
+        },
+        &cli.command,
+    )
+    .map_err(map_rbc_error)?;
+    info!(
+        action = client_action_name(&cli.command),
+        agent_config,
+        evidence_provider = ?context.evidence_provider.as_ref().and_then(enabled_provider_type),
+        token_provider = ?context.token_provider.as_ref().and_then(enabled_provider_type),
+        "preparing client command context"
+    );
     let options = ExecutionOptions { as_provider: String::from(AS_PROVIDE) };
     let output = execute_action(&cli.command, &context, &options).map_err(map_rbc_error)?;
     Ok(Box::new(ClientFormatter(output)))
+}
+
+fn enabled_provider_type(providers: &Vec<rbc::ProviderRawConfig>) -> Option<ProviderType> {
+    providers.iter().find(|provider| provider.enabled).map(|provider| provider.provider_type)
+}
+
+fn client_action_name(action: &ClientAction) -> &'static str {
+    match action {
+        ClientAction::Challenge(_) => "challenge",
+        ClientAction::CollectEvidence(_) => "collect-evidence",
+        ClientAction::GetToken(_) => "get-token",
+        ClientAction::GetResource(_) => "get-resource",
+    }
 }
 
 fn map_rbc_error(err: rbc::cli::CliError) -> CliError {
