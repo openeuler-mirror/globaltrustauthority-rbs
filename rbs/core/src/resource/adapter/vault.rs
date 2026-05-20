@@ -66,19 +66,24 @@ impl ResourceBackend for VaultBackend {
         let check_path = self.build_check_path(uri)?;
         let url = format!("{}{}", self.url.trim_end_matches('/'), check_path);
 
+        log::debug!("Vault check_resource_exists: GET {}", url);
         let client = self.client.clone();
         let resp = client
             .get(&url)
             .header("X-Vault-Token", &self.token)
             .send()
             .await
-            .map_err(|e| ResourceError::BackendError { detail: e.to_string() })?;
+            .map_err(|e| {
+                log::error!("Vault check_resource_exists network error: {}", e);
+                ResourceError::BackendError { detail: e.to_string() }
+            })?;
 
         match resp.status().as_u16() {
             200 => Ok(true),
             404 => Ok(false),
             other => {
                 let body = resp.text().await.unwrap_or_default();
+                log::error!("Vault check_resource_exists returned HTTP {}: {}", other, body);
                 Err(ResourceError::BackendError {
                     detail: format!("Vault returned HTTP {}: {}", other, body),
                 })
@@ -90,17 +95,22 @@ impl ResourceBackend for VaultBackend {
         let data_path = self.build_vault_path(uri)?;
         let url = format!("{}{}", self.url.trim_end_matches('/'), data_path);
 
+        log::debug!("Vault get_resource_content: GET {}", url);
         let client = self.client.clone();
         let resp = client
             .get(&url)
             .header("X-Vault-Token", &self.token)
             .send()
             .await
-            .map_err(|e| ResourceError::BackendError { detail: e.to_string() })?;
+            .map_err(|e| {
+                log::error!("Vault get_resource_content network error: {}", e);
+                ResourceError::BackendError { detail: e.to_string() }
+            })?;
 
         let status = resp.status().as_u16();
         if status != 200 {
             let body = resp.text().await.unwrap_or_default();
+            log::error!("Vault get_resource_content returned HTTP {}: {}", status, body);
             return Err(ResourceError::BackendError {
                 detail: format!("Vault returned HTTP {}: {}", status, body),
             });
@@ -109,7 +119,10 @@ impl ResourceBackend for VaultBackend {
         let json: serde_json::Value = resp
             .json()
             .await
-            .map_err(|e| ResourceError::BackendError { detail: e.to_string() })?;
+            .map_err(|e| {
+                log::error!("Vault get_resource_content response parse error: {}", e);
+                ResourceError::BackendError { detail: e.to_string() }
+            })?;
 
         // Extract data from Vault response
         // KV v2: { "data": { "data": { ... } } }

@@ -188,16 +188,22 @@ impl GtaRestClient {
                 Ok(resp) => {
                     let status = resp.status();
                     if status.is_success() {
-                        return resp.json().await.map_err(|e| GtaError::ParseError(e.to_string()));
+                        return resp.json().await.map_err(|e| {
+                            log::error!("GTA GET {} response parse error: {}", url, e);
+                            GtaError::ParseError(e.to_string())
+                        });
                     } else if status.is_server_error() && attempt <= self.config.retries {
+                        log::warn!("GTA GET {} returned {}, retrying (attempt {}/{})", url, status, attempt, self.config.retries);
                         tokio::time::sleep(Duration::from_secs(5)).await;
                         continue;
                     } else {
                         let message = Self::extract_error_message(resp, status).await;
+                        log::error!("GTA GET {} failed: HTTP {}", url, status);
                         return Err(GtaError::ServerError(message));
                     }
                 }
                 Err(e) if attempt <= self.config.retries => {
+                    log::warn!("GTA GET {} network error (attempt {}/{}): {}", url, attempt, self.config.retries, e);
                     tokio::time::sleep(Duration::from_secs(5)).await;
                     if e.is_timeout() {
                         continue;
@@ -206,8 +212,10 @@ impl GtaRestClient {
                 }
                 Err(e) => {
                     if e.is_timeout() {
+                        log::error!("GTA GET {} timed out after {} retries", url, self.config.retries);
                         return Err(GtaError::TimeoutError(e.to_string()));
                     }
+                    log::error!("GTA GET {} network error: {}", url, e);
                     return Err(GtaError::NetworkError(e.to_string()));
                 }
             }
@@ -239,16 +247,22 @@ impl GtaRestClient {
                 Ok(resp) => {
                     let status = resp.status();
                     if status.is_success() {
-                        return resp.json().await.map_err(|e| GtaError::ParseError(e.to_string()));
+                        return resp.json().await.map_err(|e| {
+                            log::error!("GTA POST {} response parse error: {}", url, e);
+                            GtaError::ParseError(e.to_string())
+                        });
                     } else if status.is_server_error() && attempt <= self.config.retries {
+                        log::warn!("GTA POST {} returned {}, retrying (attempt {}/{})", url, status, attempt, self.config.retries);
                         tokio::time::sleep(Duration::from_secs(5)).await;
                         continue;
                     } else {
                         let message = Self::extract_error_message(resp, status).await;
+                        log::error!("GTA POST {} failed: HTTP {}", url, status);
                         return Err(GtaError::ServerError(message));
                     }
                 }
                 Err(e) if attempt <= self.config.retries => {
+                    log::warn!("GTA POST {} network error (attempt {}/{}): {}", url, attempt, self.config.retries, e);
                     tokio::time::sleep(Duration::from_secs(5)).await;
                     if e.is_timeout() {
                         continue;
@@ -257,8 +271,10 @@ impl GtaRestClient {
                 }
                 Err(e) => {
                     if e.is_timeout() {
+                        log::error!("GTA POST {} timed out after {} retries", url, self.config.retries);
                         return Err(GtaError::TimeoutError(e.to_string()));
                     }
+                    log::error!("GTA POST {} network error: {}", url, e);
                     return Err(GtaError::NetworkError(e.to_string()));
                 }
             }
@@ -419,17 +435,20 @@ impl AttestationRestClient {
 #[async_trait]
 impl AttestationProvider for AttestationRestClient {
     async fn get_auth_challenge(&self, _as_provider: Option<&str>) -> Result<AuthChallengeResponse, RbsError> {
+        log::debug!("GTA get_auth_challenge: requesting challenge from GTA");
         let gta_resp: GtaChallengeResponse = self.rest_client
             .get(GTA_CHALLENGE_PATH)
             .await
             .map_err(RbsError::from)?;
 
+        log::info!("GTA get_auth_challenge: challenge received successfully");
         Ok(AuthChallengeResponse {
             nonce: gta_resp.nonce,
         })
     }
 
     async fn attest(&self, req: AttestRequest) -> Result<AttestResponse, RbsError> {
+        log::info!("GTA attest: sending attestation request ({} measurements)", req.rbc_evidences.measurements.len());
         let gta_req = AttestationRestClient::transform_to_gta_format(&req)?;
 
         let gta_resp: GtaAttestResponse = self.rest_client
@@ -442,6 +461,7 @@ impl AttestationProvider for AttestationRestClient {
             .map(|t| t.token.clone())
             .unwrap_or_default();
 
+        log::info!("GTA attest: attestation completed, received {} token(s)", gta_resp.tokens.len());
         Ok(AttestResponse { token })
     }
 }

@@ -67,10 +67,14 @@ impl AttestationManager {
     /// Get auth challenge from the appropriate provider.
     pub async fn get_auth_challenge(&self, as_provider: Option<&str>) -> Result<AuthChallengeResponse> {
         let provider_name = as_provider.unwrap_or(&self.default_provider);
+        log::debug!("Attestation get_auth_challenge: provider='{}'", provider_name);
         let provider = self
             .backends
             .get(provider_name)
-            .ok_or_else(|| RbsError::ProviderNotFound(format!("attestation provider '{}' not found", provider_name)))?;
+            .ok_or_else(|| {
+                log::error!("Attestation provider '{}' not found for get_auth_challenge", provider_name);
+                RbsError::ProviderNotFound(format!("attestation provider '{}' not found", provider_name))
+            })?;
         provider.get_auth_challenge(as_provider).await
     }
 
@@ -78,10 +82,14 @@ impl AttestationManager {
     pub async fn attest(&self, req: AttestRequest) -> Result<AttestResponse> {
         let as_provider = req.as_provider.as_deref();
         let provider_name = as_provider.unwrap_or(&self.default_provider);
+        log::info!("Attestation attest requested: provider='{}'", provider_name);
         let provider = self
             .backends
             .get(provider_name)
-            .ok_or_else(|| RbsError::ProviderNotFound(format!("attestation provider '{}' not found", provider_name)))?;
+            .ok_or_else(|| {
+                log::error!("Attestation provider '{}' not found for attest", provider_name);
+                RbsError::ProviderNotFound(format!("attestation provider '{}' not found", provider_name))
+            })?;
         provider.attest(req).await
     }
 }
