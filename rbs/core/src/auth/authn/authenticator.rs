@@ -73,13 +73,16 @@ impl Authenticator {
 #[async_trait]
 impl Auth for Authenticator {
     async fn authenticate(&self, token: &str, token_type: TokenType) -> Result<AuthContext, AuthError> {
+        log::debug!("Authenticating token type: {:?}", token_type);
         match token_type {
             TokenType::Bearer => {
                 let ctx = self.bearer_verifier.verify(token).await?;
+                log::info!("Bearer token authenticated for user: {}", ctx.sub);
                 Ok(AuthContext::Bearer(ctx))
             }
             TokenType::Attest => {
                 let ctx = self.attest_verifier.verify(token).await?;
+                log::info!("Attest token authenticated successfully");
                 Ok(AuthContext::Attest(ctx))
             }
         }

@@ -38,6 +38,7 @@ pub fn evaluate_policy(
     is_safe_mode: bool,
 ) -> Result<Value, PolicyEngineError> {
     gta_evaluate_policy(input, policy, is_safe_mode).map_err(|e| {
+        log::error!("Policy engine evaluation failed: {}", e);
         PolicyEngineError::PolicyEvaluationError(e.to_string())
     })
 }

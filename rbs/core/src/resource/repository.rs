@@ -60,7 +60,10 @@ impl ResourceRepository for SeaOrmResourceRepository {
             policy_id: sea_orm::Set(entity.policy_id.clone()),
         };
         sea_orm::ActiveModelTrait::insert(model, self.db.as_ref()).await
-            .map_err(|e| ResourceError::BackendError { detail: e.to_string() })?;
+            .map_err(|e| {
+                log::error!("resource db insert error: {e}");
+                ResourceError::BackendError { detail: e.to_string() }
+            })?;
         Ok(())
     }
 
@@ -74,7 +77,10 @@ impl ResourceRepository for SeaOrmResourceRepository {
             .filter(entity::Column::ResName.eq(rname))
             .one(self.db.as_ref())
             .await
-            .map_err(|e| ResourceError::BackendError { detail: e.to_string() })?;
+            .map_err(|e| {
+                log::error!("resource db find_by_uri error: {e}");
+                ResourceError::BackendError { detail: e.to_string() }
+            })?;
         Ok(model.map(|m| ResourceEntity {
             username: m.username, provider_name: m.provider_name, repo_name: m.repo_name,
             res_type: m.res_type, res_name: m.res_name, res_info: m.res_info,
@@ -105,7 +111,10 @@ impl ResourceRepository for SeaOrmResourceRepository {
             .filter(entity::Column::UpdatedAt.eq(old_update_time))
             .exec(self.db.as_ref())
             .await
-            .map_err(|e| ResourceError::BackendError { detail: e.to_string() })?;
+            .map_err(|e| {
+                log::error!("resource db update error: {e}");
+                ResourceError::BackendError { detail: e.to_string() }
+            })?;
         Ok(result.rows_affected)
     }
 
@@ -120,7 +129,10 @@ impl ResourceRepository for SeaOrmResourceRepository {
             .filter(entity::Column::Username.eq(username))
             .exec(self.db.as_ref())
             .await
-            .map_err(|e| ResourceError::BackendError { detail: e.to_string() })?;
+            .map_err(|e| {
+                log::error!("resource db delete error: {e}");
+                ResourceError::BackendError { detail: e.to_string() }
+            })?;
         Ok(result.rows_affected)
     }
 
@@ -131,7 +143,10 @@ impl ResourceRepository for SeaOrmResourceRepository {
             .order_by_desc(entity::Column::CreatedAt)
             .all(self.db.as_ref())
             .await
-            .map_err(|e| ResourceError::BackendError { detail: e.to_string() })?;
+            .map_err(|e| {
+                log::error!("resource db list_by_user error: {e}");
+                ResourceError::BackendError { detail: e.to_string() }
+            })?;
         Ok(models.into_iter().map(|m| ResourceEntity {
             username: m.username, provider_name: m.provider_name, repo_name: m.repo_name,
             res_type: m.res_type, res_name: m.res_name, res_info: m.res_info,
@@ -146,7 +161,10 @@ impl ResourceRepository for SeaOrmResourceRepository {
             .filter(entity::Column::PolicyId.eq(policy_id))
             .all(self.db.as_ref())
             .await
-            .map_err(|e| ResourceError::BackendError { detail: e.to_string() })?;
+            .map_err(|e| {
+                log::error!("resource db find_by_policy_id error: {e}");
+                ResourceError::BackendError { detail: e.to_string() }
+            })?;
         Ok(models.into_iter().map(|m| ResourceEntity {
             username: m.username, provider_name: m.provider_name, repo_name: m.repo_name,
             res_type: m.res_type, res_name: m.res_name, res_info: m.res_info,

@@ -61,7 +61,10 @@ impl PolicyClient for DbPolicyClient {
             .filter(entity::Column::Username.eq(username.to_owned()))
             .one(self.db.as_ref())
             .await
-            .map_err(|e| ResourceError::BackendError { detail: e.to_string() })?;
+            .map_err(|e| {
+                log::error!("DbPolicyClient validate_policy db error: {e}");
+                ResourceError::BackendError { detail: e.to_string() }
+            })?;
         Ok(exists.is_some())
     }
 
@@ -71,13 +74,25 @@ impl PolicyClient for DbPolicyClient {
         let model = entity::Entity::find_by_id(policy_id)
             .one(self.db.as_ref())
             .await
-            .map_err(|e| ResourceError::BackendError { detail: e.to_string() })?
-            .ok_or_else(|| ResourceError::PolicyIdInvalid(policy_id.to_string()))?;
+            .map_err(|e| {
+                log::error!("DbPolicyClient get_policy_content db error: {e}");
+                ResourceError::BackendError { detail: e.to_string() }
+            })?
+            .ok_or_else(|| {
+                log::warn!("DbPolicyClient get_policy_content: policy '{}' not found", policy_id);
+                ResourceError::PolicyIdInvalid(policy_id.to_string())
+            })?;
         use base64::Engine;
         let decoded = base64::engine::general_purpose::STANDARD.decode(&model.policy_content)
-            .map_err(|e| ResourceError::BackendError { detail: e.to_string() })?;
+            .map_err(|e| {
+                log::error!("DbPolicyClient get_policy_content base64 decode error: {e}");
+                ResourceError::BackendError { detail: e.to_string() }
+            })?;
         String::from_utf8(decoded)
-            .map_err(|e| ResourceError::BackendError { detail: e.to_string() })
+            .map_err(|e| {
+                log::error!("DbPolicyClient get_policy_content utf8 decode error: {e}");
+                ResourceError::BackendError { detail: e.to_string() }
+            })
     }
 
     async fn relation_res_ids(&self, policy_id: &str, _username: &str) -> Result<Vec<String>, ResourceError> {
@@ -93,7 +108,10 @@ impl PolicyClient for DbPolicyClient {
             .into_tuple::<(String, String, String, String)>()
             .all(self.db.as_ref())
             .await
-            .map_err(|e| ResourceError::BackendError { detail: e.to_string() })?;
+            .map_err(|e| {
+                log::error!("DbPolicyClient relation_res_ids db error: {e}");
+                ResourceError::BackendError { detail: e.to_string() }
+            })?;
         Ok(rows.into_iter()
             .map(|(prov, repo, rtype, rname)| format!("/rbs/v0/{}/{}/{}/{}", prov, repo, rtype, rname))
             .collect())

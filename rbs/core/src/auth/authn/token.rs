@@ -57,8 +57,12 @@ impl AttestTokenVerifier {
     /// Create a new AttestTokenVerifier from config
     pub fn new(config: AttestTokenVerificationConfig) -> Result<Self, AuthError> {
         if let Some(ref path) = config.public_key_path {
-            let public_key_pem = fs::read(path).map_err(|e| AuthError::TokenInvalid {
-                reason: format!("failed to read AttestToken public key file '{}': {}", path, e),
+            log::info!("AttestTokenVerifier: loading public key from '{}'", path);
+            let public_key_pem = fs::read(path).map_err(|e| {
+                log::error!("AttestTokenVerifier: failed to read public key file '{}': {}", path, e);
+                AuthError::TokenInvalid {
+                    reason: format!("failed to read AttestToken public key file '{}': {}", path, e),
+                }
             })?;
             let decoding_key = create_decoding_key_for_pem(&public_key_pem)?;
             Ok(Self {
@@ -67,11 +71,18 @@ impl AttestTokenVerifier {
                 jwks: None,
             })
         } else if let Some(ref path) = config.jwks_file {
-            let jwks_content = fs::read_to_string(path).map_err(|e| AuthError::TokenInvalid {
-                reason: format!("failed to read JWKS file '{}': {}", path, e),
+            log::info!("AttestTokenVerifier: loading JWKS from '{}'", path);
+            let jwks_content = fs::read_to_string(path).map_err(|e| {
+                log::error!("AttestTokenVerifier: failed to read JWKS file '{}': {}", path, e);
+                AuthError::TokenInvalid {
+                    reason: format!("failed to read JWKS file '{}': {}", path, e),
+                }
             })?;
-            let jwks = jwks::parse_jwks_file(&jwks_content).map_err(|e| AuthError::TokenInvalid {
-                reason: format!("failed to parse JWKS file: {}", e),
+            let jwks = jwks::parse_jwks_file(&jwks_content).map_err(|e| {
+                log::error!("AttestTokenVerifier: failed to parse JWKS file: {}", e);
+                AuthError::TokenInvalid {
+                    reason: format!("failed to parse JWKS file: {}", e),
+                }
             })?;
             Ok(Self {
                 config,
@@ -79,6 +90,7 @@ impl AttestTokenVerifier {
                 jwks: Some(jwks),
             })
         } else {
+            log::error!("AttestTokenVerifier: no public_key_path or jwks_file configured");
             Err(AuthError::TokenInvalid {
                 reason: "AttestToken verification requires either public_key_path or jwks_file to be configured".to_string(),
             })
@@ -96,6 +108,8 @@ impl TokenVerifier for AttestTokenVerifier {
 
         // Validate algorithm is supported
         validate_algorithm(&header.alg)?;
+
+        log::debug!("AttestToken verification: alg={:?}, kid={:?}", header.alg, header.kid);
 
         // Get decoding key
         let decoding_key = self.get_decoding_key(header.kid.as_deref(), &header.alg)?;
@@ -116,7 +130,10 @@ impl TokenVerifier for AttestTokenVerifier {
 
         // Decode and verify token
         let token_data = decode::<Value>(token, &decoding_key, &validation)
-            .map_err(|e| map_jwt_error(&e, Some(&self.config.issuer)))?;
+            .map_err(|e| {
+                log::warn!("AttestToken verification failed: {}", e);
+                map_jwt_error(&e, Some(&self.config.issuer))
+            })?;
 
         Ok(AttestContext {
             claims: token_data.claims,
