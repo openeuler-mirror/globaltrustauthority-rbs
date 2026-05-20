@@ -30,7 +30,7 @@ fn validator() -> ResourceValidator {
 
 /// UT-RV-001: resource_name with space -> Err(ParamInvalid {field: "resource_name"})
 #[test]
-fn ut_rv_001() {
+fn test_resource_name_with_space_rejected() {
     let v = validator();
     let result = v.validate_resource_name("my key");
     assert!(matches!(
@@ -41,7 +41,7 @@ fn ut_rv_001() {
 
 /// UT-RV-002: resource_name with Chinese chars -> Err(ParamInvalid)
 #[test]
-fn ut_rv_002() {
+fn test_resource_name_with_chinese_chars_rejected() {
     let v = validator();
     let result = v.validate_resource_name("caf\u{00e9}"); // non-ASCII character
     assert!(matches!(
@@ -52,7 +52,7 @@ fn ut_rv_002() {
 
 /// UT-RV-003: resource_name length 33 (>32) -> Err(ParamInvalid)
 #[test]
-fn ut_rv_003() {
+fn test_resource_name_too_long_rejected() {
     let v = validator();
     let result = v.validate_resource_name(&"a".repeat(33));
     assert!(matches!(
@@ -63,7 +63,7 @@ fn ut_rv_003() {
 
 /// UT-RV-004: resource_name valid with -_. -> Ok(())
 #[test]
-fn ut_rv_004() {
+fn test_resource_name_valid_with_dash_underscore_dot() {
     let v = validator();
     let result = v.validate_resource_name("valid-name_01.suffix");
     assert!(result.is_ok());
@@ -71,7 +71,7 @@ fn ut_rv_004() {
 
 /// UT-RV-005: resource_name length 32 (boundary) -> Ok(())
 #[test]
-fn ut_rv_005() {
+fn test_resource_name_max_length_boundary() {
     let v = validator();
     let name = "a".repeat(32);
     let result = v.validate_resource_name(&name);
@@ -80,7 +80,7 @@ fn ut_rv_005() {
 
 /// UT-RV-032: resource_name length 1 (boundary) -> Ok(())
 #[test]
-fn ut_rv_032() {
+fn test_resource_name_length_1_accepted() {
     let v = validator();
     let result = v.validate_resource_name("a");
     assert!(result.is_ok());
@@ -92,7 +92,7 @@ fn ut_rv_032() {
 
 /// UT-RV-006: resource_type "key" (invalid) -> Err(ParamInvalid {field: "resource_type"})
 #[test]
-fn ut_rv_006() {
+fn test_resource_type_key_invalid_rejected() {
     let v = validator();
     let result = v.validate_resource_type("key");
     assert!(matches!(
@@ -103,7 +103,7 @@ fn ut_rv_006() {
 
 /// UT-RV-007: resource_type "secret" -> Ok(())
 #[test]
-fn ut_rv_007() {
+fn test_resource_type_secret_accepted() {
     let v = validator();
     let result = v.validate_resource_type("secret");
     assert!(result.is_ok());
@@ -111,7 +111,7 @@ fn ut_rv_007() {
 
 /// UT-RV-008: resource_type "cert" -> Ok(())
 #[test]
-fn ut_rv_008() {
+fn test_resource_type_cert_accepted() {
     let v = validator();
     let result = v.validate_resource_type("cert");
     assert!(result.is_ok());
@@ -123,7 +123,7 @@ fn ut_rv_008() {
 
 /// UT-RV-009: content_type "xml" (invalid) -> Err(ParamInvalid {field: "content_type"})
 #[test]
-fn ut_rv_009() {
+fn test_content_type_xml_invalid_rejected() {
     let v = validator();
     let result = v.validate_content_type("xml");
     assert!(matches!(
@@ -134,7 +134,7 @@ fn ut_rv_009() {
 
 /// UT-RV-010: content_type "jwe" -> Ok(())
 #[test]
-fn ut_rv_010() {
+fn test_content_type_jwe_accepted() {
     let v = validator();
     let result = v.validate_content_type("jwe");
     assert!(result.is_ok());
@@ -142,7 +142,7 @@ fn ut_rv_010() {
 
 /// UT-RV-023: content_type "jwt" -> Ok(())
 #[test]
-fn ut_rv_023() {
+fn test_content_type_jwt_accepted() {
     let v = validator();
     let result = v.validate_content_type("jwt");
     assert!(result.is_ok());
@@ -150,7 +150,7 @@ fn ut_rv_023() {
 
 /// UT-RV-024: content_type "json" -> Ok(())
 #[test]
-fn ut_rv_024() {
+fn test_content_type_json_accepted() {
     let v = validator();
     let result = v.validate_content_type("json");
     assert!(result.is_ok());
@@ -158,7 +158,7 @@ fn ut_rv_024() {
 
 /// UT-RV-025: content_type "text" -> Ok(())
 #[test]
-fn ut_rv_025() {
+fn test_content_type_text_accepted() {
     let v = validator();
     let result = v.validate_content_type("text");
     assert!(result.is_ok());
@@ -166,7 +166,7 @@ fn ut_rv_025() {
 
 /// UT-RV-026: content_type "binary" -> Ok(())
 #[test]
-fn ut_rv_026() {
+fn test_content_type_binary_accepted() {
     let v = validator();
     let result = v.validate_content_type("binary");
     assert!(result.is_ok());
@@ -174,7 +174,7 @@ fn ut_rv_026() {
 
 /// UT-RV-027: content_type "jwk" -> Ok(())
 #[test]
-fn ut_rv_027() {
+fn test_content_type_jwk_accepted() {
     let v = validator();
     let result = v.validate_content_type("jwk");
     assert!(result.is_ok());
@@ -186,7 +186,7 @@ fn ut_rv_027() {
 
 /// UT-RV-011: export_mode "gzip" (invalid) -> Err(ParamInvalid {field: "export_mode"})
 #[test]
-fn ut_rv_011() {
+fn test_export_mode_gzip_invalid_rejected() {
     let v = validator();
     let result = v.validate_export_mode("gzip");
     assert!(matches!(
@@ -197,7 +197,7 @@ fn ut_rv_011() {
 
 /// UT-RV-012: export_mode "jwe" -> Ok(())
 #[test]
-fn ut_rv_012() {
+fn test_export_mode_jwe_accepted() {
     let v = validator();
     let result = v.validate_export_mode("jwe");
     assert!(result.is_ok());
@@ -205,7 +205,7 @@ fn ut_rv_012() {
 
 /// UT-RV-028: export_mode "plain" (removed) -> Err(ParamInvalid {field: "export_mode"})
 #[test]
-fn ut_rv_028() {
+fn test_export_mode_plain_removed_rejected() {
     let v = validator();
     let result = v.validate_export_mode("plain");
     assert!(matches!(
@@ -220,7 +220,7 @@ fn ut_rv_028() {
 
 /// UT-RV-013: additional_info valid plaintext -> Ok(())
 #[test]
-fn ut_rv_013() {
+fn test_additional_info_plaintext_accepted() {
     let v = validator();
     let result = v.validate_additional_info(Some("hello world"));
     assert!(result.is_ok());
@@ -228,7 +228,7 @@ fn ut_rv_013() {
 
 /// UT-RV-014: additional_info >512 chars -> Err(ParamInvalid)
 #[test]
-fn ut_rv_014() {
+fn test_additional_info_too_long_rejected() {
     let v = validator();
     let raw = "x".repeat(513);
     let result = v.validate_additional_info(Some(&raw));
@@ -240,7 +240,7 @@ fn ut_rv_014() {
 
 /// UT-RV-015: additional_info None -> Ok(())
 #[test]
-fn ut_rv_015() {
+fn test_additional_info_none_accepted() {
     let v = validator();
     let result = v.validate_additional_info(None);
     assert!(result.is_ok());
@@ -248,7 +248,7 @@ fn ut_rv_015() {
 
 /// UT-RV-033: additional_info Some("") (empty string) -> Err(ParamInvalid)
 #[test]
-fn ut_rv_033() {
+fn test_additional_info_empty_string_rejected() {
     let v = validator();
     let result = v.validate_additional_info(Some(""));
     assert!(matches!(
@@ -259,7 +259,7 @@ fn ut_rv_033() {
 
 /// UT-RV-034: additional_info valid plaintext -> Ok(())
 #[test]
-fn ut_rv_034() {
+fn test_additional_info_valid_plaintext_accepted() {
     let v = validator();
     let result = v.validate_additional_info(Some("valid plaintext info"));
     assert!(result.is_ok());
@@ -271,7 +271,7 @@ fn ut_rv_034() {
 
 /// UT-RV-016: repository_name "my repo" (space) -> Err(ParamInvalid {field: "repository_name"})
 #[test]
-fn ut_rv_016() {
+fn test_repository_name_with_space_rejected() {
     let v = validator();
     let result = v.validate_repository_name("my repo");
     assert!(matches!(
@@ -282,7 +282,7 @@ fn ut_rv_016() {
 
 /// UT-RV-017: repository_name "my-repo_01" -> Ok(())
 #[test]
-fn ut_rv_017() {
+fn test_repository_name_valid_with_dash_underscore() {
     let v = validator();
     let result = v.validate_repository_name("my-repo_01");
     assert!(result.is_ok());
@@ -290,7 +290,7 @@ fn ut_rv_017() {
 
 /// UT-RV-029: repository_name length 1 -> Ok(())
 #[test]
-fn ut_rv_029() {
+fn test_repository_name_length_1_accepted() {
     let v = validator();
     let result = v.validate_repository_name("a");
     assert!(result.is_ok());
@@ -298,7 +298,7 @@ fn ut_rv_029() {
 
 /// UT-RV-030: repository_name length 32 -> Ok(())
 #[test]
-fn ut_rv_030() {
+fn test_repository_name_length_32_accepted() {
     let v = validator();
     let name = "a".repeat(32);
     let result = v.validate_repository_name(&name);
@@ -307,7 +307,7 @@ fn ut_rv_030() {
 
 /// UT-RV-031: repository_name length 33 -> Err(ParamInvalid)
 #[test]
-fn ut_rv_031() {
+fn test_repository_name_length_33_rejected() {
     let v = validator();
     let result = v.validate_repository_name(&"a".repeat(33));
     assert!(matches!(
@@ -322,7 +322,7 @@ fn ut_rv_031() {
 
 /// UT-RV-018: res_provider "unknown" -> Err(BackendUnsupported)
 #[test]
-fn ut_rv_018() {
+fn test_res_provider_unknown_rejected() {
     let v = validator();
     let result = v.validate_res_provider("unknown");
     assert!(matches!(
@@ -337,7 +337,7 @@ fn ut_rv_018() {
 
 /// UT-RV-019: full URI "/rbs/v0/vault/my-repo/secret/my_key" -> Ok(ParsedUri{...})
 #[test]
-fn ut_rv_019() {
+fn test_full_uri_valid() {
     let v = validator();
     let result = v.validate_uri("/rbs/v0/vault/my-repo/secret/my_key");
     assert!(result.is_ok());
@@ -350,7 +350,7 @@ fn ut_rv_019() {
 
 /// UT-RV-020: URI too few segments "/rbs/v0/vault/repo" -> Err(ParamInvalid {field: "uri"})
 #[test]
-fn ut_rv_020() {
+fn test_uri_too_few_segments_rejected() {
     let v = validator();
     let result = v.validate_uri("/rbs/v0/vault/repo");
     assert!(matches!(
@@ -361,7 +361,7 @@ fn ut_rv_020() {
 
 /// UT-RV-021: URI too many segments "/rbs/v0/vault/repo/secret/key/extra" -> Err(ParamInvalid)
 #[test]
-fn ut_rv_021() {
+fn test_uri_too_many_segments_rejected() {
     let v = validator();
     let result = v.validate_uri("/rbs/v0/vault/repo/secret/key/extra");
     assert!(matches!(
@@ -375,7 +375,7 @@ fn ut_rv_021() {
 /// URI: "/rbs/v0/admin/repo/secret/key"
 /// "admin" is in the reserved_providers list and should be rejected.
 #[test]
-fn ut_rv_022() {
+fn test_uri_res_provider_reserved_admin_rejected() {
     let v = validator();
     let result = v.validate_uri("/rbs/v0/admin/repo/secret/key");
     assert!(matches!(
@@ -388,7 +388,7 @@ fn ut_rv_022() {
 ///
 /// An empty repository_name segment ("") triggers a ParamInvalid error.
 #[test]
-fn ut_rv_022a() {
+fn test_uri_empty_segment_double_slash_rejected() {
     let v = validator();
     let result = v.validate_uri("/rbs/v0/vault//secret/key");
     assert!(matches!(result, Err(ResourceError::ParamInvalid { .. })));

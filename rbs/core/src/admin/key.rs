@@ -12,15 +12,41 @@
 
 //! Public key processing — validation, algorithm derivation, and JWK-to-PEM conversion.
 
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use base64::{engine::general_purpose::STANDARD, engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use rbs_api_types::error::RbsError;
 use serde_json::Value;
 
 type Result<T> = std::result::Result<T, RbsError>;
 
 /// Maximum size for a PEM-encoded public key (10 KB).
-/// A typical RSA-4096 PEM is ~800 bytes; anything larger is suspicious.
 const MAX_KEY_SIZE: usize = 10240;
+
+/// Get the curve NID from an EC_GROUP.
+#[inline]
+fn group_curve_nid(group: &openssl::ec::EcGroupRef) -> openssl::nid::Nid {
+    if let Some(nid) = group.curve_name() {
+        return nid;
+    }
+    let degree = group.degree();
+    if degree == 256 {
+        openssl::nid::Nid::X9_62_PRIME256V1
+    } else if degree == 384 {
+        openssl::nid::Nid::SECP384R1
+    } else {
+        // Unsupported curve (P-521 or unknown)
+        openssl::nid::Nid::from_raw(0)
+    }
+}
+
+/// Decode a base64-encoded string and return the UTF-8 contents.
+pub fn decode_base64_input(input: &str, field_name: &str) -> Result<String> {
+    let decoded = STANDARD.decode(input)
+        .map_err(|_| RbsError::InvalidParameter(
+            format!("invalid base64 encoding for {}", field_name)))?;
+    String::from_utf8(decoded)
+        .map_err(|_| RbsError::InvalidParameter(
+            format!("invalid base64 encoding for {}", field_name)))
+}
 
 /// Validate a PEM public key and return its JWS algorithm identifier.
 pub fn validate_and_derive_alg(pem: &str) -> Result<String> {
@@ -37,17 +63,24 @@ pub fn validate_and_derive_alg(pem: &str) -> Result<String> {
         })?;
 
     match pkey.id() {
-        openssl::pkey::Id::RSA => Ok("RS256".to_string()),
+        openssl::pkey::Id::RSA => Ok("RSA".to_string()),
         openssl::pkey::Id::EC => {
             let ec_key = pkey.ec_key()
-                .map_err(|_| RbsError::InvalidParameter("Invalid public key format".to_string()))?;
-            match ec_key.group().curve_name() {
-                Some(openssl::nid::Nid::X9_62_PRIME256V1) => Ok("ES256".to_string()),
-                Some(openssl::nid::Nid::SECP384R1) => Ok("ES384".to_string()),
-                Some(openssl::nid::Nid::SECP521R1) => Ok("ES512".to_string()),
-                _ => Err(RbsError::InvalidParameter("Unsupported EC curve".to_string())),
+                .map_err(|_| RbsError::InvalidParameter("Invalid EC key".to_string()))?;
+            let group = ec_key.group();
+            let nid = group_curve_nid(group);
+
+            if nid == openssl::nid::Nid::X9_62_PRIME256V1 {
+                Ok("EC".to_string())
+            } else if nid == openssl::nid::Nid::SECP384R1 {
+                Ok("EC".to_string())
+            } else {
+                Err(RbsError::InvalidParameter(
+                    "Unsupported EC curve. Supported: P-256 (ES256), P-384 (ES384)".to_string()
+                ))
             }
         }
+        openssl::pkey::Id::ED25519 => Ok("Ed25519".to_string()),
         _ => Err(RbsError::InvalidParameter("Unsupported key type".to_string())),
     }
 }
@@ -74,6 +107,7 @@ pub fn jwk_to_pem(jwk: &Value) -> Result<String> {
         _ => Err(RbsError::InvalidParameter("Unsupported JWK key type".to_string())),
     }
 }
+
 
 fn jwk_rsa_to_pem(jwk: &Value) -> Result<String> {
     let n_b64 = jwk.get("n")
@@ -137,15 +171,15 @@ mod tests {
     use super::*;
 
     const VALID_RSA_PEM: &str = concat!(
-        "-----BEGIN PUBLIC KEY-----\n",
-        "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA7JOjGVgMbclDvZ0zW8by\n",
-        "ALpLyUSNYkb5dyy9xFBEg97RI1SSx0rcOkrd7fb/aJThQ7n47OaSpaJZmNzL/phQ\n",
-        "9TnqHafrOsY8nYn1PlGbUu0yo99CLF9EOqmUpLfAkCELFumP5xt1DSJ+VN4gxVeq\n",
-        "GNAthfi7ceWKuWRgfkTif2wXJXEpCBunyTEM4nqvOZX+lMLWkvv/jaovl+PjNQyk\n",
-        "wTFjgs3EC7Cn/C35xYHRAws3iBXk8PJ7TPFiG3L2pDIP30jxTbu3taOpkAarieSg\n",
-        "rK+Dsrv9RIirzseAH3XnSOHDQDVU++8Jw421BQw/ZiYCfIye2RplBpaLcL8xhIIf\n",
-        "CwIDAQAB\n",
-        "-----END PUBLIC KEY-----\n"
+    "-----BEGIN PUBLIC KEY-----\n",
+    "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA7JOjGVgMbclDvZ0zW8by\n",
+    "ALpLyUSNYkb5dyy9xFBEg97RI1SSx0rcOkrd7fb/aJThQ7n47OaSpaJZmNzL/phQ\n",
+    "9TnqHafrOsY8nYn1PlGbUu0yo99CLF9EOqmUpLfAkCELFumP5xt1DSJ+VN4gxVeq\n",
+    "GNAthfi7ceWKuWRgfkTif2wXJXEpCBunyTEM4nqvOZX+lMLWkvv/jaovl+PjNQyk\n",
+    "wTFjgs3EC7Cn/C35xYHRAws3iBXk8PJ7TPFiG3L2pDIP30jxTbu3taOpkAarieSg\n",
+    "rK+Dsrv9RIirzseAH3XnSOHDQDVU++8Jw421BQw/ZiYCfIye2RplBpaLcL8xhIIf\n",
+    "CwIDAQAB\n",
+    "-----END PUBLIC KEY-----\n"
     );
 
     #[test]
@@ -155,10 +189,10 @@ mod tests {
     }
 
     #[test]
-    fn validate_and_derive_alg_returns_rs256_for_rsa_key() {
+    fn validate_and_derive_alg_returns_rsa_for_rsa_key() {
         let result = validate_and_derive_alg(VALID_RSA_PEM);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), "RS256");
+        assert_eq!(result.unwrap(), "RSA");
     }
 
     #[test]
@@ -218,5 +252,61 @@ mod tests {
             }
             _ => panic!("Expected InvalidParameter error"),
         }
+    }
+
+    #[test]
+    fn decode_base64_input_valid() {
+        // "test" base64 encoded
+        let result = decode_base64_input("dGVzdA==", "test_field");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "test");
+    }
+
+    #[test]
+    fn decode_base64_input_invalid() {
+        // Invalid base64 (contains ! which is not valid)
+        let result = decode_base64_input("invalid!!!", "test_field");
+        assert!(result.is_err());
+        match result {
+            Err(RbsError::InvalidParameter(msg)) => {
+                assert!(msg.contains("invalid base64 encoding for test_field"));
+            }
+            _ => panic!("Expected InvalidParameter error"),
+        }
+    }
+
+    #[test]
+    fn decode_base64_input_valid_utf8_but_not_base64() {
+        // Valid base64 but decodes to non-UTF8 bytes
+        // This shouldn't happen with STANDARD base64 since it only produces valid UTF8 ASCII
+        let result = decode_base64_input("dGVzdA==", "public_key");
+        assert!(result.is_ok());
+    }
+
+
+    #[test]
+    fn validate_and_derive_alg_returns_ed25519_for_ed25519() {
+        // Generate an Ed25519 key pair
+        let ed_key = openssl::pkey::PKey::generate_ed25519().unwrap();
+        let pem = ed_key.public_key_to_pem().unwrap();
+        let pem_str = String::from_utf8_lossy(&pem).to_string();
+
+        let result = validate_and_derive_alg(&pem_str);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "Ed25519");
+    }
+
+    #[test]
+    fn validate_and_derive_alg_returns_ec_for_ec_key() {
+        // Generate an P-256 EC key pair
+        let ec_group = openssl::ec::EcGroup::from_curve_name(openssl::nid::Nid::X9_62_PRIME256V1).unwrap();
+        let ec_key = openssl::ec::EcKey::generate(&ec_group).unwrap();
+        let pkey = openssl::pkey::PKey::from_ec_key(ec_key).unwrap();
+        let pem = pkey.public_key_to_pem().unwrap();
+        let pem_str = String::from_utf8_lossy(&pem).to_string();
+
+        let result = validate_and_derive_alg(&pem_str);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "EC");
     }
 }

@@ -15,11 +15,12 @@
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, http::StatusCode};
 use rbs_api_types::{
     BatchDeleteQuery, CreatePolicyRequest, ErrorBody, PolicyListQuery, PolicyListResponse,
-    PolicyResponse, UpdatePolicyRequest,
+    PolicyResponse, UpdatePolicyRequest, validate_policy_id,
 };
 use rbs_core::policy::service::PolicyQuery;
 use rbs_core::RbsCore;
 use std::sync::Arc;
+use validator::Validate;
 
 use crate::middleware::OptAuthContext;
 
@@ -33,6 +34,11 @@ fn error_response(e: impl ToString, status: u16) -> HttpResponse {
         .json(ErrorBody::new(e.to_string()))
 }
 
+fn validate_path_id(policy_id: &str) -> Result<(), HttpResponse> {
+    validate_policy_id(policy_id)
+        .map_err(|msg| HttpResponse::BadRequest().json(ErrorBody::new(msg)))
+}
+
 /// `GET /rbs/v0/resource/policy`: List policies.
 #[utoipa::path(
     get,
@@ -43,8 +49,8 @@ fn error_response(e: impl ToString, status: u16) -> HttpResponse {
     security(("bearerAuth" = [])),
     params(
         ("ids" = Option<String>, Query, description = "Comma-separated policy IDs"),
-        ("limit" = Option<i64>, Query, description = "Page size"),
-        ("offset" = Option<i64>, Query, description = "Page offset"),
+        ("limit" = Option<i64>, Query, description = "Page size (1..100, default 10)"),
+        ("offset" = Option<i64>, Query, description = "Offset (0..100000, default 0)"),
     ),
     responses(
         (status = 200, description = "Policy list", body = PolicyListResponse),
@@ -57,10 +63,14 @@ pub async fn list_policies(
     core: web::Data<Arc<RbsCore>>, req: HttpRequest, query: web::Query<PolicyListQuery>,
 ) -> HttpResponse {
     let ctx = match require_auth(&req) { Ok(c) => c, Err(r) => return r };
+    let query = query.into_inner();
+    if let Err(e) = Validate::validate(&query) {
+        return HttpResponse::BadRequest().json(ErrorBody::new(e.to_string()));
+    }
     let ids: Option<Vec<String>> = query.ids.as_deref()
         .map(|s| s.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect());
-    let limit = query.limit.unwrap_or(10).max(1);
-    let offset = query.offset.unwrap_or(0).max(0);
+    let limit = query.limit.unwrap_or(10);
+    let offset = query.offset.unwrap_or(0);
     match core.policy().list(&ctx, &PolicyQuery { ids, offset, limit }).await {
         Ok(resp) => HttpResponse::Ok().json(resp),
         Err(e) => error_response(e.to_string(), e.http_status()),
@@ -89,7 +99,11 @@ pub async fn create_policy(
     core: web::Data<Arc<RbsCore>>, req: HttpRequest, body: web::Json<CreatePolicyRequest>,
 ) -> HttpResponse {
     let ctx = match require_auth(&req) { Ok(c) => c, Err(r) => return r };
-    match core.policy().create(&ctx, &body.into_inner()).await {
+    let body = body.into_inner();
+    if let Err(e) = Validate::validate(&body) {
+        return HttpResponse::BadRequest().json(ErrorBody::new(e.to_string()));
+    }
+    match core.policy().create(&ctx, &body).await {
         Ok(resp) => HttpResponse::Created().json(resp),
         Err(e) => error_response(e.to_string(), e.http_status()),
     }
@@ -118,7 +132,9 @@ pub async fn get_policy(
     core: web::Data<Arc<RbsCore>>, req: HttpRequest, path: web::Path<String>,
 ) -> HttpResponse {
     let ctx = match require_auth(&req) { Ok(c) => c, Err(r) => return r };
-    match core.policy().get_by_id(&ctx, &path.into_inner()).await {
+    let id = path.into_inner();
+    if let Err(r) = validate_path_id(&id) { return r; }
+    match core.policy().get_by_id(&ctx, &id).await {
         Ok(resp) => HttpResponse::Ok().json(resp),
         Err(e) => error_response(e.to_string(), e.http_status()),
     }
@@ -151,7 +167,13 @@ pub async fn update_policy(
     body: web::Json<UpdatePolicyRequest>,
 ) -> HttpResponse {
     let ctx = match require_auth(&req) { Ok(c) => c, Err(r) => return r };
-    match core.policy().update(&ctx, &path.into_inner(), &body.into_inner()).await {
+    let id = path.into_inner();
+    if let Err(r) = validate_path_id(&id) { return r; }
+    let body = body.into_inner();
+    if let Err(e) = Validate::validate(&body) {
+        return HttpResponse::BadRequest().json(ErrorBody::new(e.to_string()));
+    }
+    match core.policy().update(&ctx, &id, &body).await {
         Ok(resp) => HttpResponse::Ok().json(resp),
         Err(e) => error_response(e.to_string(), e.http_status()),
     }
@@ -182,6 +204,7 @@ pub async fn delete_policy(
 ) -> HttpResponse {
     let ctx = match require_auth(&req) { Ok(c) => c, Err(r) => return r };
     let pid = path.into_inner();
+    if let Err(r) = validate_path_id(&pid) { return r; }
     match core.policy().delete(&ctx, &[pid]).await {
         Ok(()) => HttpResponse::NoContent().finish(),
         Err(e) => error_response(e.to_string(), e.http_status()),

@@ -31,7 +31,7 @@ Builds RBS / RBC / RBS-CLI RPM packages from the workspace.
 Environment:
   VERSION        Package version (default: 0.1.0)
   RELEASE        RPM release (default: 1)
-  RPM_BUILD_DIR  rpmbuild topdir (default: <repo>/rpm-build). Use an absolute path in CI or
+  RPM_BUILD_DIR  rpmbuild topdir (default: $HOME/rpmbuild). Use an absolute path in CI or
                  when you must avoid writing under the repository tree.
 
 Example:
@@ -57,7 +57,7 @@ RELEASE=${RELEASE:-1}
 
 echo "Building RPM packages for version $VERSION-$RELEASE..."
 
-# rpmbuild topdir: default under repo; override with RPM_BUILD_DIR (absolute or repo-relative).
+# rpmbuild topdir: default under $HOME/rpmbuild (consistent with GTA); override with RPM_BUILD_DIR.
 if [[ -n "${RPM_BUILD_DIR:-}" ]]; then
     if [[ "${RPM_BUILD_DIR}" == /* ]]; then
         RPMBUILD_TOPDIR="$RPM_BUILD_DIR"
@@ -65,7 +65,7 @@ if [[ -n "${RPM_BUILD_DIR:-}" ]]; then
         RPMBUILD_TOPDIR="$PROJECT_ROOT/$RPM_BUILD_DIR"
     fi
 else
-    RPMBUILD_TOPDIR="$PROJECT_ROOT/rpm-build"
+    RPMBUILD_TOPDIR="$HOME/rpmbuild"
 fi
 
 # Safety: refuse obviously unsafe rpmbuild topdirs (this script wipes RPMBUILD_TOPDIR before use).

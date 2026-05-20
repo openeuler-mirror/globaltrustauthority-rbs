@@ -57,11 +57,11 @@ pub struct UserCreateRequest {
     /// Authentication type.
     pub auth_type: AuthType,
 
-    /// PEM-encoded public key (mutually exclusive with `jwk`).
+    /// Base64-encoded PEM public key (mutually exclusive with `jwk`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_key: Option<String>,
 
-    /// JWK public key object (mutually exclusive with `public_key`).
+    /// JWK public key JSON object (mutually exclusive with `public_key`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub jwk: Option<Value>,
 }
@@ -70,7 +70,7 @@ impl UserCreateRequest {
     /// Cross-field validation: `public_key` / `jwk` mutual exclusion.
     pub fn validate_key_pair(&self) -> Result<(), RbsError> {
         let has_pk = self.public_key.as_deref().map_or(false, |s| !s.is_empty());
-        let has_jwk = self.jwk.is_some();
+        let has_jwk = self.jwk.as_ref().map_or(false, |s| !s.is_null());
 
         if !has_pk && !has_jwk {
             return Err(RbsError::InvalidParameter(
@@ -106,11 +106,11 @@ pub struct UserUpdateRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auth_type: Option<AuthType>,
 
-    /// PEM-encoded public key (mutually exclusive with `jwk`).
+    /// Base64-encoded PEM public key (mutually exclusive with `jwk`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_key: Option<String>,
 
-    /// JWK public key object (mutually exclusive with `public_key`).
+    /// JWK public key JSON object (mutually exclusive with `public_key`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub jwk: Option<Value>,
 }
@@ -118,21 +118,20 @@ pub struct UserUpdateRequest {
 impl UserUpdateRequest {
     /// Cross-field: at least one field required + public_key/jwk mutual exclusion.
     pub fn validate_cross_fields(&self) -> Result<(), RbsError> {
-        if self.role.is_none()
-            && self.enabled.is_none()
-            && self.auth_type.is_none()
-            && self.public_key.is_none()
-            && self.jwk.is_none()
-        {
+        let has_role = self.role.is_some();
+        let has_enabled = self.enabled.is_some();
+        let has_auth_type = self.auth_type.is_some();
+        let has_public_key = self.public_key.as_ref().map_or(false, |s| !s.is_empty());
+        let has_jwk = self.jwk.as_ref().map_or(false, |s| !s.is_null());
+
+        // Reject empty update: {} with no fields provided
+        if !has_role && !has_enabled && !has_auth_type && !has_public_key && !has_jwk {
             return Err(RbsError::InvalidParameter(
                 "At least one update field is required".to_string(),
             ));
         }
 
-        let has_pk = self.public_key.as_deref().map_or(false, |s| !s.is_empty());
-        let has_jwk = self.jwk.is_some();
-
-        if has_pk && has_jwk {
+        if has_public_key && has_jwk {
             return Err(RbsError::InvalidParameter(
                 "public_key and jwk are mutually exclusive".to_string(),
             ));
@@ -159,12 +158,35 @@ pub struct UserResponse {
     pub updated_at: String,
 }
 
+/// Query parameters for GET /rbs/v0/users (list users).
+#[derive(Debug, Clone, Serialize, Deserialize, Validate, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct UserListQuery {
+    /// Page size.
+    #[validate(range(min = 1, max = 100))]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+
+    /// Offset.
+    #[validate(range(min = 0, max = 100_000))]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offset: Option<i64>,
+
+    /// Filter by role.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<Role>,
+
+    /// Filter by enabled status.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+}
+
 /// Paginated response for GET /rbs/v0/users.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct UserListResponse {
     /// Page of users.
-    pub items: Vec<UserResponse>,
+    pub users: Vec<UserResponse>,
     /// Total matching users (not only this page).
     pub total_count: i64,
     /// Effective page size (may mirror request `limit`).
@@ -186,10 +208,13 @@ fn validate_create_role(role: &Role) -> Result<(), validator::ValidationError> {
 }
 
 fn validate_update_role(role: &Role) -> Result<(), validator::ValidationError> {
-    // Both values are valid for update — whitelist check in AdminManager
-    // prevents self-update of role.
-    let _ = role;
-    Ok(())
+    if *role == Role::Admin {
+        let mut err = validator::ValidationError::new("invalid_role");
+        err.message = Some("role must be 'user' (admin is pre-configured)".into());
+        Err(err)
+    } else {
+        Ok(())
+    }
 }
 
 fn validate_username_chars(username: &str) -> Result<(), validator::ValidationError> {
@@ -263,5 +288,43 @@ mod tests {
         });
         let result: std::result::Result<UserCreateRequest, _> = serde_json::from_value(json);
         assert!(result.is_err());
+    }
+
+    // ── UserListQuery validation ──
+
+    #[test]
+    fn list_query_valid_no_filters() {
+        let q = UserListQuery { limit: None, offset: None, role: None, enabled: None };
+        assert!(validator::Validate::validate(&q).is_ok());
+    }
+
+    #[test]
+    fn list_query_valid_with_filters() {
+        let q = UserListQuery { limit: Some(10), offset: Some(0), role: Some(Role::User), enabled: Some(true) };
+        assert!(validator::Validate::validate(&q).is_ok());
+    }
+
+    #[test]
+    fn list_query_limit_below_min() {
+        let q = UserListQuery { limit: Some(0), offset: None, role: None, enabled: None };
+        assert!(validator::Validate::validate(&q).is_err());
+    }
+
+    #[test]
+    fn list_query_limit_above_max() {
+        let q = UserListQuery { limit: Some(101), offset: None, role: None, enabled: None };
+        assert!(validator::Validate::validate(&q).is_err());
+    }
+
+    #[test]
+    fn list_query_offset_below_min() {
+        let q = UserListQuery { limit: None, offset: Some(-1), role: None, enabled: None };
+        assert!(validator::Validate::validate(&q).is_err());
+    }
+
+    #[test]
+    fn list_query_offset_above_max() {
+        let q = UserListQuery { limit: None, offset: Some(100_001), role: None, enabled: None };
+        assert!(validator::Validate::validate(&q).is_err());
     }
 }

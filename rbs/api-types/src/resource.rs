@@ -31,10 +31,12 @@ pub const BEARER_ENC_PUBKEY_KEY: &str = "enc-pubkey";
 // ── Create ──────────────────────────────────────────────────────────────────
 
 /// Request body for `POST /rbs/v0/{uri}` — create a resource.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema, validator::Validate)]
 #[serde(rename_all = "snake_case")]
 pub struct CreateResourceRequest {
     pub uri: String,
+
+    #[validate(length(min = 1, max = 36))]
     pub policy_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content_type: Option<String>,
@@ -47,9 +49,10 @@ pub struct CreateResourceRequest {
 // ── Update ──────────────────────────────────────────────────────────────────
 
 /// Request body for `PUT /rbs/v0/{uri}` — update or create a resource.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema, validator::Validate)]
 #[serde(rename_all = "snake_case")]
 pub struct UpdateResourceRequest {
+    #[validate(length(min = 1, max = 36))]
     pub policy_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content_type: Option<String>,

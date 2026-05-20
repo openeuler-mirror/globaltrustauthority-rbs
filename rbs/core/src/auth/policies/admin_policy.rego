@@ -20,6 +20,7 @@ allow {
     input.token_type == "Bearer"
     input.required_role == "AdminOnly"
     input.role == "admin"
+    input.sub == "Administrator"
     check_owner
 }
 

@@ -300,7 +300,7 @@ const VALID_REGO_B64: &str = "cGFja2FnZSByYnMKCmRlZmF1bHQgYWxsb3cgPSBmYWxzZQphbG
 /// UT-S-001: create succeeds when authz allows, name is unique, and count
 /// is below the limit. Expect a `PolicyResponse` with `policy_version == 1`.
 #[tokio::test]
-async fn ut_s001_create_success() {
+async fn test_create_success() {
     let repo = MockPolicyRepository::new()
         .with_find_by_name_and_user(Ok(None))
         .with_count_by_user(Ok(5)); // below max_per_user (10)
@@ -322,7 +322,7 @@ async fn ut_s001_create_success() {
 
 /// UT-S-002: create is denied when authz returns Deny (Attest token).
 #[tokio::test]
-async fn ut_s002_create_permission_denied() {
+async fn test_create_permission_denied() {
     let repo = MockPolicyRepository::new();
     let service = make_service(repo);
     let ctx = attest_ctx();
@@ -340,7 +340,7 @@ async fn ut_s002_create_permission_denied() {
 /// UT-S-003: create fails with `NameDuplicate` when the name is already
 /// taken by another policy owned by the same user.
 #[tokio::test]
-async fn ut_s003_create_name_duplicate() {
+async fn test_create_name_duplicate() {
     let existing = make_entity("policy-1", "user123", "test-policy");
     let repo = MockPolicyRepository::new()
         .with_find_by_name_and_user(Ok(Some(existing)));
@@ -361,7 +361,7 @@ async fn ut_s003_create_name_duplicate() {
 /// UT-S-004: create fails with `CountExceed` when the user's policy count
 /// is at the configured maximum.
 #[tokio::test]
-async fn ut_s004_create_count_exceeded() {
+async fn test_create_count_exceeded() {
     let repo = MockPolicyRepository::new()
         .with_find_by_name_and_user(Ok(None))
         .with_count_by_user(Ok(10)); // max_per_user is 10 in default config
@@ -382,7 +382,7 @@ async fn ut_s004_create_count_exceeded() {
 /// UT-S-005: when both a name duplicate AND count exceeded conditions
 /// are true, `NameDuplicate` must take precedence.
 #[tokio::test]
-async fn ut_s005_create_name_duplicate_beats_count_exceeded() {
+async fn test_create_name_duplicate_beats_count_exceeded() {
     let existing = make_entity("policy-1", "user123", "test-policy");
     let repo = MockPolicyRepository::new()
         .with_find_by_name_and_user(Ok(Some(existing)))
@@ -405,7 +405,7 @@ async fn ut_s005_create_name_duplicate_beats_count_exceeded() {
 /// UT-S-006: create fails with `ContentDecodeError` when the content is
 /// not valid base64.
 #[tokio::test]
-async fn ut_s006_create_invalid_base64() {
+async fn test_create_invalid_base64() {
     let repo = MockPolicyRepository::new()
         .with_find_by_name_and_user(Ok(None))
         .with_count_by_user(Ok(0));
@@ -430,7 +430,7 @@ async fn ut_s006_create_invalid_base64() {
 /// UT-S-010a: update fails with `NameDuplicate` when the requested name
 /// already belongs to a *different* policy owned by the same user.
 #[tokio::test]
-async fn ut_s010a_update_name_duplicate_rename_conflict() {
+async fn test_update_name_duplicate_rename_conflict() {
     let existing = make_entity("policy-1", "user123", "old-name");
     let conflict = make_entity("policy-2", "user123", "new-name");
 
@@ -454,7 +454,7 @@ async fn ut_s010a_update_name_duplicate_rename_conflict() {
 /// UT-S-010b: update succeeds when the requested name matches the
 /// policy's own current name (no rename conflict).
 #[tokio::test]
-async fn ut_s010b_update_name_same_as_self() {
+async fn test_update_name_same_as_self() {
     let entity = make_entity("policy-1", "user123", "same-name");
 
     let repo = MockPolicyRepository::new()
@@ -481,7 +481,7 @@ async fn ut_s010b_update_name_same_as_self() {
 
 /// UT-S-012a: delete permission denied (Attest token).
 #[tokio::test]
-async fn ut_s012a_delete_permission_denied() {
+async fn test_delete_permission_denied() {
     let repo = MockPolicyRepository::new();
     let service = make_service(repo);
     let ctx = attest_ctx();
@@ -495,7 +495,7 @@ async fn ut_s012a_delete_permission_denied() {
 /// UT-S-014a: single delete fails with `NotFound` when the policy does
 /// not exist.
 #[tokio::test]
-async fn ut_s014a_single_delete_policy_not_found() {
+async fn test_single_delete_policy_not_found() {
     let repo = MockPolicyRepository::new()
         .with_find_by_id(Ok(None));
 
@@ -511,7 +511,7 @@ async fn ut_s014a_single_delete_policy_not_found() {
 /// UT-S-014b: single delete returns `PermissionDenied` when the policy
 /// belongs to a different user.
 #[tokio::test]
-async fn ut_s014b_single_delete_permission_denied_cross_user() {
+async fn test_single_delete_permission_denied_cross_user() {
     let entity = make_entity("policy-1", "other-user", "test-policy");
     let repo = MockPolicyRepository::new()
         .with_find_by_ids_and_user(Ok(vec![entity]));
@@ -531,7 +531,7 @@ async fn ut_s014b_single_delete_permission_denied_cross_user() {
 
 /// UT-S-017a: list permission denied (Attest token).
 #[tokio::test]
-async fn ut_s017a_list_permission_denied() {
+async fn test_list_permission_denied() {
     let repo = MockPolicyRepository::new();
     let service = make_service(repo);
     let ctx = attest_ctx();
@@ -548,7 +548,7 @@ async fn ut_s017a_list_permission_denied() {
 
 /// UT-S-025: list with the `ids` filter returns the matching entities.
 #[tokio::test]
-async fn ut_s025_list_with_ids_filter() {
+async fn test_list_with_ids_filter() {
     let entities = vec![
         make_entity("policy-1", "user123", "policy-a"),
         make_entity("policy-2", "user123", "policy-b"),
@@ -577,7 +577,7 @@ async fn ut_s025_list_with_ids_filter() {
 
 /// UT-S-019c: get_by_id permission denied (Attest token).
 #[tokio::test]
-async fn ut_s019c_get_by_id_permission_denied() {
+async fn test_get_by_id_permission_denied() {
     let repo = MockPolicyRepository::new();
     let service = make_service(repo);
     let ctx = attest_ctx();
@@ -589,7 +589,7 @@ async fn ut_s019c_get_by_id_permission_denied() {
 
 /// UT-S-023: get_by_id returns `NotFound` when the policy does not exist.
 #[tokio::test]
-async fn ut_s023_get_by_id_not_found() {
+async fn test_get_by_id_not_found() {
     let repo = MockPolicyRepository::new()
         .with_find_by_id(Ok(None));
 
@@ -604,7 +604,7 @@ async fn ut_s023_get_by_id_not_found() {
 /// UT-S-024: get_by_id returns `PermissionDenied` when the policy belongs
 /// to a different user (cross-user access).
 #[tokio::test]
-async fn ut_s024_get_by_id_cross_user() {
+async fn test_get_by_id_cross_user() {
     let entity = make_entity("policy-1", "other-user", "test-policy");
     let repo = MockPolicyRepository::new()
         .with_find_by_id(Ok(Some(entity)));
@@ -624,7 +624,7 @@ async fn ut_s024_get_by_id_cross_user() {
 /// UT-S-026: batch delete with an empty list of IDs fails with
 /// `ParamInvalid`.
 #[tokio::test]
-async fn ut_s026_batch_delete_empty_ids() {
+async fn test_batch_delete_empty_ids() {
     let repo = MockPolicyRepository::new();
     let service = make_service(repo);
     let ctx = bearer_ctx("user123", "admin");
@@ -646,7 +646,7 @@ async fn ut_s026_batch_delete_empty_ids() {
 /// UT-S-008: update succeeds with optimistic lock. The entity has version 2,
 /// the update call returns 1 row affected, and the response reports version 3.
 #[tokio::test]
-async fn ut_s008_update_success_with_optimistic_lock() {
+async fn test_update_success_with_optimistic_lock() {
     let entity = PolicyEntity {
         policy_version: 2,
         username: "user1".into(),
@@ -675,7 +675,7 @@ async fn ut_s008_update_success_with_optimistic_lock() {
 
 /// UT-S-009: update returns NotFound when the policy does not exist.
 #[tokio::test]
-async fn ut_s009_update_policy_not_found() {
+async fn test_update_policy_not_found() {
     let repo = MockPolicyRepository::new()
         .with_find_by_id(Ok(None));
 
@@ -695,7 +695,7 @@ async fn ut_s009_update_policy_not_found() {
 /// UT-S-010: update returns PermissionDenied when the policy belongs to a
 /// different user.
 #[tokio::test]
-async fn ut_s010_update_permission_denied_wrong_owner() {
+async fn test_update_permission_denied_wrong_owner() {
     let entity = PolicyEntity {
         username: "user2".into(),
         ..make_entity("pol-1", "user2", "test-policy")
@@ -720,7 +720,7 @@ async fn ut_s010_update_permission_denied_wrong_owner() {
 /// UT-S-011: update returns VersionConflict when optimistic locking detects
 /// that another transaction has already updated the policy.
 #[tokio::test]
-async fn ut_s011_update_version_conflict() {
+async fn test_update_version_conflict() {
     let entity = PolicyEntity {
         policy_version: 2,
         username: "user1".into(),
@@ -753,7 +753,7 @@ async fn ut_s011_update_version_conflict() {
 /// per the design doc (section 9.1.2): a first update_with_version returning
 /// Ok(0) triggers a re-fetch, and a second update_with_version succeeds.
 #[tokio::test]
-async fn ut_s012_update_retry_after_conflict_succeeds() {
+async fn test_update_retry_after_conflict_succeeds() {
     // When the service implements retry:
     //   1st find_by_id → version 2
     //   1st update_with_version → Ok(0)  (conflict)
@@ -794,7 +794,7 @@ async fn ut_s012_update_retry_after_conflict_succeeds() {
 /// UT-S-013: single delete succeeds when the policy exists, belongs to the
 /// caller, and has no resource references.
 #[tokio::test]
-async fn ut_s013_single_delete_success() {
+async fn test_single_delete_success() {
     let entity = make_entity("pol-1", "user1", "my_policy");
     let repo = MockPolicyRepository::new()
         .with_find_by_ids_and_user(Ok(vec![entity]))
@@ -812,7 +812,7 @@ async fn ut_s013_single_delete_success() {
 /// UT-S-014: delete returns BeingReferenced when the policy is referenced
 /// by one or more resources.
 #[tokio::test]
-async fn ut_s014_delete_policy_being_referenced() {
+async fn test_delete_policy_being_referenced() {
     let entity = PolicyEntity {
         policy_name: "my_policy".into(),
         ..make_entity("pol-1", "user1", "my_policy")
@@ -842,7 +842,7 @@ async fn ut_s014_delete_policy_being_referenced() {
 
 /// UT-S-015: batch delete all succeed (transaction commit).
 #[tokio::test]
-async fn ut_s015_batch_delete_all_success() {
+async fn test_batch_delete_all_success() {
     let entities = vec![
         make_entity("pol-1", "user1", "policy-a"),
         make_entity("pol-2", "user1", "policy-b"),
@@ -870,7 +870,7 @@ async fn ut_s015_batch_delete_all_success() {
 /// UT-S-016: batch delete fails when a policy is being referenced
 /// (transaction rollback).
 #[tokio::test]
-async fn ut_s016_batch_delete_partial_referenced() {
+async fn test_batch_delete_partial_referenced() {
     let entities = vec![
         make_entity("pol-1", "user1", "my_policy"),
         make_entity("pol-2", "user1", "policy-2"),
@@ -902,7 +902,7 @@ async fn ut_s016_batch_delete_partial_referenced() {
 /// UT-S-017: batch delete fails when a policy is not found
 /// (transaction rollback).
 #[tokio::test]
-async fn ut_s017_batch_delete_partial_not_found() {
+async fn test_batch_delete_partial_not_found() {
     let repo = MockPolicyRepository::new()
         .with_find_by_id(Ok(None));
 
@@ -925,7 +925,7 @@ async fn ut_s017_batch_delete_partial_not_found() {
 
 /// UT-S-018: list basic — no filter, first page returns items.
 #[tokio::test]
-async fn ut_s018_list_basic() {
+async fn test_list_basic() {
     let e1 = make_entity("pol-1", "user1", "policy-a");
     let e2 = make_entity("pol-2", "user1", "policy-b");
     let repo = MockPolicyRepository::new()
@@ -955,7 +955,7 @@ async fn ut_s018_list_basic() {
 
 /// UT-S-019: list with pagination — offset 20, limit 10 returns 5 items.
 #[tokio::test]
-async fn ut_s019_list_with_pagination() {
+async fn test_list_with_pagination() {
     let items: Vec<PolicyEntity> = (0..5)
         .map(|i| make_entity(&format!("pol-{}", i + 21), "user1", &format!("policy-{}", i + 21)))
         .collect();
@@ -980,7 +980,7 @@ async fn ut_s019_list_with_pagination() {
 /// UT-S-019a: list with limit=0 returns an empty items list but a correct
 /// total count.
 #[tokio::test]
-async fn ut_s019a_list_limit_zero() {
+async fn test_list_limit_zero() {
     let repo = MockPolicyRepository::new()
         .with_list_by_user(Ok((vec![], 25)));
 
@@ -1007,7 +1007,7 @@ async fn ut_s019a_list_limit_zero() {
 /// structure here — once the repo records invocation parameters, the
 /// assertion should verify that `list_by_user` was called with limit=100.
 #[tokio::test]
-async fn ut_s019b_list_limit_clamped() {
+async fn test_list_limit_clamped() {
     let repo = MockPolicyRepository::new()
         .with_list_by_user(Ok((vec![], 0)));
 
@@ -1030,7 +1030,7 @@ async fn ut_s019b_list_limit_clamped() {
 
 /// UT-S-020: get_by_id returns full policy detail including applied resources.
 #[tokio::test]
-async fn ut_s020_get_detail_success() {
+async fn test_get_detail_success() {
     let entity = make_entity("pol-1", "user1", "my_policy");
     let repo = MockPolicyRepository::new()
         .with_find_by_id(Ok(Some(entity)));
@@ -1060,7 +1060,7 @@ async fn ut_s020_get_detail_success() {
 /// only document the expected contract. Once the mock captures the passed
 /// entity, the assertion should verify `captured_entity.policy_version == 3`.
 #[tokio::test]
-async fn ut_s022_version_increment_on_update() {
+async fn test_version_increment_on_update() {
     let entity = PolicyEntity {
         policy_version: 2,
         username: "user1".into(),

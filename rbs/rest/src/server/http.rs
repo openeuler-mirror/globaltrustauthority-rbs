@@ -16,7 +16,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use actix_web::{web, App, HttpServer};
+use actix_web::{web, App, HttpServer, middleware::Logger};
 use rbs_core::auth::Auth;
 use anyhow::{bail, Context};
 use openssl::ssl::{SslAcceptor, SslAcceptorBuilder, SslFiletype, SslMethod};
@@ -181,6 +181,7 @@ impl BoundServer {
                 .app_data(web::Data::new(auth))
                 .app_data(web::PayloadConfig::new(body_limit))
                 .app_data(web::Data::new(max_uri_len as usize))
+                .wrap(Logger::default())
                 .wrap(from_fn(uri_length_guard_middleware))
                 .wrap(from_fn(crate::middleware::auth_middleware));
             #[cfg(feature = "per-ip-rate-limit")]

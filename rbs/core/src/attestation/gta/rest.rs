@@ -36,6 +36,10 @@ use rbs_api_types::{
 
 use crate::attestation::provider::AttestationProvider;
 
+// GTA REST API paths
+const GTA_CHALLENGE_PATH: &str = "/global-trust-authority/service/v1/challenge";
+const GTA_ATTEST_PATH: &str = "/global-trust-authority/service/v1/attest";
+
 // GTA REST API Types (matching GTA service format)
 
 /// GTA Challenge response from `GET /challenge`.
@@ -146,20 +150,41 @@ impl GtaRestClient {
 
     /// Extract error message from response body, falling back to HTTP status if absent or empty.
     async fn extract_error_message(resp: reqwest::Response, status: reqwest::StatusCode) -> String {
-        match resp.json::<GtaErrorResponse>().await {
-            Ok(err_resp) if !err_resp.message.is_empty() => err_resp.message,
-            _ => format!("HTTP {}", status),
+        let status_str = format!("HTTP {}", status);
+
+        let body_text = match resp.text().await {
+            Ok(text) => text,
+            Err(_) => return status_str,
+        };
+
+        // Try to parse as GTA JSON error — safe to include in logs.
+        if let Ok(err_resp) = serde_json::from_str::<GtaErrorResponse>(&body_text) {
+            if !err_resp.message.is_empty() {
+                return err_resp.message;
+            }
         }
+
+        // Non-JSON body may contain internal information; log at debug level only.
+        if !body_text.is_empty() {
+            log::debug!("GTA returned non-JSON error body ({}): {}", status_str, body_text);
+        }
+
+        status_str
     }
 
     /// GET request with retry logic.
     async fn get<T: for<'de> serde::Deserialize<'de>>(&self, path: &str) -> Result<T, GtaError> {
         let url = self.url(path);
+        let user_id = &self.config.credentials.user_id;
         let mut attempt = 0;
 
         loop {
             attempt += 1;
-            match self.client.get(&url).send().await {
+            let mut req = self.client.get(&url);
+            if !user_id.is_empty() {
+                req = req.header("User-Id", user_id);
+            }
+            match req.send().await {
                 Ok(resp) => {
                     let status = resp.status();
                     if status.is_success() {
@@ -204,7 +229,9 @@ impl GtaRestClient {
             attempt += 1;
             // Build request with headers each iteration (RequestBuilder doesn't implement Clone)
             let mut req = self.client.post(&url);
-            req = req.header("User-Id", user_id);
+            if !user_id.is_empty() {
+                req = req.header("User-Id", user_id);
+            }
             if !api_key.is_empty() {
                 req = req.header("API-Key", api_key);
             }
@@ -258,11 +285,26 @@ enum GtaError {
 impl From<GtaError> for RbsError {
     fn from(err: GtaError) -> RbsError {
         match err {
-            GtaError::NetworkError(_) => RbsError::AttestationProviderUnavailable,
-            GtaError::TimeoutError(_) => RbsError::ProviderTimeout,
-            GtaError::ServerError(_) => RbsError::AttestationProviderUnavailable,
-            GtaError::ParseError(context) => RbsError::InternalUnexpected { context },
-            GtaError::ValidationError(msg) => RbsError::InvalidParameter(msg),
+            GtaError::NetworkError(msg) => {
+                log::error!("Attestation provider network error: {}", msg);
+                RbsError::AttestationProviderUnavailable
+            }
+            GtaError::TimeoutError(msg) => {
+                log::error!("Attestation provider timeout: {}", msg);
+                RbsError::ProviderTimeout
+            }
+            GtaError::ServerError(msg) => {
+                log::error!("Attestation provider server error: {}", msg);
+                RbsError::AttestationProviderUnavailable
+            }
+            GtaError::ParseError(context) => {
+                log::error!("Attestation provider parse error: {}", context);
+                RbsError::InternalUnexpected { context }
+            }
+            GtaError::ValidationError(msg) => {
+                log::warn!("Attestation provider validation error: {}", msg);
+                RbsError::InvalidParameter(msg)
+            }
         }
     }
 }
@@ -378,7 +420,7 @@ impl AttestationRestClient {
 impl AttestationProvider for AttestationRestClient {
     async fn get_auth_challenge(&self, _as_provider: Option<&str>) -> Result<AuthChallengeResponse, RbsError> {
         let gta_resp: GtaChallengeResponse = self.rest_client
-            .get("/challenge")
+            .get(GTA_CHALLENGE_PATH)
             .await
             .map_err(RbsError::from)?;
 
@@ -391,7 +433,7 @@ impl AttestationProvider for AttestationRestClient {
         let gta_req = AttestationRestClient::transform_to_gta_format(&req)?;
 
         let gta_resp: GtaAttestResponse = self.rest_client
-            .post("/attest", &gta_req)
+            .post(GTA_ATTEST_PATH, &gta_req)
             .await
             .map_err(RbsError::from)?;
 

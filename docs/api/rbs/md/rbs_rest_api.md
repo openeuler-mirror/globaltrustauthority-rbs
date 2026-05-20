@@ -354,8 +354,17 @@ func main() {
 
 |Name|In|Type|Required|Description|
 |---|---|---|---|---|
-|limit|query|integer(int64)|false|Page size (1..100, default 50)|
-|offset|query|integer(int64)|false|Offset (>=0, default 0)|
+|limit|query|integer(int64)|false|Page size (1..100, default 10)|
+|offset|query|integer(int64)|false|Offset (0..100000, default 0)|
+|role|query|[Role](#schemarole)|false|Filter by role (admin or user)|
+|enabled|query|boolean|false|Filter by enabled status|
+
+#### Enumerated Values
+
+|Parameter|Value|
+|---|---|
+|role|admin|
+|role|user|
 
 > Example responses
 
@@ -363,7 +372,7 @@ func main() {
 
 ```json
 {
-  "items": [
+  "users": [
     {
       "id": "string",
       "username": "string",
@@ -1351,8 +1360,8 @@ func main() {
 |Name|In|Type|Required|Description|
 |---|---|---|---|---|
 |ids|query|string|false|Comma-separated policy IDs|
-|limit|query|integer(int64)|false|Page size|
-|offset|query|integer(int64)|false|Page offset|
+|limit|query|integer(int64)|false|Page size (1..100, default 10)|
+|offset|query|integer(int64)|false|Offset (0..100000, default 0)|
 
 > Example responses
 
@@ -2582,6 +2591,7 @@ bearerAuth, attestAuth
 ```shell
 # You can also use wget
 curl -X PUT http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name} \
+  -H 'Content-Type: application/json' \
   -H 'Accept: application/json' \
   -H 'Authorization: Bearer {access-token}'
 
@@ -2590,13 +2600,20 @@ curl -X PUT http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resou
 ```http
 PUT http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name} HTTP/1.1
 Host: localhost:6666
+Content-Type: application/json
 Accept: application/json
 
 ```
 
 ```javascript
-
+const inputBody = '{
+  "policy_id": "string",
+  "content_type": "string",
+  "export_mode": "string",
+  "additional_info": "string"
+}';
 const headers = {
+  'Content-Type':'application/json',
   'Accept':'application/json',
   'Authorization':'Bearer {access-token}'
 };
@@ -2604,7 +2621,7 @@ const headers = {
 fetch('http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}',
 {
   method: 'PUT',
-
+  body: inputBody,
   headers: headers
 })
 .then(function(res) {
@@ -2620,6 +2637,7 @@ require 'rest-client'
 require 'json'
 
 headers = {
+  'Content-Type' => 'application/json',
   'Accept' => 'application/json',
   'Authorization' => 'Bearer {access-token}'
 }
@@ -2635,6 +2653,7 @@ p JSON.parse(result)
 ```python
 import requests
 headers = {
+  'Content-Type': 'application/json',
   'Accept': 'application/json',
   'Authorization': 'Bearer {access-token}'
 }
@@ -2651,6 +2670,7 @@ print(r.json())
 require 'vendor/autoload.php';
 
 $headers = array(
+    'Content-Type' => 'application/json',
     'Accept' => 'application/json',
     'Authorization' => 'Bearer {access-token}',
 );
@@ -2705,6 +2725,7 @@ import (
 func main() {
 
     headers := map[string][]string{
+        "Content-Type": []string{"application/json"},
         "Accept": []string{"application/json"},
         "Authorization": []string{"Bearer {access-token}"},
     }
@@ -2724,6 +2745,17 @@ func main() {
 
 *Update or create resource*
 
+> Body parameter
+
+```json
+{
+  "policy_id": "string",
+  "content_type": "string",
+  "export_mode": "string",
+  "additional_info": "string"
+}
+```
+
 <h3 id="updateresource-parameters">Parameters</h3>
 
 |Name|In|Type|Required|Description|
@@ -2732,6 +2764,7 @@ func main() {
 |repository_name|path|string|true|Repository name|
 |resource_type|path|string|true|Resource type (secret, cert, etc.)|
 |resource_name|path|string|true|Resource name|
+|body|body|[UpdateResourceRequest](#schemaupdateresourcerequest)|true|none|
 
 > Example responses
 
@@ -2740,15 +2773,16 @@ func main() {
 ```json
 {
   "uri": "string",
-  "user_id": "string",
   "provider_name": "string",
+  "repository_name": "string",
   "resource_type": "string",
   "resource_name": "string",
   "created_at": "string",
   "updated_at": "string",
   "content_type": "string",
   "export_mode": "string",
-  "policy_id": "string"
+  "policy_id": "string",
+  "additional_info": "string"
 }
 ```
 
@@ -2776,6 +2810,7 @@ bearerAuth
 ```shell
 # You can also use wget
 curl -X POST http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name} \
+  -H 'Content-Type: application/json' \
   -H 'Accept: application/json' \
   -H 'Authorization: Bearer {access-token}'
 
@@ -2784,13 +2819,21 @@ curl -X POST http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{reso
 ```http
 POST http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name} HTTP/1.1
 Host: localhost:6666
+Content-Type: application/json
 Accept: application/json
 
 ```
 
 ```javascript
-
+const inputBody = '{
+  "uri": "string",
+  "policy_id": "string",
+  "content_type": "string",
+  "export_mode": "string",
+  "additional_info": "string"
+}';
 const headers = {
+  'Content-Type':'application/json',
   'Accept':'application/json',
   'Authorization':'Bearer {access-token}'
 };
@@ -2798,7 +2841,7 @@ const headers = {
 fetch('http://localhost:6666/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}',
 {
   method: 'POST',
-
+  body: inputBody,
   headers: headers
 })
 .then(function(res) {
@@ -2814,6 +2857,7 @@ require 'rest-client'
 require 'json'
 
 headers = {
+  'Content-Type' => 'application/json',
   'Accept' => 'application/json',
   'Authorization' => 'Bearer {access-token}'
 }
@@ -2829,6 +2873,7 @@ p JSON.parse(result)
 ```python
 import requests
 headers = {
+  'Content-Type': 'application/json',
   'Accept': 'application/json',
   'Authorization': 'Bearer {access-token}'
 }
@@ -2845,6 +2890,7 @@ print(r.json())
 require 'vendor/autoload.php';
 
 $headers = array(
+    'Content-Type' => 'application/json',
     'Accept' => 'application/json',
     'Authorization' => 'Bearer {access-token}',
 );
@@ -2899,6 +2945,7 @@ import (
 func main() {
 
     headers := map[string][]string{
+        "Content-Type": []string{"application/json"},
         "Accept": []string{"application/json"},
         "Authorization": []string{"Bearer {access-token}"},
     }
@@ -2918,6 +2965,18 @@ func main() {
 
 *Create resource*
 
+> Body parameter
+
+```json
+{
+  "uri": "string",
+  "policy_id": "string",
+  "content_type": "string",
+  "export_mode": "string",
+  "additional_info": "string"
+}
+```
+
 <h3 id="createresource-parameters">Parameters</h3>
 
 |Name|In|Type|Required|Description|
@@ -2926,6 +2985,7 @@ func main() {
 |repository_name|path|string|true|Repository name|
 |resource_type|path|string|true|Resource type (secret, cert, etc.)|
 |resource_name|path|string|true|Resource name|
+|body|body|[CreateResourceRequest](#schemacreateresourcerequest)|true|none|
 
 > Example responses
 
@@ -2934,15 +2994,16 @@ func main() {
 ```json
 {
   "uri": "string",
-  "user_id": "string",
   "provider_name": "string",
+  "repository_name": "string",
   "resource_type": "string",
   "resource_name": "string",
   "created_at": "string",
   "updated_at": "string",
   "content_type": "string",
   "export_mode": "string",
-  "policy_id": "string"
+  "policy_id": "string",
+  "additional_info": "string"
 }
 ```
 
@@ -3313,12 +3374,16 @@ func main() {
 ```json
 {
   "uri": "string",
-  "user_id": "string",
-  "policy_id": "string",
+  "provider_name": "string",
+  "repository_name": "string",
+  "resource_type": "string",
+  "resource_name": "string",
   "created_at": "string",
   "updated_at": "string",
   "content_type": "string",
-  "export_mode": "string"
+  "export_mode": "string",
+  "policy_id": "string",
+  "additional_info": "string"
 }
 ```
 
@@ -3326,7 +3391,7 @@ func main() {
 
 |Status|Meaning|Description|Schema|
 |---|---|---|---|
-|200|[OK](https://tools.ietf.org/html/rfc7231#section-6.3.1)|Resource metadata|[ResourceInfoResponse](#schemaresourceinforesponse)|
+|200|[OK](https://tools.ietf.org/html/rfc7231#section-6.3.1)|Resource metadata|[ResourceResponse](#schemaresourceresponse)|
 |401|[Unauthorized](https://tools.ietf.org/html/rfc7235#section-3.1)|Unauthorized|[ErrorBody](#schemaerrorbody)|
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Resource not found|[ErrorBody](#schemaerrorbody)|
@@ -3523,7 +3588,556 @@ To perform this operation, you must be authenticated by means of one of the foll
 None
 </aside>
 
+<h1 id="rbs-rest-api-attestation">Attestation</h1>
+
+Attestation challenge and token issuance via `GET /rbs/v0/challenge` and `POST /rbs/v0/attest`. No authentication required.
+
+## postAttest
+
+<a id="opIdpostAttest"></a>
+
+> Code samples
+
+```shell
+# You can also use wget
+curl -X POST http://localhost:6666/rbs/v0/attest \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json'
+
+```
+
+```http
+POST http://localhost:6666/rbs/v0/attest HTTP/1.1
+Host: localhost:6666
+Content-Type: application/json
+Accept: application/json
+
+```
+
+```javascript
+const inputBody = '{
+  "as_provider": "string",
+  "rbc_evidences": {
+    "agent_version": "string",
+    "measurements": [
+      {
+        "nonce": "string",
+        "node_id": "string",
+        "nonce_type": "string",
+        "token_fmt": "string",
+        "attester_data": {},
+        "evidences": [
+          {
+            "attester_type": "string",
+            "evidence": null,
+            "policy_ids": [
+              "string"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "attester_data": {}
+}';
+const headers = {
+  'Content-Type':'application/json',
+  'Accept':'application/json'
+};
+
+fetch('http://localhost:6666/rbs/v0/attest',
+{
+  method: 'POST',
+  body: inputBody,
+  headers: headers
+})
+.then(function(res) {
+    return res.json();
+}).then(function(body) {
+    console.log(body);
+});
+
+```
+
+```ruby
+require 'rest-client'
+require 'json'
+
+headers = {
+  'Content-Type' => 'application/json',
+  'Accept' => 'application/json'
+}
+
+result = RestClient.post 'http://localhost:6666/rbs/v0/attest',
+  params: {
+  }, headers: headers
+
+p JSON.parse(result)
+
+```
+
+```python
+import requests
+headers = {
+  'Content-Type': 'application/json',
+  'Accept': 'application/json'
+}
+
+r = requests.post('http://localhost:6666/rbs/v0/attest', headers = headers)
+
+print(r.json())
+
+```
+
+```php
+<?php
+
+require 'vendor/autoload.php';
+
+$headers = array(
+    'Content-Type' => 'application/json',
+    'Accept' => 'application/json',
+);
+
+$client = new \GuzzleHttp\Client();
+
+// Define array of request body.
+$request_body = array();
+
+try {
+    $response = $client->request('POST','http://localhost:6666/rbs/v0/attest', array(
+        'headers' => $headers,
+        'json' => $request_body,
+       )
+    );
+    print_r($response->getBody()->getContents());
+ }
+ catch (\GuzzleHttp\Exception\BadResponseException $e) {
+    // handle exception or api errors.
+    print_r($e->getMessage());
+ }
+
+ // ...
+
+```
+
+```java
+URL obj = new URL("http://localhost:6666/rbs/v0/attest");
+HttpURLConnection con = (HttpURLConnection) obj.openConnection();
+con.setRequestMethod("POST");
+int responseCode = con.getResponseCode();
+BufferedReader in = new BufferedReader(
+    new InputStreamReader(con.getInputStream()));
+String inputLine;
+StringBuffer response = new StringBuffer();
+while ((inputLine = in.readLine()) != null) {
+    response.append(inputLine);
+}
+in.close();
+System.out.println(response.toString());
+
+```
+
+```go
+package main
+
+import (
+       "bytes"
+       "net/http"
+)
+
+func main() {
+
+    headers := map[string][]string{
+        "Content-Type": []string{"application/json"},
+        "Accept": []string{"application/json"},
+    }
+
+    data := bytes.NewBuffer([]byte{jsonReq})
+    req, err := http.NewRequest("POST", "http://localhost:6666/rbs/v0/attest", data)
+    req.Header = headers
+
+    client := &http.Client{}
+    resp, err := client.Do(req)
+    // ...
+}
+
+```
+
+`POST /rbs/v0/attest`
+
+*Submit attestation evidence and obtain token*
+
+> Body parameter
+
+```json
+{
+  "as_provider": "string",
+  "rbc_evidences": {
+    "agent_version": "string",
+    "measurements": [
+      {
+        "nonce": "string",
+        "node_id": "string",
+        "nonce_type": "string",
+        "token_fmt": "string",
+        "attester_data": {},
+        "evidences": [
+          {
+            "attester_type": "string",
+            "evidence": null,
+            "policy_ids": [
+              "string"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "attester_data": {}
+}
+```
+
+<h3 id="postattest-parameters">Parameters</h3>
+
+|Name|In|Type|Required|Description|
+|---|---|---|---|---|
+|body|body|[AttestRequest](#schemaattestrequest)|true|none|
+
+> Example responses
+
+> 200 Response
+
+```json
+{
+  "token": "string"
+}
+```
+
+<h3 id="postattest-responses">Responses</h3>
+
+|Status|Meaning|Description|Schema|
+|---|---|---|---|
+|200|[OK](https://tools.ietf.org/html/rfc7231#section-6.3.1)|Attestation token (JSON).|[AttestResponse](#schemaattestresponse)|
+|400|[Bad Request](https://tools.ietf.org/html/rfc7231#section-6.5.1)|Invalid request.|[ErrorBody](#schemaerrorbody)|
+|404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Provider not found.|[ErrorBody](#schemaerrorbody)|
+|500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal server error.|[ErrorBody](#schemaerrorbody)|
+
+<aside class="warning">
+To perform this operation, you must be authenticated by means of one of the following methods:
+None
+</aside>
+
+## getAuthChallenge
+
+<a id="opIdgetAuthChallenge"></a>
+
+> Code samples
+
+```shell
+# You can also use wget
+curl -X GET http://localhost:6666/rbs/v0/challenge \
+  -H 'Accept: application/json'
+
+```
+
+```http
+GET http://localhost:6666/rbs/v0/challenge HTTP/1.1
+Host: localhost:6666
+Accept: application/json
+
+```
+
+```javascript
+
+const headers = {
+  'Accept':'application/json'
+};
+
+fetch('http://localhost:6666/rbs/v0/challenge',
+{
+  method: 'GET',
+
+  headers: headers
+})
+.then(function(res) {
+    return res.json();
+}).then(function(body) {
+    console.log(body);
+});
+
+```
+
+```ruby
+require 'rest-client'
+require 'json'
+
+headers = {
+  'Accept' => 'application/json'
+}
+
+result = RestClient.get 'http://localhost:6666/rbs/v0/challenge',
+  params: {
+  }, headers: headers
+
+p JSON.parse(result)
+
+```
+
+```python
+import requests
+headers = {
+  'Accept': 'application/json'
+}
+
+r = requests.get('http://localhost:6666/rbs/v0/challenge', headers = headers)
+
+print(r.json())
+
+```
+
+```php
+<?php
+
+require 'vendor/autoload.php';
+
+$headers = array(
+    'Accept' => 'application/json',
+);
+
+$client = new \GuzzleHttp\Client();
+
+// Define array of request body.
+$request_body = array();
+
+try {
+    $response = $client->request('GET','http://localhost:6666/rbs/v0/challenge', array(
+        'headers' => $headers,
+        'json' => $request_body,
+       )
+    );
+    print_r($response->getBody()->getContents());
+ }
+ catch (\GuzzleHttp\Exception\BadResponseException $e) {
+    // handle exception or api errors.
+    print_r($e->getMessage());
+ }
+
+ // ...
+
+```
+
+```java
+URL obj = new URL("http://localhost:6666/rbs/v0/challenge");
+HttpURLConnection con = (HttpURLConnection) obj.openConnection();
+con.setRequestMethod("GET");
+int responseCode = con.getResponseCode();
+BufferedReader in = new BufferedReader(
+    new InputStreamReader(con.getInputStream()));
+String inputLine;
+StringBuffer response = new StringBuffer();
+while ((inputLine = in.readLine()) != null) {
+    response.append(inputLine);
+}
+in.close();
+System.out.println(response.toString());
+
+```
+
+```go
+package main
+
+import (
+       "bytes"
+       "net/http"
+)
+
+func main() {
+
+    headers := map[string][]string{
+        "Accept": []string{"application/json"},
+    }
+
+    data := bytes.NewBuffer([]byte{jsonReq})
+    req, err := http.NewRequest("GET", "http://localhost:6666/rbs/v0/challenge", data)
+    req.Header = headers
+
+    client := &http.Client{}
+    resp, err := client.Do(req)
+    // ...
+}
+
+```
+
+`GET /rbs/v0/challenge`
+
+*Obtain an attestation challenge (nonce)*
+
+<h3 id="getauthchallenge-parameters">Parameters</h3>
+
+|Name|In|Type|Required|Description|
+|---|---|---|---|---|
+|as_provider|query|string|false|Target provider ID for challenge|
+
+> Example responses
+
+> 200 Response
+
+```json
+{
+  "nonce": "string"
+}
+```
+
+<h3 id="getauthchallenge-responses">Responses</h3>
+
+|Status|Meaning|Description|Schema|
+|---|---|---|---|
+|200|[OK](https://tools.ietf.org/html/rfc7231#section-6.3.1)|Challenge payload with nonce (JSON).|[AuthChallengeResponse](#schemaauthchallengeresponse)|
+|500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal server error.|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|Attestation provider unavailable.|[ErrorBody](#schemaerrorbody)|
+
+<aside class="warning">
+To perform this operation, you must be authenticated by means of one of the following methods:
+None
+</aside>
+
 # Schemas
+
+<h2 id="tocS_AttestRequest">AttestRequest</h2>
+<!-- backwards compatibility -->
+<a id="schemaattestrequest"></a>
+<a id="schema_AttestRequest"></a>
+<a id="tocSattestrequest"></a>
+<a id="tocsattestrequest"></a>
+
+```json
+{
+  "as_provider": "string",
+  "rbc_evidences": {
+    "agent_version": "string",
+    "measurements": [
+      {
+        "nonce": "string",
+        "node_id": "string",
+        "nonce_type": "string",
+        "token_fmt": "string",
+        "attester_data": {},
+        "evidences": [
+          {
+            "attester_type": "string",
+            "evidence": null,
+            "policy_ids": [
+              "string"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "attester_data": {}
+}
+
+```
+
+Request body for POST /rbs/v0/attest.
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|as_provider|string,null|false|none|Optional attestation backend id (e.g. gta); default is deployment-specific.|
+|rbc_evidences|[RbcEvidencesPayload](#schemarbcevidencespayload)|false|none|Evidence bundle from RBC.|
+|attester_data|any|false|none|none|
+
+oneOf
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|» *anonymous*|null|false|none|none|
+
+xor
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|» *anonymous*|[AttesterData](#schemaattesterdata)|false|none|Top-level attester metadata; used if measurement-level attester_data is absent.|
+
+<h2 id="tocS_AttestResponse">AttestResponse</h2>
+<!-- backwards compatibility -->
+<a id="schemaattestresponse"></a>
+<a id="schema_AttestResponse"></a>
+<a id="tocSattestresponse"></a>
+<a id="tocsattestresponse"></a>
+
+```json
+{
+  "token": "string"
+}
+
+```
+
+Response for POST /rbs/v0/attest.
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|token|string|true|none|AttestToken or session JWT for subsequent Bearer resource access.|
+
+<h2 id="tocS_AttesterData">AttesterData</h2>
+<!-- backwards compatibility -->
+<a id="schemaattesterdata"></a>
+<a id="schema_AttesterData"></a>
+<a id="tocSattesterdata"></a>
+<a id="tocsattesterdata"></a>
+
+```json
+{
+  "runtime_data": {
+    "property1": null,
+    "property2": null
+  }
+}
+
+```
+
+Optional attester-supplied metadata.
+
+Same structure for top-level `attester_data` on AttestRequest
+and for `measurements[].attester_data`. If a measurement defines `attester_data`,
+it wins for that measurement; otherwise the top-level `attester_data` applies.
+
+`runtime_data` must not duplicate the challenge nonce (nonce lives only under
+`rbc_evidences.measurements[].nonce`).
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|runtime_data|object,null|false|none|Key/value runtime fields (e.g. attester_pubkey as JWK for encrypted resource return);<br>excludes nonce.|
+|» **additionalProperties**|any|false|none|none|
+
+<h2 id="tocS_AuthChallengeResponse">AuthChallengeResponse</h2>
+<!-- backwards compatibility -->
+<a id="schemaauthchallengeresponse"></a>
+<a id="schema_AuthChallengeResponse"></a>
+<a id="tocSauthchallengeresponse"></a>
+<a id="tocsauthchallengeresponse"></a>
+
+```json
+{
+  "nonce": "string"
+}
+
+```
+
+Response for GET /rbs/v0/challenge (attestation challenge).
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|nonce|string|true|none|Challenge value for binding attestation (opaque; often Base64).<br>Use the field value as-is in `rbc_evidences.measurements[].nonce`<br>for POST /rbs/v0/attest and POST .../retrieve.|
 
 <h2 id="tocS_AuthType">AuthType</h2>
 <!-- backwards compatibility -->
@@ -3576,6 +4190,28 @@ Build-time identity for the running binary.
 |version|string|true|none|Cargo package / release version (semver).|
 |git_hash|string|true|none|Git commit hash at build time (hex), or empty when not embedded at build.|
 |build_date|string|true|none|Build timestamp (UTC), typically RFC 3339, or empty when not embedded at build.|
+
+<h2 id="tocS_ChallengeRequest">ChallengeRequest</h2>
+<!-- backwards compatibility -->
+<a id="schemachallengerequest"></a>
+<a id="schema_ChallengeRequest"></a>
+<a id="tocSchallengerequest"></a>
+<a id="tocschallengerequest"></a>
+
+```json
+{
+  "as_provider": "string"
+}
+
+```
+
+Query parameter for GET /rbs/v0/challenge (challenge request).
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|as_provider|string,null|false|none|Optional attestation backend id (e.g. gta); default is deployment-specific.|
 
 <h2 id="tocS_CreatePolicyRequest">CreatePolicyRequest</h2>
 <!-- backwards compatibility -->
@@ -3724,11 +4360,140 @@ Policy response returned to callers.
 |policy_id|string|true|none|none|
 |policy_name|string|true|none|none|
 |policy_version|integer(int32)|true|none|none|
-|policy_content|string|true|none|none|
+|policy_content|string|false|none|none|
 |content_type|string|true|none|none|
 |created_at|string|true|none|none|
 |updated_at|string|true|none|none|
 |applied_resources|array,null|false|none|none|
+
+<h2 id="tocS_RbcEvidenceItem">RbcEvidenceItem</h2>
+<!-- backwards compatibility -->
+<a id="schemarbcevidenceitem"></a>
+<a id="schema_RbcEvidenceItem"></a>
+<a id="tocSrbcevidenceitem"></a>
+<a id="tocsrbcevidenceitem"></a>
+
+```json
+{
+  "attester_type": "string",
+  "evidence": null,
+  "policy_ids": [
+    "string"
+  ]
+}
+
+```
+
+Single attestation artifact within a measurement (backend-specific detail).
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|attester_type|string,null|false|none|Plugin or attester kind (e.g. tpm_boot).|
+|evidence|any|false|none|Evidence payload (string or object per attestation backend).|
+|policy_ids|array,null|false|none|Policy identifiers evaluated for this evidence.|
+
+<h2 id="tocS_RbcEvidencesPayload">RbcEvidencesPayload</h2>
+<!-- backwards compatibility -->
+<a id="schemarbcevidencespayload"></a>
+<a id="schema_RbcEvidencesPayload"></a>
+<a id="tocSrbcevidencespayload"></a>
+<a id="tocsrbcevidencespayload"></a>
+
+```json
+{
+  "agent_version": "string",
+  "measurements": [
+    {
+      "nonce": "string",
+      "node_id": "string",
+      "nonce_type": "string",
+      "token_fmt": "string",
+      "attester_data": {},
+      "evidences": [
+        {
+          "attester_type": "string",
+          "evidence": null,
+          "policy_ids": [
+            "string"
+          ]
+        }
+      ]
+    }
+  ]
+}
+
+```
+
+Evidence JSON produced by RBC (`collect_evidence`) or equivalent.
+
+Typical GTA-oriented shape includes a non-empty `measurements` array;
+deployments may add other keys or per-backend wrappers.
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|agent_version|string,null|false|none|Optional agent or collector version string.|
+|measurements|[[RbcMeasurement](#schemarbcmeasurement)]|false|none|At least one entry required for standard attest flows; each entry carries nonce and evidences.|
+
+<h2 id="tocS_RbcMeasurement">RbcMeasurement</h2>
+<!-- backwards compatibility -->
+<a id="schemarbcmeasurement"></a>
+<a id="schema_RbcMeasurement"></a>
+<a id="tocSrbcmeasurement"></a>
+<a id="tocsrbcmeasurement"></a>
+
+```json
+{
+  "nonce": "string",
+  "node_id": "string",
+  "nonce_type": "string",
+  "token_fmt": "string",
+  "attester_data": {},
+  "evidences": [
+    {
+      "attester_type": "string",
+      "evidence": null,
+      "policy_ids": [
+        "string"
+      ]
+    }
+  ]
+}
+
+```
+
+One node or attestation unit inside the evidence bundle.
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|nonce|string|true|none|Must equal the `nonce` field from GET /rbs/v0/challenge (same string, no transformation).|
+|node_id|string,null|false|none|Optional node or workload identifier.|
+|nonce_type|string,null|false|none|Optional hint for nonce interpretation (backend-specific).|
+|token_fmt|string,null|false|none|Optional desired token format hint (backend-specific).|
+|attester_data|any|false|none|none|
+
+oneOf
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|» *anonymous*|null|false|none|none|
+
+xor
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|» *anonymous*|[AttesterData](#schemaattesterdata)|false|none|Attester-supplied metadata for this measurement.|
+
+continued
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|evidences|array,null|false|none|Collected attestation artifacts for this measurement.|
 
 <h2 id="tocS_RbsVersion">RbsVersion</h2>
 <!-- backwards compatibility -->
@@ -3834,15 +4599,16 @@ Resource metadata returned by GET .../info (no secret material).
 ```json
 {
   "uri": "string",
-  "user_id": "string",
   "provider_name": "string",
+  "repository_name": "string",
   "resource_type": "string",
   "resource_name": "string",
   "created_at": "string",
   "updated_at": "string",
   "content_type": "string",
   "export_mode": "string",
-  "policy_id": "string"
+  "policy_id": "string",
+  "additional_info": "string"
 }
 
 ```
@@ -3854,8 +4620,8 @@ Resource metadata returned after create or update.
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
 |uri|string|true|none|none|
-|user_id|string|true|none|none|
 |provider_name|string|true|none|none|
+|repository_name|string|true|none|none|
 |resource_type|string|true|none|none|
 |resource_name|string|true|none|none|
 |created_at|string|true|none|none|
@@ -3863,6 +4629,7 @@ Resource metadata returned after create or update.
 |content_type|string,null|false|none|none|
 |export_mode|string|true|none|none|
 |policy_id|string|true|none|none|
+|additional_info|string,null|false|none|none|
 
 <h2 id="tocS_Role">Role</h2>
 <!-- backwards compatibility -->
@@ -3991,8 +4758,8 @@ continued
 |---|---|---|---|---|
 |enabled|boolean,null|false|none|Whether the account is enabled.|
 |auth_type|[AuthType](#schemaauthtype)|true|none|Authentication type.|
-|public_key|string,null|false|none|PEM-encoded public key (mutually exclusive with `jwk`).|
-|jwk|any|false|none|JWK public key object (mutually exclusive with `public_key`).|
+|public_key|string,null|false|none|Base64-encoded PEM public key (mutually exclusive with `jwk`).|
+|jwk|any|false|none|JWK public key JSON object (mutually exclusive with `public_key`).|
 
 <h2 id="tocS_UserListResponse">UserListResponse</h2>
 <!-- backwards compatibility -->
@@ -4003,7 +4770,7 @@ continued
 
 ```json
 {
-  "items": [
+  "users": [
     {
       "id": "string",
       "username": "string",
@@ -4026,7 +4793,7 @@ Paginated response for GET /rbs/v0/users.
 
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
-|items|[[UserResponse](#schemauserresponse)]|true|none|Page of users.|
+|users|[[UserResponse](#schemauserresponse)]|true|none|Page of users.|
 |total_count|integer(int64)|true|none|Total matching users (not only this page).|
 |limit|integer(int64)|true|none|Effective page size (may mirror request `limit`).|
 |offset|integer(int64)|true|none|Effective skip count (may mirror request `offset`).|
@@ -4127,6 +4894,6 @@ continued
 
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
-|public_key|string,null|false|none|PEM-encoded public key (mutually exclusive with `jwk`).|
-|jwk|any|false|none|JWK public key object (mutually exclusive with `public_key`).|
+|public_key|string,null|false|none|Base64-encoded PEM public key (mutually exclusive with `jwk`).|
+|jwk|any|false|none|JWK public key JSON object (mutually exclusive with `public_key`).|
 

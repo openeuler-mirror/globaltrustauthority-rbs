@@ -55,7 +55,7 @@ pub struct RbcEvidenceItem {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct RbcMeasurement {
-    /// Must equal the `nonce` field from GET /rbs/v0/auth (same string, no transformation).
+    /// Must equal the `nonce` field from GET /rbs/v0/challenge (same string, no transformation).
     pub nonce: String,
     /// Optional node or workload identifier.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -89,6 +89,15 @@ pub struct RbcEvidencesPayload {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub measurements: Vec<RbcMeasurement>,
 
+}
+
+/// Query parameter for GET /rbs/v0/challenge (challenge request).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct ChallengeRequest {
+    /// Optional attestation backend id (e.g. gta); default is deployment-specific.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub as_provider: Option<String>,
 }
 
 /// Request body for POST /rbs/v0/attest.

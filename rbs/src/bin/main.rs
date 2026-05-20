@@ -25,8 +25,8 @@ use rbs_core::rdb::execute_sql_file_path;
 #[derive(Parser)]
 #[command(name = "rbs")]
 struct Cli {
-    /// Path to config file (default: rbs.yaml, or `RBS_CONFIG` env).
-    #[arg(short, long, env = "RBS_CONFIG", default_value = "rbs.yaml")]
+    /// Path to config file (default: /etc/rbs/rbs.yaml, or `RBS_CONFIG` env).
+    #[arg(short, long, env = "RBS_CONFIG", default_value = "/etc/rbs/rbs.yaml")]
     config: String,
 }
 

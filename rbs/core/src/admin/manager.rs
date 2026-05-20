@@ -18,9 +18,9 @@ use std::fs;
 use chrono::Timelike;
 use rbs_api_types::error::RbsError;
 use rbs_api_types::{
-    AdminConfig, Role, UserCreateRequest, UserListResponse, UserResponse, UserUpdateRequest,
+    AdminConfig, Role, UserCreateRequest, UserListQuery, UserListResponse, UserResponse, UserUpdateRequest,
 };
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set, TransactionTrait};
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Select, Set, TransactionTrait};
 use serde_json::Value;
 
 use crate::auth::{Action, AuthContext, AuthzError, AuthzFacade, RequiredRole};
@@ -104,8 +104,9 @@ impl AdminManager {
     }
 
     /// List users (admin only).
-    pub async fn list_users(&self, limit: i64, offset: i64, auth_ctx: &AuthContext) -> Result<UserListResponse> {
-        log::info!("[DEBUG] list_users called: limit={}, offset={}", limit, offset);
+    pub async fn list_users(&self, params: &UserListQuery, auth_ctx: &AuthContext) -> Result<UserListResponse> {
+        log::info!("list_users called: limit={:?}, offset={:?}, role={:?}, enabled={:?}",
+            params.limit, params.offset, params.role, params.enabled);
 
         let bearer = match self.require_enabled_admin(auth_ctx).await {
             Ok(b) => {
@@ -118,6 +119,9 @@ impl AdminManager {
             }
         };
 
+        let limit = params.limit.unwrap_or(10);
+        let offset = params.offset.unwrap_or(0);
+
         log::debug!("Listing users (limit={}, offset={}) by '{}'", limit, offset, bearer.sub);
 
         let db = get_connection_from_pool().map_err(|e| {
@@ -125,12 +129,15 @@ impl AdminManager {
             internal_err(e)
         })?;
 
-        let total_count = UserEntity::find().count(&*db).await.map_err(|e| {
-            log::error!("Failed to count users: {}", e);
-            internal_err(e)
-        })? as i64;
+        let total_count = Self::build_filtered_query(params)
+            .count(&*db)
+            .await
+            .map_err(|e| {
+                log::error!("Failed to count users: {}", e);
+                internal_err(e)
+            })? as i64;
 
-        let models = UserEntity::find()
+        let models = Self::build_filtered_query(params)
             .order_by_asc(UserColumn::Username)
             .limit(Some(limit as u64))
             .offset(Some(offset as u64))
@@ -141,9 +148,9 @@ impl AdminManager {
                 internal_err(e)
             })?;
 
-        let items = models.into_iter().map(|m| model_to_response(&m)).collect();
+        let users = models.into_iter().map(|m| model_to_response(&m)).collect();
 
-        Ok(UserListResponse { items, total_count, limit, offset })
+        Ok(UserListResponse { users, total_count, limit, offset })
     }
 
     /// Create a user (admin only).
@@ -171,7 +178,7 @@ impl AdminManager {
                     "User creation by '{}' rejected: max_users limit ({}) reached",
                     bearer.sub, self.config.max_users
                 );
-                return RbsError::AuthzInsufficientPermissions;
+                return RbsError::ResourceQuotaExceeded;
             }
             log::error!("Failed to insert user '{}': {}", req.username, e);
             internal_err(e)
@@ -188,7 +195,7 @@ impl AdminManager {
 
     /// Get a user (admin or self).
     pub async fn get_user(&self, username: &str, auth_ctx: &AuthContext) -> Result<Option<UserResponse>> {
-        log::info!("[DEBUG] get_user: called with username={}", username);
+        log::info!("get_user: called with username={}", username);
         let bearer = self.require_enabled_bearer(auth_ctx).await?;
 
         if bearer.role != ROLE_ADMIN && bearer.sub != username {
@@ -230,6 +237,22 @@ impl AdminManager {
 
         validator::Validate::validate(req).map_err(|e| RbsError::InvalidParameter(e.to_string()))?;
         req.validate_cross_fields()?;
+
+        if username == ADMIN_USERNAME {
+            if let Some(ref role) = req.role {
+                if *role != Role::Admin {
+                    log::warn!("Update '{}' rejected: cannot change role of the built-in administrator", username);
+                    return Err(RbsError::InvalidParameter("Cannot change role of the built-in administrator".to_string()));
+                }
+            }
+            if let Some(enabled) = req.enabled {
+                if !enabled {
+                    log::warn!("Update '{}' rejected: cannot disable the built-in administrator", username);
+                    return Err(RbsError::InvalidParameter("Cannot disable the built-in administrator".to_string()));
+                }
+            }
+        }
+
         if !is_admin {
             AdminManager::enforce_whitelist(req, username)?;
         }
@@ -293,8 +316,9 @@ impl AdminManager {
     /// Assumes `req.validate()` has already been called.
     fn extract_auth_material(req: &UserCreateRequest) -> Result<(String, String)> {
         let auth_value = if let Some(pk) = req.public_key.as_deref().filter(|s| !s.is_empty()) {
-            validate_and_derive_alg(pk)?;
-            pk.to_string()
+            let pem = crate::admin::key::decode_base64_input(pk, "public_key")?;
+            validate_and_derive_alg(&pem)?;
+            pem
         } else if let Some(jwk) = &req.jwk {
             jwk_to_pem(jwk)?
         } else {
@@ -308,8 +332,9 @@ impl AdminManager {
     /// Extract optional key material from a validated `UserUpdateRequest`.
     fn extract_update_key_material(req: &UserUpdateRequest) -> Result<Option<(String, String)>> {
         if let Some(pk) = req.public_key.as_deref().filter(|s| !s.is_empty()) {
-            let alg = validate_and_derive_alg(pk)?;
-            Ok(Some((pk.to_string(), alg)))
+            let pem = crate::admin::key::decode_base64_input(pk, "public_key")?;
+            let alg = validate_and_derive_alg(&pem)?;
+            Ok(Some((pem, alg)))
         } else if let Some(jwk) = &req.jwk {
             let pem = jwk_to_pem(jwk)?;
             let alg = validate_and_derive_alg(&pem)?;
@@ -373,6 +398,19 @@ impl AdminManager {
             })
         })
         .await
+    }
+
+    /// Build a filtered `Select<UserEntity>` from query parameters.
+    /// Called once for count and once for data so both queries apply the same filters.
+    fn build_filtered_query(params: &UserListQuery) -> Select<UserEntity> {
+        let mut query = UserEntity::find();
+        if let Some(ref role) = params.role {
+            query = query.filter(UserColumn::Role.eq(DbRole::from(*role)));
+        }
+        if let Some(enabled) = params.enabled {
+            query = query.filter(UserColumn::Status.eq(if enabled { UserStatus::Enabled } else { UserStatus::Disabled }));
+        }
+        query
     }
 
     // ── Update helpers ──
@@ -440,7 +478,7 @@ impl AdminManager {
 
     /// Authorize with `AdminOnly`, check enabled, return `BearerContext`.
     async fn require_enabled_admin<'a>(&self, auth_ctx: &'a AuthContext) -> Result<&'a crate::auth::BearerContext> {
-        log::info!("[DEBUG] require_enabled_admin: starting authz check");
+        log::info!("require_enabled_admin: starting authz check");
 
         let result = self.authz
             .check(auth_ctx)
@@ -450,25 +488,25 @@ impl AdminManager {
             .await;
 
         match result {
-            Ok(_) => log::info!("[DEBUG] require_enabled_admin: authz check passed"),
+            Ok(_) => log::info!("require_enabled_admin: authz check passed"),
             Err(e) => {
-                log::error!("[DEBUG] require_enabled_admin: authz check failed: {:?}", e);
+                log::error!("require_enabled_admin: authz check failed: {:?}", e);
                 return Err(map_authz_err(e, auth_ctx));
             }
         }
 
         let bearer = extract_bearer(auth_ctx)?;
-        log::info!("[DEBUG] require_enabled_admin: extract_bearer succeeded, sub={}", bearer.sub);
+        log::info!("require_enabled_admin: extract_bearer succeeded, sub={}", bearer.sub);
 
         self.ensure_enabled(&bearer.sub).await?;
-        log::info!("[DEBUG] require_enabled_admin: ensure_enabled passed");
+        log::info!("require_enabled_admin: ensure_enabled passed");
 
         Ok(bearer)
     }
 
     /// Authorize with `UserScoped`, check enabled, return `BearerContext`.
     async fn require_enabled_bearer<'a>(&self, auth_ctx: &'a AuthContext) -> Result<&'a crate::auth::BearerContext> {
-        log::info!("[DEBUG] require_enabled_bearer: starting authz check");
+        log::info!("require_enabled_bearer: starting authz check");
         let result = self.authz
             .check(auth_ctx)
             .action(Action::Get)
@@ -477,40 +515,40 @@ impl AdminManager {
             .await;
 
         match result {
-            Ok(_) => log::info!("[DEBUG] require_enabled_bearer: authz check passed"),
+            Ok(_) => log::info!("require_enabled_bearer: authz check passed"),
             Err(e) => {
-                log::error!("[DEBUG] require_enabled_bearer: authz check failed: {:?}", e);
+                log::error!("require_enabled_bearer: authz check failed: {:?}", e);
                 return Err(map_authz_err(e, auth_ctx));
             }
         }
 
         let bearer = extract_bearer(auth_ctx)?;
-        log::info!("[DEBUG] require_enabled_bearer: extract_bearer succeeded, sub={}", bearer.sub);
+        log::info!("require_enabled_bearer: extract_bearer succeeded, sub={}", bearer.sub);
 
         self.ensure_enabled(&bearer.sub).await?;
-        log::info!("[DEBUG] require_enabled_bearer: ensure_enabled passed");
+        log::info!("require_enabled_bearer: ensure_enabled passed");
 
         Ok(bearer)
     }
 
     /// Verify the calling user is enabled.
     async fn ensure_enabled(&self, username: &str) -> Result<()> {
-        log::info!("[DEBUG] ensure_enabled: checking username={}", username);
+        log::info!("ensure_enabled: checking username={}", username);
 
         let db = get_connection_from_pool().map_err(|e| {
-            log::error!("[DEBUG] ensure_enabled: get_connection_from_pool failed: {}", e);
+            log::error!("ensure_enabled: get_connection_from_pool failed: {}", e);
             internal_err(e)
         })?;
-        log::info!("[DEBUG] ensure_enabled: got DB connection");
+        log::info!("ensure_enabled: got DB connection");
 
         let model = UserEntity::find_by_id(username)
             .one(&*db)
             .await
             .map_err(|e| {
-                log::error!("[DEBUG] ensure_enabled: query failed: {}", e);
+                log::error!("ensure_enabled: query failed: {}", e);
                 internal_err(e)
             })?;
-        log::info!("[DEBUG] ensure_enabled: query succeeded, model={:?}", model.as_ref().map(|m| (&m.username, m.status)));
+        log::info!("ensure_enabled: query succeeded, model={:?}", model.as_ref().map(|m| (&m.username, m.status)));
 
         match model {
             Some(m) if m.status == UserStatus::Disabled => {
@@ -679,17 +717,8 @@ mod tests {
     use super::*;
     use rbs_api_types::{AuthType, Role};
 
-    const TEST_RSA_PUBKEY: &str = concat!(
-        "-----BEGIN PUBLIC KEY-----\n",
-        "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA7JOjGVgMbclDvZ0zW8by\n",
-        "ALpLyUSNYkb5dyy9xFBEg97RI1SSx0rcOkrd7fb/aJThQ7n47OaSpaJZmNzL/phQ\n",
-        "9TnqHafrOsY8nYn1PlGbUu0yo99CLF9EOqmUpLfAkCELFumP5xt1DSJ+VN4gxVeq\n",
-        "GNAthfi7ceWKuWRgfkTif2wXJXEpCBunyTEM4nqvOZX+lMLWkvv/jaovl+PjNQyk\n",
-        "wTFjgs3EC7Cn/C35xYHRAws3iBXk8PJ7TPFiG3L2pDIP30jxTbu3taOpkAarieSg\n",
-        "rK+Dsrv9RIirzseAH3XnSOHDQDVU++8Jw421BQw/ZiYCfIye2RplBpaLcL8xhIIf\n",
-        "CwIDAQAB\n",
-        "-----END PUBLIC KEY-----\n"
-    );
+    // Base64 encoded RSA public key (with 64-char line breaks)
+    const TEST_RSA_PUBKEY_B64: &str = "LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUlJQklqQU5CZ2txaGtpRzl3MEJBUUVGQUFPQ0FROEFNSUlCQ2dLQ0FRRUE3Sk9qR1ZnTWJjbER2WjB6VzhieQpBTHBMeVVTTllrYjVkeXk5eEZCRWc5N1JJMVNTeDByY09rcmQ3ZmIvYUpUaFE3bjQ3T2FTcGFKWm1OekwvcGhRCjlUbnFIYWZyT3NZOG5ZbjFQbEdiVXUweW85OUNMRjlFT3FtVXBMZkFrQ0VMRnVtUDV4dDFEU0orVk40Z3hWZXEKR05BdGhmaTdjZVdLdVdSZ2ZrVGlmMndYSlhFcENCdW55VEVNNG5xdk9aWCtsTUxXa3Z2L2phb3ZsK1BqTlF5awp3VEZqZ3MzRUM3Q24vQzM1eFlIUkF3czNpQlhrOFBKN1RQRmlHM0wycERJUDMwanhUYnUzdGFPcGtBYXJpZVNnCnJLK0RzcnY5UklpcnpzZUFIM1huU09IRFFEVlUrKzhKdzQyMUJRdy9aaVlDZkl5ZTJScGxCcGFMY0w4eGhJSWYKQ3dJREFRQUIKLS0tLS1FTkQgUFVCTElDIEtFWS0tLS0tCg==";
 
     #[test]
     fn uuid_generation_returns_valid_format() {
@@ -711,14 +740,14 @@ mod tests {
             role: None,
             enabled: None,
             auth_type: AuthType::Jwt,
-            public_key: Some(TEST_RSA_PUBKEY.to_string()),
+            public_key: Some(TEST_RSA_PUBKEY_B64.to_string()),
             jwk: None,
         };
         let result = AdminManager::extract_auth_material(&req);
         assert!(result.is_ok());
         let (auth_value, auth_alg) = result.unwrap();
         assert!(auth_value.contains("BEGIN PUBLIC KEY"));
-        assert_eq!(auth_alg, "RS256");
+        assert_eq!(auth_alg, "RSA");
     }
 
     #[test]
@@ -741,7 +770,7 @@ mod tests {
             role: None,
             enabled: None,
             auth_type: Some(AuthType::Jwt),
-            public_key: Some(TEST_RSA_PUBKEY.to_string()),
+            public_key: Some(TEST_RSA_PUBKEY_B64.to_string()),
             jwk: None,
         };
         let result = AdminManager::extract_update_key_material(&req);
@@ -750,7 +779,7 @@ mod tests {
         assert!(material.is_some());
         let (auth_value, auth_alg) = material.unwrap();
         assert!(auth_value.contains("BEGIN PUBLIC KEY"));
-        assert_eq!(auth_alg, "RS256");
+        assert_eq!(auth_alg, "RSA");
     }
 
     #[test]
@@ -803,7 +832,7 @@ mod tests {
             role: None,
             enabled: None,
             auth_type: Some(AuthType::Jwt),
-            public_key: Some(TEST_RSA_PUBKEY.to_string()),
+            public_key: Some("dGVzdEtleQ==".to_string()),  // base64 of "testKey"
             jwk: None,
         };
         let result = AdminManager::enforce_whitelist(&req, "test_user");
@@ -821,5 +850,125 @@ mod tests {
         };
         let result = AdminManager::enforce_whitelist(&req, "test_user");
         assert!(result.is_ok());
+    }
+
+    // ── Filtered list_users integration tests (SQLite in-memory) ──
+
+    async fn setup_test_users(db: &sea_orm::DatabaseConnection) {
+        let now = chrono::Utc::now().with_nanosecond(0).unwrap();
+        let users = vec![
+            ("Alice", DbRole::Admin, UserStatus::Enabled),
+            ("Bob", DbRole::User, UserStatus::Enabled),
+            ("Charlie", DbRole::User, UserStatus::Disabled),
+            ("Dave", DbRole::User, UserStatus::Enabled),
+            ("Eve", DbRole::User, UserStatus::Disabled),
+        ];
+        for (name, role, status) in users {
+            let model = UserActiveModel {
+                user_id: Set(uuid::Uuid::new_v4().to_string()),
+                username: Set(name.to_string()),
+                role: Set(role),
+                auth_type: Set(DbAuthType::Jwt),
+                auth_value: Set("test-key".to_string()),
+                auth_alg: Set("RSA".to_string()),
+                status: Set(status),
+                created_at: Set(now),
+                updated_at: Set(now),
+                ..Default::default()
+            };
+            model.insert(db).await.expect("insert test user");
+        }
+    }
+
+    async fn run_filtered_query(db: &sea_orm::DatabaseConnection, params: &UserListQuery) -> Vec<String> {
+        let models = AdminManager::build_filtered_query(params)
+            .order_by_asc(UserColumn::Username)
+            .all(db)
+            .await
+            .expect("query users");
+        models.into_iter().map(|m| m.username).collect()
+    }
+
+    #[tokio::test]
+    async fn filter_no_params_returns_all() {
+        let db = sea_orm::Database::connect("sqlite::memory:").await.expect("connect");
+        crate::rdb::execute_sql_file_path(&db, "../rdb_sql/sqlite_rbs.sql").await.expect("migrate");
+        setup_test_users(&db).await;
+
+        let params = UserListQuery { limit: None, offset: None, role: None, enabled: None };
+        let users = run_filtered_query(&db, &params).await;
+        assert_eq!(users.len(), 5);
+    }
+
+    #[tokio::test]
+    async fn filter_by_role_user() {
+        let db = sea_orm::Database::connect("sqlite::memory:").await.expect("connect");
+        crate::rdb::execute_sql_file_path(&db, "../rdb_sql/sqlite_rbs.sql").await.expect("migrate");
+        setup_test_users(&db).await;
+
+        let params = UserListQuery { limit: None, offset: None, role: Some(Role::User), enabled: None };
+        let users = run_filtered_query(&db, &params).await;
+        assert_eq!(users.len(), 4);
+        assert!(!users.contains(&"Alice".to_string()));
+    }
+
+    #[tokio::test]
+    async fn filter_by_role_admin() {
+        let db = sea_orm::Database::connect("sqlite::memory:").await.expect("connect");
+        crate::rdb::execute_sql_file_path(&db, "../rdb_sql/sqlite_rbs.sql").await.expect("migrate");
+        setup_test_users(&db).await;
+
+        let params = UserListQuery { limit: None, offset: None, role: Some(Role::Admin), enabled: None };
+        let users = run_filtered_query(&db, &params).await;
+        assert_eq!(users.len(), 1);
+        assert_eq!(users[0], "Alice");
+    }
+
+    #[tokio::test]
+    async fn filter_by_enabled_true() {
+        let db = sea_orm::Database::connect("sqlite::memory:").await.expect("connect");
+        crate::rdb::execute_sql_file_path(&db, "../rdb_sql/sqlite_rbs.sql").await.expect("migrate");
+        setup_test_users(&db).await;
+
+        let params = UserListQuery { limit: None, offset: None, role: None, enabled: Some(true) };
+        let users = run_filtered_query(&db, &params).await;
+        assert_eq!(users.len(), 3);
+        assert!(!users.contains(&"Charlie".to_string()));
+        assert!(!users.contains(&"Eve".to_string()));
+    }
+
+    #[tokio::test]
+    async fn filter_by_enabled_false() {
+        let db = sea_orm::Database::connect("sqlite::memory:").await.expect("connect");
+        crate::rdb::execute_sql_file_path(&db, "../rdb_sql/sqlite_rbs.sql").await.expect("migrate");
+        setup_test_users(&db).await;
+
+        let params = UserListQuery { limit: None, offset: None, role: None, enabled: Some(false) };
+        let users = run_filtered_query(&db, &params).await;
+        assert_eq!(users.len(), 2);
+        assert_eq!(users, vec!["Charlie", "Eve"]);
+    }
+
+    #[tokio::test]
+    async fn filter_by_role_and_enabled_combined() {
+        let db = sea_orm::Database::connect("sqlite::memory:").await.expect("connect");
+        crate::rdb::execute_sql_file_path(&db, "../rdb_sql/sqlite_rbs.sql").await.expect("migrate");
+        setup_test_users(&db).await;
+
+        let params = UserListQuery { limit: None, offset: None, role: Some(Role::User), enabled: Some(true) };
+        let users = run_filtered_query(&db, &params).await;
+        assert_eq!(users.len(), 2);
+        assert_eq!(users, vec!["Bob", "Dave"]);
+    }
+
+    #[tokio::test]
+    async fn filter_admin_disabled_returns_empty() {
+        let db = sea_orm::Database::connect("sqlite::memory:").await.expect("connect");
+        crate::rdb::execute_sql_file_path(&db, "../rdb_sql/sqlite_rbs.sql").await.expect("migrate");
+        setup_test_users(&db).await;
+
+        let params = UserListQuery { limit: None, offset: None, role: Some(Role::Admin), enabled: Some(false) };
+        let users = run_filtered_query(&db, &params).await;
+        assert!(users.is_empty());
     }
 }
