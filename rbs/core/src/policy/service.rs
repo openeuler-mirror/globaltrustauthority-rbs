@@ -283,13 +283,8 @@ impl PolicyService {
         let username = ctx.sub();
 
         // ── step 2: execute ──
-        let limit = if query.limit > self.config.max_page_size as i64 {
-            self.config.max_page_size as i64
-        } else if query.limit < 0 {
-            0
-        } else {
-            query.limit
-        };
+        let limit = query.limit;
+        let offset = query.offset;
 
         let (items, total) = if let Some(ref ids) = query.ids {
             if ids.is_empty() {
@@ -317,7 +312,7 @@ impl PolicyService {
             })
             .collect();
 
-        Ok(PolicyListResponse { items, total })
+        Ok(PolicyListResponse { items, total_count: total as i64, limit, offset })
     }
 
     /// Get a single policy by ID with full details.

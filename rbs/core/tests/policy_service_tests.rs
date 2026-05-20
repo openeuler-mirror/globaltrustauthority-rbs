@@ -568,7 +568,7 @@ async fn test_list_with_ids_filter() {
     assert!(result.is_ok());
     let resp = result.unwrap();
     assert_eq!(resp.items.len(), 2, "should return exactly the two requested policies");
-    assert_eq!(resp.total, 2, "total should match returned items when no other policies exist");
+    assert_eq!(resp.total_count, 2, "total should match returned items when no other policies exist");
 }
 
 // ---------------------------------------------------------------------------
@@ -943,7 +943,9 @@ async fn test_list_basic() {
     assert!(result.is_ok());
     let resp = result.unwrap();
     assert_eq!(resp.items.len(), 2);
-    assert_eq!(resp.total, 2);
+    assert_eq!(resp.total_count, 2);
+    assert_eq!(resp.limit, 10);
+    assert_eq!(resp.offset, 0);
     // Listing responses should not include full policy_content.
     for item in &resp.items {
         assert!(
@@ -974,7 +976,9 @@ async fn test_list_with_pagination() {
     assert!(result.is_ok());
     let resp = result.unwrap();
     assert_eq!(resp.items.len(), 5);
-    assert_eq!(resp.total, 25);
+    assert_eq!(resp.total_count, 25);
+    assert_eq!(resp.limit, 10);
+    assert_eq!(resp.offset, 20);
 }
 
 /// UT-S-019a: list with limit=0 returns an empty items list but a correct
@@ -996,18 +1000,15 @@ async fn test_list_limit_zero() {
     assert!(result.is_ok());
     let resp = result.unwrap();
     assert_eq!(resp.items.len(), 0);
-    assert_eq!(resp.total, 25);
+    assert_eq!(resp.total_count, 25);
+    assert_eq!(resp.limit, 0);
+    assert_eq!(resp.offset, 0);
 }
 
-/// UT-S-019b: list with limit exceeding max_page_size is clamped.
-///
-/// NOTE: The default `PolicyConfig.max_page_size` is 100. When the caller
-/// passes limit=10000, the service should clamp to 100 before calling the
-/// repo. The current mock ignores input parameters, so we write the test
-/// structure here — once the repo records invocation parameters, the
-/// assertion should verify that `list_by_user` was called with limit=100.
+/// UT-S-019b: list with limit exceeding typical values is passed through
+/// directly (no server-side clamping; validation happens at the API layer).
 #[tokio::test]
-async fn test_list_limit_clamped() {
+async fn test_list_limit_high() {
     let repo = MockPolicyRepository::new()
         .with_list_by_user(Ok((vec![], 0)));
 
@@ -1020,8 +1021,10 @@ async fn test_list_limit_clamped() {
     };
 
     let result = service.list(&ctx, &query).await;
-    // Once clamping is implemented: verify repo was called with limit=100
     assert!(result.is_ok());
+    let resp = result.unwrap();
+    assert_eq!(resp.limit, 10000);
+    assert_eq!(resp.offset, 0);
 }
 
 // ---------------------------------------------------------------------------

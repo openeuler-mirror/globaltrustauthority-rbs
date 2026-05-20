@@ -18,6 +18,9 @@ use validator::Validate;
 
 use crate::error::RbsError;
 
+/// Maximum length of a username, consistent with CLI `USERNAME_MAX_LEN`.
+pub const USERNAME_MAX_LEN: usize = 36;
+
 // ── Enums ──
 
 /// User role. `Admin` is pre-configured and cannot be created via the API.
@@ -42,7 +45,7 @@ pub enum AuthType {
 #[serde(rename_all = "snake_case")]
 pub struct UserCreateRequest {
     /// Login or unique handle. Immutable.
-    #[validate(length(min = 1, max = 36), custom(function = "validate_username_chars"))]
+    #[validate(length(min = 1, max = 36), custom(function = "validate_username_chars"))] // USERNAME_MAX_LEN
     pub username: String,
 
     /// Optional role; only `user` is allowed via API (admin is pre-configured).
@@ -212,6 +215,21 @@ fn validate_update_role(role: &Role) -> Result<(), validator::ValidationError> {
         let mut err = validator::ValidationError::new("invalid_role");
         err.message = Some("role must be 'user' (admin is pre-configured)".into());
         Err(err)
+    } else {
+        Ok(())
+    }
+}
+
+/// Validate a username path parameter (length + character set).
+pub fn validate_username(username: &str) -> Result<(), String> {
+    if username.is_empty() || username.len() > USERNAME_MAX_LEN {
+        Err(format!(
+            "username length must be 1..{}, got {}",
+            USERNAME_MAX_LEN,
+            username.len()
+        ))
+    } else if !username.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+        Err("username must only contain [a-zA-Z0-9_-]".to_string())
     } else {
         Ok(())
     }

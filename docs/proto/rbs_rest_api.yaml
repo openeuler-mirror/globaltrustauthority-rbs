@@ -1207,16 +1207,23 @@ components:
       description: Policy list response.
       required:
       - items
-      - total
+      - total_count
+      - limit
+      - offset
       properties:
         items:
           type: array
           items:
             $ref: '#/components/schemas/PolicyResponse'
-        total:
+        total_count:
           type: integer
           format: int64
-          minimum: 0
+        limit:
+          type: integer
+          format: int64
+        offset:
+          type: integer
+          format: int64
     PolicyResponse:
       type: object
       description: Policy response returned to callers.
