@@ -10,6 +10,7 @@
  * See the Mulan PSL v2 for more details.
  */
 
+use openssl::rsa::Rsa;
 use rbs_admin_client::{AdminClient, CreateUserRequest, ListUsersParams, UpdateUserRequest, UserClient, UserService};
 use serde_json::json;
 use wiremock::matchers::{body_json, header, method, path, query_param};
@@ -26,6 +27,12 @@ fn build_unusable_base_user_client() -> UserClient {
     UserClient::new(admin)
 }
 
+fn generate_test_public_key_pem() -> String {
+    let rsa = Rsa::generate(2048).expect("RSA key generation should succeed");
+    String::from_utf8(rsa.public_key_to_pem().expect("public key to PEM should succeed"))
+        .expect("PEM should be valid UTF-8")
+}
+
 #[tokio::test]
 async fn create_user_sends_expected_request_and_decodes_response() {
     let server = MockServer::start().await;
@@ -34,7 +41,7 @@ async fn create_user_sends_expected_request_and_decodes_response() {
         role: Some("user".to_string()),
         enabled: Some(true),
         auth_type: "jwt".to_string(),
-        public_key: Some("-----BEGIN PUBLIC KEY-----\nmock\n-----END PUBLIC KEY-----".to_string()),
+        public_key: Some(generate_test_public_key_pem()),
         jwk: None,
     };
 
