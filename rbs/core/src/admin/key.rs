@@ -32,8 +32,9 @@ fn group_curve_nid(group: &openssl::ec::EcGroupRef) -> openssl::nid::Nid {
         openssl::nid::Nid::X9_62_PRIME256V1
     } else if degree == 384 {
         openssl::nid::Nid::SECP384R1
+    } else if degree == 521 {
+        openssl::nid::Nid::SECP521R1
     } else {
-        // Unsupported curve (P-521 or unknown)
         openssl::nid::Nid::from_raw(0)
     }
 }
@@ -74,9 +75,12 @@ pub fn validate_and_derive_alg(pem: &str) -> Result<String> {
                 Ok("EC".to_string())
             } else if nid == openssl::nid::Nid::SECP384R1 {
                 Ok("EC".to_string())
+            } else if nid == openssl::nid::Nid::SECP521R1 {
+                Ok("EC".to_string())
             } else {
                 Err(RbsError::InvalidParameter(
-                    "Unsupported EC curve. Supported: P-256 (ES256), P-384 (ES384)".to_string()
+                    "Unsupported EC curve. Supported: P-256 (ES256), P-384 (ES384), P-521 (ES512)"
+                        .to_string(),
                 ))
             }
         }

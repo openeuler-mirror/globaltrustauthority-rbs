@@ -14,7 +14,6 @@
 
 pub mod authenticator;
 pub mod common;
-pub mod jwks;
 pub mod bearer_token;
 pub mod token;
 

@@ -3418,6 +3418,7 @@ name = "rbs-admin-client"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "openssl",
  "rbs-api-types",
  "reqwest",
  "serde",
@@ -3432,6 +3433,7 @@ dependencies = [
 name = "rbs-api-types"
 version = "0.1.0"
 dependencies = [
+ "openssl",
  "serde",
  "serde_json",
  "serde_yaml",

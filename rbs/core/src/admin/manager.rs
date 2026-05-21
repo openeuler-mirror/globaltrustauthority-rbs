@@ -50,13 +50,10 @@ impl std::fmt::Debug for AdminManager {
 }
 
 impl AdminManager {
-    /// Create a new AdminManager from config.
+    /// Create a new AdminManager from config and an authorization facade.
     #[must_use]
-    pub fn new(config: AdminConfig) -> Self {
-        Self {
-            config,
-            authz: AuthzFacade::new(std::sync::Arc::new(crate::policy_engine::RealPolicyEngine)),
-        }
+    pub fn new(config: AdminConfig, authz: AuthzFacade) -> Self {
+        Self { config, authz }
     }
 
     /// Bootstrap: if no users exist, create the Administrator from config.

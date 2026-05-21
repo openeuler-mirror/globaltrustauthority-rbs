@@ -19,20 +19,21 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use base64::Engine;
+use josekit::jws::ES512;
+use josekit::jwt::{self, JwtPayloadValidator};
 use jsonwebtoken::{decode, Validation};
-use log::{debug, error};
+use log::{debug, warn};
 use rbs_api_types::config::BearerTokenVerificationConfig;
 use serde_json::Value;
 
-use crate::auth::authn::common::{create_decoding_key, decode_token_header, validate_algorithm};
+use crate::auth::authn::common::{
+    create_decoding_key, decode_token_header, is_es512, to_jsonwebtoken_alg, validate_algorithm,
+};
 use crate::auth::authn::{TokenVerifier, UserKeyProvider};
 use crate::auth::context::{BearerContext, TokenType};
 use crate::auth::error::AuthError;
 
 /// Bearer token verifier.
-///
-/// Unlike AttestToken, BearerToken public keys come from the database (per-user),
-/// looked up via [`UserKeyProvider`] using the `sub` claim.
 #[derive(Clone)]
 pub struct BearerTokenVerifier {
     config: BearerTokenVerificationConfig,
@@ -49,8 +50,6 @@ impl std::fmt::Debug for BearerTokenVerifier {
 
 impl BearerTokenVerifier {
     /// Create a new BearerTokenVerifier.
-    ///
-    /// `key_provider` resolves per-user public keys from storage.
     pub fn new(config: BearerTokenVerificationConfig, key_provider: Arc<dyn UserKeyProvider>) -> Self {
         Self { config, key_provider }
     }
@@ -60,78 +59,165 @@ impl BearerTokenVerifier {
 impl TokenVerifier for BearerTokenVerifier {
     type Context = BearerContext;
 
-    /// Verify Bearer token and return BearerContext.
-    ///
-    /// # Security Note
-    ///
-    /// This implementation decodes the JWT payload without signature verification
-    /// to extract the `sub` claim for per-user key lookup. This is necessary because
-    /// BearerToken uses per-user public keys stored in the database.
-    ///
-    /// The security model is:
-    /// 1. Extract `sub` from unverified payload
-    /// 2. Look up the user's public key from trusted storage
-    /// 3. Verify the signature with the looked-up key
-    /// 4. Re-validate all claims after signature verification
-    ///
-    /// This approach is secure because:
-    /// - The signature is verified before any claims are trusted
-    /// - An attacker cannot forge a signature without the user's private key
-    /// - Key lookup failures are masked to prevent user enumeration
     async fn verify(&self, token: &str) -> Result<BearerContext, AuthError> {
         // Step 1 — Parse header to get algorithm.
         let header = decode_token_header(token)?;
-
-        // Validate algorithm is supported
         validate_algorithm(&header.alg)?;
 
         // Step 2 — Extract sub from unverified payload for key lookup.
-        // See security note above for why this is safe.
         let sub = extract_sub_from_payload(token)?;
 
         // Step 3 — Look up the per-user public key.
-        // Mask key-lookup errors with a generic message (prevent user enumeration).
-        // Log detailed errors for debugging (不影响返回给客户端的错误信息).
         let public_key_pem = self
             .key_provider
             .get_public_key(&sub)
             .await
             .map_err(|e| {
-                error!("BearerToken key lookup failed for sub '{}': {}", sub, e);
+                warn!("BearerToken key lookup failed for sub '{}': {}", sub, e);
                 AuthError::TokenInvalid {
                     reason: "invalid token".to_string(),
                 }
             })?;
 
-        // Create decoding key based on algorithm
-        // Log detailed errors for debugging.
+        // Step 4 — Branch: ES512 goes through josekit; everything else through jsonwebtoken.
+        if is_es512(&header.alg) {
+            return self.verify_es512(token, &sub, &public_key_pem).await;
+        }
+
+        self.verify_jsonwebtoken(token, &sub, &header.alg, &public_key_pem)
+            .await
+    }
+}
+
+impl BearerTokenVerifier {
+    /// ES512 verification using josekit.
+    async fn verify_es512(
+        &self,
+        token: &str,
+        sub: &str,
+        public_key_pem: &str,
+    ) -> Result<BearerContext, AuthError> {
+        let verifier = ES512
+            .verifier_from_pem(public_key_pem.as_bytes())
+            .map_err(|e| {
+                warn!("BearerToken ES512 verifier creation failed: {}", e);
+                AuthError::TokenInvalid {
+                    reason: "invalid token".to_string(),
+                }
+            })?;
+
+        let (payload, _header) =
+            jwt::decode_with_verifier(token, &verifier).map_err(|e| {
+                use josekit::JoseError;
+                match &e {
+                    JoseError::InvalidSignature(_) => {
+                        warn!("BearerToken ES512 signature verification failed");
+                        AuthError::TokenInvalid {
+                            reason: "invalid token".to_string(),
+                        }
+                    }
+                    _ => {
+                        warn!("BearerToken ES512 verification failed: {}", e);
+                        AuthError::TokenInvalid {
+                            reason: "invalid token".to_string(),
+                        }
+                    }
+                }
+            })?;
+
+        // Validate claims
+        let mut validator = JwtPayloadValidator::new();
+        validator.set_issuer(&self.config.issuer);
+        validator.set_audience(&self.config.audience);
+
+        validator.validate(&payload).map_err(|e| {
+            use josekit::JoseError;
+            match &e {
+                JoseError::InvalidSignature(_) => {
+                    warn!("BearerToken ES512 claim validation: invalid signature");
+                    AuthError::TokenInvalid {
+                        reason: "invalid token".to_string(),
+                    }
+                }
+                _ => {
+                    warn!("BearerToken ES512 claim validation failed: {}", e);
+                    AuthError::TokenInvalid {
+                        reason: "invalid token".to_string(),
+                    }
+                }
+            }
+        })?;
+
+        // Extract claims (signature is trusted at this point).
+        let iss = payload
+            .issuer()
+            .map(|s| s.to_string())
+            .unwrap_or_default();
+
+        let role = payload
+            .claim("role")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        let claims: Value = {
+            let map = payload.claims_set().clone();
+            serde_json::to_value(map).map_err(|_| AuthError::TokenInvalid {
+                reason: "invalid token".to_string(),
+            })?
+        };
+
+        Ok(BearerContext {
+            iss,
+            sub: sub.to_string(),
+            role,
+            claims,
+            token_type: TokenType::Bearer,
+        })
+    }
+
+    /// Jsonwebtoken-based verification (non-ES512 algorithms).
+    async fn verify_jsonwebtoken(
+        &self,
+        token: &str,
+        sub: &str,
+        alg_str: &str,
+        public_key_pem: &str,
+    ) -> Result<BearerContext, AuthError> {
         let decoding_key =
-            create_decoding_key(&header.alg, public_key_pem.as_bytes()).map_err(|e| {
-                debug!("BearerToken decoding key creation failed: {}", e);
+            create_decoding_key(alg_str, public_key_pem.as_bytes()).map_err(|e| {
+                warn!("BearerToken decoding key creation failed: {}", e);
                 AuthError::TokenInvalid {
                     reason: "invalid token".to_string(),
                 }
             })?;
 
-        // Step 4 — Verify the cryptographic signature.
-        let mut validation = Validation::new(header.alg);
+        let jwe_alg = to_jsonwebtoken_alg(alg_str).map_err(|e| {
+            debug!("BearerToken unsupported algorithm '{}': {}", alg_str, e);
+            AuthError::TokenInvalid {
+                reason: "invalid token".to_string(),
+            }
+        })?;
+
+        let mut validation = Validation::new(jwe_alg);
         validation.set_required_spec_claims(&["exp", "iss", "sub"]);
         validation.set_issuer(&[&self.config.issuer]);
         validation.set_audience(&[&self.config.audience]);
 
         let token_data = decode::<Value>(token, &decoding_key, &validation).map_err(|e| {
-            // Mask detailed errors for security (prevent user enumeration)
             use jsonwebtoken::errors::ErrorKind;
             match e.kind() {
                 ErrorKind::ExpiredSignature => AuthError::TokenExpired,
                 ErrorKind::ImmatureSignature => AuthError::TokenNotYetValid,
-                _ => AuthError::TokenInvalid {
-                    reason: "invalid token".to_string(),
-                },
+                _ => {
+                    warn!("BearerToken jsonwebtoken verification failed: {}", e);
+                    AuthError::TokenInvalid {
+                        reason: "invalid token".to_string(),
+                    }
+                }
             }
         })?;
 
-        // Step 5 — Signature is trusted. Extract claims.
         let iss = token_data
             .claims
             .get("iss")
@@ -150,7 +236,7 @@ impl TokenVerifier for BearerTokenVerifier {
 
         Ok(BearerContext {
             iss,
-            sub,
+            sub: sub.to_string(),
             role,
             claims: token_data.claims,
             token_type: TokenType::Bearer,
@@ -159,12 +245,6 @@ impl TokenVerifier for BearerTokenVerifier {
 }
 
 /// Extract the `sub` claim from JWT payload without signature verification.
-///
-/// # Security
-///
-/// This function only extracts the `sub` claim for key lookup purposes.
-/// The extracted value is NOT trusted until signature verification completes.
-/// Errors are intentionally generic to prevent information leakage.
 fn extract_sub_from_payload(token: &str) -> Result<String, AuthError> {
     let parts: Vec<&str> = token.split('.').collect();
     if parts.len() != 3 {
@@ -212,7 +292,6 @@ mod tests {
 
     const MALFORMED_TOKEN: &str = "not.a.valid.jwt.token";
 
-    /// Stub UserKeyProvider that returns the test public key for any sub.
     #[derive(Debug)]
     struct StubKeyProvider(String);
 
@@ -241,15 +320,17 @@ mod tests {
 
     #[test]
     fn test_supported_algorithms_from_common() {
-        assert!(SUPPORTED_ALGORITHMS.contains(&jsonwebtoken::Algorithm::PS256));
-        assert!(SUPPORTED_ALGORITHMS.contains(&jsonwebtoken::Algorithm::PS384));
-        assert!(SUPPORTED_ALGORITHMS.contains(&jsonwebtoken::Algorithm::PS512));
-        assert!(SUPPORTED_ALGORITHMS.contains(&jsonwebtoken::Algorithm::EdDSA));
+        assert!(SUPPORTED_ALGORITHMS.contains(&"PS256"));
+        assert!(SUPPORTED_ALGORITHMS.contains(&"PS384"));
+        assert!(SUPPORTED_ALGORITHMS.contains(&"PS512"));
+        assert!(SUPPORTED_ALGORITHMS.contains(&"ES256"));
+        assert!(SUPPORTED_ALGORITHMS.contains(&"ES384"));
+        assert!(SUPPORTED_ALGORITHMS.contains(&"ES512"));
+        assert!(SUPPORTED_ALGORITHMS.contains(&"EdDSA"));
     }
 
     #[test]
     fn test_extract_sub_valid_payload() {
-        // Payload: {"sub":"user123","iss":"test"}
         let token = "eyJhbGciOiJQUzI1NiJ9.eyJzdWIiOiJ1c2VyMTIzIiwiaXNzIjoidGVzdCJ9.signature";
         let result = extract_sub_from_payload(token);
         assert!(result.is_ok());
@@ -258,7 +339,6 @@ mod tests {
 
     #[test]
     fn test_extract_sub_missing_sub() {
-        // Payload: {"iss":"test"}
         let token = "eyJhbGciOiJQUzI1NiJ9.eyJpc3MiOiJ0ZXN0In0.signature";
         let result = extract_sub_from_payload(token);
         assert!(result.is_err());
