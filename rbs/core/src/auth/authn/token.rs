@@ -502,35 +502,31 @@ mod tests {
     static mut TEST_KEY_PATH: Option<String> = None;
     static mut TEST_ED25519_KEY_PATH: Option<String> = None;
 
-    const TEST_RSA_PUBLIC_KEY_PEM: &str = concat!(
-        "-----BEGIN PUBLIC KEY-----\n",
-        "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA7JOjGVgMbclDvZ0zW8by\n",
-        "ALpLyUSNYkb5dyy9xFBEg97RI1SSx0rcOkrd7fb/aJThQ7n47OaSpaJZmNzL/phQ\n",
-        "9TnqHafrOsY8nYn1PlGbUu0yo99CLF9EOqmUpLfAkCELFumP5xt1DSJ+VN4gxVeq\n",
-        "GNAthfi7ceWKuWRgfkTif2wXJXEpCBunyTEM4nqvOZX+lMLWkvv/jaovl+PjNQyk\n",
-        "wTFjgs3EC7Cn/C35xYHRAws3iBXk8PJ7TPFiG3L2pDIP30jxTbu3taOpkAarieSg\n",
-        "rK+Dsrv9RIirzseAH3XnSOHDQDVU++8Jw421BQw/ZiYCfIye2RplBpaLcL8xhIIf\n",
-        "CwIDAQAB\n",
-        "-----END PUBLIC KEY-----\n"
-    );
+    /// Generate a fresh RSA public key PEM for each test session.
+    fn generate_test_rsa_public_key_pem() -> String {
+        let rsa = openssl::rsa::Rsa::generate(2048).unwrap();
+        let pkey = openssl::pkey::PKey::from_rsa(rsa).unwrap();
+        String::from_utf8(pkey.public_key_to_pem().unwrap()).unwrap()
+    }
 
     const MALFORMED_TOKEN: &str = "not.a.valid.token";
 
     fn setup_test_keys() -> (String, String) {
         INIT.call_once(|| {
+            let pem = generate_test_rsa_public_key_pem();
             let temp_dir = std::env::temp_dir();
 
             // RSA key
             let rsa_key_path = temp_dir.join("rbs_test_attest_rsa_pubkey.pem");
             let mut file =
                 std::fs::File::create(&rsa_key_path).expect("Failed to create temp RSA key file");
-            file.write_all(TEST_RSA_PUBLIC_KEY_PEM.as_bytes())
+            file.write_all(pem.as_bytes())
                 .expect("Failed to write RSA key");
             unsafe {
                 TEST_KEY_PATH = Some(rsa_key_path.to_string_lossy().to_string());
             }
 
-            // Ed25519 key
+            // Ed25519 key — generated fresh
             let ed_key_path = temp_dir.join("rbs_test_attest_ed_pubkey.pem");
             let ed_key = openssl::pkey::PKey::generate_ed25519().unwrap();
             let ed_pem = ed_key.public_key_to_pem().unwrap();
@@ -583,8 +579,8 @@ mod tests {
 
     #[test]
     fn test_classify_pem_key_rsa() {
-        let (dk, es512) =
-            classify_pem_key(TEST_RSA_PUBLIC_KEY_PEM.as_bytes()).unwrap();
+        let pem = generate_test_rsa_public_key_pem();
+        let (dk, es512) = classify_pem_key(pem.as_bytes()).unwrap();
         assert!(dk.is_some());
         assert!(es512.is_none());
     }
@@ -620,5 +616,187 @@ mod tests {
         let (dk, es512) = classify_pem_key(&pem).unwrap();
         assert!(dk.is_none());
         assert!(es512.is_some());
+    }
+
+    #[test]
+    fn test_classify_pem_key_ec_p384() {
+        let ec_group =
+            openssl::ec::EcGroup::from_curve_name(openssl::nid::Nid::SECP384R1).unwrap();
+        let ec_key = openssl::ec::EcKey::generate(&ec_group).unwrap();
+        let pkey = openssl::pkey::PKey::from_ec_key(ec_key).unwrap();
+        let pem = pkey.public_key_to_pem().unwrap();
+        let (dk, es512) = classify_pem_key(&pem).unwrap();
+        assert!(dk.is_some());
+        assert!(es512.is_none());
+    }
+
+    #[test]
+    fn test_classify_pem_key_invalid_pem() {
+        let result = classify_pem_key(b"not a valid PEM");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_encode_der_length_short() {
+        assert_eq!(encode_der_length(5), vec![5]);
+        assert_eq!(encode_der_length(0), vec![0]);
+        assert_eq!(encode_der_length(127), vec![127]);
+    }
+
+    #[test]
+    fn test_encode_der_length_long() {
+        let result = encode_der_length(128);
+        assert_eq!(result[0], 0x81);
+        assert_eq!(result[1], 128);
+        let result = encode_der_length(256);
+        assert_eq!(result[0], 0x82);
+        assert_eq!(result[1], 1);
+        assert_eq!(result[2], 0);
+    }
+
+    #[test]
+    fn test_format_ed25519_public_key_produces_valid_pem() {
+        let ed_key = openssl::pkey::PKey::generate_ed25519().unwrap();
+        let raw_bytes = ed_key.raw_public_key().unwrap();
+        let pem_bytes = format_ed25519_public_key(&raw_bytes);
+        let pem_str = String::from_utf8(pem_bytes.clone()).unwrap();
+        assert!(pem_str.starts_with("-----BEGIN PUBLIC KEY-----"));
+        assert!(pem_str.ends_with("-----END PUBLIC KEY-----\n"));
+        // Verify the PEM can be parsed by openssl
+        let parsed = openssl::pkey::PKey::public_key_from_pem(&pem_bytes).unwrap();
+        assert_eq!(parsed.id(), openssl::pkey::Id::ED25519);
+    }
+
+    #[test]
+    fn test_get_jwk_base64_param_missing() {
+        let jwk: josekit::jwk::Jwk = josekit::jwk::Jwk::from_bytes(serde_json::to_vec(&serde_json::json!({"kty": "RSA"})).unwrap()).unwrap();
+        let result = get_jwk_base64_param(&jwk, "n");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_jwk_base64_param_valid() {
+        let n = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(b"hello");
+        let jwk: josekit::jwk::Jwk = josekit::jwk::Jwk::from_bytes(serde_json::to_vec(&serde_json::json!({"kty": "RSA", "n": n})).unwrap()).unwrap();
+        let result = get_jwk_base64_param(&jwk, "n").unwrap();
+        assert_eq!(result, b"hello");
+    }
+
+    #[test]
+    fn test_get_jwk_base64_param_invalid_base64() {
+        let jwk: josekit::jwk::Jwk = josekit::jwk::Jwk::from_bytes(serde_json::to_vec(&serde_json::json!({"kty": "RSA", "n": "!!!invalid"})).unwrap()).unwrap();
+        let result = get_jwk_base64_param(&jwk, "n");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_josekit_jwk_rsa_to_pem_valid() {
+        let rsa = openssl::rsa::Rsa::generate(2048).unwrap();
+        let n = rsa.n().to_vec();
+        let e = rsa.e().to_vec();
+        let n_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&n);
+        let e_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&e);
+        let jwk: josekit::jwk::Jwk = josekit::jwk::Jwk::from_bytes(
+            serde_json::to_vec(&serde_json::json!({"kty": "RSA", "n": n_b64, "e": e_b64})).unwrap()
+        ).unwrap();
+        let result = josekit_jwk_rsa_to_pem(&jwk).unwrap();
+        let parsed = openssl::pkey::PKey::public_key_from_pem(&result).unwrap();
+        assert_eq!(parsed.id(), openssl::pkey::Id::RSA);
+    }
+
+    #[test]
+    fn test_josekit_jwk_ec_to_pem_p256() {
+        let ec_group = openssl::ec::EcGroup::from_curve_name(openssl::nid::Nid::X9_62_PRIME256V1).unwrap();
+        let ec_key = openssl::ec::EcKey::generate(&ec_group).unwrap();
+        let mut ctx = openssl::bn::BigNumContext::new().unwrap();
+        let mut x = openssl::bn::BigNum::new().unwrap();
+        let mut y = openssl::bn::BigNum::new().unwrap();
+        ec_key.public_key().affine_coordinates(&ec_group, &mut x, &mut y, &mut ctx).unwrap();
+        let x_bytes = x.to_vec();
+        let y_bytes = y.to_vec();
+        let x_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&x_bytes);
+        let y_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&y_bytes);
+        let jwk: josekit::jwk::Jwk = josekit::jwk::Jwk::from_bytes(
+            serde_json::to_vec(&serde_json::json!({"kty": "EC", "crv": "P-256", "x": x_b64, "y": y_b64})).unwrap()
+        ).unwrap();
+        let result = josekit_jwk_ec_to_pem(&jwk).unwrap();
+        let parsed = openssl::pkey::PKey::public_key_from_pem(&result).unwrap();
+        assert_eq!(parsed.id(), openssl::pkey::Id::EC);
+    }
+
+    #[test]
+    fn test_josekit_jwk_ec_to_pem_p384() {
+        let ec_group = openssl::ec::EcGroup::from_curve_name(openssl::nid::Nid::SECP384R1).unwrap();
+        let ec_key = openssl::ec::EcKey::generate(&ec_group).unwrap();
+        let mut ctx = openssl::bn::BigNumContext::new().unwrap();
+        let mut x = openssl::bn::BigNum::new().unwrap();
+        let mut y = openssl::bn::BigNum::new().unwrap();
+        ec_key.public_key().affine_coordinates(&ec_group, &mut x, &mut y, &mut ctx).unwrap();
+        let x_bytes = x.to_vec();
+        let y_bytes = y.to_vec();
+        let x_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&x_bytes);
+        let y_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&y_bytes);
+        let jwk: josekit::jwk::Jwk = josekit::jwk::Jwk::from_bytes(
+            serde_json::to_vec(&serde_json::json!({"kty": "EC", "crv": "P-384", "x": x_b64, "y": y_b64})).unwrap()
+        ).unwrap();
+        let result = josekit_jwk_ec_to_pem(&jwk).unwrap();
+        let parsed = openssl::pkey::PKey::public_key_from_pem(&result).unwrap();
+        assert_eq!(parsed.id(), openssl::pkey::Id::EC);
+    }
+
+    #[test]
+    fn test_josekit_jwk_ec_to_pem_unsupported_curve() {
+        // Use valid base64 values for x and y, but with unsupported curve "P-521"
+        // (P-521 goes through ES512 path, not EC-to-PEM conversion)
+        let x_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(b"x-coordinate");
+        let y_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(b"y-coordinate");
+        let jwk: josekit::jwk::Jwk = josekit::jwk::Jwk::from_bytes(
+            serde_json::to_vec(&serde_json::json!({"kty": "EC", "crv": "secp256k1", "x": x_b64, "y": y_b64})).unwrap()
+        ).unwrap();
+        let result = josekit_jwk_ec_to_pem(&jwk);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_josekit_jwk_ec_to_pem_missing_crv() {
+        // JWK without crv — josekit may still parse it if kty=EC but crv defaults to something
+        // Let's test with a valid EC JWK but explicitly check for crv handling
+        let x_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(b"x-coordinate");
+        let y_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(b"y-coordinate");
+        // A JWK without crv can still be parsed by josekit but will fail in ec_to_pem
+        let jwk = josekit::jwk::Jwk::new("EC");
+        let result = josekit_jwk_ec_to_pem(&jwk);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_josekit_jwk_okp_to_pem_ed25519() {
+        let ed_key = openssl::pkey::PKey::generate_ed25519().unwrap();
+        let x_bytes = ed_key.raw_public_key().unwrap();
+        let x_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&x_bytes);
+        let jwk: josekit::jwk::Jwk = josekit::jwk::Jwk::from_bytes(
+            serde_json::to_vec(&serde_json::json!({"kty": "OKP", "crv": "Ed25519", "x": x_b64})).unwrap()
+        ).unwrap();
+        let result = josekit_jwk_okp_to_pem(&jwk).unwrap();
+        let parsed = openssl::pkey::PKey::public_key_from_pem(&result).unwrap();
+        assert_eq!(parsed.id(), openssl::pkey::Id::ED25519);
+    }
+
+    #[test]
+    fn test_josekit_jwk_okp_to_pem_unsupported_curve() {
+        let jwk: josekit::jwk::Jwk = josekit::jwk::Jwk::from_bytes(
+            serde_json::to_vec(&serde_json::json!({"kty": "OKP", "crv": "Ed448", "x": "abc"})).unwrap()
+        ).unwrap();
+        let result = josekit_jwk_okp_to_pem(&jwk);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_josekit_jwk_to_pem_unsupported_type() {
+        let jwk: josekit::jwk::Jwk = josekit::jwk::Jwk::from_bytes(
+            serde_json::to_vec(&serde_json::json!({"kty": "oct", "k": "abc"})).unwrap()
+        ).unwrap();
+        let result = josekit_jwk_to_pem(&jwk);
+        assert!(result.is_err());
     }
 }

@@ -593,6 +593,320 @@ mod tests {
     use super::*;
 
     #[test]
+    fn parse_octal_empty_returns_error() {
+        assert!(parse_octal_str("").is_err());
+        assert!(parse_octal_str("  ").is_err());
+    }
+
+    #[test]
+    fn parse_octal_valid_values() {
+        assert_eq!(parse_octal_str("640").unwrap(), 0o640);
+        assert_eq!(parse_octal_str("750").unwrap(), 0o750);
+        assert_eq!(parse_octal_str("777").unwrap(), 0o777);
+        assert_eq!(parse_octal_str(" 640 ").unwrap(), 0o640);
+        assert_eq!(parse_octal_str("0").unwrap(), 0);
+        assert_eq!(parse_octal_str("7777").unwrap(), 0o7777);
+    }
+
+    #[test]
+    fn parse_octal_invalid_digit_8_9() {
+        assert!(parse_octal_str("89").is_err());
+        assert!(parse_octal_str("9").is_err());
+    }
+
+    #[test]
+    fn parse_octal_exceeds_max() {
+        assert!(parse_octal_str("10000").is_err());
+    }
+
+    #[test]
+    #[should_panic(expected = "workers")]
+    fn rest_config_workers_zero_panics() {
+        let mut r = RestConfig::default();
+        r.workers = 0;
+        r.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "workers")]
+    fn rest_config_workers_exceeds_max_panics() {
+        let mut r = RestConfig::default();
+        r.workers = 300;
+        r.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "body_limit_bytes")]
+    fn rest_config_body_limit_below_min_panics() {
+        let mut r = RestConfig::default();
+        r.body_limit_bytes = 100;
+        r.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "body_limit_bytes")]
+    fn rest_config_body_limit_above_max_panics() {
+        let mut r = RestConfig::default();
+        r.body_limit_bytes = 200_000_000;
+        r.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "request_timeout_secs")]
+    fn rest_config_request_timeout_exceeds_max_panics() {
+        let mut r = RestConfig::default();
+        r.request_timeout_secs = 4000;
+        r.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "shutdown_timeout_secs")]
+    fn rest_config_shutdown_timeout_zero_panics() {
+        let mut r = RestConfig::default();
+        r.shutdown_timeout_secs = 0;
+        r.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "listen_addr must not be empty")]
+    fn rest_config_empty_listen_addr_panics() {
+        let mut r = RestConfig::default();
+        r.listen_addr = String::new();
+        r.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "host:port format")]
+    fn rest_config_listen_addr_missing_port_panics() {
+        let mut r = RestConfig::default();
+        r.listen_addr = "just-a-host".to_string();
+        r.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "listen_backlog")]
+    fn rest_config_backlog_exceeds_max_panics() {
+        let mut r = RestConfig::default();
+        r.listen_backlog = 70000;
+        r.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "cert_file is empty")]
+    fn rest_config_https_enabled_empty_cert_panics() {
+        let mut r = RestConfig::default();
+        r.https.enabled = true;
+        r.https.cert_file = String::new();
+        r.https.key_file = super::super::Sensitive::new("/tmp/key.pem".to_string());
+        r.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "db_type")]
+    fn database_invalid_db_type_panics() {
+        let mut d = Database::default();
+        d.db_type = "oracle".to_string();
+        d.url = "oracle://host/db".to_string();
+        d.sql_file_path = "/tmp/init.sql".to_string();
+        d.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "max_connections")]
+    fn database_max_connections_zero_panics() {
+        let mut d = Database::default();
+        d.max_connections = 0;
+        d.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "max_connections")]
+    fn database_max_connections_exceeds_max_panics() {
+        let mut d = Database::default();
+        d.max_connections = 20000;
+        d.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "timeout")]
+    fn database_timeout_exceeds_max_panics() {
+        let mut d = Database::default();
+        d.timeout = 400;
+        d.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "must have either jwks_file or public_key_path")]
+    fn attest_token_config_no_key_panics() {
+        let c = AttestTokenVerificationConfig::default();
+        c.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "mutually exclusive")]
+    fn attest_token_config_both_keys_panics() {
+        let mut c = AttestTokenVerificationConfig::default();
+        c.jwks_file = Some("/tmp/jwks.json".to_string());
+        c.public_key_path = Some("/tmp/pub.pem".to_string());
+        c.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "issuer must not be empty")]
+    fn attest_token_config_empty_issuer_panics() {
+        let mut c = AttestTokenVerificationConfig::default();
+        c.public_key_path = Some("/tmp/pub.pem".to_string());
+        c.issuer = String::new();
+        c.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "must have either public_key_path or jwks_file")]
+    fn admin_key_config_no_key_panics() {
+        let c = AdminKeyConfig::default();
+        c.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "mutually exclusive")]
+    fn admin_key_config_both_keys_panics() {
+        let mut c = AdminKeyConfig::default();
+        c.public_key_path = Some("/tmp/pub.pem".to_string());
+        c.jwks_file = Some("/tmp/jwks.json".to_string());
+        c.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "max_users")]
+    fn admin_config_max_users_zero_panics() {
+        let mut a = AdminConfig::default();
+        a.max_users = 0;
+        a.admin_key = AdminKeyConfig { public_key_path: Some("/tmp/pub.pem".to_string()), jwks_file: None };
+        a.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "max_users")]
+    fn admin_config_max_users_exceeds_100_panics() {
+        let mut a = AdminConfig::default();
+        a.max_users = 101;
+        a.admin_key = AdminKeyConfig { public_key_path: Some("/tmp/pub.pem".to_string()), jwks_file: None };
+        a.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "backends must have at least one")]
+    fn attestation_config_empty_backends_panics() {
+        let mut c = AttestationConfig::default();
+        c.backends.clear();
+        c.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "not found in attestation.backends")]
+    fn attestation_config_missing_default_provider_panics() {
+        let mut c = AttestationConfig::default();
+        c.backends.insert("other".to_string(), AttestationBackendConfig::default());
+        c.default_as_provider = "nonexistent".to_string();
+        c.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "base_url is not configured")]
+    fn attestation_backend_rest_empty_base_url_panics() {
+        let b = AttestationBackendConfig {
+            mode: AttestationBackendMode::Rest,
+            rest: AttestationRestConfig::default(), // base_url is empty by default
+            builtin: super::super::AttestationBuiltinConfig::default(),
+        };
+        b.validate("test");
+    }
+
+    #[test]
+    #[should_panic(expected = "requests_per_sec")]
+    fn rate_limit_rps_zero_enabled_panics() {
+        let mut rl = PerIpRateLimitConfig::default();
+        rl.enabled = true;
+        rl.requests_per_sec = 0;
+        rl.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "burst")]
+    fn rate_limit_burst_zero_enabled_panics() {
+        let mut rl = PerIpRateLimitConfig::default();
+        rl.enabled = true;
+        rl.burst = Some(0);
+        rl.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "max_file_size_bytes")]
+    fn log_rotation_file_size_below_min_panics() {
+        let mut r = LogRotationConfig::default();
+        r.max_file_size_bytes = 100;
+        r.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "max_files")]
+    fn log_rotation_max_files_zero_panics() {
+        let mut r = LogRotationConfig::default();
+        r.max_files = 0;
+        r.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "file_mode")]
+    fn logging_file_mode_exceeds_max_panics() {
+        let mut l = LoggingConfig::default();
+        l.file_mode = 0o10000;
+        l.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "user_id must not be empty")]
+    fn attestation_credentials_empty_user_id_panics() {
+        let c = AttestationCredentials::default();
+        c.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "user_id")]
+    fn attestation_credentials_user_id_invalid_chars_panics() {
+        let mut c = AttestationCredentials::default();
+        c.user_id = "user@id".to_string();
+        c.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "user_id length")]
+    fn attestation_credentials_user_id_exceeds_max_len_panics() {
+        let mut c = AttestationCredentials::default();
+        c.user_id = "a".repeat(40);
+        c.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "main_api_key length")]
+    fn attestation_credentials_main_api_key_wrong_length_panics() {
+        let mut c = AttestationCredentials::default();
+        c.user_id = "test-user".to_string();
+        c.main_api_key = super::super::Sensitive::new("m.short".to_string());
+        c.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "main_api_key must start with 'm.'")]
+    fn attestation_credentials_main_api_key_wrong_prefix_panics() {
+        let mut c = AttestationCredentials::default();
+        c.user_id = "test-user".to_string();
+        // Use exactly 34 chars but with wrong prefix "x." instead of "m."
+        c.main_api_key = super::super::Sensitive::new("x.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string());
+        c.validate();
+    }
+
+    #[test]
     fn config_defaults() {
         let rbs = RbsConfig::default();
         let rest = rbs.rest.as_ref().unwrap();

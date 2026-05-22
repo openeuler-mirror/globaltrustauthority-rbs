@@ -105,3 +105,55 @@ pub struct Model {
 pub enum Relation {}
 
 impl ActiveModelBehavior for ActiveModel {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rbs_api_types::{AuthType, Role};
+
+    #[test]
+    fn role_to_db_role_admin() {
+        assert_eq!(DbRole::from(Role::Admin), DbRole::Admin);
+    }
+
+    #[test]
+    fn role_to_db_role_user() {
+        assert_eq!(DbRole::from(Role::User), DbRole::User);
+    }
+
+    #[test]
+    fn db_role_to_role_admin() {
+        assert_eq!(Role::from(DbRole::Admin), Role::Admin);
+    }
+
+    #[test]
+    fn db_role_to_role_user() {
+        assert_eq!(Role::from(DbRole::User), Role::User);
+    }
+
+    #[test]
+    fn auth_type_to_db_auth_type_jwt() {
+        assert_eq!(DbAuthType::from(AuthType::Jwt), DbAuthType::Jwt);
+    }
+
+    #[test]
+    fn db_auth_type_to_auth_type_jwt() {
+        assert_eq!(AuthType::from(DbAuthType::Jwt), AuthType::Jwt);
+    }
+
+    #[test]
+    fn role_roundtrip_admin() {
+        let original = Role::Admin;
+        let db = DbRole::from(original);
+        let back = Role::from(db);
+        assert_eq!(back, original);
+    }
+
+    #[test]
+    fn role_roundtrip_user() {
+        let original = Role::User;
+        let db = DbRole::from(original);
+        let back = Role::from(db);
+        assert_eq!(back, original);
+    }
+}

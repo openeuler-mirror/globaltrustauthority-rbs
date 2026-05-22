@@ -98,17 +98,26 @@ mod tests {
     static INIT: Once = Once::new();
     static mut TEST_KEY_PATH: Option<String> = None;
 
-    const TEST_RSA_PUBLIC_KEY_PEM: &str = concat!(
-        "-----BEGIN PUBLIC KEY-----\n",
-        "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA7JOjGVgMbclDvZ0zW8by\n",
-        "ALpLyUSNYkb5dyy9xFBEg97RI1SSx0rcOkrd7fb/aJThQ7n47OaSpaJZmNzL/phQ\n",
-        "9TnqHafrOsY8nYn1PlGbUu0yo99CLF9EOqmUpLfAkCELFumP5xt1DSJ+VN4gxVeq\n",
-        "GNAthfi7ceWKuWRgfkTif2wXJXEpCBunyTEM4nqvOZX+lMLWkvv/jaovl+PjNQyk\n",
-        "wTFjgs3EC7Cn/C35xYHRAws3iBXk8PJ7TPFiG3L2pDIP30jxTbu3taOpkAarieSg\n",
-        "rK+Dsrv9RIirzseAH3XnSOHDQDVU++8Jw421BQw/ZiYCfIye2RplBpaLcL8xhIIf\n",
-        "CwIDAQAB\n",
-        "-----END PUBLIC KEY-----\n"
-    );
+    /// Generate a fresh RSA public key PEM for each test session.
+    fn generate_test_public_key_pem() -> String {
+        let rsa = openssl::rsa::Rsa::generate(2048).unwrap();
+        let pkey = openssl::pkey::PKey::from_rsa(rsa).unwrap();
+        String::from_utf8(pkey.public_key_to_pem().unwrap()).unwrap()
+    }
+
+    fn setup_test_key() -> String {
+        INIT.call_once(|| {
+            let pem = generate_test_public_key_pem();
+            let temp_dir = std::env::temp_dir();
+            let key_path = temp_dir.join("rbs_test_authenticator_pubkey.pem");
+            let mut file = std::fs::File::create(&key_path).expect("Failed to create temp key file");
+            file.write_all(&pem.as_bytes()).expect("Failed to write key");
+            unsafe {
+                TEST_KEY_PATH = Some(key_path.to_string_lossy().to_string());
+            }
+        });
+        unsafe { TEST_KEY_PATH.clone().unwrap() }
+    }
 
     /// Stub UserKeyProvider that returns the test public key for any sub.
     #[derive(Debug)]
@@ -121,21 +130,8 @@ mod tests {
         }
     }
 
-    fn setup_test_key() -> String {
-        INIT.call_once(|| {
-            let temp_dir = std::env::temp_dir();
-            let key_path = temp_dir.join("rbs_test_authenticator_pubkey.pem");
-            let mut file = std::fs::File::create(&key_path).expect("Failed to create temp key file");
-            file.write_all(TEST_RSA_PUBLIC_KEY_PEM.as_bytes())
-                .expect("Failed to write key");
-            unsafe {
-                TEST_KEY_PATH = Some(key_path.to_string_lossy().to_string());
-            }
-        });
-        unsafe { TEST_KEY_PATH.clone().unwrap() }
-    }
-
     fn create_test_authenticator() -> Authenticator {
+        let pem = generate_test_public_key_pem();
         let key_path = setup_test_key();
         let config = AuthConfig {
             attest_token: rbs_api_types::config::AttestTokenVerificationConfig {
@@ -149,7 +145,7 @@ mod tests {
                 audience: "globaltrustauthority-rbs".to_string(),
             },
         };
-        let key_provider = Arc::new(StubKeyProvider(TEST_RSA_PUBLIC_KEY_PEM.to_string()));
+        let key_provider = Arc::new(StubKeyProvider(pem));
         Authenticator::new(config, key_provider).expect("failed to create authenticator")
     }
 
@@ -190,7 +186,7 @@ mod tests {
                 audience: "test".to_string(),
             },
         };
-        let key_provider = Arc::new(StubKeyProvider(TEST_RSA_PUBLIC_KEY_PEM.to_string()));
+        let key_provider = Arc::new(StubKeyProvider(generate_test_public_key_pem()));
         let result = Authenticator::new(config, key_provider);
         assert!(result.is_err());
     }

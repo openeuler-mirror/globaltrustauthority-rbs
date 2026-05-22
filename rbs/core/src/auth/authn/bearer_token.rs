@@ -278,17 +278,12 @@ mod tests {
     use super::*;
     use crate::auth::authn::common::SUPPORTED_ALGORITHMS;
 
-    const TEST_PUBLIC_KEY_PEM: &str = concat!(
-        "-----BEGIN PUBLIC KEY-----\n",
-        "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA7JOjGVgMbclDvZ0zW8by\n",
-        "ALpLyUSNYkb5dyy9xFBEg97RI1SSx0rcOkrd7fb/aJThQ7n47OaSpaJZmNzL/phQ\n",
-        "9TnqHafrOsY8nYn1PlGbUu0yo99CLF9EOqmUpLfAkCELFumP5xt1DSJ+VN4gxVeq\n",
-        "GNAthfi7ceWKuWRgfkTif2wXJXEpCBunyTEM4nqvOZX+lMLWkvv/jaovl+PjNQyk\n",
-        "wTFjgs3EC7Cn/C35xYHRAws3iBXk8PJ7TPFiG3L2pDIP30jxTbu3taOpkAarieSg\n",
-        "rK+Dsrv9RIirzseAH3XnSOHDQDVU++8Jw421BQw/ZiYCfIye2RplBpaLcL8xhIIf\n",
-        "CwIDAQAB\n",
-        "-----END PUBLIC KEY-----\n"
-    );
+    /// Generate a fresh RSA public key PEM for each test.
+    fn generate_test_public_key_pem() -> String {
+        let rsa = openssl::rsa::Rsa::generate(2048).unwrap();
+        let pkey = openssl::pkey::PKey::from_rsa(rsa).unwrap();
+        String::from_utf8(pkey.public_key_to_pem().unwrap()).unwrap()
+    }
 
     const MALFORMED_TOKEN: &str = "not.a.valid.jwt.token";
 
@@ -303,11 +298,12 @@ mod tests {
     }
 
     fn create_verifier() -> BearerTokenVerifier {
+        let pem = generate_test_public_key_pem();
         let config = BearerTokenVerificationConfig {
             issuer: "https://auth.example.com".to_string(),
             audience: "globaltrustauthority-rbs".to_string(),
         };
-        let key_provider = Arc::new(StubKeyProvider(TEST_PUBLIC_KEY_PEM.to_string()));
+        let key_provider = Arc::new(StubKeyProvider(pem));
         BearerTokenVerifier::new(config, key_provider)
     }
 

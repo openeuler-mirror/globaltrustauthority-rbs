@@ -21,3 +21,17 @@ pub async fn not_found() -> HttpResponse {
         error: "Not Found".to_string(),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::Value;
+
+    #[actix_web::test]
+    async fn not_found_returns_404_with_error_body() {
+        let resp = super::not_found().await;
+        assert_eq!(resp.status(), 404);
+        let body_bytes = actix_web::body::to_bytes(resp.into_body()).await.unwrap();
+        let v: Value = serde_json::from_slice(&body_bytes).expect("body must be JSON");
+        assert_eq!(v.get("error").and_then(|x| x.as_str()), Some("Not Found"));
+    }
+}

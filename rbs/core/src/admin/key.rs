@@ -174,18 +174,6 @@ fn jwk_ec_to_pem(jwk: &Value) -> Result<String> {
 mod tests {
     use super::*;
 
-    const VALID_RSA_PEM: &str = concat!(
-    "-----BEGIN PUBLIC KEY-----\n",
-    "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA7JOjGVgMbclDvZ0zW8by\n",
-    "ALpLyUSNYkb5dyy9xFBEg97RI1SSx0rcOkrd7fb/aJThQ7n47OaSpaJZmNzL/phQ\n",
-    "9TnqHafrOsY8nYn1PlGbUu0yo99CLF9EOqmUpLfAkCELFumP5xt1DSJ+VN4gxVeq\n",
-    "GNAthfi7ceWKuWRgfkTif2wXJXEpCBunyTEM4nqvOZX+lMLWkvv/jaovl+PjNQyk\n",
-    "wTFjgs3EC7Cn/C35xYHRAws3iBXk8PJ7TPFiG3L2pDIP30jxTbu3taOpkAarieSg\n",
-    "rK+Dsrv9RIirzseAH3XnSOHDQDVU++8Jw421BQw/ZiYCfIye2RplBpaLcL8xhIIf\n",
-    "CwIDAQAB\n",
-    "-----END PUBLIC KEY-----\n"
-    );
-
     #[test]
     fn validate_and_derive_alg_rejects_invalid_pem() {
         assert!(validate_and_derive_alg("invalid").is_err());
@@ -194,7 +182,12 @@ mod tests {
 
     #[test]
     fn validate_and_derive_alg_returns_rsa_for_rsa_key() {
-        let result = validate_and_derive_alg(VALID_RSA_PEM);
+        let rsa = openssl::rsa::Rsa::generate(2048).unwrap();
+        let pkey = openssl::pkey::PKey::from_rsa(rsa).unwrap();
+        let pem = pkey.public_key_to_pem().unwrap();
+        let pem_str = String::from_utf8_lossy(&pem).to_string();
+
+        let result = validate_and_derive_alg(&pem_str);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "RSA");
     }
