@@ -50,13 +50,10 @@ impl std::fmt::Debug for AdminManager {
 }
 
 impl AdminManager {
-    /// Create a new AdminManager from config.
+    /// Create a new AdminManager from config and an authorization facade.
     #[must_use]
-    pub fn new(config: AdminConfig) -> Self {
-        Self {
-            config,
-            authz: AuthzFacade::new(std::sync::Arc::new(crate::policy_engine::RealPolicyEngine)),
-        }
+    pub fn new(config: AdminConfig, authz: AuthzFacade) -> Self {
+        Self { config, authz }
     }
 
     /// Bootstrap: if no users exist, create the Administrator from config.
@@ -715,10 +712,16 @@ fn internal_err(e: impl std::fmt::Display) -> RbsError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::Engine;
     use rbs_api_types::{AuthType, Role};
 
-    // Base64 encoded RSA public key (with 64-char line breaks)
-    const TEST_RSA_PUBKEY_B64: &str = "LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUlJQklqQU5CZ2txaGtpRzl3MEJBUUVGQUFPQ0FROEFNSUlCQ2dLQ0FRRUE3Sk9qR1ZnTWJjbER2WjB6VzhieQpBTHBMeVVTTllrYjVkeXk5eEZCRWc5N1JJMVNTeDByY09rcmQ3ZmIvYUpUaFE3bjQ3T2FTcGFKWm1OekwvcGhRCjlUbnFIYWZyT3NZOG5ZbjFQbEdiVXUweW85OUNMRjlFT3FtVXBMZkFrQ0VMRnVtUDV4dDFEU0orVk40Z3hWZXEKR05BdGhmaTdjZVdLdVdSZ2ZrVGlmMndYSlhFcENCdW55VEVNNG5xdk9aWCtsTUxXa3Z2L2phb3ZsK1BqTlF5awp3VEZqZ3MzRUM3Q24vQzM1eFlIUkF3czNpQlhrOFBKN1RQRmlHM0wycERJUDMwanhUYnUzdGFPcGtBYXJpZVNnCnJLK0RzcnY5UklpcnpzZUFIM1huU09IRFFEVlUrKzhKdzQyMUJRdy9aaVlDZkl5ZTJScGxCcGFMY0w4eGhJSWYKQ3dJREFRQUIKLS0tLS1FTkQgUFVCTElDIEtFWS0tLS0tCg==";
+    // Generate a fresh RSA key pair for each test to avoid hard-coded keys.
+    fn generate_test_public_key() -> String {
+        let rsa = openssl::rsa::Rsa::generate(2048).unwrap();
+        let pkey = openssl::pkey::PKey::from_rsa(rsa).unwrap();
+        let pem = pkey.public_key_to_pem().unwrap();
+        String::from_utf8(pem).unwrap()
+    }
 
     #[test]
     fn uuid_generation_returns_valid_format() {
@@ -735,12 +738,13 @@ mod tests {
 
     #[test]
     fn extract_auth_material_returns_value_with_valid_public_key() {
+        let public_key = generate_test_public_key();
         let req = UserCreateRequest {
             username: "test".to_string(),
             role: None,
             enabled: None,
             auth_type: AuthType::Jwt,
-            public_key: Some(TEST_RSA_PUBKEY_B64.to_string()),
+            public_key: Some(base64::engine::general_purpose::STANDARD.encode(&public_key)),
             jwk: None,
         };
         let result = AdminManager::extract_auth_material(&req);
@@ -766,11 +770,12 @@ mod tests {
 
     #[test]
     fn extract_update_key_material_returns_value_with_public_key() {
+        let public_key = generate_test_public_key();
         let req = UserUpdateRequest {
             role: None,
             enabled: None,
             auth_type: Some(AuthType::Jwt),
-            public_key: Some(TEST_RSA_PUBKEY_B64.to_string()),
+            public_key: Some(base64::engine::general_purpose::STANDARD.encode(&public_key)),
             jwk: None,
         };
         let result = AdminManager::extract_update_key_material(&req);

@@ -13,66 +13,97 @@
 //! Common JWT verification utilities shared between token verifiers.
 
 use crate::auth::error::AuthError;
-use jsonwebtoken::{decode_header, Algorithm, DecodingKey, Header};
+use base64::Engine;
+use jsonwebtoken::{Algorithm, DecodingKey};
+use serde::Deserialize;
 
 /// Supported algorithms for token verification.
-/// RSA-PSS, ECDSA (NIST P-256/384), and EdDSA are supported.
-pub const SUPPORTED_ALGORITHMS: &[Algorithm] =
-    &[Algorithm::PS256, Algorithm::PS384, Algorithm::PS512, Algorithm::ES256, Algorithm::ES384, Algorithm::EdDSA];
+pub const SUPPORTED_ALGORITHMS: &[&str] =
+    &["PS256", "PS384", "PS512", "ES256", "ES384", "ES512", "EdDSA"];
 
-/// Human-readable list of supported algorithms for error messages.
-pub const SUPPORTED_ALGORITHMS_STR: &str = "PS256, PS384, PS512, ES256, ES384, EdDSA";
+/// Parsed JWT header (library-agnostic).
+#[derive(Debug, Clone)]
+pub struct RawHeader {
+    pub alg: String,
+    pub kid: Option<String>,
+}
+
+/// Minimal header JSON for raw parsing.
+#[derive(Debug, Deserialize)]
+struct RawHeaderJson {
+    alg: String,
+    #[serde(default)]
+    kid: Option<String>,
+}
+
+/// Decode the JWT header without verifying the signature.
+pub fn decode_token_header(token: &str) -> Result<RawHeader, AuthError> {
+    let parts: Vec<&str> = token.split('.').collect();
+    if parts.len() != 3 {
+        return Err(AuthError::TokenInvalid {
+            reason: "invalid token format".to_string(),
+        });
+    }
+
+    let header_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(parts[0])
+        .map_err(|e| AuthError::TokenInvalid {
+            reason: format!("failed to decode token header: {}", e),
+        })?;
+
+    let header: RawHeaderJson = serde_json::from_slice(&header_bytes).map_err(|e| {
+        AuthError::TokenInvalid {
+            reason: format!("failed to parse token header: {}", e),
+        }
+    })?;
+
+    Ok(RawHeader {
+        alg: header.alg,
+        kid: header.kid,
+    })
+}
 
 /// Validate that the algorithm is supported.
-///
-/// # Arguments
-/// * `alg` - The algorithm to validate
-///
-/// # Returns
-/// * `Ok(())` if the algorithm is supported
-/// * `Err(AuthError::TokenInvalid)` if the algorithm is not supported
-pub fn validate_algorithm(alg: &Algorithm) -> Result<(), AuthError> {
-    if SUPPORTED_ALGORITHMS.contains(alg) {
+pub fn validate_algorithm(alg: &str) -> Result<(), AuthError> {
+    if SUPPORTED_ALGORITHMS.contains(&alg) {
         Ok(())
     } else {
         Err(AuthError::TokenInvalid {
-            reason: format!("unsupported algorithm: {:?}. Supported algorithms: {}", alg, SUPPORTED_ALGORITHMS_STR),
+            reason: format!(
+                "unsupported algorithm: {}. Supported algorithms: {}",
+                alg, SUPPORTED_ALGORITHMS.join(", ")
+            ),
         })
     }
 }
 
-/// Decode the JWT header without verifying the signature.
-///
-/// # Arguments
-/// * `token` - The JWT token string
-///
-/// # Returns
-/// * `Ok(Header)` on success
-/// * `Err(AuthError::TokenInvalid)` if the header cannot be decoded
-pub fn decode_token_header(token: &str) -> Result<Header, AuthError> {
-    decode_header(token).map_err(|e| AuthError::TokenInvalid {
-        reason: format!("failed to decode token header: {}", e),
-    })
+/// True if the algorithm is ES512 (requires josekit verification path).
+#[inline]
+pub fn is_es512(alg: &str) -> bool {
+    alg == "ES512"
 }
 
-/// Create a DecodingKey from PEM-encoded public key bytes.
-///
-/// Automatically detects whether the key is Ed25519 or RSA based on the algorithm.
-///
-/// # Arguments
-/// * `alg` - The algorithm to use (determines key type)
-/// * `pem` - PEM-encoded public key bytes
-///
-/// # Returns
-/// * `Ok(DecodingKey)` on success
-/// * `Err(AuthError::TokenInvalid)` if the key cannot be created
-pub fn create_decoding_key(alg: &Algorithm, pem: &[u8]) -> Result<DecodingKey, AuthError> {
-    match *alg {
-        Algorithm::EdDSA => {
-            DecodingKey::from_ed_pem(pem).map_err(|e| AuthError::TokenInvalid {
-                reason: format!("failed to create EdDSA decoding key: {}", e),
-            })
-        }
+/// Convert an algorithm string to jsonwebtoken's `Algorithm` enum.
+pub(crate) fn to_jsonwebtoken_alg(alg: &str) -> Result<Algorithm, AuthError> {
+    match alg {
+        "PS256" => Ok(Algorithm::PS256),
+        "PS384" => Ok(Algorithm::PS384),
+        "PS512" => Ok(Algorithm::PS512),
+        "ES256" => Ok(Algorithm::ES256),
+        "ES384" => Ok(Algorithm::ES384),
+        "EdDSA" => Ok(Algorithm::EdDSA),
+        _ => Err(AuthError::TokenInvalid {
+            reason: format!("unsupported algorithm: {}", alg),
+        }),
+    }
+}
+
+/// Create a `DecodingKey` from PEM-encoded public key bytes.
+pub fn create_decoding_key(alg: &str, pem: &[u8]) -> Result<DecodingKey, AuthError> {
+    match to_jsonwebtoken_alg(alg)? {
+        Algorithm::EdDSA => DecodingKey::from_ed_pem(pem).map_err(|e| AuthError::TokenInvalid {
+            reason: format!("failed to create EdDSA decoding key: {}", e),
+        }),
         Algorithm::ES256 | Algorithm::ES384 => {
             DecodingKey::from_ec_pem(pem).map_err(|e| AuthError::TokenInvalid {
                 reason: format!("failed to create EC decoding key: {}", e),
@@ -88,16 +119,10 @@ pub fn create_decoding_key(alg: &Algorithm, pem: &[u8]) -> Result<DecodingKey, A
 }
 
 /// Map jsonwebtoken errors to AuthError with detailed messages.
-///
-/// This function provides consistent error mapping across all token verifiers.
-///
-/// # Arguments
-/// * `error` - The jsonwebtoken error
-/// * `expected_issuer` - Optional expected issuer for issuer mismatch errors
-///
-/// # Returns
-/// * The appropriate AuthError variant
-pub fn map_jwt_error(error: &jsonwebtoken::errors::Error, expected_issuer: Option<&str>) -> AuthError {
+pub fn map_jwt_error(
+    error: &jsonwebtoken::errors::Error,
+    expected_issuer: Option<&str>,
+) -> AuthError {
     use jsonwebtoken::errors::ErrorKind;
 
     match error.kind() {
@@ -125,47 +150,122 @@ pub fn map_jwt_error(error: &jsonwebtoken::errors::Error, expected_issuer: Optio
     }
 }
 
+/// Map josekit errors to AuthError with detailed messages.
+pub fn map_josekit_error(error: &josekit::JoseError, expected_issuer: Option<&str>) -> AuthError {
+    use josekit::JoseError;
+
+    match error {
+        JoseError::InvalidSignature(_) => AuthError::TokenInvalid {
+            reason: "invalid signature".to_string(),
+        },
+        JoseError::InvalidClaim(err) => {
+            let msg = err.to_string();
+            if msg.contains("expired") || msg.contains("expires") {
+                AuthError::TokenExpired
+            } else if msg.contains("not yet valid") || msg.contains("not before") {
+                AuthError::TokenNotYetValid
+            } else if msg.contains("iss") || msg.contains("issuer") {
+                AuthError::TokenInvalid {
+                    reason: if let Some(issuer) = expected_issuer {
+                        format!("issuer mismatch: expected '{}'", issuer)
+                    } else {
+                        "invalid issuer".to_string()
+                    },
+                }
+            } else if msg.contains("aud") || msg.contains("audience") {
+                AuthError::TokenInvalid {
+                    reason: "audience mismatch".to_string(),
+                }
+            } else {
+                AuthError::TokenInvalid {
+                    reason: format!("invalid claim: {}", msg),
+                }
+            }
+        }
+        _ => AuthError::TokenInvalid {
+            reason: format!("token verification failed: {}", error),
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_validate_algorithm_supported() {
-        assert!(validate_algorithm(&Algorithm::PS256).is_ok());
-        assert!(validate_algorithm(&Algorithm::PS384).is_ok());
-        assert!(validate_algorithm(&Algorithm::PS512).is_ok());
-        assert!(validate_algorithm(&Algorithm::ES256).is_ok());
-        assert!(validate_algorithm(&Algorithm::ES384).is_ok());
-        assert!(validate_algorithm(&Algorithm::EdDSA).is_ok());
+        assert!(validate_algorithm("PS256").is_ok());
+        assert!(validate_algorithm("PS384").is_ok());
+        assert!(validate_algorithm("PS512").is_ok());
+        assert!(validate_algorithm("ES256").is_ok());
+        assert!(validate_algorithm("ES384").is_ok());
+        assert!(validate_algorithm("ES512").is_ok());
+        assert!(validate_algorithm("EdDSA").is_ok());
     }
 
     #[test]
     fn test_validate_algorithm_unsupported() {
-        let result = validate_algorithm(&Algorithm::RS256);
+        let result = validate_algorithm("RS256");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("unsupported algorithm"));
     }
 
     #[test]
     fn test_supported_algorithms_constant() {
-        assert_eq!(SUPPORTED_ALGORITHMS.len(), 6);
-        assert!(SUPPORTED_ALGORITHMS.contains(&Algorithm::PS256));
-        assert!(SUPPORTED_ALGORITHMS.contains(&Algorithm::PS384));
-        assert!(SUPPORTED_ALGORITHMS.contains(&Algorithm::PS512));
-        assert!(SUPPORTED_ALGORITHMS.contains(&Algorithm::ES256));
-        assert!(SUPPORTED_ALGORITHMS.contains(&Algorithm::ES384));
-        assert!(SUPPORTED_ALGORITHMS.contains(&Algorithm::EdDSA));
+        assert_eq!(SUPPORTED_ALGORITHMS.len(), 7);
+        assert!(SUPPORTED_ALGORITHMS.contains(&"PS256"));
+        assert!(SUPPORTED_ALGORITHMS.contains(&"PS384"));
+        assert!(SUPPORTED_ALGORITHMS.contains(&"PS512"));
+        assert!(SUPPORTED_ALGORITHMS.contains(&"ES256"));
+        assert!(SUPPORTED_ALGORITHMS.contains(&"ES384"));
+        assert!(SUPPORTED_ALGORITHMS.contains(&"ES512"));
+        assert!(SUPPORTED_ALGORITHMS.contains(&"EdDSA"));
     }
 
     #[test]
     fn test_unsupported_algorithms_not_in_list() {
-        // RS* algorithms are not supported
-        assert!(!SUPPORTED_ALGORITHMS.contains(&Algorithm::RS256));
-        assert!(!SUPPORTED_ALGORITHMS.contains(&Algorithm::RS384));
-        assert!(!SUPPORTED_ALGORITHMS.contains(&Algorithm::RS512));
-        // HS* algorithms are not supported (symmetric)
-        assert!(!SUPPORTED_ALGORITHMS.contains(&Algorithm::HS256));
-        assert!(!SUPPORTED_ALGORITHMS.contains(&Algorithm::HS384));
-        assert!(!SUPPORTED_ALGORITHMS.contains(&Algorithm::HS512));
+        assert!(!SUPPORTED_ALGORITHMS.contains(&"RS256"));
+        assert!(!SUPPORTED_ALGORITHMS.contains(&"RS384"));
+        assert!(!SUPPORTED_ALGORITHMS.contains(&"RS512"));
+        assert!(!SUPPORTED_ALGORITHMS.contains(&"HS256"));
+        assert!(!SUPPORTED_ALGORITHMS.contains(&"HS384"));
+        assert!(!SUPPORTED_ALGORITHMS.contains(&"HS512"));
+    }
+
+    #[test]
+    fn test_is_es512() {
+        assert!(is_es512("ES512"));
+        assert!(!is_es512("ES256"));
+        assert!(!is_es512("ES384"));
+        assert!(!is_es512("EdDSA"));
+    }
+
+    #[test]
+    fn test_decode_token_header_es512() {
+        // A well-formed JWT header with ES512
+        let header = r#"{"alg":"ES512","kid":"test-key"}"#;
+        let header_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(header);
+        let token = format!("{}.eyJzdWIiOiJ0ZXN0In0=.sig", header_b64);
+
+        let parsed = decode_token_header(&token).unwrap();
+        assert_eq!(parsed.alg, "ES512");
+        assert_eq!(parsed.kid.as_deref(), Some("test-key"));
+    }
+
+    #[test]
+    fn test_decode_token_header_missing_kid() {
+        let header = r#"{"alg":"ES256"}"#;
+        let header_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(header);
+        let token = format!("{}.eyJzdWIiOiJ0ZXN0In0=.sig", header_b64);
+
+        let parsed = decode_token_header(&token).unwrap();
+        assert_eq!(parsed.alg, "ES256");
+        assert_eq!(parsed.kid, None);
+    }
+
+    #[test]
+    fn test_decode_token_header_malformed() {
+        assert!(decode_token_header("not.a.token").is_err());
+        assert!(decode_token_header("").is_err());
     }
 }

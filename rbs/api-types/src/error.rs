@@ -298,9 +298,9 @@ impl RbsError {
             Self::ResourceQuotaExceeded => StableCode::ResourceQuotaExceeded,
             Self::AttestationProviderUnavailable
             | Self::ResourceProviderUnavailable
-            | Self::ProviderTimeout
             | Self::ProviderNotFound(_)
             | Self::PolicyEvaluationError(_) => StableCode::ProviderUnavailable,
+            Self::ProviderTimeout => StableCode::ProviderTimeout,
             Self::DependencyUnavailable { .. } => StableCode::DependencyUnavailable,
             Self::RateLimitExceeded => StableCode::RateLimitExceeded,
             Self::InternalError => StableCode::InternalError,

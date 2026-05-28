@@ -132,7 +132,7 @@ impl RbsCoreBuilder {
         let policy_repo: Arc<dyn PolicyRepository> = Arc::new(SeaOrmPolicyRepository::new(db.clone()));
         let resource_repo: Arc<dyn ResourceRepository> = Arc::new(SeaOrmResourceRepository::new(db.clone()));
         let policy_client: Arc<dyn resource::adapter::PolicyClient> = Arc::new(DbPolicyClient::new(db));
-        let policy = PolicyService::new(policy_repo, authz_facade, policy_client.clone(), policy_validator, policy_config);
+        let policy = PolicyService::new(policy_repo, authz_facade.clone(), policy_client.clone(), policy_validator, policy_config);
 
         let mut resource_config = ResourceConfig::default();
         let mut backend_provider = BackendProvider::default();
@@ -161,7 +161,7 @@ impl RbsCoreBuilder {
             resource_repo, authz, backend_provider, policy_client.clone(), resource_validator,
         );
 
-        let admin = AdminManager::new(self.config.admin);
+        let admin = AdminManager::new(self.config.admin, authz_facade.clone());
 
         RbsCore::new(attestation, resource, policy, admin)
     }
@@ -189,14 +189,14 @@ impl Default for RbsCore {
         let policy_client: Arc<dyn resource::adapter::PolicyClient> = Arc::new(DbPolicyClient::new(db));
 
         let policy = PolicyService::new(
-            policy_repo, authz_facade, policy_client.clone(),
+            policy_repo, authz_facade.clone(), policy_client.clone(),
             PolicyValidator::new(PolicyConfig::default()), PolicyConfig::default(),
         );
         let resource = ResourceService::new(
             resource_repo, authz, BackendProvider::new(),
             policy_client, ResourceValidator::new(ResourceConfig::default()),
         );
-        RbsCore::new(AttestationManager::default(), resource, policy, AdminManager::new(AdminConfig::default()))
+        RbsCore::new(AttestationManager::default(), resource, policy, AdminManager::new(AdminConfig::default(), authz_facade))
     }
 }
 

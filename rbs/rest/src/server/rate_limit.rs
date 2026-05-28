@@ -136,3 +136,118 @@ where
     let res = next.call(req).await?;
     Ok(res.map_body(|_, b| BoxBody::new(b)))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
+    #[test]
+    fn trusted_proxy_from_addrs_skips_empty_and_invalid() {
+        let t = TrustedProxySet::from_addrs(&[
+            "".to_string(),
+            "  ".to_string(),
+            "not-an-ip".to_string(),
+        ]);
+        assert!(!t.is_trusted(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))));
+    }
+
+    #[test]
+    fn trusted_proxy_from_addrs_trims_whitespace() {
+        let t = TrustedProxySet::from_addrs(&["  127.0.0.1  ".to_string()]);
+        assert!(t.is_trusted(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))));
+    }
+
+    #[test]
+    fn trusted_proxy_empty_set_is_not_trusted() {
+        let t = TrustedProxySet::from_addrs(&[]);
+        assert!(!t.is_trusted(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))));
+        assert!(!t.is_trusted(IpAddr::V6(Ipv6Addr::LOCALHOST)));
+    }
+
+    #[test]
+    fn trusted_proxy_ipv6_addr() {
+        let t = TrustedProxySet::from_addrs(&["::1".to_string()]);
+        assert!(t.is_trusted(IpAddr::V6(Ipv6Addr::LOCALHOST)));
+        assert!(!t.is_trusted(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))));
+    }
+
+    #[test]
+    fn client_ip_trusted_peer_uses_realip_socket_addr() {
+        let trusted = TrustedProxySet::from_addrs(&["127.0.0.1".to_string()]);
+        let ip = client_ip_for_request(
+            Some("127.0.0.1:8080"),
+            Some("192.0.2.1:12345"),
+            &trusted,
+        );
+        assert_eq!(ip, Some(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1))));
+    }
+
+    #[test]
+    fn client_ip_trusted_peer_uses_realip_bare_ip() {
+        let trusted = TrustedProxySet::from_addrs(&["127.0.0.1".to_string()]);
+        let ip = client_ip_for_request(
+            Some("127.0.0.1:8080"),
+            Some("192.0.2.50"),
+            &trusted,
+        );
+        assert_eq!(ip, Some(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 50))));
+    }
+
+    #[test]
+    fn client_ip_untrusted_peer_ignores_realip() {
+        let trusted = TrustedProxySet::from_addrs(&["10.0.0.1".to_string()]);
+        let ip = client_ip_for_request(
+            Some("192.0.2.1:4321"),
+            Some("10.0.0.1:80"),
+            &trusted,
+        );
+        assert_eq!(ip, Some(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1))));
+    }
+
+    #[test]
+    fn client_ip_trusted_peer_no_realip_falls_back_to_peer() {
+        let trusted = TrustedProxySet::from_addrs(&["127.0.0.1".to_string()]);
+        let ip = client_ip_for_request(
+            Some("127.0.0.1:8080"),
+            None,
+            &trusted,
+        );
+        assert_eq!(ip, Some(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))));
+    }
+
+    #[test]
+    fn client_ip_no_peer_returns_none() {
+        let trusted = TrustedProxySet::from_addrs(&[]);
+        let ip = client_ip_for_request(None, None, &trusted);
+        assert_eq!(ip, None);
+    }
+
+    #[test]
+    fn build_limiter_zero_rps_clamped_to_one() {
+        let lim = build_limiter(0, None);
+        let ip: IpAddr = "192.0.2.1".parse().unwrap();
+        assert!(lim.check_key(&ip).is_ok(), "zero rps should be clamped to 1");
+    }
+
+    #[test]
+    fn build_limiter_zero_burst_falls_back_to_rps() {
+        let lim = build_limiter(10, Some(0));
+        let ip: IpAddr = "192.0.2.1".parse().unwrap();
+        assert!(lim.check_key(&ip).is_ok(), "zero burst should fall back to rps");
+    }
+
+    #[test]
+    fn build_limiter_none_burst_falls_back_to_rps() {
+        let lim = build_limiter(10, None);
+        let ip: IpAddr = "192.0.2.1".parse().unwrap();
+        assert!(lim.check_key(&ip).is_ok(), "None burst should fall back to rps");
+    }
+
+    #[test]
+    fn build_limiter_valid_rps_and_burst() {
+        let lim = build_limiter(5, Some(10));
+        let ip: IpAddr = "192.0.2.1".parse().unwrap();
+        assert!(lim.check_key(&ip).is_ok(), "valid rps/burst should pass first request");
+    }
+}

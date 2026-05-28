@@ -12,17 +12,24 @@
 
 //! Integration tests for user types.
 
+use openssl::rsa::Rsa;
 use rbs_api_types::{
     AuthType, Role, UserCreateRequest, UserListResponse, UserResponse, UserUpdateRequest,
 };
 
+fn generate_test_public_key_pem() -> String {
+    let rsa = Rsa::generate(2048).expect("RSA key generation should succeed");
+    String::from_utf8(rsa.public_key_to_pem().expect("public key to PEM should succeed"))
+        .expect("PEM should be valid UTF-8")
+}
+
 #[test]
 fn test_user_create_request() {
-    // Base64 of "-----BEGIN PUBLIC KEY-----\ntest\n-----END PUBLIC KEY-----"
+    let public_key = generate_test_public_key_pem();
     let json = serde_json::json!({
         "username": "alice",
         "auth_type": "jwt",
-        "public_key": "LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0KdGVzdAo9LS0tLS1FTkQgUFVCTElDIEtFWV9ERUNLQUdJTi0tLS0K"
+        "public_key": public_key
     });
     let req: UserCreateRequest = serde_json::from_value(json).unwrap();
     assert_eq!(req.username, "alice");
@@ -34,11 +41,11 @@ fn test_user_create_request() {
 
 #[test]
 fn test_user_create_request_with_role() {
-    // Base64 of "-----BEGIN PUBLIC KEY-----\ntest\n-----END PUBLIC KEY-----"
+    let public_key = generate_test_public_key_pem();
     let json = serde_json::json!({
         "username": "alice",
         "auth_type": "jwt",
-        "public_key": "LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0KdGVzdAo9LS0tLS1FTkQgUFVCTElDIEtFWV9ERUNLQUdJTi0tLS0K",
+        "public_key": public_key,
         "role": "user",
         "enabled": true
     });
@@ -62,11 +69,11 @@ fn test_user_update_request() {
 
 #[test]
 fn test_user_update_request_role() {
-    // Base64 of "-----BEGIN PUBLIC KEY-----\ntest\n-----END PUBLIC KEY-----"
+    let public_key = generate_test_public_key_pem();
     let json = serde_json::json!({
         "role": "user",
         "auth_type": "jwt",
-        "public_key": "LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0KdGVzdAo9LS0tLS1FTkQgUFVCTElDIEtFWV9ERUNLQUdJTi0tLS0K"
+        "public_key": public_key
     });
     let req: UserUpdateRequest = serde_json::from_value(json).unwrap();
     assert_eq!(req.role, Some(Role::User));

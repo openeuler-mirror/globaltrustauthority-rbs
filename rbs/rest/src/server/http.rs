@@ -241,3 +241,21 @@ where
     let res = next.call(req).await?;
     Ok(res.map_body(|_, b| actix_web::body::BoxBody::new(b)))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn request_timeout_zero_returns_max() {
+        assert_eq!(request_timeout_duration(0), Duration::MAX);
+    }
+
+    #[test]
+    fn request_timeout_nonzero_returns_secs() {
+        assert_eq!(request_timeout_duration(60), Duration::from_secs(60));
+        assert_eq!(request_timeout_duration(1), Duration::from_secs(1));
+        assert_eq!(request_timeout_duration(3600), Duration::from_secs(3600));
+    }
+}

@@ -54,14 +54,47 @@ impl Default for BuiltinAttestationProvider {
 #[async_trait]
 impl AttestationProvider for BuiltinAttestationProvider {
     async fn get_auth_challenge(&self, _as_provider: Option<&str>) -> Result<AuthChallengeResponse, RbsError> {
-        // TODO: When GTA Core is integrated, call gta_core.generate_nonce()
-        // For now, return a placeholder
         Err(RbsError::NotImplemented)
     }
 
     async fn attest(&self, _req: AttestRequest) -> Result<AttestResponse, RbsError> {
-        // TODO: When GTA Core is integrated, call gta_core.verify_evidence()
-        // For now, return not implemented
         Err(RbsError::NotImplemented)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::attestation::provider::AttestationProvider;
+
+    #[test]
+    fn new_and_default_are_equivalent() {
+        let a = BuiltinAttestationProvider::new();
+        let b = BuiltinAttestationProvider::default();
+        assert_eq!(format!("{:?}", a), format!("{:?}", b));
+    }
+
+    #[tokio::test]
+    async fn get_auth_challenge_returns_not_implemented() {
+        let provider = BuiltinAttestationProvider::new();
+        let result = provider.get_auth_challenge(None).await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), RbsError::NotImplemented));
+    }
+
+    #[tokio::test]
+    async fn get_auth_challenge_with_provider_name_returns_not_implemented() {
+        let provider = BuiltinAttestationProvider::new();
+        let result = provider.get_auth_challenge(Some("gta")).await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), RbsError::NotImplemented));
+    }
+
+    #[tokio::test]
+    async fn attest_returns_not_implemented() {
+        let provider = BuiltinAttestationProvider::new();
+        let result = provider.attest(AttestRequest::default()).await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), RbsError::NotImplemented));
     }
 }
