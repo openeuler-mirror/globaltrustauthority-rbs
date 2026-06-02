@@ -15,6 +15,7 @@
 pub mod authenticator;
 pub mod common;
 pub mod bearer_token;
+pub mod lockout;
 pub mod token;
 
 use async_trait::async_trait;
@@ -22,6 +23,7 @@ use crate::auth::error::AuthError;
 
 pub use authenticator::{Auth, Authenticator};
 pub use bearer_token::BearerTokenVerifier;
+pub use lockout::LockoutTracker;
 pub use token::AttestTokenVerifier;
 
 /// Provides a per-user public key (PEM) for BearerToken signature verification.
