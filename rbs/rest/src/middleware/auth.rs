@@ -19,7 +19,7 @@ use actix_web::{
     Error, HttpMessage,
 };
 use rbs_api_types::ErrorBody;
-use rbs_core::auth::{Auth, AuthContext, AuthError, TokenType};
+use rbs_core::auth::{Auth, AuthContext, TokenType};
 
 /// Paths that do NOT require authentication (exact match)
 const PUBLIC_PATHS: &[&str] = &["/rbs/v0/challenge", "/rbs/v0/attest", "/rbs/version"];
@@ -165,14 +165,10 @@ pub async fn auth_middleware(
             req.extensions_mut().insert(OptAuthContext(Some(auth_ctx)));
         }
         Err(e) => {
-            log::error!("Authentication failed for path '{}': {}", path, e);
-            let error_msg = match &e {
-                AuthError::AccountLocked => "Authentication temporarily unavailable",
-                _ => "Authentication failed",
-            };
+            log::warn!("Authentication failed for path '{}': {}", path, e);
             let res = req.into_response(
                 actix_web::HttpResponse::Unauthorized().json(ErrorBody {
-                    error: error_msg.to_string(),
+                    error: "Authentication failed".to_string(),
                 }),
             );
             return Ok(res.map_body(|_, b| BoxBody::new(b)));
@@ -219,7 +215,7 @@ mod tests {
     }
 
     #[actix_web::test]
-    async fn account_locked_returns_temporarily_unavailable() {
+    async fn account_locked_returns_unified_error() {
         let auth: Arc<dyn Auth> = Arc::new(AlwaysLockedAuth);
         let app = test::init_service(
             App::new()
@@ -240,8 +236,8 @@ mod tests {
         let v: serde_json::Value = serde_json::from_slice(&body).expect("body must be JSON");
         assert_eq!(
             v.get("error").and_then(|x| x.as_str()),
-            Some("Authentication temporarily unavailable"),
-            "AccountLocked should produce 'Authentication temporarily unavailable' in response"
+            Some("Authentication failed"),
+            "AccountLocked should produce unified 'Authentication failed' response to prevent user enumeration"
         );
     }
 
