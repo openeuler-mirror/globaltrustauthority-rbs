@@ -30,13 +30,22 @@ fn require_auth(req: &HttpRequest) -> Result<rbs_core::AuthContext, HttpResponse
 }
 
 fn error_response(e: impl ToString, status: u16) -> HttpResponse {
+    let msg = e.to_string();
+    if status >= 500 {
+        log::error!("Policy HTTP error response: status={}, error='{}'", status, msg);
+    } else if status >= 400 {
+        log::error!("Policy HTTP error response: status={}, error='{}'", status, msg);
+    }
     HttpResponse::build(StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR))
-        .json(ErrorBody::new(e.to_string()))
+        .json(ErrorBody::new(msg))
 }
 
 fn validate_path_id(policy_id: &str) -> Result<(), HttpResponse> {
     validate_policy_id(policy_id)
-        .map_err(|msg| HttpResponse::BadRequest().json(ErrorBody::new(msg)))
+        .map_err(|msg| {
+            log::error!("Policy validation error: {}", msg);
+            HttpResponse::BadRequest().json(ErrorBody::new(msg))
+        })
 }
 
 /// `GET /rbs/v0/resource/policy`: List policies.
@@ -63,8 +72,10 @@ pub async fn list_policies(
     core: web::Data<Arc<RbsCore>>, req: HttpRequest, query: web::Query<PolicyListQuery>,
 ) -> HttpResponse {
     let ctx = match require_auth(&req) { Ok(c) => c, Err(r) => return r };
+    log::info!("Policy list HTTP request received: user='{}'", ctx.sub());
     let query = query.into_inner();
     if let Err(e) = Validate::validate(&query) {
+        log::error!("Policy list validation error: {}", e);
         return HttpResponse::BadRequest().json(ErrorBody::new(e.to_string()));
     }
     let ids: Option<Vec<String>> = query.ids.as_deref()
@@ -72,6 +83,7 @@ pub async fn list_policies(
     if let Some(ref id_list) = ids {
         for id in id_list {
             if let Err(msg) = validate_policy_id(id) {
+                log::error!("Policy list validation error: {}", msg);
                 return HttpResponse::BadRequest().json(ErrorBody::new(msg));
             }
         }
@@ -106,8 +118,10 @@ pub async fn create_policy(
     core: web::Data<Arc<RbsCore>>, req: HttpRequest, body: web::Json<CreatePolicyRequest>,
 ) -> HttpResponse {
     let ctx = match require_auth(&req) { Ok(c) => c, Err(r) => return r };
+    log::info!("Policy create HTTP request received: user='{}'", ctx.sub());
     let body = body.into_inner();
     if let Err(e) = Validate::validate(&body) {
+        log::error!("Policy create validation error: {}", e);
         return HttpResponse::BadRequest().json(ErrorBody::new(e.to_string()));
     }
     match core.policy().create(&ctx, &body).await {
@@ -140,6 +154,7 @@ pub async fn get_policy(
 ) -> HttpResponse {
     let ctx = match require_auth(&req) { Ok(c) => c, Err(r) => return r };
     let id = path.into_inner();
+    log::info!("Policy get HTTP request received: id='{}', user='{}'", id, ctx.sub());
     if let Err(r) = validate_path_id(&id) { return r; }
     match core.policy().get_by_id(&ctx, &id).await {
         Ok(resp) => HttpResponse::Ok().json(resp),
@@ -175,9 +190,11 @@ pub async fn update_policy(
 ) -> HttpResponse {
     let ctx = match require_auth(&req) { Ok(c) => c, Err(r) => return r };
     let id = path.into_inner();
+    log::info!("Policy update HTTP request received: id='{}', user='{}'", id, ctx.sub());
     if let Err(r) = validate_path_id(&id) { return r; }
     let body = body.into_inner();
     if let Err(e) = Validate::validate(&body) {
+        log::error!("Policy update validation error: {}", e);
         return HttpResponse::BadRequest().json(ErrorBody::new(e.to_string()));
     }
     match core.policy().update(&ctx, &id, &body).await {
@@ -211,6 +228,7 @@ pub async fn delete_policy(
 ) -> HttpResponse {
     let ctx = match require_auth(&req) { Ok(c) => c, Err(r) => return r };
     let pid = path.into_inner();
+    log::info!("Policy delete HTTP request received: id='{}', user='{}'", pid, ctx.sub());
     if let Err(r) = validate_path_id(&pid) { return r; }
     match core.policy().delete(&ctx, &[pid]).await {
         Ok(()) => HttpResponse::NoContent().finish(),
@@ -243,9 +261,11 @@ pub async fn batch_delete_policies(
     core: web::Data<Arc<RbsCore>>, req: HttpRequest, query: web::Query<BatchDeleteQuery>,
 ) -> HttpResponse {
     let ctx = match require_auth(&req) { Ok(c) => c, Err(r) => return r };
+    log::info!("Policy batch_delete HTTP request received: user='{}'", ctx.sub());
     let ids: Vec<String> = query.ids.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
     for id in &ids {
         if let Err(msg) = validate_policy_id(id) {
+            log::error!("Policy batch_delete validation error: {}", msg);
             return HttpResponse::BadRequest().json(ErrorBody::new(msg));
         }
     }

@@ -119,7 +119,7 @@ impl AdminManager {
         let limit = params.limit.unwrap_or(10);
         let offset = params.offset.unwrap_or(0);
 
-        log::debug!("Listing users (limit={}, offset={}) by '{}'", limit, offset, bearer.sub);
+        log::info!("Listing users (limit={}, offset={}) by '{}'", limit, offset, bearer.sub);
 
         let db = get_connection_from_pool().map_err(|e| {
             log::error!("Failed to get DB connection for list_users: {}", e);
@@ -147,6 +147,7 @@ impl AdminManager {
 
         let users = models.into_iter().map(|m| model_to_response(&m)).collect();
 
+        log::info!("list_users completed: count={}, user='{}'", total_count, bearer.sub);
         Ok(UserListResponse { users, total_count, limit, offset })
     }
 
@@ -192,11 +193,11 @@ impl AdminManager {
 
     /// Get a user (admin or self).
     pub async fn get_user(&self, username: &str, auth_ctx: &AuthContext) -> Result<Option<UserResponse>> {
-        log::info!("get_user: called with username={}", username);
+        log::info!("get_user requested: username={}, user={}", username, auth_ctx.sub());
         let bearer = self.require_enabled_bearer(auth_ctx).await?;
 
         if bearer.role != ROLE_ADMIN && bearer.sub != username {
-            log::warn!("Get user '{}' rejected for '{}': not admin and not self", username, bearer.sub);
+            log::error!("get_user denied: user '{}' rejected for '{}': not admin and not self", username, bearer.sub);
             return Err(RbsError::AuthzInsufficientPermissions);
         }
 
@@ -212,6 +213,11 @@ impl AdminManager {
                 internal_err(e)
             })?;
 
+        if let Some(ref _m) = model {
+            log::info!("get_user completed: username='{}', found=true", username);
+        } else {
+            log::info!("get_user completed: username='{}', found=false", username);
+        }
         Ok(model.as_ref().map(|m| model_to_response(m)))
     }
 
@@ -228,7 +234,7 @@ impl AdminManager {
         let is_self = bearer.sub == username;
 
         if !is_admin && !is_self {
-            log::warn!("Update user '{}' rejected for '{}': not admin and not self", username, bearer.sub);
+            log::error!("Update user '{}' rejected for '{}': not admin and not self", username, bearer.sub);
             return Err(RbsError::AuthzInsufficientPermissions);
         }
 
@@ -238,13 +244,13 @@ impl AdminManager {
         if username == ADMIN_USERNAME {
             if let Some(ref role) = req.role {
                 if *role != Role::Admin {
-                    log::warn!("Update '{}' rejected: cannot change role of the built-in administrator", username);
+                    log::error!("Update '{}' rejected: cannot change role of the built-in administrator", username);
                     return Err(RbsError::InvalidParameter("Cannot change role of the built-in administrator".to_string()));
                 }
             }
             if let Some(enabled) = req.enabled {
                 if !enabled {
-                    log::warn!("Update '{}' rejected: cannot disable the built-in administrator", username);
+                    log::error!("Update '{}' rejected: cannot disable the built-in administrator", username);
                     return Err(RbsError::InvalidParameter("Cannot disable the built-in administrator".to_string()));
                 }
             }
@@ -266,7 +272,7 @@ impl AdminManager {
             .map_err(|e| {
                 let msg = e.to_string();
                 if msg.contains("not_found") {
-                    log::warn!("Update user '{}' rejected: not found", username);
+                    log::error!("Update user '{}' rejected: not found", username);
                     return RbsError::ResourceNotFound;
                 }
                 log::error!("Failed to update user '{}': {}", username, e);
@@ -282,7 +288,7 @@ impl AdminManager {
         let bearer = self.require_enabled_admin(auth_ctx).await?;
 
         if bearer.sub == username {
-            log::warn!("Delete user '{}' rejected: admin attempted self-deletion", username);
+            log::error!("Delete user '{}' rejected: admin attempted self-deletion", username);
             return Err(RbsError::AuthzInsufficientPermissions);
         }
 
@@ -299,7 +305,7 @@ impl AdminManager {
             })?;
 
         if result.rows_affected == 0 {
-            log::warn!("Delete user '{}' rejected: not found", username);
+            log::error!("Delete user '{}' rejected: not found", username);
             return Err(RbsError::ResourceNotFound);
         }
 
@@ -415,11 +421,11 @@ impl AdminManager {
     /// Non-admin users may only update their own key material.
     fn enforce_whitelist(req: &UserUpdateRequest, username: &str) -> Result<()> {
         if req.role.is_some() {
-            log::warn!("Self-update by '{}' rejected: attempted to change role", username);
+            log::error!("Self-update by '{}' rejected: attempted to change role", username);
             return Err(RbsError::AuthzInsufficientPermissions);
         }
         if req.enabled.is_some() {
-            log::warn!("Self-update by '{}' rejected: attempted to change enabled", username);
+            log::error!("Self-update by '{}' rejected: attempted to change enabled", username);
             return Err(RbsError::AuthzInsufficientPermissions);
         }
         Ok(())
@@ -487,7 +493,6 @@ impl AdminManager {
         match result {
             Ok(_) => log::info!("require_enabled_admin: authz check passed"),
             Err(e) => {
-                log::error!("require_enabled_admin: authz check failed: {:?}", e);
                 return Err(map_authz_err(e, auth_ctx));
             }
         }
@@ -514,7 +519,6 @@ impl AdminManager {
         match result {
             Ok(_) => log::info!("require_enabled_bearer: authz check passed"),
             Err(e) => {
-                log::error!("require_enabled_bearer: authz check failed: {:?}", e);
                 return Err(map_authz_err(e, auth_ctx));
             }
         }
@@ -549,12 +553,12 @@ impl AdminManager {
 
         match model {
             Some(m) if m.status == UserStatus::Disabled => {
-                log::warn!("Operation rejected: user '{}' is disabled", username);
+                log::error!("Operation rejected: user '{}' is disabled", username);
                 Err(RbsError::AuthzInsufficientPermissions)
             }
             Some(_) => Ok(()),
             None => {
-                log::warn!("Operation rejected: user '{}' not found", username);
+                log::error!("Operation rejected: user '{}' not found", username);
                 Err(RbsError::AuthzInsufficientPermissions)
             }
         }
@@ -644,7 +648,7 @@ impl crate::auth::UserKeyProvider for AdminManager {
                 crate::auth::AuthError::TokenInvalid { reason: "database error".to_string() }
             })?
             .ok_or_else(|| {
-                log::warn!("BearerToken verification failed: user '{}' not found", sub);
+                log::error!("BearerToken verification failed: user '{}' not found", sub);
                 crate::auth::AuthError::TokenInvalid {
                     reason: format!("user '{}' not found", sub),
                 }
@@ -661,7 +665,7 @@ fn extract_bearer(ctx: &AuthContext) -> Result<&crate::auth::BearerContext> {
     match ctx {
         AuthContext::Bearer(b) => Ok(b),
         AuthContext::Attest(_) => {
-            log::warn!("Admin operation rejected: AttestToken used");
+            log::error!("Admin operation rejected: AttestToken used");
             Err(RbsError::AuthnInvalidToken)
         }
     }
@@ -671,10 +675,10 @@ fn extract_bearer(ctx: &AuthContext) -> Result<&crate::auth::BearerContext> {
 fn map_authz_err(e: AuthzError, ctx: &AuthContext) -> RbsError {
     match ctx {
         AuthContext::Bearer(b) => {
-            log::warn!("Authz denied for '{}' (role={}): {:?}", b.sub, b.role, e);
+            log::error!("Authz denied for '{}' (role={}): {:?}", b.sub, b.role, e);
         }
         AuthContext::Attest(_) => {
-            log::warn!("Authz denied for AttestToken: {:?}", e);
+            log::error!("Authz denied for AttestToken: {:?}", e);
         }
     }
     match e {

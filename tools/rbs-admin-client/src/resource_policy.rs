@@ -47,6 +47,7 @@ pub struct ResourcePolicy {
     pub policy_name: String,
     pub policy_version: i64,
     #[tabled(skip)]
+    #[serde(default)]
     pub policy_content: String,
     pub content_type: ResourcePolicyContentType,
     pub created_at: String,
@@ -80,7 +81,7 @@ pub struct ResourcePolicyUpdateRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct ResourcePolicyListResponse {
     pub items: Vec<ResourcePolicy>,
-    pub total: i64,
+    pub total_count: i64,
 }
 
 #[async_trait]

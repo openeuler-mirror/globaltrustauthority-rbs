@@ -64,28 +64,36 @@ impl PolicyService {
         log::info!("Policy create requested: name={}, user={}", req.name, ctx.sub());
 
         // ── step 1: permission check ──
-        // TODO: auth module under active development — AuthzFacade API may change.
         self.authz.check(ctx).action(Action::Create).required_role(RequiredRole::UserScoped).ensure_allowed().await.map_err(|_| {
-            log::warn!("Policy create denied: permission denied for user '{}'", ctx.sub());
+            log::error!("Policy create denied: permission denied for user '{}'", ctx.sub());
             PolicyError::PermissionDenied
         })?;
 
         // ── step 2: data validation ──
-        self.validator.validate_name(&req.name)?;
+        self.validator.validate_name(&req.name).map_err(|e| {
+            log::error!("Policy create denied: {}", e);
+            e
+        })?;
         let username = ctx.sub();
 
         // name duplicate check
         if let Some(_existing) = self.repo.find_by_name_and_user(&req.name, username).await? {
-            log::warn!("Policy create denied: name '{}' already exists for user '{}'", req.name, username);
+            log::error!("Policy create denied: name '{}' already exists for user '{}'", req.name, username);
             return Err(PolicyError::NameDuplicate { name: req.name.clone() });
         }
 
         // count limit check
         let count = self.repo.count_by_user(username).await?;
-        self.validator.check_user_policy_count(count)?;
+        self.validator.check_user_policy_count(count).map_err(|e| {
+            log::error!("Policy create denied: {}", e);
+            e
+        })?;
 
         // content decode and size check
-        self.validator.decode_and_check_size(&req.content_type, &req.content)?;
+        self.validator.decode_and_check_size(&req.content_type, &req.content).map_err(|e| {
+            log::error!("Policy create denied: {}", e);
+            e
+        })?;
 
         // ── step 3: execute ──
         let now = chrono::Utc::now().timestamp_millis();
@@ -124,14 +132,16 @@ impl PolicyService {
         log::info!("Policy update requested: id={}, name={}, user={}", policy_id, req.name, ctx.sub());
 
         // ── step 1: permission check ──
-        // TODO: auth module under active development — AuthzFacade API may change.
         self.authz.check(ctx).action(Action::Update).required_role(RequiredRole::UserScoped).ensure_allowed().await.map_err(|_| {
-            log::warn!("Policy update denied: permission denied for user '{}'", ctx.sub());
+            log::error!("Policy update denied: permission denied for user '{}'", ctx.sub());
             PolicyError::PermissionDenied
         })?;
 
         // ── step 2: data validation ──
-        self.validator.validate_name(&req.name)?;
+        self.validator.validate_name(&req.name).map_err(|e| {
+            log::error!("Policy update denied: {}", e);
+            e
+        })?;
         let username = ctx.sub();
 
         // find existing policy
@@ -139,11 +149,14 @@ impl PolicyService {
             .repo
             .find_by_id(policy_id)
             .await?
-            .ok_or(PolicyError::NotFound)?;
+            .ok_or_else(|| {
+                log::error!("Policy update denied: policy '{}' not found", policy_id);
+                PolicyError::NotFound
+            })?;
 
         // ownership check
         if existing.username != username {
-            log::warn!("Policy update denied: user '{}' cannot update policy '{}' owned by '{}'", username, policy_id, existing.username);
+            log::error!("Policy update denied: user '{}' cannot update policy '{}' owned by '{}'", username, policy_id, existing.username);
             return Err(PolicyError::PermissionDenied);
         }
 
@@ -151,14 +164,17 @@ impl PolicyService {
         if req.name != existing.policy_name {
             if let Some(conflict) = self.repo.find_by_name_and_user(&req.name, username).await? {
                 if conflict.policy_id != policy_id {
-                    log::warn!("Policy update denied: name '{}' already exists for user '{}'", req.name, username);
+                    log::error!("Policy update denied: name '{}' already exists for user '{}'", req.name, username);
                     return Err(PolicyError::NameDuplicate { name: req.name.clone() });
                 }
             }
         }
 
         // content decode and size check
-        self.validator.decode_and_check_size(&req.content_type, &req.content)?;
+        self.validator.decode_and_check_size(&req.content_type, &req.content).map_err(|e| {
+            log::error!("Policy update denied: {}", e);
+            e
+        })?;
 
         // ── step 3: execute with optimistic lock ──
         let now = chrono::Utc::now().timestamp_millis();
@@ -179,7 +195,7 @@ impl PolicyService {
             .await?;
 
         if affected == 0 {
-            log::warn!("Policy update conflict: id='{}', expected version={}, version mismatch", policy_id, existing.policy_version);
+            log::error!("Policy update conflict: id='{}', expected version={}, version mismatch", policy_id, existing.policy_version);
             return Err(PolicyError::VersionConflict {
                 expected: existing.policy_version,
                 current: existing.policy_version, // actual version unknown, report expected
@@ -207,12 +223,13 @@ impl PolicyService {
         log::info!("Policy delete requested: ids={:?}, user={}", policy_ids, ctx.sub());
 
         if policy_ids.is_empty() {
+            log::error!("Policy delete denied: empty policy_ids");
             return Err(PolicyError::ParamInvalid { field: "policy_ids" });
         }
 
         // ── step 1: permission check ──
         self.authz.check(ctx).action(Action::Delete).required_role(RequiredRole::UserScoped).ensure_allowed().await.map_err(|_| {
-            log::warn!("Policy delete denied: permission denied for user '{}'", ctx.sub());
+            log::error!("Policy delete denied: permission denied for user '{}'", ctx.sub());
             PolicyError::PermissionDenied
         })?;
 
@@ -227,6 +244,7 @@ impl PolicyService {
             let found_ids: std::collections::HashSet<&str> = entities.iter().map(|e| e.policy_id.as_str()).collect();
             for pid in policy_ids {
                 if !found_ids.contains(pid.as_str()) {
+                    log::error!("Policy delete denied: policy '{}' not found for user '{}'", pid, username);
                     return Err(PolicyError::NotFound);
                 }
             }
@@ -235,7 +253,7 @@ impl PolicyService {
         // Check ownership and references
         for entity in &entities {
             if entity.username != username {
-                log::warn!("Policy delete denied: user '{}' cannot delete policy '{}' owned by '{}'", username, entity.policy_id, entity.username);
+                log::error!("Policy delete denied: user '{}' cannot delete policy '{}' owned by '{}'", username, entity.policy_id, entity.username);
                 return Err(PolicyError::PermissionDenied);
             }
             let refs = self.resource_client.relation_res_ids(&entity.policy_id, username).await?;
@@ -245,18 +263,21 @@ impl PolicyService {
         }
 
         if !referenced_names.is_empty() {
-            log::warn!("Policy delete denied: policies {:?} are referenced by resources", referenced_names);
+            log::error!("Policy delete denied: policies {:?} are referenced by resources", referenced_names);
             return Err(PolicyError::BeingReferenced { policy_names: referenced_names });
         }
 
         // ── step 3: execute deletion within a transaction ──
         let db = self.repo.db_connection();
-        let txn = db.begin().await.map_err(|_| PolicyError::ParamInvalid { field: "db" })?;
+        let txn = db.begin().await.map_err(|e| {
+            log::error!("Policy delete failed: transaction begin error: {}", e);
+            PolicyError::ParamInvalid { field: "db" }
+        })?;
 
         let affected = self.repo.delete_by_ids_txn(&txn, policy_ids, username).await?;
         if affected as usize != policy_ids.len() {
             let _ = txn.rollback().await;
-            log::warn!("Policy delete failed: expected {} deletions, got {}", policy_ids.len(), affected);
+            log::error!("Policy delete failed: expected {} deletions, got {}", policy_ids.len(), affected);
             return Err(PolicyError::NotFound);
         }
 
@@ -271,12 +292,12 @@ impl PolicyService {
 
     /// List policies with optional ID filter and pagination.
     pub async fn list(&self, ctx: &AuthContext, query: &PolicyQuery) -> Result<PolicyListResponse, PolicyError> {
-        log::debug!("Policy list requested: user={}, offset={}, limit={}", ctx.sub(), query.offset, query.limit);
+        log::info!("Policy list requested: user={}, offset={}, limit={}", ctx.sub(), query.offset, query.limit);
 
         // ── step 1: permission check ──
         // TODO: auth module under active development — AuthzFacade API may change.
         self.authz.check(ctx).action(Action::Get).required_role(RequiredRole::UserScoped).ensure_allowed().await.map_err(|_| {
-            log::warn!("Policy list denied: permission denied for user '{}'", ctx.sub());
+            log::error!("Policy list denied: permission denied for user '{}'", ctx.sub());
             PolicyError::PermissionDenied
         })?;
 
@@ -312,17 +333,16 @@ impl PolicyService {
             })
             .collect();
 
+        log::info!("Policy list completed: count={}, user='{}'", total, username);
         Ok(PolicyListResponse { items, total_count: total as i64, limit, offset })
     }
-
-    /// Get a single policy by ID with full details.
     pub async fn get_by_id(&self, ctx: &AuthContext, policy_id: &str) -> Result<PolicyResponse, PolicyError> {
-        log::debug!("Policy get_by_id requested: id={}, user={}", policy_id, ctx.sub());
+        log::info!("Policy get_by_id requested: id={}, user={}", policy_id, ctx.sub());
 
         // ── step 1: permission check ──
         // TODO: auth module under active development — AuthzFacade API may change.
         self.authz.check(ctx).action(Action::Get).required_role(RequiredRole::UserScoped).ensure_allowed().await.map_err(|_| {
-            log::warn!("Policy get_by_id denied: permission denied for user '{}'", ctx.sub());
+            log::error!("Policy get_by_id denied: permission denied for user '{}'", ctx.sub());
             PolicyError::PermissionDenied
         })?;
 
@@ -333,17 +353,21 @@ impl PolicyService {
             .repo
             .find_by_id(policy_id)
             .await?
-            .ok_or(PolicyError::NotFound)?;
+            .ok_or_else(|| {
+                log::error!("Policy get_by_id denied: policy '{}' not found", policy_id);
+                PolicyError::NotFound
+            })?;
 
         // ownership check
         if entity.username != username {
-            log::warn!("Policy get_by_id denied: user '{}' cannot access policy '{}' owned by '{}'", username, policy_id, entity.username);
+            log::error!("Policy get_by_id denied: user '{}' cannot access policy '{}' owned by '{}'", username, policy_id, entity.username);
             return Err(PolicyError::PermissionDenied);
         }
 
         // get applied resources
         let applied_resources = self.resource_client.relation_res_ids(policy_id, username).await?;
 
+        log::info!("Policy get_by_id completed: id='{}', user='{}'", entity.policy_id, username);
         Ok(PolicyResponse {
             policy_id: entity.policy_id,
             policy_name: entity.policy_name,

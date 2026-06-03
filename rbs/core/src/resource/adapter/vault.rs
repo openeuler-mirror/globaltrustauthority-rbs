@@ -134,13 +134,19 @@ impl ResourceBackend for VaultBackend {
             json.get("data")
         };
 
-        let data = data.ok_or_else(|| ResourceError::BackendError {
-            detail: "Vault response missing 'data' field".to_string(),
+        let data = data.ok_or_else(|| {
+            log::error!("Vault get_resource_content failed: response missing 'data' field for uri '{}'", uri);
+            ResourceError::BackendError {
+                detail: "Vault response missing 'data' field".to_string(),
+            }
         })?;
 
         // Serialise the data map back to bytes
         let content = serde_json::to_vec(data)
-            .map_err(|e| ResourceError::BackendError { detail: e.to_string() })?;
+            .map_err(|e| {
+                log::error!("Vault get_resource_content failed: serde_json serialization error: {}", e);
+                ResourceError::BackendError { detail: e.to_string() }
+            })?;
 
         Ok(content)
     }
