@@ -14,8 +14,9 @@
 //!
 //! Internal error representation; maps to HTTP status and stable error codes
 //! for external responses.
+//! Also includes [`ErrorBody`] — the HTTP error response payload struct.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// Error class categories for external error reporting.
@@ -356,5 +357,42 @@ impl Serialize for RbsError {
         S: serde::Serializer,
     {
         self.external_message().serialize(serializer)
+    }
+}
+
+// ── HTTP error response body ──────────────────────────────────────────────
+
+/// Error payload for HTTP error responses (e.g. 500).
+#[derive(Clone, Debug, Deserialize, Serialize, utoipa::ToSchema)]
+pub struct ErrorBody {
+    /// Error string for the caller: may be a stable code, a short machine-oriented label,
+    /// or a concise human-readable message. Must not include stack traces or secrets.
+    pub error: String,
+}
+
+impl ErrorBody {
+    /// Creates a new error body with the given message.
+    pub fn new(error: impl Into<String>) -> Self {
+        Self {
+            error: error.into(),
+        }
+    }
+}
+
+impl From<&str> for ErrorBody {
+    fn from(s: &str) -> Self {
+        Self::new(s)
+    }
+}
+
+impl From<String> for ErrorBody {
+    fn from(s: String) -> Self {
+        Self::new(s)
+    }
+}
+
+impl From<&RbsError> for ErrorBody {
+    fn from(e: &RbsError) -> Self {
+        ErrorBody::new(e.external_message())
     }
 }

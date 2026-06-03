@@ -21,9 +21,10 @@
 //!
 //! - [`auth`] - Attestation-related types (challenge, evidence, token)
 //! - [`constants`] - API constants (prefix, resource types)
-//! - [`error`] - Unified error types with stable error codes
+//! - [`error`] - Unified error types with stable error codes, plus [`ErrorBody`] HTTP payload
 //! - [`resource`] - Resource-related types (content, metadata, upsert)
 //! - [`user`] - User management types (create, update, list)
+//! - [`version`] - Version and build metadata types (`RbsVersion`, `BuildMetadata`)
 //!
 //! # API Contract
 //!
@@ -41,10 +42,10 @@ pub mod auth;
 pub mod config;
 pub mod constants;
 pub mod error;
-pub mod openapi;
 pub mod policy;
 pub mod resource;
 pub mod user;
+pub mod version;
 
 // Re-export types from auth module
 pub use auth::{
@@ -66,8 +67,8 @@ pub use constants::{
     SERVICE_NAME,
 };
 
-// Re-export types from error module
-pub use error::RbsError;
+// Re-export types from error module (includes ErrorBody HTTP response payload)
+pub use error::{ErrorBody, RbsError};
 
 // Re-export types from resource module
 pub use resource::{
@@ -76,8 +77,8 @@ pub use resource::{
     ATTEST_TEE_PUBKEY_KEY, BEARER_ENC_PUBKEY_KEY,
 };
 
-// Re-export types from openapi module (with ToSchema and example attributes)
-pub use openapi::{BuildMetadata, ErrorBody, RbsVersion};
+// Re-export types from version module (with ToSchema and example attributes)
+pub use version::{BuildMetadata, RbsVersion};
 
 // Re-export types from policy module
 pub use policy::{

@@ -1144,7 +1144,7 @@ components:
         build_date:
           type: string
           description: Build timestamp (UTC), typically RFC 3339, or empty when not embedded at build.
-          example: 2026-04-20T00:00:00Z
+          example: ''
     ChallengeRequest:
       type: object
       description: Query parameter for GET /rbs/v0/challenge (challenge request).
