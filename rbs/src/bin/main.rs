@@ -20,6 +20,7 @@ use rbs::load_config;
 use rbs_core::init_logging;
 use rbs_core::init_database;
 use rbs_core::rdb::execute_sql_file_path;
+use rbs_core::auth::LockoutTracker;
 
 /// RBS (Resource Broker Service) binary.
 #[derive(Parser)]
@@ -90,7 +91,8 @@ async fn main() -> anyhow::Result<()> {
             config.rest.clone().ok_or_else(|| anyhow::anyhow!("config.rest is required when built with `rest`"))?;
         let key_provider: std::sync::Arc<dyn rbs_core::auth::UserKeyProvider> =
             std::sync::Arc::new(CoreKeyProvider(core.clone()));
-        let server = rbs_rest::Server::new(core.clone(), rest_config.clone(), config.auth.clone(), key_provider);
+        let lockout_tracker = LockoutTracker::new_shared();
+        let server = rbs_rest::Server::new(core.clone(), rest_config.clone(), config.auth.clone(), key_provider, lockout_tracker);
         let bound = server.bind().await.context("bind REST server")?;
         log::info!("RBS REST server starting on {}", rest_config.listen_addr);
         bound.run().await.context("RBS REST server")?;

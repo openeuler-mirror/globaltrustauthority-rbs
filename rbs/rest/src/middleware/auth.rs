@@ -165,7 +165,7 @@ pub async fn auth_middleware(
             req.extensions_mut().insert(OptAuthContext(Some(auth_ctx)));
         }
         Err(e) => {
-            log::error!("Authentication failed for path '{}': {}", path, e);
+            log::warn!("Authentication failed for path '{}': {}", path, e);
             let res = req.into_response(
                 actix_web::HttpResponse::Unauthorized().json(ErrorBody {
                     error: "Authentication failed".to_string(),
@@ -183,3 +183,88 @@ pub async fn auth_middleware(
 pub struct OptAuthContext(pub Option<AuthContext>);
 
 use std::sync::Arc;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use actix_web::{test, web, App, HttpResponse};
+    use async_trait::async_trait;
+    use rbs_core::auth::{AuthError, TokenType};
+    use rbs_core::auth::context::AuthContext;
+
+    /// A mock Auth implementation that always returns AccountLocked.
+    #[derive(Debug, Clone)]
+    struct AlwaysLockedAuth;
+
+    #[async_trait]
+    impl Auth for AlwaysLockedAuth {
+        async fn authenticate(&self, _token: &str, _token_type: TokenType) -> Result<AuthContext, AuthError> {
+            Err(AuthError::AccountLocked)
+        }
+    }
+
+    /// A mock Auth implementation that always returns TokenInvalid.
+    #[derive(Debug, Clone)]
+    struct AlwaysInvalidAuth;
+
+    #[async_trait]
+    impl Auth for AlwaysInvalidAuth {
+        async fn authenticate(&self, _token: &str, _token_type: TokenType) -> Result<AuthContext, AuthError> {
+            Err(AuthError::TokenInvalid { reason: "bad token".to_string() })
+        }
+    }
+
+    #[actix_web::test]
+    async fn account_locked_returns_unified_error() {
+        let auth: Arc<dyn Auth> = Arc::new(AlwaysLockedAuth);
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(auth))
+                .wrap(actix_web::middleware::from_fn(auth_middleware))
+                .route("/rbs/v0/users", web::get().to(|| async { HttpResponse::Ok().body("ok") })),
+        )
+        .await;
+
+        let req = test::TestRequest::get()
+            .uri("/rbs/v0/users")
+            .insert_header(("Authorization", "Bearer some-token"))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+
+        assert_eq!(resp.status(), actix_web::http::StatusCode::UNAUTHORIZED);
+        let body = test::read_body(resp).await;
+        let v: serde_json::Value = serde_json::from_slice(&body).expect("body must be JSON");
+        assert_eq!(
+            v.get("error").and_then(|x| x.as_str()),
+            Some("Authentication failed"),
+            "AccountLocked should produce unified 'Authentication failed' response to prevent user enumeration"
+        );
+    }
+
+    #[actix_web::test]
+    async fn token_invalid_returns_authentication_failed() {
+        let auth: Arc<dyn Auth> = Arc::new(AlwaysInvalidAuth);
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(auth))
+                .wrap(actix_web::middleware::from_fn(auth_middleware))
+                .route("/rbs/v0/users", web::get().to(|| async { HttpResponse::Ok().body("ok") })),
+        )
+        .await;
+
+        let req = test::TestRequest::get()
+            .uri("/rbs/v0/users")
+            .insert_header(("Authorization", "Bearer bad-token"))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+
+        assert_eq!(resp.status(), actix_web::http::StatusCode::UNAUTHORIZED);
+        let body = test::read_body(resp).await;
+        let v: serde_json::Value = serde_json::from_slice(&body).expect("body must be JSON");
+        assert_eq!(
+            v.get("error").and_then(|x| x.as_str()),
+            Some("Authentication failed"),
+            "TokenInvalid should produce 'Authentication failed' in response"
+        );
+    }
+}

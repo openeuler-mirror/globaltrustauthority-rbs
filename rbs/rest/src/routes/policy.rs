@@ -69,6 +69,13 @@ pub async fn list_policies(
     }
     let ids: Option<Vec<String>> = query.ids.as_deref()
         .map(|s| s.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect());
+    if let Some(ref id_list) = ids {
+        for id in id_list {
+            if let Err(msg) = validate_policy_id(id) {
+                return HttpResponse::BadRequest().json(ErrorBody::new(msg));
+            }
+        }
+    }
     let limit = query.limit.unwrap_or(10);
     let offset = query.offset.unwrap_or(0);
     match core.policy().list(&ctx, &PolicyQuery { ids, offset, limit }).await {
@@ -237,6 +244,11 @@ pub async fn batch_delete_policies(
 ) -> HttpResponse {
     let ctx = match require_auth(&req) { Ok(c) => c, Err(r) => return r };
     let ids: Vec<String> = query.ids.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+    for id in &ids {
+        if let Err(msg) = validate_policy_id(id) {
+            return HttpResponse::BadRequest().json(ErrorBody::new(msg));
+        }
+    }
     match core.policy().delete(&ctx, &ids).await {
         Ok(()) => HttpResponse::NoContent().finish(),
         Err(e) => error_response(e.to_string(), e.http_status()),

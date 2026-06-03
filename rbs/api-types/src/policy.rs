@@ -122,12 +122,18 @@ fn validate_content_type(content_type: &str) -> Result<(), validator::Validation
 }
 
 /// Validate a policy_id path parameter.
+/// Checks both length (1..36) and UUID v4 format.
 pub fn validate_policy_id(id: &str) -> Result<(), String> {
     if id.is_empty() || id.len() > POLICY_ID_MAX_LEN as usize {
         Err(format!(
             "policy_id length must be 1..{}, got {}",
             POLICY_ID_MAX_LEN,
             id.len()
+        ))
+    } else if uuid::Uuid::parse_str(id).is_err() {
+        Err(format!(
+            "policy_id must be a valid UUID, got '{}'",
+            id
         ))
     } else {
         Ok(())

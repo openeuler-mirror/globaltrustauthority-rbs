@@ -42,6 +42,7 @@ validator = { version = "0.20", features = ["derive"] }
 josekit = "0.10.3"
 jsonwebtoken = { version = "10.3.0", features = ["rust_crypto"] }
 chrono = "0.4.44"
+dashmap = "6"
 wiremock = "0.6"
 cbindgen = "0.29.0"
 async-trait = "0.1.89"

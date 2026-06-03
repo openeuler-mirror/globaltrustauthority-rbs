@@ -17,11 +17,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use actix_web::{web, App, HttpServer, middleware::Logger};
-use rbs_core::auth::Auth;
 use anyhow::{bail, Context};
 use openssl::ssl::{SslAcceptor, SslAcceptorBuilder, SslFiletype, SslMethod};
 use rbs_api_types::config::{AuthConfig, RestConfig};
-use rbs_core::auth::UserKeyProvider;
+use rbs_core::auth::{Auth, LockoutTracker, UserKeyProvider};
 use rbs_core::{auth::Authenticator, RbsCore};
 use socket2::{Domain, Socket, Type};
 
@@ -62,6 +61,7 @@ pub struct Server {
     rest_config: RestConfig,
     auth_config: AuthConfig,
     key_provider: Arc<dyn UserKeyProvider>,
+    lockout_tracker: Arc<LockoutTracker>,
 }
 
 impl Server {
@@ -71,8 +71,9 @@ impl Server {
         rest_config: RestConfig,
         auth_config: AuthConfig,
         key_provider: Arc<dyn UserKeyProvider>,
+        lockout_tracker: Arc<LockoutTracker>,
     ) -> Self {
-        Self { core, rest_config, auth_config, key_provider }
+        Self { core, rest_config, auth_config, key_provider, lockout_tracker }
     }
 
     /// Binds to the configured listen address with the configured backlog; then call `.run().await?`.
@@ -107,7 +108,7 @@ impl Server {
         socket.set_nonblocking(true).with_context(|| "set nonblocking")?;
         let std_listener: std::net::TcpListener = socket.into();
 
-        Ok(BoundServer { std_listener, core: self.core, rest_config: self.rest_config, auth_config: self.auth_config, key_provider: self.key_provider })
+        Ok(BoundServer { std_listener, core: self.core, rest_config: self.rest_config, auth_config: self.auth_config, key_provider: self.key_provider, lockout_tracker: self.lockout_tracker })
     }
 }
 
@@ -119,6 +120,7 @@ pub struct BoundServer {
     rest_config: RestConfig,
     auth_config: AuthConfig,
     key_provider: Arc<dyn UserKeyProvider>,
+    lockout_tracker: Arc<LockoutTracker>,
 }
 
 impl BoundServer {
@@ -144,6 +146,7 @@ impl BoundServer {
         let std_listener = self.std_listener;
         let auth_config = self.auth_config;
         let key_provider = self.key_provider;
+        let lockout_tracker = self.lockout_tracker;
 
         #[cfg(feature = "per-ip-rate-limit")]
         let limiter_opt = if rest.rate_limit.enabled {
@@ -168,11 +171,24 @@ impl BoundServer {
             });
         }
 
+        // Periodic cleanup of expired lockout counter entries (every 60 seconds).
+        {
+            let lt = Arc::clone(&lockout_tracker);
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(Duration::from_secs(60));
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                loop {
+                    interval.tick().await;
+                    lt.cleanup_expired();
+                }
+            });
+        }
+
         let max_uri_len = DEFAULT_MAX_URI_LEN as u32;
 
         let app_factory = move || {
             // Create Authenticator for this worker
-            let authenticator = Authenticator::new(auth_config.clone(), key_provider.clone())
+            let authenticator = Authenticator::new(auth_config.clone(), key_provider.clone(), lockout_tracker.clone())
                 .expect("failed to initialize authenticator: invalid auth configuration");
             let auth: Arc<dyn Auth> = Arc::new(authenticator);
 

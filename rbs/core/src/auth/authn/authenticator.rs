@@ -17,6 +17,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use rbs_api_types::config::AuthConfig;
 
+use crate::auth::authn::lockout::LockoutTracker;
 use crate::auth::authn::token::AttestTokenVerifier;
 use crate::auth::authn::bearer_token::BearerTokenVerifier;
 use crate::auth::authn::{TokenVerifier, UserKeyProvider};
@@ -58,13 +59,16 @@ impl Authenticator {
     /// Create a new Authenticator.
     ///
     /// `key_provider` resolves per-user BearerToken public keys from storage.
+    /// `lockout_tracker` tracks consecutive authentication failures per user
+    /// and enforces account lockout when the threshold is reached.
     /// AttestToken uses `config.attest_token` for its public key.
     pub fn new(
         config: AuthConfig,
         key_provider: Arc<dyn UserKeyProvider>,
+        lockout_tracker: Arc<LockoutTracker>,
     ) -> Result<Self, AuthError> {
         Ok(Self {
-            bearer_verifier: BearerTokenVerifier::new(config.bearer_token, key_provider),
+            bearer_verifier: BearerTokenVerifier::new(config.bearer_token, key_provider, lockout_tracker),
             attest_verifier: AttestTokenVerifier::new(config.attest_token)?,
         })
     }
@@ -146,7 +150,8 @@ mod tests {
             },
         };
         let key_provider = Arc::new(StubKeyProvider(pem));
-        Authenticator::new(config, key_provider).expect("failed to create authenticator")
+        let lockout_tracker = Arc::new(LockoutTracker::new());
+        Authenticator::new(config, key_provider, lockout_tracker).expect("failed to create authenticator")
     }
 
     #[tokio::test]
@@ -187,7 +192,8 @@ mod tests {
             },
         };
         let key_provider = Arc::new(StubKeyProvider(generate_test_public_key_pem()));
-        let result = Authenticator::new(config, key_provider);
+        let lockout_tracker = Arc::new(LockoutTracker::new());
+        let result = Authenticator::new(config, key_provider, lockout_tracker);
         assert!(result.is_err());
     }
 }

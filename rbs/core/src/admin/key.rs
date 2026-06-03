@@ -22,21 +22,13 @@ type Result<T> = std::result::Result<T, RbsError>;
 const MAX_KEY_SIZE: usize = 10240;
 
 /// Get the curve NID from an EC_GROUP.
+/// Returns error if the curve is not a named curve — degree-based guessing is unsafe
+/// because degree is not unique (e.g., secp256k1 also has degree 256).
 #[inline]
-fn group_curve_nid(group: &openssl::ec::EcGroupRef) -> openssl::nid::Nid {
-    if let Some(nid) = group.curve_name() {
-        return nid;
-    }
-    let degree = group.degree();
-    if degree == 256 {
-        openssl::nid::Nid::X9_62_PRIME256V1
-    } else if degree == 384 {
-        openssl::nid::Nid::SECP384R1
-    } else if degree == 521 {
-        openssl::nid::Nid::SECP521R1
-    } else {
-        openssl::nid::Nid::from_raw(0)
-    }
+fn group_curve_nid(group: &openssl::ec::EcGroupRef) -> Result<openssl::nid::Nid> {
+    group.curve_name()
+        .ok_or_else(|| RbsError::InvalidParameter(
+            "EC key must use a named curve (P-256, P-384, P-521)".to_string()))
 }
 
 /// Decode a base64-encoded string and return the UTF-8 contents.
@@ -69,7 +61,7 @@ pub fn validate_and_derive_alg(pem: &str) -> Result<String> {
             let ec_key = pkey.ec_key()
                 .map_err(|_| RbsError::InvalidParameter("Invalid EC key".to_string()))?;
             let group = ec_key.group();
-            let nid = group_curve_nid(group);
+            let nid = group_curve_nid(group)?;
 
             if nid == openssl::nid::Nid::X9_62_PRIME256V1 {
                 Ok("EC".to_string())

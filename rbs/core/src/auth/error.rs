@@ -35,6 +35,9 @@ pub enum AuthError {
     #[error("user is disabled")]
     UserDisabled,
 
+    #[error("account is temporarily locked due to repeated authentication failures")]
+    AccountLocked,
+
     #[error("provider not found: {provider}")]
     ProviderNotFound { provider: String },
 }

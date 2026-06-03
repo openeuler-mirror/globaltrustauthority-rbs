@@ -28,7 +28,7 @@ pub use admin::AdminManager;
 pub use attestation::{AttestationManager, AttestationProvider, BuiltinAttestationProvider, GtaRestProvider};
 pub use auth::{
     Action, Auth, AuthContext, Authenticator, AuthzChecker, AuthzCheckerImpl,
-    AuthzError, AuthzFacade, AttestContext, BearerContext, RequiredRole,
+    AuthzError, AuthzFacade, AttestContext, BearerContext, LockoutTracker, RequiredRole,
     TokenType, AuthError, UserKeyProvider,
 };
 pub use policy::{
