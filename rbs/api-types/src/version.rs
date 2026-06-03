@@ -10,7 +10,7 @@
  * See the Mulan PSL v2 for more details.
  */
 
-//! JSON types for HTTP responses; [`utoipa::ToSchema`] drives `OpenAPI` `components.schemas` export.
+//! Version and build metadata types with [`utoipa::ToSchema`] for OpenAPI schema export.
 //!
 //! `OpenAPI` 3.x labels one optional field on each schema property as `example`: the documented
 //! representative value in the machine-readable contract (`openapi.yaml`). That keyword is fixed
@@ -20,26 +20,8 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::RbsError;
-
-// Re-export API_VERSION from constants module to avoid duplicate definition.
-// All code should reference this single source of truth.
-pub use crate::constants::API_VERSION;
-
-/// Public service name for APIs, logs, and the exported `OpenAPI` document.
-pub const SERVICE_NAME: &str = "globaltrustauthority-rbs";
-
-/// Placeholder for `build.git_hash` when no VCS revision is embedded at build time.
-///
-/// Empty string follows common API practice (e.g. metadata fields where "unset" is represented as
-/// `""`); clients should treat a non-empty value as an embedded hex commit hash.
-pub const GIT_HASH_PLACEHOLDER: &str = "";
-
-/// Placeholder for `build.build_date` when no timestamp is embedded at build time.
-///
-/// Empty string follows the same convention as [`GIT_HASH_PLACEHOLDER`]; non-empty values should
-/// be RFC 3339 timestamps when provided by the build.
-pub const BUILD_DATE_PLACEHOLDER: &str = "2026-04-20T00:00:00Z";
+// Single source of truth for all constants; no local re-definitions.
+use crate::constants::{API_VERSION, BUILD_DATE_PLACEHOLDER, GIT_HASH_PLACEHOLDER, SERVICE_NAME};
 
 /// Value written to the exported `OpenAPI` document for `service_name` (same as [`SERVICE_NAME`]).
 /// Required by [`utoipa`] as the argument to `#[schema(example = ...)]` (`OpenAPI` spec keyword).
@@ -73,41 +55,6 @@ fn open_api_schema_git_hash() -> &'static str {
 /// OpenAPI `example` for `build_date` (representative RFC 3339 timestamp for documentation).
 fn open_api_schema_build_date() -> &'static str {
     BUILD_DATE_PLACEHOLDER
-}
-
-/// Error payload for HTTP error responses (e.g. 500).
-#[derive(Clone, Debug, Deserialize, Serialize, ToSchema)]
-pub struct ErrorBody {
-    /// Error string for the caller: may be a stable code, a short machine-oriented label,
-    /// or a concise human-readable message. Must not include stack traces or secrets.
-    pub error: String,
-}
-
-impl ErrorBody {
-    /// Creates a new error body with the given message.
-    pub fn new(error: impl Into<String>) -> Self {
-        Self {
-            error: error.into(),
-        }
-    }
-}
-
-impl From<&str> for ErrorBody {
-    fn from(s: &str) -> Self {
-        Self::new(s)
-    }
-}
-
-impl From<String> for ErrorBody {
-    fn from(s: String) -> Self {
-        Self::new(s)
-    }
-}
-
-impl From<&RbsError> for ErrorBody {
-    fn from(e: &RbsError) -> Self {
-        ErrorBody::new(e.external_message())
-    }
 }
 
 /// Build-time identity for the running binary.

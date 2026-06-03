@@ -25,7 +25,13 @@ pub const SERVICE_NAME: &str = "globaltrustauthority-rbs";
 pub const API_VERSION: &str = "0";
 
 /// Placeholder for git hash when not available at build time.
-pub const GIT_HASH_PLACEHOLDER: &str = "unknown";
+///
+/// Empty string follows common API practice (e.g. metadata fields where "unset" is represented as
+/// `""`); clients should treat a non-empty value as an embedded hex commit hash.
+pub const GIT_HASH_PLACEHOLDER: &str = "";
 
 /// Placeholder for build date when not available at build time.
-pub const BUILD_DATE_PLACEHOLDER: &str = "unknown";
+///
+/// Empty string follows the same convention as [`GIT_HASH_PLACEHOLDER`]; non-empty values should
+/// be RFC 3339 timestamps when provided by the build.
+pub const BUILD_DATE_PLACEHOLDER: &str = "";
