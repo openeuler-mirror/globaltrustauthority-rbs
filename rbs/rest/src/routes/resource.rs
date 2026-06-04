@@ -30,8 +30,14 @@ fn require_auth(req: &HttpRequest) -> Result<rbs_core::AuthContext, HttpResponse
 }
 
 fn error_response(e: impl ToString, status: u16) -> HttpResponse {
+    let msg = e.to_string();
+    if status >= 500 {
+        log::error!("Resource HTTP error response: status={}, error='{}'", status, msg);
+    } else if status >= 400 {
+        log::error!("Resource HTTP error response: status={}, error='{}'", status, msg);
+    }
     HttpResponse::build(StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR))
-        .json(ErrorBody::new(e.to_string()))
+        .json(ErrorBody::new(msg))
 }
 
 fn build_uri(path: &str) -> String { format!("/rbs/v0/{}", path) }
@@ -64,8 +70,10 @@ pub async fn create_resource(
     body: web::Json<CreateResourceRequest>, req: HttpRequest,
 ) -> HttpResponse {
     let ctx = match require_auth(&req) { Ok(c) => c, Err(r) => return r };
+    log::info!("Resource create HTTP request received: user='{}'", ctx.sub());
     let mut cr = body.into_inner();
     if let Err(e) = Validate::validate(&cr) {
+        log::error!("Resource create validation error: {}", e);
         return HttpResponse::BadRequest().json(ErrorBody::new(e.to_string()));
     }
     cr.uri = build_uri(&path.into_inner());
@@ -102,6 +110,7 @@ pub async fn get_resource(
 ) -> HttpResponse {
     let ctx = match require_auth(&req) { Ok(c) => c, Err(r) => return r };
     let uri = build_uri(&path.into_inner());
+    log::info!("Resource get HTTP request received: uri='{}', user='{}'", uri, ctx.sub());
     match core.resource().get_content(&ctx, &uri).await {
         Ok(resp) => HttpResponse::Ok().json(resp),
         Err(e) => error_response(e.to_string(), e.http_status()),
@@ -137,8 +146,10 @@ pub async fn update_resource(
 ) -> HttpResponse {
     let ctx = match require_auth(&req) { Ok(c) => c, Err(r) => return r };
     let uri = build_uri(&path.into_inner());
+    log::info!("Resource update HTTP request received: uri='{}', user='{}'", uri, ctx.sub());
     let body = body.into_inner();
     if let Err(e) = Validate::validate(&body) {
+        log::error!("Resource update validation error: {}", e);
         return HttpResponse::BadRequest().json(ErrorBody::new(e.to_string()));
     }
     match core.resource().update(&ctx, &uri, &body).await {
@@ -175,6 +186,7 @@ pub async fn delete_resource(
 ) -> HttpResponse {
     let ctx = match require_auth(&req) { Ok(c) => c, Err(r) => return r };
     let uri = build_uri(&path.into_inner());
+    log::info!("Resource delete HTTP request received: uri='{}', user='{}'", uri, ctx.sub());
     match core.resource().delete(&ctx, &uri).await {
         Ok(()) => HttpResponse::NoContent().finish(),
         Err(e) => error_response(e.to_string(), e.http_status()),
@@ -208,6 +220,7 @@ pub async fn get_resource_info(
 ) -> HttpResponse {
     let ctx = match require_auth(&req) { Ok(c) => c, Err(r) => return r };
     let uri = build_uri(&path.into_inner());
+    log::info!("Resource get_info HTTP request received: uri='{}', user='{}'", uri, ctx.sub());
     match core.resource().get_info(&ctx, &uri).await {
         Ok(resp) => HttpResponse::Ok().json(resp),
         Err(e) => error_response(e.to_string(), e.http_status()),
@@ -248,6 +261,7 @@ pub async fn retrieve_resource(
     _req: HttpRequest,
 ) -> HttpResponse {
     let uri = build_uri(&path.into_inner());
+    log::info!("Resource retrieve HTTP request received: uri='{}'", uri);
 
     // Step 1: call attestation backend with evidence to obtain an attest token.
     let attest_resp = match core.attestation().attest(body.into_inner()).await {

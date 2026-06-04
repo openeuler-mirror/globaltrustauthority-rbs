@@ -12,12 +12,29 @@
 
 //! Admin / user management routes (`/rbs/v0/users`).
 
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, http::StatusCode};
 use rbs_api_types::{ErrorBody, Role, UserCreateRequest, UserListQuery, UserListResponse, UserResponse, UserUpdateRequest, validate_username};
 use rbs_core::RbsCore;
 use std::sync::Arc;
+use validator::Validate;
 
 use crate::middleware::OptAuthContext;
+
+fn require_auth(req: &HttpRequest) -> Result<rbs_core::AuthContext, HttpResponse> {
+    req.extensions().get::<OptAuthContext>().and_then(|c| c.0.clone())
+        .ok_or_else(|| HttpResponse::Unauthorized().json(ErrorBody::new("authentication required".to_string())))
+}
+
+fn error_response(e: impl ToString, status: u16) -> HttpResponse {
+    let msg = e.to_string();
+    if status >= 500 {
+        log::error!("Admin HTTP error response: status={}, error='{}'", status, msg);
+    } else if status >= 400 {
+        log::error!("Admin HTTP error response: status={}, error='{}'", status, msg);
+    }
+    HttpResponse::build(StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR))
+        .json(ErrorBody::new(msg))
+}
 
 /// `GET /rbs/v0/users`: List users (admin only).
 #[utoipa::path(
@@ -45,23 +62,22 @@ pub async fn list_users(
     req: HttpRequest,
     query: web::Query<UserListQuery>,
 ) -> HttpResponse {
-    let auth_ctx = req.extensions().get::<OptAuthContext>().and_then(|ctx| ctx.0.clone());
+    let ctx = match require_auth(&req) { Ok(c) => c, Err(r) => return r };
+    log::info!("Admin list_users HTTP request received: user='{}'", ctx.sub());
 
     // Apply defaults before validation
     let mut query = query.into_inner();
     query.limit = Some(query.limit.unwrap_or(10));
     query.offset = Some(query.offset.unwrap_or(0));
 
-    if let Err(e) = validator::Validate::validate(&query) {
+    if let Err(e) = Validate::validate(&query) {
+        log::error!("Admin list_users validation error: {}", e);
         return HttpResponse::BadRequest().json(ErrorBody { error: e.to_string() });
     }
 
-    match auth_ctx {
-        Some(ctx) => match core.admin().list_users(&query, &ctx).await {
-            Ok(resp) => HttpResponse::Ok().json(resp),
-            Err(e) => map_err(e),
-        },
-        None => HttpResponse::Unauthorized().json(ErrorBody { error: "Unauthorized".to_string() }),
+    match core.admin().list_users(&query, &ctx).await {
+        Ok(resp) => HttpResponse::Ok().json(resp),
+        Err(e) => error_response(e.external_message(), e.http_status()),
     }
 }
 
@@ -88,14 +104,12 @@ pub async fn create_user(
     req: HttpRequest,
     body: web::Json<UserCreateRequest>,
 ) -> HttpResponse {
-    let auth_ctx = req.extensions().get::<OptAuthContext>().and_then(|ctx| ctx.0.clone());
+    let ctx = match require_auth(&req) { Ok(c) => c, Err(r) => return r };
+    log::info!("Admin create_user HTTP request received: user='{}'", ctx.sub());
 
-    match auth_ctx {
-        Some(ctx) => match core.admin().create_user(&body.into_inner(), &ctx).await {
-            Ok(resp) => HttpResponse::Created().json(resp),
-            Err(e) => map_err(e),
-        },
-        None => HttpResponse::Unauthorized().json(ErrorBody { error: "Unauthorized".to_string() }),
+    match core.admin().create_user(&body.into_inner(), &ctx).await {
+        Ok(resp) => HttpResponse::Created().json(resp),
+        Err(e) => error_response(e.external_message(), e.http_status()),
     }
 }
 
@@ -123,19 +137,19 @@ pub async fn get_user(
     req: HttpRequest,
     path: web::Path<String>,
 ) -> HttpResponse {
-    let auth_ctx = req.extensions().get::<OptAuthContext>().and_then(|ctx| ctx.0.clone());
+    let ctx = match require_auth(&req) { Ok(c) => c, Err(r) => return r };
     let username = path.into_inner();
+    log::info!("Admin get_user HTTP request received: username='{}', user='{}'", username, ctx.sub());
+
     if let Err(msg) = validate_username(&username) {
+        log::error!("Admin get_user validation error: {}", msg);
         return HttpResponse::BadRequest().json(ErrorBody { error: msg });
     }
 
-    match auth_ctx {
-        Some(ctx) => match core.admin().get_user(&username, &ctx).await {
-            Ok(Some(resp)) => HttpResponse::Ok().json(resp),
-            Ok(None) => HttpResponse::NotFound().json(ErrorBody { error: "User not found".to_string() }),
-            Err(e) => map_err(e),
-        },
-        None => HttpResponse::Unauthorized().json(ErrorBody { error: "Unauthorized".to_string() }),
+    match core.admin().get_user(&username, &ctx).await {
+        Ok(Some(resp)) => HttpResponse::Ok().json(resp),
+        Ok(None) => HttpResponse::NotFound().json(ErrorBody { error: "User not found".to_string() }),
+        Err(e) => error_response(e.external_message(), e.http_status()),
     }
 }
 
@@ -166,18 +180,18 @@ pub async fn update_user(
     path: web::Path<String>,
     body: web::Json<UserUpdateRequest>,
 ) -> HttpResponse {
-    let auth_ctx = req.extensions().get::<OptAuthContext>().and_then(|ctx| ctx.0.clone());
+    let ctx = match require_auth(&req) { Ok(c) => c, Err(r) => return r };
     let username = path.into_inner();
+    log::info!("Admin update_user HTTP request received: username='{}', user='{}'", username, ctx.sub());
+
     if let Err(msg) = validate_username(&username) {
+        log::error!("Admin update_user validation error: {}", msg);
         return HttpResponse::BadRequest().json(ErrorBody { error: msg });
     }
 
-    match auth_ctx {
-        Some(ctx) => match core.admin().update_user(&username, &body.into_inner(), &ctx).await {
-            Ok(resp) => HttpResponse::Ok().json(resp),
-            Err(e) => map_err(e),
-        },
-        None => HttpResponse::Unauthorized().json(ErrorBody { error: "Unauthorized".to_string() }),
+    match core.admin().update_user(&username, &body.into_inner(), &ctx).await {
+        Ok(resp) => HttpResponse::Ok().json(resp),
+        Err(e) => error_response(e.external_message(), e.http_status()),
     }
 }
 
@@ -205,25 +219,17 @@ pub async fn delete_user(
     req: HttpRequest,
     path: web::Path<String>,
 ) -> HttpResponse {
-    let auth_ctx = req.extensions().get::<OptAuthContext>().and_then(|ctx| ctx.0.clone());
+    let ctx = match require_auth(&req) { Ok(c) => c, Err(r) => return r };
     let username = path.into_inner();
+    log::info!("Admin delete_user HTTP request received: username='{}', user='{}'", username, ctx.sub());
+
     if let Err(msg) = validate_username(&username) {
+        log::error!("Admin delete_user validation error: {}", msg);
         return HttpResponse::BadRequest().json(ErrorBody { error: msg });
     }
 
-    match auth_ctx {
-        Some(ctx) => match core.admin().delete_user(&username, &ctx).await {
-            Ok(()) => HttpResponse::NoContent().finish(),
-            Err(e) => map_err(e),
-        },
-        None => HttpResponse::Unauthorized().json(ErrorBody { error: "Unauthorized".to_string() }),
+    match core.admin().delete_user(&username, &ctx).await {
+        Ok(()) => HttpResponse::NoContent().finish(),
+        Err(e) => error_response(e.external_message(), e.http_status()),
     }
-}
-
-fn map_err(e: rbs_core::RbsError) -> HttpResponse {
-    let status = actix_web::http::StatusCode::from_u16(e.http_status())
-        .unwrap_or(actix_web::http::StatusCode::INTERNAL_SERVER_ERROR);
-    HttpResponse::build(status).json(ErrorBody {
-        error: e.external_message().to_string(),
-    })
 }

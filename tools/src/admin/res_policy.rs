@@ -227,7 +227,7 @@ struct ResourcePolicyListOutput(ResourcePolicyListResponse);
 
 impl Formatter for ResourcePolicyListOutput {
     fn render_text(&self) -> Result<String, CliError> {
-        let mut lines = vec![format!("resource_policies: total={}", self.0.total)];
+        let mut lines = vec![format!("resource_policies: total={}", self.0.total_count)];
         if !self.0.items.is_empty() {
             let table = Table::new(self.0.items.iter()).with(Style::markdown()).to_string();
             lines.extend(table.lines().map(|line| line.to_string()));
@@ -319,7 +319,7 @@ mod tests {
                 updated_at: "2026-01-02T00:00:00Z".to_string(),
                 applied_resources: None,
             }],
-            total: 1,
+            total_count: 1,
         });
         let text = list.render_text().expect("render list");
         assert!(text.contains("resource_policies: total=1"));

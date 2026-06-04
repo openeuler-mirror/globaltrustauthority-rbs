@@ -49,20 +49,23 @@ impl ResourceService {
         log::info!("Resource create requested: uri={}, user={}", req.uri, ctx.sub());
 
         self.authz.check_action(ctx, Action::Create, RequiredRole::UserScoped).await.map_err(|_| {
-            log::warn!("Resource create denied: permission denied for user '{}'", ctx.sub());
+            log::error!("Resource create denied: permission denied for user '{}'", ctx.sub());
             ResourceError::PermissionDenied
         })?;
 
         let parsed = self.validator.validate_uri(&req.uri)?;
-        if req.policy_id.is_empty() { return Err(ResourceError::ParamInvalid { field: "policy_id" }); }
-        if let Some(ref ct) = req.content_type { self.validator.validate_content_type(ct)?; }
-        if let Some(ref em) = req.export_mode { self.validator.validate_export_mode(em)?; }
-        self.validator.validate_additional_info(req.additional_info.as_deref())?;
+        if req.policy_id.is_empty() {
+            log::error!("Resource create denied: empty policy_id");
+            return Err(ResourceError::ParamInvalid { field: "policy_id" });
+        }
+        if let Some(ref ct) = req.content_type { self.validator.validate_content_type(ct).map_err(|e| { log::error!("Resource create denied: {}", e); e })?; }
+        if let Some(ref em) = req.export_mode { self.validator.validate_export_mode(em).map_err(|e| { log::error!("Resource create denied: {}", e); e })?; }
+        self.validator.validate_additional_info(req.additional_info.as_deref()).map_err(|e| { log::error!("Resource create denied: {}", e); e })?;
 
         let username = ctx.sub();
         let valid = self.policy_client.validate_policy(&req.policy_id, username).await?;
         if !valid {
-            log::warn!("Resource create denied: policy_id '{}' invalid for user '{}'", req.policy_id, username);
+            log::error!("Resource create denied: policy_id '{}' invalid for user '{}'", req.policy_id, username);
             return Err(ResourceError::PolicyIdInvalid(req.policy_id.clone()));
         }
 
@@ -72,12 +75,12 @@ impl ResourceService {
                 ResourceError::BackendUnsupported { provider: parsed.res_provider.clone() }
             })?;
         if !backend.check_resource_exists(&req.uri).await? {
-            log::warn!("Resource create denied: resource '{}' not found in backend", req.uri);
+            log::error!("Resource create denied: resource '{}' not found in backend", req.uri);
             return Err(ResourceError::BackendNotFound);
         }
 
         if self.repo.find_by_uri(&req.uri).await?.is_some() {
-            log::warn!("Resource create denied: uri '{}' already exists", req.uri);
+            log::error!("Resource create denied: uri '{}' already exists", req.uri);
             return Err(ResourceError::AlreadyExists { uri: req.uri.clone() });
         }
 
@@ -112,21 +115,24 @@ impl ResourceService {
         log::info!("Resource update requested: uri={}, user={}", uri, ctx.sub());
 
         self.authz.check_action(ctx, Action::Update, RequiredRole::UserScoped).await.map_err(|_| {
-            log::warn!("Resource update denied: permission denied for user '{}'", ctx.sub());
+            log::error!("Resource update denied: permission denied for user '{}'", ctx.sub());
             ResourceError::PermissionDenied
         })?;
 
         let parsed = self.validator.validate_uri(uri)?;
-        if req.policy_id.is_empty() { return Err(ResourceError::ParamInvalid { field: "policy_id" }); }
-        if let Some(ref ct) = req.content_type { self.validator.validate_content_type(ct)?; }
-        if let Some(ref em) = req.export_mode { self.validator.validate_export_mode(em)?; }
-        self.validator.validate_additional_info(req.additional_info.as_deref())?;
+        if req.policy_id.is_empty() {
+            log::error!("Resource update denied: empty policy_id");
+            return Err(ResourceError::ParamInvalid { field: "policy_id" });
+        }
+        if let Some(ref ct) = req.content_type { self.validator.validate_content_type(ct).map_err(|e| { log::error!("Resource update denied: {}", e); e })?; }
+        if let Some(ref em) = req.export_mode { self.validator.validate_export_mode(em).map_err(|e| { log::error!("Resource update denied: {}", e); e })?; }
+        self.validator.validate_additional_info(req.additional_info.as_deref()).map_err(|e| { log::error!("Resource update denied: {}", e); e })?;
         let username = ctx.sub();
 
         // ── step 2b: policy and backend check (for both create and update) ──
         let valid = self.policy_client.validate_policy(&req.policy_id, username).await?;
         if !valid {
-            log::warn!("Resource update denied: policy_id '{}' invalid for user '{}'", req.policy_id, username);
+            log::error!("Resource update denied: policy_id '{}' invalid for user '{}'", req.policy_id, username);
             return Err(ResourceError::PolicyIdInvalid(req.policy_id.clone()));
         }
         let backend = self.backend_provider.get_backend(&parsed.res_provider)
@@ -135,7 +141,7 @@ impl ResourceService {
                 ResourceError::BackendUnsupported { provider: parsed.res_provider.clone() }
             })?;
         if !backend.check_resource_exists(uri).await? {
-            log::warn!("Resource update denied: resource '{}' not found in backend", uri);
+            log::error!("Resource update denied: resource '{}' not found in backend", uri);
             return Err(ResourceError::BackendNotFound);
         }
 
@@ -144,7 +150,7 @@ impl ResourceService {
 
         if let Some(existing_entity) = existing {
             if existing_entity.username != username {
-                log::warn!("Resource update denied: user '{}' cannot update resource '{}' owned by '{}'", username, uri, existing_entity.username);
+                log::error!("Resource update denied: user '{}' cannot update resource '{}' owned by '{}'", username, uri, existing_entity.username);
                 return Err(ResourceError::PermissionDenied);
             }
             let updated = super::repository::ResourceEntity {
@@ -160,7 +166,7 @@ impl ResourceService {
             let old_update_time = existing_entity.updated_at;
             let affected = self.repo.update(uri, &updated, old_update_time).await?;
             if affected == 0 {
-                log::warn!("Resource update conflict: uri='{}', expected version mismatch", uri);
+                log::error!("Resource update conflict: uri='{}', expected version mismatch", uri);
                 return Err(ResourceError::VersionConflict);
             }
             log::info!("Resource updated: uri='{}', user='{}'", uri, username);
@@ -186,13 +192,16 @@ impl ResourceService {
         log::info!("Resource delete requested: uri={}, user={}", uri, ctx.sub());
 
         self.authz.check_action(ctx, Action::Delete, RequiredRole::UserScoped).await.map_err(|_| {
-            log::warn!("Resource delete denied: permission denied for user '{}'", ctx.sub());
+            log::error!("Resource delete denied: permission denied for user '{}'", ctx.sub());
             ResourceError::PermissionDenied
         })?;
         let _parsed = self.validator.validate_uri(uri)?;
-        let entity = self.repo.find_by_uri(uri).await?.ok_or(ResourceError::NotFound)?;
+        let entity = self.repo.find_by_uri(uri).await?.ok_or_else(|| {
+            log::error!("Resource delete denied: resource '{}' not found", uri);
+            ResourceError::NotFound
+        })?;
         if entity.username != ctx.sub() {
-            log::warn!("Resource delete denied: user '{}' cannot delete resource '{}' owned by '{}'", ctx.sub(), uri, entity.username);
+            log::error!("Resource delete denied: user '{}' cannot delete resource '{}' owned by '{}'", ctx.sub(), uri, entity.username);
             return Err(ResourceError::PermissionDenied);
         }
         self.repo.delete(uri, &entity.username).await?;
@@ -205,13 +214,16 @@ impl ResourceService {
     pub async fn get_content(
         &self, ctx: &AuthContext, uri: &str,
     ) -> Result<ResourceContentResponse, ResourceError> {
-        log::debug!("Resource get_content requested: uri={}, user={}", uri, ctx.sub());
+        log::info!("Resource get_content requested: uri={}, user={}", uri, ctx.sub());
 
         // step 1: parameter validation
         let parsed = self.validator.validate_uri(uri)?;
 
         // step 2: resource existence
-        let entity = self.repo.find_by_uri(uri).await?.ok_or(ResourceError::NotFound)?;
+        let entity = self.repo.find_by_uri(uri).await?.ok_or_else(|| {
+            log::error!("Resource get_content denied: resource '{}' not found", uri);
+            ResourceError::NotFound
+        })?;
 
         // step 3: get resource-bound Rego policy
         let rego = self.policy_client.get_policy_content(&entity.policy_id).await?;
@@ -219,7 +231,7 @@ impl ResourceService {
         // step 4: authorisation (AuthzFacade branches on token type internally)
         self.authz.check_resource_get(ctx, &entity.username, &rego).await
             .map_err(|_| {
-                log::warn!("Resource get_content denied: user '{}' not authorized for uri '{}'", ctx.sub(), uri);
+                log::error!("Resource get_content denied: user '{}' not authorized for uri '{}'", ctx.sub(), uri);
                 ResourceError::NotFound
             })?;
 
@@ -263,13 +275,16 @@ impl ResourceService {
     pub async fn get_info(
         &self, ctx: &AuthContext, uri: &str,
     ) -> Result<ResourceResponse, ResourceError> {
-        log::debug!("Resource get_info requested: uri={}, user={}", uri, ctx.sub());
+        log::info!("Resource get_info requested: uri={}, user={}", uri, ctx.sub());
 
         // step 1: parameter validation
         let _parsed = self.validator.validate_uri(uri)?;
 
         // step 2: resource existence
-        let entity = self.repo.find_by_uri(uri).await?.ok_or(ResourceError::NotFound)?;
+        let entity = self.repo.find_by_uri(uri).await?.ok_or_else(|| {
+            log::error!("Resource get_info denied: resource '{}' not found", uri);
+            ResourceError::NotFound
+        })?;
 
         // step 3: get resource-bound Rego policy
         let rego = self.policy_client.get_policy_content(&entity.policy_id).await?;
@@ -277,11 +292,12 @@ impl ResourceService {
         // step 4: authorisation
         self.authz.check_resource_get(ctx, &entity.username, &rego).await
             .map_err(|_| {
-                log::warn!("Resource get_info denied: user '{}' not authorized for uri '{}'", ctx.sub(), uri);
+                log::error!("Resource get_info denied: user '{}' not authorized for uri '{}'", ctx.sub(), uri);
                 ResourceError::NotFound
             })?;
 
         // step 5: return metadata (no backend fetch)
+        log::info!("Resource get_info completed: uri='{}', user='{}'", uri, ctx.sub());
         Ok(ResourceResponse {
             uri: uri.to_string(),
             provider_name: entity.provider_name, repository_name: entity.repo_name,
@@ -298,13 +314,16 @@ impl ResourceService {
     pub async fn retrieve(
         &self, attest_ctx: &AttestContext, uri: &str,
     ) -> Result<ResourceContentResponse, ResourceError> {
-        log::debug!("Resource retrieve requested: uri={}", uri);
+        log::info!("Resource retrieve requested: uri={}", uri);
 
         // step 1: parameter validation
         let parsed = self.validator.validate_uri(uri)?;
 
         // step 2: resource existence
-        let entity = self.repo.find_by_uri(uri).await?.ok_or(ResourceError::NotFound)?;
+        let entity = self.repo.find_by_uri(uri).await?.ok_or_else(|| {
+            log::error!("Resource retrieve denied: resource '{}' not found", uri);
+            ResourceError::NotFound
+        })?;
 
         // step 3: get resource-bound Rego policy
         let rego = self.policy_client.get_policy_content(&entity.policy_id).await?;
@@ -313,7 +332,7 @@ impl ResourceService {
         let auth_ctx = AuthContext::Attest(attest_ctx.clone());
         self.authz.check_resource_get(&auth_ctx, &entity.username, &rego).await
             .map_err(|_| {
-                log::warn!("Resource retrieve denied: attestation token not authorized for uri '{}'", uri);
+                log::error!("Resource retrieve denied: attestation token not authorized for uri '{}'", uri);
                 ResourceError::NotFound
             })?;
 

@@ -65,6 +65,7 @@ impl PolicyClient for DbPolicyClient {
                 log::error!("DbPolicyClient validate_policy db error: {e}");
                 ResourceError::BackendError { detail: e.to_string() }
             })?;
+        log::info!("DbPolicyClient validate_policy: policy_id='{}', user='{}', valid={}", policy_id, username, exists.is_some());
         Ok(exists.is_some())
     }
 
@@ -79,7 +80,7 @@ impl PolicyClient for DbPolicyClient {
                 ResourceError::BackendError { detail: e.to_string() }
             })?
             .ok_or_else(|| {
-                log::warn!("DbPolicyClient get_policy_content: policy '{}' not found", policy_id);
+                log::error!("DbPolicyClient get_policy_content: policy '{}' not found", policy_id);
                 ResourceError::PolicyIdInvalid(policy_id.to_string())
             })?;
         use base64::Engine;
@@ -112,9 +113,11 @@ impl PolicyClient for DbPolicyClient {
                 log::error!("DbPolicyClient relation_res_ids db error: {e}");
                 ResourceError::BackendError { detail: e.to_string() }
             })?;
-        Ok(rows.into_iter()
+        let ids: Vec<String> = rows.into_iter()
             .map(|(prov, repo, rtype, rname)| format!("/rbs/v0/{}/{}/{}/{}", prov, repo, rtype, rname))
-            .collect())
+            .collect();
+        log::info!("DbPolicyClient relation_res_ids: policy_id='{}', found {} related resource(s)", policy_id, ids.len());
+        Ok(ids)
     }
 }
 
