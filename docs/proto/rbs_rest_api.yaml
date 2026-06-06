@@ -1172,11 +1172,8 @@ components:
       type: object
       description: Request body for `POST /rbs/v0/{uri}` — create a resource.
       required:
-      - uri
       - policy_id
       properties:
-        uri:
-          type: string
         policy_id:
           type: string
         content_type:
@@ -1242,8 +1239,6 @@ components:
         policy_version:
           type: integer
           format: int32
-        policy_content:
-          type: string
         content_type:
           type: string
         created_at:

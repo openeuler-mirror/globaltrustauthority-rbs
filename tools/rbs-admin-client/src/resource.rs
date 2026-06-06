@@ -54,7 +54,6 @@ pub struct ResourceInfoResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ResourceCreateRequest {
-    pub uri: String,
     pub policy_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub additional_info: Option<String>,

@@ -179,7 +179,7 @@ func main() {
   "build": {
     "version": "0.1.0",
     "git_hash": "",
-    "build_date": "2026-04-20T00:00:00Z"
+    "build_date": ""
   }
 }
 ```
@@ -1374,7 +1374,6 @@ func main() {
       "policy_id": "string",
       "policy_name": "string",
       "policy_version": 0,
-      "policy_content": "string",
       "content_type": "string",
       "created_at": "string",
       "updated_at": "string",
@@ -1590,7 +1589,6 @@ func main() {
   "policy_id": "string",
   "policy_name": "string",
   "policy_version": 0,
-  "policy_content": "string",
   "content_type": "string",
   "created_at": "string",
   "updated_at": "string",
@@ -1969,7 +1967,6 @@ func main() {
   "policy_id": "string",
   "policy_name": "string",
   "policy_version": 0,
-  "policy_content": "string",
   "content_type": "string",
   "created_at": "string",
   "updated_at": "string",
@@ -2182,7 +2179,6 @@ func main() {
   "policy_id": "string",
   "policy_name": "string",
   "policy_version": 0,
-  "policy_content": "string",
   "content_type": "string",
   "created_at": "string",
   "updated_at": "string",
@@ -2828,7 +2824,6 @@ Accept: application/json
 
 ```javascript
 const inputBody = '{
-  "uri": "string",
   "policy_id": "string",
   "content_type": "string",
   "export_mode": "string",
@@ -2971,7 +2966,6 @@ func main() {
 
 ```json
 {
-  "uri": "string",
   "policy_id": "string",
   "content_type": "string",
   "export_mode": "string",
@@ -4178,7 +4172,7 @@ Authentication type. Add new types here.
 {
   "version": "0.1.0",
   "git_hash": "",
-  "build_date": "2026-04-20T00:00:00Z"
+  "build_date": ""
 }
 
 ```
@@ -4250,7 +4244,6 @@ Policy create request body.
 
 ```json
 {
-  "uri": "string",
   "policy_id": "string",
   "content_type": "string",
   "export_mode": "string",
@@ -4265,7 +4258,6 @@ Request body for `POST /rbs/v0/{uri}` — create a resource.
 
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
-|uri|string|true|none|none|
 |policy_id|string|true|none|none|
 |content_type|string,null|false|none|none|
 |export_mode|string,null|false|none|none|
@@ -4307,7 +4299,6 @@ Error payload for HTTP error responses (e.g. 500).
       "policy_id": "string",
       "policy_name": "string",
       "policy_version": 0,
-      "policy_content": "string",
       "content_type": "string",
       "created_at": "string",
       "updated_at": "string",
@@ -4346,7 +4337,6 @@ Policy list response.
   "policy_id": "string",
   "policy_name": "string",
   "policy_version": 0,
-  "policy_content": "string",
   "content_type": "string",
   "created_at": "string",
   "updated_at": "string",
@@ -4366,7 +4356,6 @@ Policy response returned to callers.
 |policy_id|string|true|none|none|
 |policy_name|string|true|none|none|
 |policy_version|integer(int32)|true|none|none|
-|policy_content|string|false|none|none|
 |content_type|string|true|none|none|
 |created_at|string|true|none|none|
 |updated_at|string|true|none|none|
@@ -4515,7 +4504,7 @@ continued
   "build": {
     "version": "0.1.0",
     "git_hash": "",
-    "build_date": "2026-04-20T00:00:00Z"
+    "build_date": ""
   }
 }
 

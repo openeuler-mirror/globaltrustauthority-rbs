@@ -48,9 +48,6 @@ pub struct ResourcePolicy {
     pub policy_id: String,
     pub policy_name: String,
     pub policy_version: i64,
-    #[tabled(skip)]
-    #[serde(default)]
-    pub policy_content: String,
     pub content_type: ResourcePolicyContentType,
     pub created_at: String,
     pub updated_at: String,

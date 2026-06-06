@@ -58,8 +58,6 @@ pub struct PolicyResponse {
     pub policy_id: String,
     pub policy_name: String,
     pub policy_version: i32,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub policy_content: String,
     pub content_type: String,
     pub created_at: String,
     pub updated_at: String,
