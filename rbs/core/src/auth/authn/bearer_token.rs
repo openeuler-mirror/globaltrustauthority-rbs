@@ -70,6 +70,9 @@ impl TokenVerifier for BearerTokenVerifier {
     type Context = BearerContext;
 
     async fn verify(&self, token: &str) -> Result<BearerContext, AuthError> {
+        // Periodically clean up expired lockout entries to prevent unbounded memory growth.
+        self.lockout_tracker.cleanup_expired();
+
         // Step 1 — Parse header to get algorithm.
         let header = decode_token_header(token)?;
         validate_algorithm(&header.alg)?;
@@ -179,6 +182,16 @@ impl BearerTokenVerifier {
             }
         })?;
 
+        // Require exp claim — josekit JwtPayloadValidator only validates exp if present,
+        // but does not reject tokens that lack it. Explicitly reject to match jsonwebtoken
+        // path which requires exp via set_required_spec_claims.
+        if payload.expires_at().is_none() {
+            warn!("BearerToken ES512 rejected: missing exp claim");
+            return Err(AuthError::TokenInvalid {
+                reason: "missing exp claim".to_string(),
+            });
+        }
+
         // Extract claims (signature is trusted at this point).
         let iss = payload
             .issuer()
@@ -223,14 +236,14 @@ impl BearerTokenVerifier {
                 }
             })?;
 
-        let jwe_alg = to_jsonwebtoken_alg(alg_str).map_err(|e| {
+        let jws_alg = to_jsonwebtoken_alg(alg_str).map_err(|e| {
             debug!("BearerToken unsupported algorithm '{}': {}", alg_str, e);
             AuthError::TokenInvalid {
                 reason: "invalid token".to_string(),
             }
         })?;
 
-        let mut validation = Validation::new(jwe_alg);
+        let mut validation = Validation::new(jws_alg);
         validation.set_required_spec_claims(&["exp", "iss", "sub"]);
         validation.set_issuer(&[&self.config.issuer]);
         validation.set_audience(&[&self.config.audience]);

@@ -145,9 +145,9 @@ impl TokenVerifier for AttestTokenVerifier {
         let alg_str = header.alg.clone();
         let decoding_key = self.get_decoding_key(header.kid.as_deref(), &alg_str)?;
 
-        let jwe_alg = to_jsonwebtoken_alg(&alg_str)?;
+        let jws_alg = to_jsonwebtoken_alg(&alg_str)?;
 
-        let mut validation = Validation::new(jwe_alg);
+        let mut validation = Validation::new(jws_alg);
         validation.set_required_spec_claims(&["exp", "iss"]);
         validation.set_issuer(&[&self.config.issuer]);
         if let Some(ref expected_aud) = self.config.audience {
