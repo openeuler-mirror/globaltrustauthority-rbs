@@ -85,7 +85,7 @@ pub enum Command {
     Version(VersionCli),
 }
 
-pub const DEFAULT_BASE_URL: &str = "http://localhost:8080";
+pub const DEFAULT_BASE_URL: &str = "https://127.0.0.1:6666";
 pub const DEFAULT_FORMAT: &str = "text";
 
 #[derive(ValueEnum, Clone, Debug, Default, PartialEq, Eq)]
