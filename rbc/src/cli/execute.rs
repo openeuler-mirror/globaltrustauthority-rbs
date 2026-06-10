@@ -125,10 +125,9 @@ fn execute_get_resource(
         let token = read_trimmed_path_value(token)?;
         session.get_resource(&args.uri, GetResourceRequest::ByAttestToken(&token))?
     } else {
-        let token = args
-            .bearer_token
-            .as_deref()
-            .ok_or_else(|| CliError::InvalidArgument("missing required bearer token; pass --bearer-token".to_string()))?;
+        let token = args.bearer_token.as_deref().ok_or_else(|| {
+            CliError::InvalidArgument("missing required bearer token; pass --bearer-token".to_string())
+        })?;
         let token = read_trimmed_path_value(token)?;
         session.get_resource(&args.uri, GetResourceRequest::ByBearerToken(&token))?
     };
@@ -284,18 +283,26 @@ fn maybe_decrypt_resource(session: &Session, content: &[u8], args: &GetResourceA
         CliError::InvalidArgument("resource content is not valid UTF-8 JWE; cannot decrypt".to_string())
     })?;
     let passphrase = load_passphrase_bytes(&args.private_key_passphrase)?;
-    let plaintext =
-        session.decrypt_content(&ciphertext, Some(&private_pem), passphrase.as_ref().map(|value| value.as_slice()))?;
+    let plaintext = session.decrypt_content(
+        &ciphertext,
+        Some(private_pem.as_str()),
+        passphrase.as_ref().map(|value| value.as_slice()),
+    )?;
     Ok(plaintext.to_vec())
 }
 
-fn load_private_key_pem(path: &str, passphrase: &Option<Option<String>>) -> Result<(KeyType, String), CliError> {
+fn load_private_key_pem(
+    path: &str,
+    passphrase: &Option<Option<String>>,
+) -> Result<(KeyType, Zeroizing<String>), CliError> {
     let private_key = load_private_key(path, passphrase)?;
     let pem = private_key
         .private_key_to_pem_pkcs8()
         .map_err(|err| CliError::InvalidArgument(format!("failed to export private key: {err}")))?;
-    let pem = String::from_utf8(pem)
-        .map_err(|err| CliError::InvalidArgument(format!("private key PEM is not valid UTF-8: {err}")))?;
+    let pem = Zeroizing::new(
+        String::from_utf8(pem)
+            .map_err(|err| CliError::InvalidArgument(format!("private key PEM is not valid UTF-8: {err}")))?,
+    );
 
     let key_type = match private_key.id() {
         Id::RSA => KeyType::Rsa,
@@ -444,5 +451,4 @@ mod tests {
         assert_eq!(value, "nonce-value");
         let _ = std::fs::remove_file(path);
     }
-
 }
