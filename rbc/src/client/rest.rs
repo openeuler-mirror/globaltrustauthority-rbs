@@ -13,7 +13,7 @@
 //! RBS REST API client and TLS configuration.
 
 use rbs_api_types::{AttestRequest, AttestResponse, AuthChallengeResponse, ResourceContentResponse};
-use reqwest::Client as HttpClient;
+use reqwest::{Client as HttpClient, Url};
 use std::collections::HashMap;
 
 use crate::error::RbcError;
@@ -98,10 +98,10 @@ impl RbsRestClient {
         token: &str,
         scheme: &str,
     ) -> Result<ResourceContentResponse, RbcError> {
-        let url = format!("{}/rbs/v0/{}", self.base_url, uri);
+        let url = self.resource_url(uri, None)?;
         let resp = self
             .http
-            .get(&url)
+            .get(url)
             .header("Authorization", format!("{scheme} {token}"))
             .send()
             .await
@@ -115,10 +115,60 @@ impl RbsRestClient {
         uri: &str,
         evidence: &AttestRequest,
     ) -> Result<ResourceContentResponse, RbcError> {
-        let url = format!("{}/rbs/v0/{}/retrieve", self.base_url, uri);
+        let url = self.resource_url(uri, Some("retrieve"))?;
         let resp =
-            self.http.post(&url).json(evidence).send().await.map_err(|e| RbcError::NetworkError(e.to_string()))?;
+            self.http.post(url).json(evidence).send().await.map_err(|e| RbcError::NetworkError(e.to_string()))?;
         Self::handle_response(resp).await
+    }
+
+    fn resource_url(&self, uri: &str, suffix: Option<&str>) -> Result<Url, RbcError> {
+        let segments = Self::validate_resource_uri(uri)?;
+        let mut url = Url::parse(&format!("{}/rbs/v0/", self.base_url))
+            .map_err(|e| RbcError::InvalidInput(format!("invalid RBS base URL: {e}")))?;
+
+        {
+            let mut path = url
+                .path_segments_mut()
+                .map_err(|_| RbcError::InvalidInput("RBS base URL cannot be used as a path base".into()))?;
+            path.pop_if_empty();
+            for segment in segments {
+                path.push(segment);
+            }
+            if let Some(suffix) = suffix {
+                path.push(suffix);
+            }
+        }
+
+        Ok(url)
+    }
+
+    fn validate_resource_uri(uri: &str) -> Result<Vec<&str>, RbcError> {
+        if uri.is_empty() {
+            return Err(RbcError::InvalidInput("resource URI must not be empty".into()));
+        }
+        if uri.starts_with('/') || uri.ends_with('/') {
+            return Err(RbcError::InvalidInput("resource URI must be a relative path without empty segments".into()));
+        }
+        if uri.contains(['?', '#', '\\', '%']) {
+            return Err(RbcError::InvalidInput(
+                "resource URI must not contain query, fragment, backslash, or percent encoding".into(),
+            ));
+        }
+
+        let mut segments = Vec::new();
+        for segment in uri.split('/') {
+            if segment.is_empty() || segment == "." || segment == ".." {
+                return Err(RbcError::InvalidInput(
+                    "resource URI must not contain empty, '.', or '..' path segments".into(),
+                ));
+            }
+            if segment.chars().any(char::is_control) {
+                return Err(RbcError::InvalidInput("resource URI must not contain control characters".into()));
+            }
+            segments.push(segment);
+        }
+
+        Ok(segments)
     }
 
     async fn handle_response<T: serde::de::DeserializeOwned>(resp: reqwest::Response) -> Result<T, RbcError> {
