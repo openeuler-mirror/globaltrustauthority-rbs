@@ -43,18 +43,38 @@ typedef struct RbcResource RbcResource;
 
 typedef struct RbcSession RbcSession;
 
+/**
+ * FFI safety contract:
+ *
+ * - Handles are opaque RBC-owned pointers. Do not dereference, stack-allocate,
+ *   copy, or cast between RbcClient, RbcSession, and RbcResource.
+ * - Handles are not thread-safe. Use each handle only on the thread that
+ *   created it, and do not use a handle concurrently from multiple threads.
+ * - Release each non-NULL handle exactly once with its matching free function:
+ *   RbcClientFree for RbcClient, RbcSessionFree for RbcSession, and
+ *   RbcResourceFree for RbcResource.
+ * - After a free call returns, the handle and all borrowed pointers obtained
+ *   from it are invalid and must not be used again.
+ * - Passing a pointer not returned by RBC, freeing a handle twice, freeing it
+ *   with the wrong function, or using it after free is undefined behavior.
+ */
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
 
 /**
- * Free a nul-terminated string returned by an RBC function.
+ * Free a nul-terminated string returned by an RBC function. The pointer must be
+ * an unmodified value returned through an RBC `char **` out-parameter and must
+ * be freed exactly once.
  */
 void RbcStringFree(char *s);
 
 /**
  * Free a byte buffer returned by an RBC function. `len` MUST be the value
- * the producing call wrote into its `*out_len` parameter.
+ * the producing call wrote into its `*out_len` parameter. The pointer must be
+ * an unmodified value returned through an RBC `uint8_t **` out-parameter and
+ * must be freed exactly once.
  */
 void RbcBufferFree(uint8_t *buf, size_t len);
 
@@ -69,7 +89,9 @@ RbcErrorCode RbcClientNewFromFile(const char *config_path, RbcClient **out_clien
 RbcErrorCode RbcClientNewFromYaml(const char *yaml, RbcClient **out_client);
 
 /**
- * Destroy a client handle.
+ * Destroy a client handle. The handle must have been returned by RBC and must
+ * not be used after this call. Freeing the same handle twice is undefined
+ * behavior.
  */
 void RbcClientFree(RbcClient *client);
 
@@ -113,7 +135,8 @@ const uint8_t *RbcResourceGetContent(const RbcResource *resource, size_t *out_le
 
 /**
  * Destroy a resource handle (invalidates all borrowed pointers obtained
- * from accessors).
+ * from accessors). The handle must have been returned by RBC and must not be
+ * used after this call. Freeing the same handle twice is undefined behavior.
  */
 void RbcResourceFree(RbcResource *resource);
 
@@ -128,7 +151,9 @@ RbcErrorCode RbcSessionNew(RbcClient *client,
                            RbcSession **out_session);
 
 /**
- * Free a session. The embedded ephemeral key is zeroized on drop.
+ * Free a session. The embedded ephemeral key is zeroized on drop. The handle
+ * must have been returned by RBC and must not be used after this call. Freeing
+ * the same handle twice is undefined behavior.
  */
 void RbcSessionFree(RbcSession *session);
 

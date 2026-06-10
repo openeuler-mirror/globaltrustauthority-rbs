@@ -244,7 +244,17 @@ typedef struct RbcSession  RbcSession;
 typedef struct RbcResource RbcResource;
 ```
 
-Handles are opaque pointers. Never dereference or stack-allocate them; only pass pointers between RBC functions.
+Handles are opaque RBC-owned pointers. Never dereference, stack-allocate, copy, or cast them between handle types; only pass pointers between RBC functions.
+
+Each non-NULL handle must be released exactly once with its matching function:
+
+| Handle | Release function |
+|--------|------------------|
+| `RbcClient *` | `RbcClientFree` |
+| `RbcSession *` | `RbcSessionFree` |
+| `RbcResource *` | `RbcResourceFree` |
+
+After a free call returns, the handle and all borrowed pointers obtained from it are invalid. Passing a pointer not returned by RBC, freeing a handle twice, freeing it with the wrong function, or using it after free is undefined behavior.
 
 #### 6.2.2 Memory Ownership Rules
 
@@ -254,6 +264,8 @@ Handles are opaque pointers. Never dereference or stack-allocate them; only pass
 | `uint8_t **` out-param | Caller owns | `RbcBufferFree(ptr, len)` — `len` must be the value written by the call |
 | `const char *` from resource accessor | Borrowed | Do **not** free; valid until `RbcResourceFree` |
 | `const uint8_t *` from `RbcResourceGetContent` | Borrowed | Do **not** free; valid until `RbcResourceFree` |
+
+Only pass unmodified RBC-returned pointers to `RbcStringFree` and `RbcBufferFree`. Do not pass non-RBC allocations, adjusted pointers, or a different `len` value to `RbcBufferFree`.
 
 > **Thread safety**: All handles must be used only on the thread that created them. The error slot used by `RbcLastErrorMessage` is thread-local.
 
