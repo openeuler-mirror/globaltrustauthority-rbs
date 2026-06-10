@@ -257,7 +257,6 @@ pub struct Session {
     ephemeral_key: Option<TeeKeyPair>,
     enriched_attester_data: Option<AttesterData>,
     caller_manages_key: bool,
-    key_algorithm: KeyType,
     _marker: std::marker::PhantomData<*mut ()>,
 }
 
@@ -276,13 +275,11 @@ impl Session {
             let pubkey = TeePublicKey::from_jwk_json(&pubkey_json)
                 .map_err(|e| RbcError::InvalidInput(format!("invalid tee-pubkey: {e}")))?;
             pubkey.validate_params()?;
-            let effective_algorithm = pubkey.key_type();
             Ok(Self {
                 client,
                 ephemeral_key: None,
                 enriched_attester_data: attester_data.cloned(),
                 caller_manages_key: true,
-                key_algorithm: effective_algorithm,
                 _marker: std::marker::PhantomData,
             })
         } else {
@@ -298,7 +295,6 @@ impl Session {
                 ephemeral_key: Some(key),
                 enriched_attester_data: Some(enriched),
                 caller_manages_key: false,
-                key_algorithm,
                 _marker: std::marker::PhantomData,
             })
         }
@@ -383,7 +379,7 @@ impl Session {
         passphrase: Option<&[u8]>,
     ) -> Result<Zeroizing<Vec<u8>>, RbcError> {
         let bytes = if let Some(pem) = private_key_pem {
-            let kp = TeeKeyPair::from_private_pem(self.key_algorithm, pem, passphrase)?;
+            let kp = TeeKeyPair::from_private_pem(pem, passphrase)?;
             kp.decrypt_jwe(jwe_token)?
         } else {
             let key = self.ephemeral_key.as_ref().ok_or_else(|| {
@@ -667,8 +663,9 @@ token_provider:
     }
 
     #[test]
-    fn session_create_with_caller_tee_pubkey_algorithm_overrides_config() {
-        // EC pubkey supplied, config says RSA — session must adopt EC from the key.
+    fn session_create_with_caller_tee_pubkey_skips_ephemeral_key_even_when_config_differs() {
+        // EC pubkey supplied, config says RSA. The caller-managed key path
+        // should rely on the supplied private PEM during decryption.
         let client = make_test_client();
         let mut runtime_data = serde_json::Map::new();
         runtime_data.insert(
@@ -685,7 +682,7 @@ token_provider:
         let session = Session::create(Rc::clone(&client.inner), Some(&attester_data), KeyType::Rsa).unwrap();
 
         assert!(session.caller_manages_key);
-        assert_eq!(session.key_algorithm, KeyType::Ec);
+        assert!(session.ephemeral_key.is_none());
     }
 
     #[test]
@@ -713,7 +710,6 @@ token_provider:
             ephemeral_key: None,
             enriched_attester_data: None,
             caller_manages_key: true,
-            key_algorithm: KeyType::Ec,
             _marker: std::marker::PhantomData,
         };
         let err = session.decrypt_content("fake.jwe.token", None, None).unwrap_err();
@@ -728,7 +724,6 @@ token_provider:
             ephemeral_key: None,
             enriched_attester_data: None,
             caller_manages_key: false,
-            key_algorithm: KeyType::Ec,
             _marker: std::marker::PhantomData,
         };
         let err = session.decrypt_content("fake.jwe.token", None, None).unwrap_err();
@@ -773,10 +768,31 @@ token_provider:
             ephemeral_key: None,
             enriched_attester_data: None,
             caller_manages_key: true,
-            key_algorithm: KeyType::Ec,
             _marker: std::marker::PhantomData,
         };
         let decrypted = session.decrypt_content(&jwe, Some(enc_pem), Some(b"test-passphrase")).unwrap();
+        assert_eq!(decrypted.as_slice(), plaintext.as_ref());
+    }
+
+    #[test]
+    fn decrypt_content_infers_ec_pem_even_when_session_algorithm_is_rsa() {
+        let kp = TeeKeyPair::generate(KeyType::Ec).unwrap();
+        let private_pem = kp.to_private_pem().unwrap();
+        let pubkey = kp.public_key();
+
+        let plaintext = b"ec pem should drive decrypt algorithm";
+        let jwe = pubkey.encrypt_jwe(plaintext).unwrap();
+
+        let client = make_test_client();
+        let session = Session {
+            client: Rc::clone(&client.inner),
+            ephemeral_key: None,
+            enriched_attester_data: None,
+            caller_manages_key: true,
+            _marker: std::marker::PhantomData,
+        };
+
+        let decrypted = session.decrypt_content(&jwe, Some(&private_pem), None).unwrap();
         assert_eq!(decrypted.as_slice(), plaintext.as_ref());
     }
 
@@ -801,7 +817,6 @@ token_provider:
             ephemeral_key: None,
             enriched_attester_data: None,
             caller_manages_key: true,
-            key_algorithm: KeyType::Ec,
             _marker: std::marker::PhantomData,
         };
         let err = session.decrypt_content(&jwe, Some(enc_pem), Some(b"wrong")).unwrap_err();
@@ -829,7 +844,6 @@ token_provider:
             ephemeral_key: None,
             enriched_attester_data: None,
             caller_manages_key: true,
-            key_algorithm: KeyType::Ec,
             _marker: std::marker::PhantomData,
         };
         let err = session.decrypt_content(&jwe, Some(enc_pem), None).unwrap_err();
@@ -858,7 +872,6 @@ token_provider:
             ephemeral_key: None,
             enriched_attester_data: None,
             caller_manages_key: true,
-            key_algorithm: KeyType::Rsa,
             _marker: std::marker::PhantomData,
         };
         let decrypted = session.decrypt_content(&jwe, Some(enc_pem), Some(b"rsa-passphrase")).unwrap();
