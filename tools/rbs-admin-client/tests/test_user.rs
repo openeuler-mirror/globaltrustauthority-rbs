@@ -207,6 +207,24 @@ async fn item_operations_reject_blank_username_without_sending_request() {
 }
 
 #[tokio::test]
+async fn item_operations_reject_ambiguous_username_segments() {
+    let server = MockServer::start().await;
+    let client = build_user_client(&server);
+    let request = UpdateUserRequest { role: None, enabled: Some(true), auth_type: None, public_key: None, jwk: None };
+
+    for username in ["../admin", "ops/user", "ops?debug=true", "ops#fragment", "ops\\user", "%2e%2e"] {
+        let get_err = client.get(username).await.expect_err("ambiguous username should fail");
+        assert!(get_err.to_string().contains("path segment must not contain"), "{get_err}");
+
+        let update_err = client.update(username, &request).await.expect_err("ambiguous username should fail");
+        assert!(update_err.to_string().contains("path segment must not contain"), "{update_err}");
+
+        let delete_err = client.delete(username).await.expect_err("ambiguous username should fail");
+        assert!(delete_err.to_string().contains("path segment must not contain"), "{delete_err}");
+    }
+}
+
+#[tokio::test]
 async fn get_returns_sanitized_not_found_error() {
     let server = MockServer::start().await;
 

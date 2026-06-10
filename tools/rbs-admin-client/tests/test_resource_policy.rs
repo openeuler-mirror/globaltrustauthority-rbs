@@ -11,8 +11,8 @@
  */
 
 use rbs_admin_client::resource_policy::{
-    ResourcePolicyClient, ResourcePolicyContentType, ResourcePolicyCreateRequest, ResourcePolicyListParams, ResourcePolicyService,
-    ResourcePolicyUpdateRequest,
+    ResourcePolicyClient, ResourcePolicyContentType, ResourcePolicyCreateRequest, ResourcePolicyListParams,
+    ResourcePolicyService, ResourcePolicyUpdateRequest,
 };
 use rbs_admin_client::AdminClient;
 
@@ -56,11 +56,7 @@ async fn resource_policy_operations_report_url_or_argument_failures() {
         "failed to build resource policy collection URL"
     );
     assert_eq!(
-        client
-            .update_policy("policy-1", &update)
-            .await
-            .expect_err("update should fail")
-            .to_string(),
+        client.update_policy("policy-1", &update).await.expect_err("update should fail").to_string(),
         "base URL cannot be used to build resource policy item path"
     );
     assert_eq!(
@@ -71,4 +67,27 @@ async fn resource_policy_operations_report_url_or_argument_failures() {
         client.delete_policies(&[]).await.expect_err("empty ids should fail").to_string(),
         "ids must not be empty"
     );
+}
+
+#[tokio::test]
+async fn resource_policy_item_operations_reject_ambiguous_policy_ids() {
+    let client = ResourcePolicyClient::new(
+        AdminClient::new("https://example.com", "test-token", &None).expect("admin client should be created"),
+    );
+    let update = ResourcePolicyUpdateRequest {
+        name: "allow-secret-v2".to_string(),
+        content_type: ResourcePolicyContentType::Base64,
+        content: "YmFy".to_string(),
+    };
+
+    for policy_id in ["../admin", "policy/1", "policy?debug=true", "policy#fragment", "policy\\1", "%2e%2e"] {
+        let get_err = client.get_policy(policy_id).await.expect_err("ambiguous policy id should fail");
+        assert!(get_err.to_string().contains("path segment must not contain"), "{get_err}");
+
+        let update_err = client.update_policy(policy_id, &update).await.expect_err("ambiguous policy id should fail");
+        assert!(update_err.to_string().contains("path segment must not contain"), "{update_err}");
+
+        let delete_err = client.delete_policy(policy_id).await.expect_err("ambiguous policy id should fail");
+        assert!(delete_err.to_string().contains("path segment must not contain"), "{delete_err}");
+    }
 }
