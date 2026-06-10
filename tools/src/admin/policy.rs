@@ -210,16 +210,19 @@ async fn execute_policy_command(cli: &PolicyCli, service: &PolicyClient) -> Resu
         },
         PolicyCommand::Update(args) => {
             validate_update_args(args)?;
-            let mut content = String::new();
-            if let (Some(c_type), Some(raw_content)) = (&args.content_type, &args.content) {
-                content = read_path_file(raw_content.as_str())?;
-                match c_type.to_lowercase().as_str() {
-                    "text" => {
-                        content = general_purpose::STANDARD.encode(raw_content.as_bytes());
-                    },
-                    _ => {},
-                }
-            }
+            let content = match (&args.content_type, &args.content) {
+                (Some(content_type), Some(content_input)) => {
+                    let mut content = read_path_file(content_input.as_str())?;
+                    match content_type.to_lowercase().as_str() {
+                        "text" => {
+                            content = general_purpose::STANDARD.encode(content.as_bytes());
+                        },
+                        _ => {},
+                    }
+                    Some(content)
+                },
+                _ => None,
+            };
             let resp = service
                 .update_policy(&PolicyUpdateRequest {
                     id: args.id.clone(),
@@ -227,7 +230,7 @@ async fn execute_policy_command(cli: &PolicyCli, service: &PolicyClient) -> Resu
                     description: args.description.clone(),
                     attester_type: args.attester_type.clone(),
                     content_type: args.content_type.clone(),
-                    content: Some(content),
+                    content,
                     is_default: args.is_default,
                 })
                 .await?;
@@ -397,6 +400,36 @@ mod tests {
         args.content = Some("payload".to_string());
         let err = validate_update_args(&args).expect_err("content without type should fail");
         assert!(err.to_string().contains("content_type must be set"));
+    }
+
+    #[test]
+    fn policy_update_request_omits_content_when_not_provided() {
+        let request = PolicyUpdateRequest {
+            id: "policy-1".to_string(),
+            name: Some("new-policy-name".to_string()),
+            description: None,
+            attester_type: None,
+            content_type: None,
+            content: None,
+            is_default: None,
+        };
+        let json = serde_json::to_value(&request).expect("serialize update request");
+
+        assert_eq!(json["name"], "new-policy-name");
+        assert!(json.get("content").is_none());
+        assert!(json.get("content_type").is_none());
+    }
+
+    #[test]
+    fn update_text_content_encodes_file_content() {
+        let path = std::env::temp_dir().join(format!("policy-update-content-{}.rego", std::process::id()));
+        std::fs::write(&path, "package policy").expect("write policy content");
+
+        let mut content = read_path_file(&format!("@{}", path.display())).expect("read policy content");
+        content = general_purpose::STANDARD.encode(content.as_bytes());
+
+        assert_eq!(content, general_purpose::STANDARD.encode("package policy".as_bytes()));
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]
