@@ -25,13 +25,13 @@ use std::str::FromStr;
 pub mod cmd;
 
 #[derive(Parser, Debug)]
-#[command(name = "rbs-cli")]
+#[command(name = "rbs-cli", arg_required_else_help = true)]
 pub struct Cli {
     #[command(flatten)]
     pub global: GlobalCliArgs,
 
     #[command(subcommand)]
-    pub command: Option<Command>,
+    pub command: Command,
 }
 
 #[derive(Args, Debug, Clone, Default)]
@@ -85,7 +85,7 @@ pub enum Command {
     Version(VersionCli),
 }
 
-pub const DEFAULT_BASE_URL: &str = "http://localhost:8080";
+pub const DEFAULT_BASE_URL: &str = "https://127.0.0.1:6666";
 pub const DEFAULT_FORMAT: &str = "text";
 
 #[derive(ValueEnum, Clone, Debug, Default, PartialEq, Eq)]
@@ -150,10 +150,17 @@ impl Default for GlobalOptions {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::Parser;
 
     #[test]
     fn output_format_from_str_rejects_invalid_value() {
         let err = "yaml".parse::<OutputFormat>().expect_err("invalid format should fail");
         assert!(err.to_string().contains("invalid output format"));
+    }
+
+    #[test]
+    fn root_command_without_subcommand_prints_help() {
+        let err = Cli::try_parse_from(["rbs-cli"]).expect_err("missing subcommand should print help");
+        assert_eq!(err.kind(), clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand);
     }
 }

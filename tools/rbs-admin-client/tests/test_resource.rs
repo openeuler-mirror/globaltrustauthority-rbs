@@ -52,35 +52,19 @@ async fn resource_operations_report_url_build_failure() {
         export_mode: Some("jwe".to_string()),
     };
     assert_eq!(
-        client
-            .get_resource_info(&path)
-            .await
-            .expect_err("get info should fail")
-            .to_string(),
+        client.get_resource_info(&path).await.expect_err("get info should fail").to_string(),
         "base URL cannot be used to build resource info path"
     );
     assert_eq!(
-        client
-            .create_resource(&path, &create)
-            .await
-            .expect_err("create should fail")
-            .to_string(),
+        client.create_resource(&path, &create).await.expect_err("create should fail").to_string(),
         "base URL cannot be used to build resource path"
     );
     assert_eq!(
-        client
-            .update_resource(&path, &update)
-            .await
-            .expect_err("update should fail")
-            .to_string(),
+        client.update_resource(&path, &update).await.expect_err("update should fail").to_string(),
         "base URL cannot be used to build resource path"
     );
     assert_eq!(
-        client
-            .delete_resource(&path)
-            .await
-            .expect_err("delete should fail")
-            .to_string(),
+        client.delete_resource(&path).await.expect_err("delete should fail").to_string(),
         "base URL cannot be used to build resource path"
     );
 }
@@ -88,4 +72,23 @@ async fn resource_operations_report_url_build_failure() {
 #[test]
 fn resource_client_is_constructible_with_valid_base_url() {
     let _ = ResourceClient::new(admin_client("https://example.com"));
+}
+
+#[tokio::test]
+async fn resource_paths_reject_ambiguous_segments() {
+    let client = ResourceClient::new(admin_client("https://example.com"));
+    let mut path = resource_path();
+    let create = ResourceCreateRequest {
+        uri: "".to_string(),
+        policy_id: "policy-1".to_string(),
+        additional_info: None,
+        content_type: Some("text".to_string()),
+        export_mode: Some("plain".to_string()),
+    };
+
+    for segment in ["../admin", "repo/name", "repo?debug=true", "repo#fragment", "repo\\name", "%2e%2e"] {
+        path.repository_name = segment.to_string();
+        let err = client.create_resource(&path, &create).await.expect_err("ambiguous segment should fail");
+        assert!(err.to_string().contains("path segment must not contain"), "{err}");
+    }
 }

@@ -18,17 +18,39 @@
 //! `RbcSession`, `RbcResource`) must be accessed only from the thread
 //! that created it. The thread-local error slot used by
 //! `rbc_last_error_message` follows the same rule.
+//! Passing a handle to another thread, or using it concurrently from multiple
+//! threads, is undefined behavior.
+//!
+//! # Handle ownership
+//!
+//! `RbcClient`, `RbcSession`, and `RbcResource` are opaque handles created only
+//! by RBC. Callers must not allocate, copy, cast between handle types, or
+//! dereference them. Each non-NULL handle must be released exactly once with its
+//! matching function:
+//!
+//! - `RbcClient *` with `rbc_client_free`
+//! - `RbcSession *` with `rbc_session_free`
+//! - `RbcResource *` with `rbc_resource_free`
+//!
+//! After a free call returns, the handle and all borrowed pointers obtained from
+//! it are invalid and must not be used again. Passing a pointer not returned by
+//! RBC, freeing a handle twice, freeing it with the wrong function, or using it
+//! after free is undefined behavior.
 //!
 //! # Memory ownership
 //!
 //! - Functions with a `char **` out-parameter allocate a nul-terminated string;
-//!   free with `rbc_string_free`.
+//!   free exactly once with `rbc_string_free`.
 //! - Functions with a `uint8_t **` out-parameter allocate a byte buffer;
-//!   free with `rbc_buffer_free(ptr, len)` — `len` must be the value the
-//!   producing call wrote into its `size_t *out_len`.
+//!   free exactly once with `rbc_buffer_free(ptr, len)` — `len` must be the
+//!   value the producing call wrote into its `size_t *out_len`.
 //! - Functions returning `const char *` or `const uint8_t *` from an
 //!   `RbcResource *` lend a pointer owned by the resource. It is valid
 //!   until `rbc_resource_free` is called on that resource.
+//!
+//! Do not pass non-RBC allocations to `rbc_string_free` or `rbc_buffer_free`,
+//! and do not pass an adjusted pointer or a different length to
+//! `rbc_buffer_free`.
 
 pub mod client;
 pub mod error;

@@ -10,16 +10,18 @@
  * See the Mulan PSL v2 for more details.
  */
 
+use crate::client::AdminClient;
+use crate::error::RbsAdminClientError;
+use crate::path_url::build_path_url;
+use crate::{send_empty, send_json};
 use async_trait::async_trait;
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use tabled::Tabled;
-use crate::client::AdminClient;
-use crate::error::RbsAdminClientError;
-use crate::{send_empty, send_json};
 
 const RESOURCE_POLICY_PATH: &str = "/rbs/v0/resource/policy";
+const RESOURCE_POLICY_ITEM_URL_ERROR: &str = "base URL cannot be used to build resource policy item path";
 
 #[derive(Clone, Debug)]
 pub struct ResourcePolicyClient {
@@ -190,8 +192,10 @@ impl ResourcePolicyClient {
     }
 
     fn item_url(&self, policy_id: &str) -> Result<reqwest::Url, RbsAdminClientError> {
-        self.client.base_url.join(format!("{}/{}", RESOURCE_POLICY_PATH, policy_id).as_str()).map_err(|_| {
-            RbsAdminClientError::ClientError("base URL cannot be used to build resource policy item path".to_string())
-        })
+        build_path_url(
+            &self.client.base_url,
+            &["rbs", "v0", "resource", "policy", policy_id],
+            RESOURCE_POLICY_ITEM_URL_ERROR,
+        )
     }
 }

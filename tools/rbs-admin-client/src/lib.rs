@@ -12,6 +12,7 @@
 pub mod attestation;
 mod client;
 mod error;
+mod path_url;
 pub mod resource;
 pub mod resource_policy;
 pub mod user;

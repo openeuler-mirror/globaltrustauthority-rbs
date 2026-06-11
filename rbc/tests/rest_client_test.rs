@@ -94,6 +94,48 @@ async fn test_get_resource_with_bearer_token() {
 }
 
 #[tokio::test]
+async fn test_get_resource_percent_encodes_path_segments() {
+    let mock_server = MockServer::start().await;
+    let uri = "vault/default/secret/my key";
+    Mock::given(method("GET"))
+        .and(path("/rbs/v0/vault/default/secret/my%20key"))
+        .and(header("Authorization", "Attest attest-token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "uri": uri,
+            "content": "c2VjcmV0LWRhdGE=",
+            "content_type": "jwe",
+            "export_mode": "jwe"
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let client = RbsRestClient::new(&mock_server.uri(), None, None).unwrap();
+    let resp = client.get_resource_by_attest(uri, "attest-token").await.unwrap();
+    assert_eq!(resp.uri, uri);
+}
+
+#[tokio::test]
+async fn test_get_resource_rejects_ambiguous_resource_uri() {
+    let client = RbsRestClient::new("http://127.0.0.1:1", None, None).unwrap();
+
+    for uri in [
+        "",
+        "/vault/default/secret/key",
+        "vault//secret/key",
+        "vault/default/secret/key/",
+        "../admin",
+        "vault/../secret/key",
+        "vault/default/secret/key?debug=true",
+        "vault/default/secret/key#fragment",
+        "vault\\default\\secret\\key",
+        "vault/%2e%2e/secret/key",
+    ] {
+        let err = client.get_resource_by_attest(uri, "token").await.unwrap_err();
+        assert!(matches!(err, RbcError::InvalidInput(_)), "expected InvalidInput for {uri:?}, got {err:?}");
+    }
+}
+
+#[tokio::test]
 async fn test_http_404_returns_resource_not_found() {
     let mock_server = MockServer::start().await;
     Mock::given(method("GET"))

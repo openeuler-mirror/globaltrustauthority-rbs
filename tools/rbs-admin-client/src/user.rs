@@ -11,6 +11,7 @@
  */
 use crate::client::AdminClient;
 use crate::error::RbsAdminClientError;
+use crate::path_url::build_path_url;
 use crate::{send_empty, send_json};
 use async_trait::async_trait;
 use reqwest::Method;
@@ -19,6 +20,7 @@ use serde_json::Value;
 use tabled::Tabled;
 
 const USERS_PATH: &str = "/rbs/v0/users";
+const USER_ITEM_URL_ERROR: &str = "base URL cannot be used to build user item path";
 
 #[derive(Clone)]
 pub struct UserClient {
@@ -105,9 +107,7 @@ impl UserService for UserClient {
         if username.trim().is_empty() {
             return Err(RbsAdminClientError::ClientError("username must not be empty".to_string()));
         }
-        let url = self.client.base_url.join(format!("{}/{}", USERS_PATH, username).as_str()).map_err(|_| {
-            RbsAdminClientError::ClientError("base URL cannot be used to build user item path".to_string())
-        })?;
+        let url = self.item_url(username)?;
         send_empty(&self.client, Method::DELETE, url).await
     }
 
@@ -115,9 +115,7 @@ impl UserService for UserClient {
         if username.trim().is_empty() {
             return Err(RbsAdminClientError::ClientError("username must not be empty".to_string()));
         }
-        let url = self.client.base_url.join(format!("{}/{}", USERS_PATH, username).as_str()).map_err(|_| {
-            RbsAdminClientError::ClientError("base URL cannot be used to build user item path".to_string())
-        })?;
+        let url = self.item_url(username)?;
         send_json(&self.client, Method::PUT, url, Some(request)).await
     }
 
@@ -139,9 +137,7 @@ impl UserService for UserClient {
         if username.trim().is_empty() {
             return Err(RbsAdminClientError::ClientError("username must not be empty".to_string()));
         }
-        let url = self.client.base_url.join(format!("{}/{}", USERS_PATH, username).as_str()).map_err(|_| {
-            RbsAdminClientError::ClientError("base URL cannot be used to build user item path".to_string())
-        })?;
+        let url = self.item_url(username)?;
         send_json(&self.client, Method::GET, url, Option::<&()>::None).await
     }
 }
@@ -149,5 +145,9 @@ impl UserService for UserClient {
 impl UserClient {
     pub fn new(client: AdminClient) -> Self {
         Self { client }
+    }
+
+    fn item_url(&self, username: &str) -> Result<reqwest::Url, RbsAdminClientError> {
+        build_path_url(&self.client.base_url, &["rbs", "v0", "users", username], USER_ITEM_URL_ERROR)
     }
 }

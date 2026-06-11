@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::client::AdminClient;
 use crate::error::RbsAdminClientError;
+use crate::path_url::build_path_url;
 use crate::{send_empty, send_json};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -78,31 +79,27 @@ impl ResourceClient {
     }
 
     fn resource_url(&self, path: &ResourcePath) -> Result<Url, RbsAdminClientError> {
-        self.client
-            .base_url
-            .join(
-                format!(
-                    "/rbs/v0/{}/{}/{}/{}",
-                    path.provider_name, path.repository_name, path.resource_type, path.resource_name
-                )
-                .as_str(),
-            )
-            .map_err(|_| RbsAdminClientError::ClientError("base URL cannot be used to build resource path".to_string()))
+        build_path_url(
+            &self.client.base_url,
+            &["rbs", "v0", &path.provider_name, &path.repository_name, &path.resource_type, &path.resource_name],
+            "base URL cannot be used to build resource path",
+        )
     }
 
     fn resource_info_url(&self, path: &ResourcePath) -> Result<Url, RbsAdminClientError> {
-        self.client
-            .base_url
-            .join(
-                format!(
-                    "/rbs/v0/{}/{}/{}/{}/info",
-                    path.provider_name, path.repository_name, path.resource_type, path.resource_name
-                )
-                .as_str(),
-            )
-            .map_err(|_| {
-                RbsAdminClientError::ClientError("base URL cannot be used to build resource info path".to_string())
-            })
+        build_path_url(
+            &self.client.base_url,
+            &[
+                "rbs",
+                "v0",
+                &path.provider_name,
+                &path.repository_name,
+                &path.resource_type,
+                &path.resource_name,
+                "info",
+            ],
+            "base URL cannot be used to build resource info path",
+        )
     }
 }
 

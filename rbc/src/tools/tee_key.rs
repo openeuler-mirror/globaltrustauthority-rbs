@@ -22,7 +22,8 @@ use josekit::jwk::alg::ec::EcKeyPair;
 use josekit::jwk::alg::rsa::RsaKeyPair;
 use josekit::jwk::Jwk;
 use josekit::jwk::KeyPair;
-use openssl::pkey::PKey;
+use openssl::nid::Nid;
+use openssl::pkey::{Id, PKey};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
@@ -74,13 +75,13 @@ pub struct TeePublicKey {
     public_jwk: Jwk,
 }
 
-fn ec_curve_from_jwk(jwk: &Jwk) -> Result<EcCurve, RbcError> {
-    match jwk.parameter("crv").and_then(|v| v.as_str()) {
-        Some("P-256") => Ok(EcCurve::P256),
-        Some("P-384") => Ok(EcCurve::P384),
-        Some("P-521") => Ok(EcCurve::P521),
-        Some(c) => Err(RbcError::KeyGenError(format!("unsupported EC curve: {c}"))),
-        None => Err(RbcError::KeyGenError("EC JWK missing 'crv' field".into())),
+fn ec_curve_from_openssl_nid(nid: Option<Nid>) -> Result<EcCurve, RbcError> {
+    match nid {
+        Some(Nid::X9_62_PRIME256V1) => Ok(EcCurve::P256),
+        Some(Nid::SECP384R1) => Ok(EcCurve::P384),
+        Some(Nid::SECP521R1) => Ok(EcCurve::P521),
+        Some(curve) => Err(RbcError::KeyGenError(format!("unsupported EC curve: {curve:?}"))),
+        None => Err(RbcError::KeyGenError("EC key missing named curve".into())),
     }
 }
 
@@ -114,37 +115,34 @@ impl TeeKeyPair {
     ///
     /// `passphrase` — required when the PEM is encrypted; caller is responsible for
     /// zeroizing this slice after the call returns.
-    pub fn from_private_pem(key_type: KeyType, pem: &str, passphrase: Option<&[u8]>) -> Result<Self, RbcError> {
-        let plain_pem_buf: Option<Zeroizing<Vec<u8>>> = if let Some(pw) = passphrase {
-            let pkey = PKey::private_key_from_pem_passphrase(pem.as_bytes(), pw)
-                .map_err(|e| RbcError::KeyGenError(format!("PEM decrypt: {e}")))?;
-            Some(Zeroizing::new(
-                pkey.private_key_to_pem_pkcs8().map_err(|e| RbcError::KeyGenError(format!("PEM export: {e}")))?,
-            ))
+    pub fn from_private_pem(pem: &str, passphrase: Option<&[u8]>) -> Result<Self, RbcError> {
+        let pkey = if let Some(pw) = passphrase {
+            PKey::private_key_from_pem_passphrase(pem.as_bytes(), pw)
+                .map_err(|e| RbcError::KeyGenError(format!("PEM parse/decrypt: {e}")))?
         } else {
-            None
+            PKey::private_key_from_pem(pem.as_bytes()).map_err(|e| RbcError::KeyGenError(format!("PEM parse: {e}")))?
         };
 
-        let pem_bytes: &[u8] = match &plain_pem_buf {
-            Some(buf) => buf.as_slice(),
-            None => pem.as_bytes(),
-        };
+        let private_der =
+            Zeroizing::new(pkey.private_key_to_der().map_err(|e| RbcError::KeyGenError(format!("DER export: {e}")))?);
 
-        match key_type {
-            KeyType::Rsa => {
-                let kp = RsaKeyPair::from_pem(pem_bytes)
-                    .map_err(|e| RbcError::KeyGenError(format!("RSA PEM parse: {e}")))?;
-                let private_der = Zeroizing::new(kp.to_der_private_key());
+        match pkey.id() {
+            Id::RSA => {
+                let kp = RsaKeyPair::from_der(&private_der)
+                    .map_err(|e| RbcError::KeyGenError(format!("RSA DER parse: {e}")))?;
                 let public_jwk = kp.to_jwk_public_key();
-                Ok(Self { key_type, ec_curve: None, private_der, public_jwk })
+                Ok(Self { key_type: KeyType::Rsa, ec_curve: None, private_der, public_jwk })
             },
-            KeyType::Ec => {
-                let kp = EcKeyPair::from_pem(pem_bytes, None)
-                    .map_err(|e| RbcError::KeyGenError(format!("EC PEM parse: {e}")))?;
-                let private_der = Zeroizing::new(kp.to_der_private_key());
+            Id::EC => {
+                let ec_key = pkey.ec_key().map_err(|e| RbcError::KeyGenError(format!("EC key read: {e}")))?;
+                let ec_curve = ec_curve_from_openssl_nid(ec_key.group().curve_name())?;
+                let kp = EcKeyPair::from_der(&private_der, Some(ec_curve))
+                    .map_err(|e| RbcError::KeyGenError(format!("EC DER parse: {e}")))?;
                 let public_jwk = kp.to_jwk_public_key();
-                let ec_curve = Some(ec_curve_from_jwk(&public_jwk)?);
-                Ok(Self { key_type, ec_curve, private_der, public_jwk })
+                Ok(Self { key_type: KeyType::Ec, ec_curve: Some(ec_curve), private_der, public_jwk })
+            },
+            other => {
+                Err(RbcError::KeyGenError(format!("unsupported private key type `{other:?}`; expected RSA or EC")))
             },
         }
     }
