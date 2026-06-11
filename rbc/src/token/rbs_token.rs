@@ -17,6 +17,7 @@ use rbs_api_types::{AttestRequest, AttesterData, RbcEvidencesPayload};
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
+use zeroize::Zeroizing;
 
 use crate::client::RbsRestClient;
 use crate::error::RbcError;
@@ -56,7 +57,7 @@ impl AgentConfig {
 pub struct RbsAttestTokenProvider {
     rest_client: RbsRestClient,
     user_id: String,
-    apikey: Option<String>,
+    apikey: Option<Zeroizing<String>>,
 }
 
 impl RbsAttestTokenProvider {
@@ -69,7 +70,7 @@ impl RbsAttestTokenProvider {
             serde_json::from_value(cfg).map_err(|e| RbcError::ConfigError(format!("RbsTokenProvider config: {e}")))?;
         let path = config.config_path.as_deref().unwrap_or(DEFAULT_AGENT_CONFIG);
         let agent = AgentConfig::from_file(path)?.agent;
-        Ok(Self { rest_client, user_id: agent.user_id, apikey: agent.apikey })
+        Ok(Self { rest_client, user_id: agent.user_id, apikey: agent.apikey.map(Zeroizing::new) })
     }
 }
 
@@ -91,7 +92,7 @@ impl TokenProvider for RbsAttestTokenProvider {
         let mut headers = HashMap::new();
         headers.insert(HEADER_USER_ID, self.user_id.as_str());
         if let Some(apikey) = &self.apikey {
-            headers.insert(HEADER_API_KEY, apikey);
+            headers.insert(HEADER_API_KEY, apikey.as_str());
         }
         let resp = self.rest_client.post_attest(&req, &headers).await?;
 

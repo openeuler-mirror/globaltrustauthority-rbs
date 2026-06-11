@@ -4,7 +4,7 @@
 
 # REST server (required when rest feature is enabled)
 rest:
-  listen_addr: "127.0.0.1:6666"   # localhost only; use "0.0.0.0:6666" to listen on all interfaces
+  listen_addr: "127.0.0.1:6666"   # listen address
   workers: 4
   body_limit_bytes: 10485760   # 10 MiB; max request body size (413 if exceeded)
   listen_backlog: 128           # TCP accept queue size
@@ -12,7 +12,7 @@ rest:
   shutdown_timeout_secs: 30    # graceful shutdown: wait for in-flight requests before exit
   # When enabled: true, cert_file and key_file must be non-empty and point to valid PEM files.
   https:
-    enabled: false
+    enabled: true
     cert_file: ""
     key_file: ""
   # Per-IP rate limit (token bucket). Effective only when built with --features per-ip-rate-limit.

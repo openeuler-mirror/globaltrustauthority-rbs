@@ -27,6 +27,7 @@ openssl.workspace = true
 josekit.workspace = true
 jsonwebtoken.workspace = true
 dashmap.workspace = true
+zeroize.workspace = true
 policy_engine = { git = "https://gitcode.com/openeuler/global-trust-authority", package = "policy_engine" }
 
 [dev-dependencies]
