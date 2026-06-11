@@ -20,6 +20,7 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use serde_json::json;
+use zeroize::Zeroizing;
 
 use rbs_core::auth::authz::{Action, AuthzError, RequiredRole};
 use rbs_core::auth::authz_checker::AuthzChecker;
@@ -130,7 +131,7 @@ impl PolicyClient for MockPolicyClient {
 
 struct MockResourceBackend {
     check_exists_result: Mutex<MockResult<bool>>,
-    get_content_result: Mutex<MockResult<Vec<u8>>>,
+    get_content_result: Mutex<MockResult<Zeroizing<Vec<u8>>>>,
 }
 
 #[allow(dead_code)]
@@ -138,14 +139,14 @@ impl MockResourceBackend {
     fn new() -> Self {
         Self {
             check_exists_result: Mutex::new(Ok(true)),
-            get_content_result: Mutex::new(Ok(vec![])),
+            get_content_result: Mutex::new(Ok(Zeroizing::new(vec![]))),
         }
     }
 
     fn with_content(content: Vec<u8>) -> Self {
         Self {
             check_exists_result: Mutex::new(Ok(true)),
-            get_content_result: Mutex::new(Ok(content)),
+            get_content_result: Mutex::new(Ok(Zeroizing::new(content))),
         }
     }
 }
@@ -156,7 +157,7 @@ impl ResourceBackend for MockResourceBackend {
         self.check_exists_result.lock().unwrap().clone()
     }
 
-    async fn get_resource_content(&self, _uri: &str) -> MockResult<Vec<u8>> {
+    async fn get_resource_content(&self, _uri: &str) -> MockResult<Zeroizing<Vec<u8>>> {
         self.get_content_result.lock().unwrap().clone()
     }
 }

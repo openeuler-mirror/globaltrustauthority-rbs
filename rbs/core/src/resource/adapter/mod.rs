@@ -1,5 +1,6 @@
 use super::error::ResourceError;
 use std::sync::Arc;
+use zeroize::Zeroizing;
 
 pub mod vault;
 pub use vault::VaultBackend;
@@ -8,7 +9,7 @@ pub use vault::VaultBackend;
 #[async_trait::async_trait]
 pub trait ResourceBackend: Send + Sync {
     async fn check_resource_exists(&self, uri: &str) -> Result<bool, ResourceError>;
-    async fn get_resource_content(&self, uri: &str) -> Result<Vec<u8>, ResourceError>;
+    async fn get_resource_content(&self, uri: &str) -> Result<Zeroizing<Vec<u8>>, ResourceError>;
 }
 
 /// BackendProvider routes res_provider to the correct backend adapter.

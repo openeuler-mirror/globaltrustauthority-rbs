@@ -1,11 +1,11 @@
 use super::ResourceBackend;
 use crate::resource::error::ResourceError;
+use zeroize::Zeroizing;
 
 /// VaultBackend - adapter for OpenBao / HashiCorp Vault.
-#[derive(Clone)]
 pub struct VaultBackend {
     pub url: String,
-    pub token: String,
+    pub token: Zeroizing<String>,
     pub mount_path: String,
     pub kv_version: String,
     client: reqwest::Client,
@@ -15,6 +15,7 @@ impl std::fmt::Debug for VaultBackend {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("VaultBackend")
             .field("url", &self.url)
+            .field("token", &"[redacted]")
             .field("mount_path", &self.mount_path)
             .field("kv_version", &self.kv_version)
             .finish()
@@ -24,7 +25,7 @@ impl std::fmt::Debug for VaultBackend {
 impl VaultBackend {
     pub fn new(url: String, token: String, mount_path: String, kv_version: String) -> Self {
         let client = reqwest::Client::new();
-        Self { url, token, mount_path, kv_version, client }
+        Self { url, token: Zeroizing::new(token), mount_path, kv_version, client }
     }
 
     /// Extract path segments from a resource URI:
@@ -70,7 +71,7 @@ impl ResourceBackend for VaultBackend {
         let client = self.client.clone();
         let resp = client
             .get(&url)
-            .header("X-Vault-Token", &self.token)
+            .header("X-Vault-Token", self.token.as_str())
             .send()
             .await
             .map_err(|e| {
@@ -91,7 +92,7 @@ impl ResourceBackend for VaultBackend {
         }
     }
 
-    async fn get_resource_content(&self, uri: &str) -> Result<Vec<u8>, ResourceError> {
+    async fn get_resource_content(&self, uri: &str) -> Result<Zeroizing<Vec<u8>>, ResourceError> {
         let data_path = self.build_vault_path(uri)?;
         let url = format!("{}{}", self.url.trim_end_matches('/'), data_path);
 
@@ -99,7 +100,7 @@ impl ResourceBackend for VaultBackend {
         let client = self.client.clone();
         let resp = client
             .get(&url)
-            .header("X-Vault-Token", &self.token)
+            .header("X-Vault-Token", self.token.as_str())
             .send()
             .await
             .map_err(|e| {
@@ -148,6 +149,6 @@ impl ResourceBackend for VaultBackend {
                 ResourceError::BackendError { detail: e.to_string() }
             })?;
 
-        Ok(content)
+        Ok(Zeroizing::new(content))
     }
 }

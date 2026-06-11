@@ -143,7 +143,7 @@ impl RbsCoreBuilder {
                 if backend_cfg.backend_type == "vault" {
                     let vault = resource::adapter::VaultBackend::new(
                         backend_cfg.url.clone(),
-                        backend_cfg.token.clone(),
+                        backend_cfg.token.get().clone(),
                         backend_cfg.mount_path.clone(),
                         backend_cfg.kv_version.clone(),
                     );

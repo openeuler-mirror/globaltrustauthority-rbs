@@ -2,6 +2,7 @@ use chrono::Timelike;
 use std::sync::Arc;
 
 use base64::Engine;
+use zeroize::Zeroize;
 use crate::auth::authz::{Action, RequiredRole};
 use crate::auth::authz_checker::AuthzChecker;
 use crate::auth::context::{AttestContext, AuthContext};
@@ -241,7 +242,7 @@ impl ResourceService {
                 log::error!("Resource get_content failed: backend '{}' not found", parsed.res_provider);
                 ResourceError::BackendUnsupported { provider: parsed.res_provider.clone() }
             })?;
-        let raw_content = backend.get_resource_content(uri).await?;
+        let mut raw_content = backend.get_resource_content(uri).await?;
         let content_type = entity.content_type.clone();
 
         // step 6: JWE encrypt + base64 encode
@@ -263,6 +264,8 @@ impl ResourceService {
             }
         })?;
         let encrypted = Self::jwe_encrypt(&raw_content, &pubkey)?;
+        // Zero plaintext immediately after JWE encryption — minimize exposure time in memory
+        raw_content.zeroize();
         let encoded = base64::engine::general_purpose::STANDARD.encode(&encrypted);
         log::info!("Resource get_content completed: uri='{}', user='{}'", uri, ctx.sub());
         Ok(ResourceContentResponse {
@@ -342,7 +345,7 @@ impl ResourceService {
                 log::error!("Resource retrieve failed: backend '{}' not found", parsed.res_provider);
                 ResourceError::BackendUnsupported { provider: parsed.res_provider.clone() }
             })?;
-        let raw_content = backend.get_resource_content(uri).await?;
+        let mut raw_content = backend.get_resource_content(uri).await?;
         let content_type = entity.content_type.clone();
 
         // step 6: JWE encrypt + base64 encode
@@ -358,6 +361,8 @@ impl ResourceService {
                 }
             })?;
         let encrypted = Self::jwe_encrypt(&raw_content, &pubkey)?;
+        // Zero plaintext immediately after JWE encryption — minimize exposure time in memory
+        raw_content.zeroize();
         let encoded = base64::engine::general_purpose::STANDARD.encode(&encrypted);
         log::info!("Resource retrieve completed: uri='{}'", uri);
         Ok(ResourceContentResponse {

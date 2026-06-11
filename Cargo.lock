@@ -3299,6 +3299,7 @@ dependencies = [
  "utoipa",
  "uuid",
  "validator",
+ "zeroize",
 ]
 
 [[package]]
@@ -3357,6 +3358,7 @@ dependencies = [
  "tokio",
  "uuid",
  "validator",
+ "zeroize",
 ]
 
 [[package]]

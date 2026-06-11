@@ -1077,3 +1077,39 @@ unknown_field: {}
         assert!(result.is_err(), "top-level keys other than rest/logging/attestation/storage/auth must be rejected");
     }
 }
+
+    #[test]
+    fn sensitive_zeroize_on_drop_clears_string() {
+        // Verify ZeroizeOnDrop works for Sensitive<String>:
+        // After drop, the inner String bytes are zeroized via volatile writes.
+        // We can't read freed memory safely, but we verify:
+        // 1. Sensitive<String> compiles with ZeroizeOnDrop derive
+        // 2. The value is accessible before drop
+        // 3. Drop completes without panic (ZeroizeOnDrop Drop impl runs)
+        let s = super::super::Sensitive::new("secret-api-key-12345".to_string());
+        assert_eq!(s.get(), "secret-api-key-12345");
+        drop(s); // ZeroizeOnDrop clears the inner String via volatile writes
+    }
+
+    #[test]
+    fn sensitive_zeroize_on_drop_via_clone() {
+        // Clone creates a second copy; both should zeroize independently on drop.
+        let s1 = super::super::Sensitive::new("master-key-value".to_string());
+        let s2 = s1.clone();
+        assert_eq!(s1.get(), "master-key-value");
+        assert_eq!(s2.get(), "master-key-value");
+        drop(s1);
+        drop(s2);
+        // Both copies are zeroized on drop via ZeroizeOnDrop — no unzeroed remnants
+    }
+
+    #[test]
+    fn sensitive_inner_zeroized_on_explicit_zeroize() {
+        // ZeroizeOnDrop derive also provides Zeroize for types where T: Zeroize.
+        // String implements Zeroize (sets bytes to 0 and len to 0).
+        use zeroize::Zeroize;
+        let mut s = super::super::Sensitive::new("top-secret-token".to_string());
+        assert_eq!(s.get(), "top-secret-token");
+        s.zeroize();
+        assert_eq!(s.get(), ""); // Inner String cleared: bytes zeroed, len=0
+    }

@@ -23,13 +23,24 @@ use std::fmt;
 
 use serde::de::{self, Visitor};
 use serde::{Deserialize, Serialize};
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// Wrapper for sensitive config values (e.g. keys, tokens). Serializes/deserializes as normal
 /// but `Debug` and `Display` show a redacted placeholder so logs never expose the value.
-#[derive(Clone, PartialEq, Eq)]
-pub struct Sensitive<T>(T);
+/// Inner value is zeroized on drop via `ZeroizeOnDrop` — volatile writes prevent DSE elimination.
+#[derive(Clone, PartialEq, Eq, ZeroizeOnDrop)]
+pub struct Sensitive<T: Zeroize>(T);
 
-impl<T: Serialize> Serialize for Sensitive<T> {
+// Manual Zeroize impl — needed because derive(Zeroize) requires DefaultIsZeroes (Copy + Default),
+// but String (and most sensitive types) are not Copy. ZeroizeOnDrop's Drop impl delegates to
+// this zeroize() method, so both explicit .zeroize() and automatic drop will clear the inner value.
+impl<T: Zeroize> Zeroize for Sensitive<T> {
+    fn zeroize(&mut self) {
+        self.0.zeroize();
+    }
+}
+
+impl<T: Zeroize + Serialize> Serialize for Sensitive<T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -38,7 +49,7 @@ impl<T: Serialize> Serialize for Sensitive<T> {
     }
 }
 
-impl<'de, T: Deserialize<'de>> Deserialize<'de> for Sensitive<T> {
+impl<'de, T: Zeroize + Deserialize<'de>> Deserialize<'de> for Sensitive<T> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
@@ -47,21 +58,21 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for Sensitive<T> {
     }
 }
 
-impl<T: fmt::Debug> fmt::Debug for Sensitive<T> {
+impl<T: Zeroize + fmt::Debug> fmt::Debug for Sensitive<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("[redacted]")
     }
 }
 
-impl<T> fmt::Display for Sensitive<T> {
+impl<T: Zeroize> fmt::Display for Sensitive<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("[redacted]")
     }
 }
 
-impl<T> Sensitive<T> {
+impl<T: Zeroize> Sensitive<T> {
     #[must_use]
-    pub const fn new(value: T) -> Self {
+    pub fn new(value: T) -> Self {
         Self(value)
     }
 
@@ -71,7 +82,7 @@ impl<T> Sensitive<T> {
     }
 }
 
-impl<T: Default> Default for Sensitive<T> {
+impl<T: Zeroize + Default> Default for Sensitive<T> {
     fn default() -> Self {
         Self(T::default())
     }
@@ -554,8 +565,8 @@ pub struct ResourceProviderConfig {
     pub backend_type: String,
     /// Base URL of the backend (e.g. "http://localhost:8200").
     pub url: String,
-    /// Authentication token for the backend.
-    pub token: String,
+    /// Authentication token for the backend (redacted in Debug output, zeroized on drop).
+    pub token: Sensitive<String>,
     /// Mount path for the secrets engine (e.g. "secret").
     #[serde(alias = "mount")]
     pub mount_path: String,
@@ -586,7 +597,7 @@ impl Default for ResourceProviderConfig {
         Self {
             backend_type: "vault".to_string(),
             url: String::new(),
-            token: String::new(),
+            token: Sensitive::new(String::new()),
             mount_path: "secret".to_string(),
             kv_version: default_kv_version(),
             verify_ssl: default_true(),
