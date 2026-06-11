@@ -14,9 +14,9 @@ use clap::Parser;
 use rbs_cli::admin::res as res_cmd;
 use rbs_cli::admin::res_policy as res_policy_cmd;
 use rbs_cli::admin::user as user_cmd;
-use rbs_cli::common::logging::{init_logging, LogLevelSource};
 use rbs_cli::client::cmd as client_cmd;
-use rbs_cli::common::formatter::{emit_err, emit_output, Formatter, TextOutput};
+use rbs_cli::common::formatter::{emit_err, emit_output};
+use rbs_cli::common::logging::{init_logging, LogLevelSource};
 use rbs_cli::config::cmd::resolve_global_options;
 use rbs_cli::config::{Cli, Command};
 use rbs_cli::token::cmd as token_cmd;
@@ -28,7 +28,7 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     let logging = init_logging(cli.global.verbose, cli.global.quiet);
     info!(
-        command = cli.command.as_ref().map(command_name).unwrap_or("config"),
+        command = command_name(&cli.command),
         level = %logging.level,
         source = %log_level_source_name(logging.source),
         "starting rbs-cli"
@@ -50,31 +50,30 @@ fn main() -> ExitCode {
     );
 
     let result = match &cli.command {
-        Some(Command::Client(client_cli)) => {
+        Command::Client(client_cli) => {
             info!("dispatching client command");
             client_cmd::run(client_cli, &config)
         },
-        Some(Command::Res(res_cli)) => {
+        Command::Res(res_cli) => {
             info!("dispatching res command");
             res_cmd::run(res_cli, &config)
         },
-        Some(Command::ResPolicy(res_policy_cli)) => {
+        Command::ResPolicy(res_policy_cli) => {
             info!("dispatching res-policy command");
             res_policy_cmd::run(res_policy_cli, &config)
         },
-        Some(Command::Token(token_cli)) => {
+        Command::Token(token_cli) => {
             info!("dispatching token command");
             token_cmd::run(token_cli, &config)
         },
-        Some(Command::User(user_cli)) => {
+        Command::User(user_cli) => {
             info!("dispatching user command");
             user_cmd::run(user_cli, &config)
         },
-        Some(Command::Version(version_cli)) => {
+        Command::Version(version_cli) => {
             info!("dispatching version command");
             version_cmd::run(version_cli, &config)
         },
-        None => Ok(Box::new(TextOutput::new(format!("{config:#?}"))) as Box<dyn Formatter>),
     };
 
     match result {

@@ -87,7 +87,7 @@ fn base_generate_args(private_key_file: &Path, alg: TokenAlg) -> GenerateArgs {
 fn parse_generate_args(arguments: Vec<String>) -> Result<GenerateArgs, clap::Error> {
     let cli = Cli::try_parse_from(arguments)?;
     match cli.command {
-        Some(Command::Token(TokenCli { command: TokenCommand::Generate(args) })) => Ok(args),
+        Command::Token(TokenCli { command: TokenCommand::Generate(args) }) => Ok(args),
         _ => panic!("expected token gen command"),
     }
 }
