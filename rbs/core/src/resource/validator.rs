@@ -28,9 +28,11 @@ impl ResourceValidator {
         let segments: Vec<&str> = path.split('/').collect();
         let expected_segments = 4;
         if segments.len() < expected_segments {
+            log::error!("Resource URI validation failed: uri='{}' has {} segments, expected {}", uri, segments.len(), expected_segments);
             return Err(ResourceError::ParamInvalid { field: "uri" });
         }
         if segments.len() > expected_segments {
+            log::error!("Resource URI validation failed: uri='{}' has {} segments, expected {}", uri, segments.len(), expected_segments);
             return Err(ResourceError::ParamInvalid { field: "uri" });
         }
 
@@ -50,12 +52,15 @@ impl ResourceValidator {
 
     pub fn validate_res_provider(&self, name: &str) -> Result<(), ResourceError> {
         if name.is_empty() {
+            log::error!("Resource validation failed: res_provider is empty");
             return Err(ResourceError::ParamInvalid { field: "res_provider" });
         }
         if self.reserved_providers.contains(&name) {
+            log::error!("Resource validation failed: res_provider '{}' is reserved", name);
             return Err(ResourceError::ParamInvalid { field: "res_provider" });
         }
         if !self.config.configured_backends.contains(&name.to_string()) {
+            log::error!("Resource validation failed: res_provider '{}' is not a configured backend", name);
             return Err(ResourceError::BackendUnsupported { provider: name.to_string() });
         }
         Ok(())
@@ -63,9 +68,11 @@ impl ResourceValidator {
 
     pub fn validate_repository_name(&self, name: &str) -> Result<(), ResourceError> {
         if name.is_empty() || name.len() > self.config.max_repo_name_len {
+            log::error!("Resource validation failed: repository_name '{}' length out of range (1..{})", name, self.config.max_repo_name_len);
             return Err(ResourceError::ParamInvalid { field: "repository_name" });
         }
         if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+            log::error!("Resource validation failed: repository_name '{}' contains invalid characters", name);
             return Err(ResourceError::ParamInvalid { field: "repository_name" });
         }
         Ok(())
@@ -73,6 +80,7 @@ impl ResourceValidator {
 
     pub fn validate_resource_type(&self, res_type: &str) -> Result<(), ResourceError> {
         if !self.config.allowed_resource_types.contains(&res_type.to_string()) {
+            log::error!("Resource validation failed: resource_type '{}' is not allowed", res_type);
             return Err(ResourceError::ParamInvalid { field: "resource_type" });
         }
         Ok(())
@@ -80,9 +88,11 @@ impl ResourceValidator {
 
     pub fn validate_resource_name(&self, name: &str) -> Result<(), ResourceError> {
         if name.is_empty() || name.len() > self.config.max_resource_name_len {
+            log::error!("Resource validation failed: resource_name '{}' length out of range (1..{})", name, self.config.max_resource_name_len);
             return Err(ResourceError::ParamInvalid { field: "resource_name" });
         }
         if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.') {
+            log::error!("Resource validation failed: resource_name '{}' contains invalid characters", name);
             return Err(ResourceError::ParamInvalid { field: "resource_name" });
         }
         Ok(())
@@ -90,6 +100,7 @@ impl ResourceValidator {
 
     pub fn validate_content_type(&self, ct: &str) -> Result<(), ResourceError> {
         if !self.config.allowed_content_types.contains(&ct.to_string()) {
+            log::error!("Resource validation failed: content_type '{}' is not allowed", ct);
             return Err(ResourceError::ParamInvalid { field: "content_type" });
         }
         Ok(())
@@ -97,6 +108,7 @@ impl ResourceValidator {
 
     pub fn validate_export_mode(&self, mode: &str) -> Result<(), ResourceError> {
         if !self.config.allowed_export_modes.contains(&mode.to_string()) {
+            log::error!("Resource validation failed: export_mode '{}' is not allowed", mode);
             return Err(ResourceError::ParamInvalid { field: "export_mode" });
         }
         Ok(())
@@ -105,9 +117,13 @@ impl ResourceValidator {
     pub fn validate_additional_info(&self, info: Option<&str>) -> Result<(), ResourceError> {
         match info {
             None => Ok(()),
-            Some(s) if s.is_empty() => Err(ResourceError::ParamInvalid { field: "additional_info" }),
+            Some(s) if s.is_empty() => {
+                log::error!("Resource validation failed: additional_info is empty");
+                Err(ResourceError::ParamInvalid { field: "additional_info" })
+            }
             Some(s) => {
                 if s.chars().count() > self.config.max_additional_info_len {
+                    log::error!("Resource validation failed: additional_info length {} exceeds max {}", s.chars().count(), self.config.max_additional_info_len);
                     return Err(ResourceError::ParamInvalid { field: "additional_info" });
                 }
                 Ok(())

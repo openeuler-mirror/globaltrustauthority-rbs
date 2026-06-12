@@ -21,7 +21,7 @@ pub mod policy;
 pub mod resource;
 pub mod version;
 
-pub use error::not_found;
+pub use error::{not_found, json_error_handler, query_error_handler};
 
 /// Configures routes under /rbs/v0 (scope is already /v0 when called from server).
 pub fn config(cfg: &mut web::ServiceConfig) {

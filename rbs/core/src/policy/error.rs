@@ -67,7 +67,8 @@ impl PolicyError {
 }
 
 impl From<crate::resource::error::ResourceError> for PolicyError {
-    fn from(_e: crate::resource::error::ResourceError) -> Self {
+    fn from(e: crate::resource::error::ResourceError) -> Self {
+        log::error!("Policy error: ResourceError '{}' converted to ParamInvalid, original detail discarded", e);
         PolicyError::ParamInvalid { field: "resource" }
     }
 }

@@ -27,6 +27,7 @@ use socket2::{Domain, Socket, Type};
 #[cfg(feature = "per-ip-rate-limit")]
 use super::rate_limit;
 use crate::routes::{config as routes_config, not_found, version};
+use crate::routes::error::{json_error_handler, query_error_handler};
 use actix_web::middleware::from_fn;
 use rbs_api_types::ErrorBody;
 
@@ -197,6 +198,15 @@ impl BoundServer {
                 .app_data(web::Data::new(auth))
                 .app_data(web::PayloadConfig::new(body_limit))
                 .app_data(web::Data::new(max_uri_len as usize))
+                .app_data(
+                    web::JsonConfig::default()
+                        .limit(body_limit)
+                        .error_handler(json_error_handler)
+                )
+                .app_data(
+                    web::QueryConfig::default()
+                        .error_handler(query_error_handler)
+                )
                 .wrap(Logger::default())
                 .wrap(from_fn(uri_length_guard_middleware))
                 .wrap(from_fn(crate::middleware::auth_middleware));

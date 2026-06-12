@@ -256,7 +256,10 @@ impl PolicyService {
                 log::error!("Policy delete denied: user '{}' cannot delete policy '{}' owned by '{}'", username, entity.policy_id, entity.username);
                 return Err(PolicyError::PermissionDenied);
             }
-            let refs = self.resource_client.relation_res_ids(&entity.policy_id, username).await?;
+            let refs = self.resource_client.relation_res_ids(&entity.policy_id, username).await.map_err(|e| {
+                log::error!("Policy delete: resource relation check failed for policy '{}': {}", entity.policy_id, e);
+                e
+            })?;
             if !refs.is_empty() {
                 referenced_names.push(entity.policy_name.clone());
             }
@@ -365,7 +368,10 @@ impl PolicyService {
         }
 
         // get applied resources
-        let applied_resources = self.resource_client.relation_res_ids(policy_id, username).await?;
+        let applied_resources = self.resource_client.relation_res_ids(policy_id, username).await.map_err(|e| {
+            log::error!("Policy get_by_id: resource relation check failed for policy '{}': {}", policy_id, e);
+            e
+        })?;
 
         log::info!("Policy get_by_id completed: id='{}', user='{}'", entity.policy_id, username);
         Ok(PolicyResponse {

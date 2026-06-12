@@ -54,7 +54,10 @@ impl ResourceService {
             ResourceError::PermissionDenied
         })?;
 
-        let parsed = self.validator.validate_uri(&req.uri)?;
+        let parsed = self.validator.validate_uri(&req.uri).map_err(|e| {
+            log::error!("Resource create denied: URI validation failed: {}", e);
+            e
+        })?;
         if req.policy_id.is_empty() {
             log::error!("Resource create denied: empty policy_id");
             return Err(ResourceError::ParamInvalid { field: "policy_id" });
@@ -120,7 +123,10 @@ impl ResourceService {
             ResourceError::PermissionDenied
         })?;
 
-        let parsed = self.validator.validate_uri(uri)?;
+        let parsed = self.validator.validate_uri(uri).map_err(|e| {
+            log::error!("Resource update denied: URI validation failed: {}", e);
+            e
+        })?;
         if req.policy_id.is_empty() {
             log::error!("Resource update denied: empty policy_id");
             return Err(ResourceError::ParamInvalid { field: "policy_id" });
@@ -196,7 +202,10 @@ impl ResourceService {
             log::error!("Resource delete denied: permission denied for user '{}'", ctx.sub());
             ResourceError::PermissionDenied
         })?;
-        let _parsed = self.validator.validate_uri(uri)?;
+        let _parsed = self.validator.validate_uri(uri).map_err(|e| {
+            log::error!("Resource delete denied: URI validation failed: {}", e);
+            e
+        })?;
         let entity = self.repo.find_by_uri(uri).await?.ok_or_else(|| {
             log::error!("Resource delete denied: resource '{}' not found", uri);
             ResourceError::NotFound
@@ -218,7 +227,10 @@ impl ResourceService {
         log::info!("Resource get_content requested: uri={}, user={}", uri, ctx.sub());
 
         // step 1: parameter validation
-        let parsed = self.validator.validate_uri(uri)?;
+        let parsed = self.validator.validate_uri(uri).map_err(|e| {
+            log::error!("Resource get_content denied: URI validation failed: {}", e);
+            e
+        })?;
 
         // step 2: resource existence
         let entity = self.repo.find_by_uri(uri).await?.ok_or_else(|| {
@@ -281,7 +293,10 @@ impl ResourceService {
         log::info!("Resource get_info requested: uri={}, user={}", uri, ctx.sub());
 
         // step 1: parameter validation
-        let _parsed = self.validator.validate_uri(uri)?;
+        let _parsed = self.validator.validate_uri(uri).map_err(|e| {
+            log::error!("Resource get_info denied: URI validation failed: {}", e);
+            e
+        })?;
 
         // step 2: resource existence
         let entity = self.repo.find_by_uri(uri).await?.ok_or_else(|| {
@@ -320,7 +335,10 @@ impl ResourceService {
         log::info!("Resource retrieve requested: uri={}", uri);
 
         // step 1: parameter validation
-        let parsed = self.validator.validate_uri(uri)?;
+        let parsed = self.validator.validate_uri(uri).map_err(|e| {
+            log::error!("Resource retrieve denied: URI validation failed: {}", e);
+            e
+        })?;
 
         // step 2: resource existence
         let entity = self.repo.find_by_uri(uri).await?.ok_or_else(|| {
