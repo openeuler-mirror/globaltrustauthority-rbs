@@ -155,9 +155,18 @@ impl AdminManager {
     pub async fn create_user(&self, req: &UserCreateRequest, auth_ctx: &AuthContext) -> Result<UserResponse> {
         let bearer = self.require_enabled_admin(auth_ctx).await?;
 
-        validator::Validate::validate(req).map_err(|e| RbsError::InvalidParameter(e.to_string()))?;
-        req.validate_key_pair()?;
-        let (auth_value, auth_alg) = AdminManager::extract_auth_material(req)?;
+        validator::Validate::validate(req).map_err(|e| {
+            log::error!("Admin create_user parameter validation failed: {}", e);
+            RbsError::InvalidParameter(e.to_string())
+        })?;
+        req.validate_key_pair().map_err(|e| {
+            log::error!("Admin create_user key pair validation failed: {}", e);
+            e
+        })?;
+        let (auth_value, auth_alg) = AdminManager::extract_auth_material(req).map_err(|e| {
+            log::error!("Admin create_user key material extraction failed: {}", e);
+            e
+        })?;
         let db = get_connection_from_pool().map_err(|e| {
             log::error!("Failed to get DB connection for create_user: {}", e);
             internal_err(e)
@@ -238,8 +247,14 @@ impl AdminManager {
             return Err(RbsError::AuthzInsufficientPermissions);
         }
 
-        validator::Validate::validate(req).map_err(|e| RbsError::InvalidParameter(e.to_string()))?;
-        req.validate_cross_fields()?;
+        validator::Validate::validate(req).map_err(|e| {
+            log::error!("Admin update_user parameter validation failed: {}", e);
+            RbsError::InvalidParameter(e.to_string())
+        })?;
+        req.validate_cross_fields().map_err(|e| {
+            log::error!("Admin update_user cross-field validation failed: {}", e);
+            e
+        })?;
 
         if username == ADMIN_USERNAME {
             if let Some(ref role) = req.role {

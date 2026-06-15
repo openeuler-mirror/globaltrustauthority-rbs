@@ -76,7 +76,10 @@ pub async fn list_users(
     }
 
     match core.admin().list_users(&query, &ctx).await {
-        Ok(resp) => HttpResponse::Ok().json(resp),
+        Ok(resp) => {
+            log::info!("Admin list_users succeeded: user='{}', total_count={}", ctx.sub(), resp.total_count);
+            HttpResponse::Ok().json(resp)
+        }
         Err(e) => error_response(e.external_message(), e.http_status()),
     }
 }
@@ -108,7 +111,10 @@ pub async fn create_user(
     log::info!("Admin create_user HTTP request received: user='{}'", ctx.sub());
 
     match core.admin().create_user(&body.into_inner(), &ctx).await {
-        Ok(resp) => HttpResponse::Created().json(resp),
+        Ok(resp) => {
+            log::info!("Admin create_user succeeded: username='{}', id='{}', user='{}'", resp.username, resp.id, ctx.sub());
+            HttpResponse::Created().json(resp)
+        }
         Err(e) => error_response(e.external_message(), e.http_status()),
     }
 }
@@ -147,8 +153,14 @@ pub async fn get_user(
     }
 
     match core.admin().get_user(&username, &ctx).await {
-        Ok(Some(resp)) => HttpResponse::Ok().json(resp),
-        Ok(None) => HttpResponse::NotFound().json(ErrorBody { error: "User not found".to_string() }),
+        Ok(Some(resp)) => {
+            log::info!("Admin get_user succeeded: username='{}', user='{}'", username, ctx.sub());
+            HttpResponse::Ok().json(resp)
+        }
+        Ok(None) => {
+            log::error!("Admin get_user: username='{}' not found, user='{}'", username, ctx.sub());
+            HttpResponse::NotFound().json(ErrorBody { error: "User not found".to_string() })
+        }
         Err(e) => error_response(e.external_message(), e.http_status()),
     }
 }
@@ -190,7 +202,10 @@ pub async fn update_user(
     }
 
     match core.admin().update_user(&username, &body.into_inner(), &ctx).await {
-        Ok(resp) => HttpResponse::Ok().json(resp),
+        Ok(resp) => {
+            log::info!("Admin update_user succeeded: username='{}', user='{}'", username, ctx.sub());
+            HttpResponse::Ok().json(resp)
+        }
         Err(e) => error_response(e.external_message(), e.http_status()),
     }
 }
@@ -229,7 +244,10 @@ pub async fn delete_user(
     }
 
     match core.admin().delete_user(&username, &ctx).await {
-        Ok(()) => HttpResponse::NoContent().finish(),
+        Ok(()) => {
+            log::info!("Admin delete_user succeeded: username='{}', user='{}'", username, ctx.sub());
+            HttpResponse::NoContent().finish()
+        }
         Err(e) => error_response(e.external_message(), e.http_status()),
     }
 }

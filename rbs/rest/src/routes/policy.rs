@@ -43,7 +43,7 @@ fn error_response(e: impl ToString, status: u16) -> HttpResponse {
 fn validate_path_id(policy_id: &str) -> Result<(), HttpResponse> {
     validate_policy_id(policy_id)
         .map_err(|msg| {
-            log::error!("Policy validation error: {}", msg);
+            log::error!("Policy path ID validation error: {}", msg);
             HttpResponse::BadRequest().json(ErrorBody::new(msg))
         })
 }
@@ -91,7 +91,10 @@ pub async fn list_policies(
     let limit = query.limit.unwrap_or(10);
     let offset = query.offset.unwrap_or(0);
     match core.policy().list(&ctx, &PolicyQuery { ids, offset, limit }).await {
-        Ok(resp) => HttpResponse::Ok().json(resp),
+        Ok(resp) => {
+            log::info!("Policy list succeeded: user='{}', total_count={}", ctx.sub(), resp.total_count);
+            HttpResponse::Ok().json(resp)
+        }
         Err(e) => error_response(e.to_string(), e.http_status()),
     }
 }
@@ -125,7 +128,10 @@ pub async fn create_policy(
         return HttpResponse::BadRequest().json(ErrorBody::new(e.to_string()));
     }
     match core.policy().create(&ctx, &body).await {
-        Ok(resp) => HttpResponse::Created().json(resp),
+        Ok(resp) => {
+            log::info!("Policy create succeeded: id='{}', user='{}'", resp.policy_id, ctx.sub());
+            HttpResponse::Created().json(resp)
+        }
         Err(e) => error_response(e.to_string(), e.http_status()),
     }
 }
@@ -157,7 +163,10 @@ pub async fn get_policy(
     log::info!("Policy get HTTP request received: id='{}', user='{}'", id, ctx.sub());
     if let Err(r) = validate_path_id(&id) { return r; }
     match core.policy().get_by_id(&ctx, &id).await {
-        Ok(resp) => HttpResponse::Ok().json(resp),
+        Ok(resp) => {
+            log::info!("Policy get succeeded: id='{}', user='{}'", id, ctx.sub());
+            HttpResponse::Ok().json(resp)
+        }
         Err(e) => error_response(e.to_string(), e.http_status()),
     }
 }
@@ -198,7 +207,10 @@ pub async fn update_policy(
         return HttpResponse::BadRequest().json(ErrorBody::new(e.to_string()));
     }
     match core.policy().update(&ctx, &id, &body).await {
-        Ok(resp) => HttpResponse::Ok().json(resp),
+        Ok(resp) => {
+            log::info!("Policy update succeeded: id='{}', user='{}'", id, ctx.sub());
+            HttpResponse::Ok().json(resp)
+        }
         Err(e) => error_response(e.to_string(), e.http_status()),
     }
 }
@@ -229,9 +241,13 @@ pub async fn delete_policy(
     let ctx = match require_auth(&req) { Ok(c) => c, Err(r) => return r };
     let pid = path.into_inner();
     log::info!("Policy delete HTTP request received: id='{}', user='{}'", pid, ctx.sub());
+    let pid_clone = pid.clone();
     if let Err(r) = validate_path_id(&pid) { return r; }
     match core.policy().delete(&ctx, &[pid]).await {
-        Ok(()) => HttpResponse::NoContent().finish(),
+        Ok(()) => {
+            log::info!("Policy delete succeeded: id='{}', user='{}'", pid_clone, ctx.sub());
+            HttpResponse::NoContent().finish()
+        }
         Err(e) => error_response(e.to_string(), e.http_status()),
     }
 }
@@ -270,7 +286,10 @@ pub async fn batch_delete_policies(
         }
     }
     match core.policy().delete(&ctx, &ids).await {
-        Ok(()) => HttpResponse::NoContent().finish(),
+        Ok(()) => {
+            log::info!("Policy batch_delete succeeded: count={}, user='{}'", ids.len(), ctx.sub());
+            HttpResponse::NoContent().finish()
+        }
         Err(e) => error_response(e.to_string(), e.http_status()),
     }
 }

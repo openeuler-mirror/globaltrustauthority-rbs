@@ -34,24 +34,28 @@ fn group_curve_nid(group: &openssl::ec::EcGroupRef) -> Result<openssl::nid::Nid>
 /// Decode a base64-encoded string and return the UTF-8 contents.
 pub fn decode_base64_input(input: &str, field_name: &str) -> Result<String> {
     let decoded = STANDARD.decode(input)
-        .map_err(|_| RbsError::InvalidParameter(
-            format!("invalid base64 encoding for {}", field_name)))?;
+        .map_err(|_| {
+            log::error!("Base64 decoding failed for field '{}': input is not valid base64", field_name);
+            RbsError::InvalidParameter(format!("invalid base64 encoding for {}", field_name))
+        })?;
     String::from_utf8(decoded)
-        .map_err(|_| RbsError::InvalidParameter(
-            format!("invalid base64 encoding for {}", field_name)))
+        .map_err(|_| {
+            log::error!("Base64 decoding failed for field '{}': decoded bytes are not valid UTF-8", field_name);
+            RbsError::InvalidParameter(format!("invalid base64 encoding for {}", field_name))
+        })
 }
 
 /// Validate a PEM public key and return its JWS algorithm identifier.
 pub fn validate_and_derive_alg(pem: &str) -> Result<String> {
     if pem.len() > MAX_KEY_SIZE {
-        log::warn!("Public key validation failed: size {} exceeds limit {}", pem.len(), MAX_KEY_SIZE);
+        log::error!("Public key validation failed: size {} exceeds limit {}", pem.len(), MAX_KEY_SIZE);
         return Err(RbsError::InvalidParameter(
             format!("Public key exceeds maximum size of {} bytes", MAX_KEY_SIZE)
         ));
     }
     let pkey = openssl::pkey::PKey::public_key_from_pem(pem.as_bytes())
         .map_err(|_| {
-            log::warn!("Public key validation failed: invalid PEM format");
+            log::error!("Public key validation failed: invalid PEM format");
             RbsError::InvalidParameter("Invalid public key format".to_string())
         })?;
 
@@ -85,9 +89,12 @@ pub fn validate_and_derive_alg(pem: &str) -> Result<String> {
 pub fn jwk_to_pem(jwk: &Value) -> Result<String> {
     // Serialize to check size before processing
     let jwk_str = serde_json::to_string(jwk)
-        .map_err(|_| RbsError::InvalidParameter("JWK format invalid".to_string()))?;
+        .map_err(|_| {
+            log::error!("JWK validation failed: unable to serialize input as JSON");
+            RbsError::InvalidParameter("JWK format invalid".to_string())
+        })?;
     if jwk_str.len() > MAX_KEY_SIZE {
-        log::warn!("JWK key validation failed: size {} exceeds limit {}", jwk_str.len(), MAX_KEY_SIZE);
+        log::error!("JWK key validation failed: size {} exceeds limit {}", jwk_str.len(), MAX_KEY_SIZE);
         return Err(RbsError::InvalidParameter(
             format!("JWK key exceeds maximum size of {} bytes", MAX_KEY_SIZE)
         ));
@@ -95,12 +102,18 @@ pub fn jwk_to_pem(jwk: &Value) -> Result<String> {
 
     let kty = jwk.get("kty")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| RbsError::InvalidParameter("JWK missing kty field".to_string()))?;
+        .ok_or_else(|| {
+            log::error!("JWK validation failed: missing required 'kty' field");
+            RbsError::InvalidParameter("JWK missing kty field".to_string())
+        })?;
 
     match kty {
         "RSA" => jwk_rsa_to_pem(jwk),
         "EC" => jwk_ec_to_pem(jwk),
-        _ => Err(RbsError::InvalidParameter("Unsupported JWK key type".to_string())),
+        _ => {
+            log::error!("JWK validation failed: unsupported key type '{}'", kty);
+            Err(RbsError::InvalidParameter("Unsupported JWK key type".to_string()))
+        }
     }
 }
 
@@ -108,57 +121,117 @@ pub fn jwk_to_pem(jwk: &Value) -> Result<String> {
 fn jwk_rsa_to_pem(jwk: &Value) -> Result<String> {
     let n_b64 = jwk.get("n")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| RbsError::InvalidParameter("JWK RSA missing n field".to_string()))?;
+        .ok_or_else(|| {
+            log::error!("JWK RSA validation failed: missing required 'n' field");
+            RbsError::InvalidParameter("JWK RSA missing n field".to_string())
+        })?;
     let e_b64 = jwk.get("e")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| RbsError::InvalidParameter("JWK RSA missing e field".to_string()))?;
+        .ok_or_else(|| {
+            log::error!("JWK RSA validation failed: missing required 'e' field");
+            RbsError::InvalidParameter("JWK RSA missing e field".to_string())
+        })?;
     let n = URL_SAFE_NO_PAD.decode(n_b64)
-        .map_err(|_| RbsError::InvalidParameter("JWK n decode failed".to_string()))?;
+        .map_err(|_| {
+            log::error!("JWK RSA validation failed: 'n' field is not valid base64url");
+            RbsError::InvalidParameter("JWK n decode failed".to_string())
+        })?;
     let e = URL_SAFE_NO_PAD.decode(e_b64)
-        .map_err(|_| RbsError::InvalidParameter("JWK e decode failed".to_string()))?;
+        .map_err(|_| {
+            log::error!("JWK RSA validation failed: 'e' field is not valid base64url");
+            RbsError::InvalidParameter("JWK e decode failed".to_string())
+        })?;
     let bn_n = openssl::bn::BigNum::from_slice(&n)
-        .map_err(|_| RbsError::InvalidParameter("Invalid JWK public key".to_string()))?;
+        .map_err(|_| {
+            log::error!("JWK RSA validation failed: 'n' is not a valid big number");
+            RbsError::InvalidParameter("Invalid JWK public key".to_string())
+        })?;
     let bn_e = openssl::bn::BigNum::from_slice(&e)
-        .map_err(|_| RbsError::InvalidParameter("Invalid JWK public key".to_string()))?;
+        .map_err(|_| {
+            log::error!("JWK RSA validation failed: 'e' is not a valid big number");
+            RbsError::InvalidParameter("Invalid JWK public key".to_string())
+        })?;
     let rsa = openssl::rsa::Rsa::from_public_components(bn_n, bn_e)
-        .map_err(|_| RbsError::InvalidParameter("Invalid JWK public key".to_string()))?;
+        .map_err(|_| {
+            log::error!("JWK RSA validation failed: invalid RSA public key components");
+            RbsError::InvalidParameter("Invalid JWK public key".to_string())
+        })?;
     let pem = rsa.public_key_to_pem()
-        .map_err(|_| RbsError::InvalidParameter("Invalid JWK public key".to_string()))?;
+        .map_err(|_| {
+            log::error!("JWK RSA validation failed: unable to convert to PEM format");
+            RbsError::InvalidParameter("Invalid JWK public key".to_string())
+        })?;
     Ok(String::from_utf8_lossy(&pem).to_string())
 }
 
 fn jwk_ec_to_pem(jwk: &Value) -> Result<String> {
     let crv = jwk.get("crv")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| RbsError::InvalidParameter("JWK EC missing crv field".to_string()))?;
+        .ok_or_else(|| {
+            log::error!("JWK EC validation failed: missing required 'crv' field");
+            RbsError::InvalidParameter("JWK EC missing crv field".to_string())
+        })?;
     let x_b64 = jwk.get("x")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| RbsError::InvalidParameter("JWK EC missing x field".to_string()))?;
+        .ok_or_else(|| {
+            log::error!("JWK EC validation failed: missing required 'x' field");
+            RbsError::InvalidParameter("JWK EC missing x field".to_string())
+        })?;
     let y_b64 = jwk.get("y")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| RbsError::InvalidParameter("JWK EC missing y field".to_string()))?;
+        .ok_or_else(|| {
+            log::error!("JWK EC validation failed: missing required 'y' field");
+            RbsError::InvalidParameter("JWK EC missing y field".to_string())
+        })?;
     let curve_nid = match crv {
         "P-256" => openssl::nid::Nid::X9_62_PRIME256V1,
         "P-384" => openssl::nid::Nid::SECP384R1,
         "P-521" => openssl::nid::Nid::SECP521R1,
-        _ => return Err(RbsError::InvalidParameter("Unsupported JWK EC curve".to_string())),
+        _ => {
+            log::error!("JWK EC validation failed: unsupported curve '{}'", crv);
+            return Err(RbsError::InvalidParameter("Unsupported JWK EC curve".to_string()));
+        }
     };
     let curve = openssl::ec::EcGroup::from_curve_name(curve_nid)
-        .map_err(|_| RbsError::InvalidParameter("Invalid JWK EC curve".to_string()))?;
+        .map_err(|_| {
+            log::error!("JWK EC validation failed: unable to create curve group for '{}'", crv);
+            RbsError::InvalidParameter("Invalid JWK EC curve".to_string())
+        })?;
     let x_bytes = URL_SAFE_NO_PAD.decode(x_b64)
-        .map_err(|_| RbsError::InvalidParameter("JWK x decode failed".to_string()))?;
+        .map_err(|_| {
+            log::error!("JWK EC validation failed: 'x' field is not valid base64url");
+            RbsError::InvalidParameter("JWK x decode failed".to_string())
+        })?;
     let y_bytes = URL_SAFE_NO_PAD.decode(y_b64)
-        .map_err(|_| RbsError::InvalidParameter("JWK y decode failed".to_string()))?;
+        .map_err(|_| {
+            log::error!("JWK EC validation failed: 'y' field is not valid base64url");
+            RbsError::InvalidParameter("JWK y decode failed".to_string())
+        })?;
     let x = openssl::bn::BigNum::from_slice(&x_bytes)
-        .map_err(|_| RbsError::InvalidParameter("Invalid JWK public key".to_string()))?;
+        .map_err(|_| {
+            log::error!("JWK EC validation failed: 'x' is not a valid big number");
+            RbsError::InvalidParameter("Invalid JWK public key".to_string())
+        })?;
     let y = openssl::bn::BigNum::from_slice(&y_bytes)
-        .map_err(|_| RbsError::InvalidParameter("Invalid JWK public key".to_string()))?;
+        .map_err(|_| {
+            log::error!("JWK EC validation failed: 'y' is not a valid big number");
+            RbsError::InvalidParameter("Invalid JWK public key".to_string())
+        })?;
     let ec_key = openssl::ec::EcKey::from_public_key_affine_coordinates(&curve, &x, &y)
-        .map_err(|_| RbsError::InvalidParameter("Invalid JWK public key".to_string()))?;
+        .map_err(|_| {
+            log::error!("JWK EC validation failed: invalid EC public key coordinates");
+            RbsError::InvalidParameter("Invalid JWK public key".to_string())
+        })?;
     let pkey = openssl::pkey::PKey::from_ec_key(ec_key)
-        .map_err(|_| RbsError::InvalidParameter("Invalid JWK public key".to_string()))?;
+        .map_err(|_| {
+            log::error!("JWK EC validation failed: unable to construct PKey from EC key");
+            RbsError::InvalidParameter("Invalid JWK public key".to_string())
+        })?;
     let pem = pkey.public_key_to_pem()
-        .map_err(|_| RbsError::InvalidParameter("Invalid JWK public key".to_string()))?;
+        .map_err(|_| {
+            log::error!("JWK EC validation failed: unable to convert to PEM format");
+            RbsError::InvalidParameter("Invalid JWK public key".to_string())
+        })?;
     Ok(String::from_utf8_lossy(&pem).to_string())
 }
 

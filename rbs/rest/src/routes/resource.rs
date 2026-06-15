@@ -78,7 +78,10 @@ pub async fn create_resource(
     }
     cr.uri = build_uri(&path.into_inner());
     match core.resource().create(&ctx, &cr).await {
-        Ok(resp) => HttpResponse::Created().json(resp),
+        Ok(resp) => {
+            log::info!("Resource create succeeded: uri='{}', user='{}'", resp.uri, ctx.sub());
+            HttpResponse::Created().json(resp)
+        }
         Err(e) => error_response(e.to_string(), e.http_status()),
     }
 }
@@ -112,7 +115,10 @@ pub async fn get_resource(
     let uri = build_uri(&path.into_inner());
     log::info!("Resource get HTTP request received: uri='{}', user='{}'", uri, ctx.sub());
     match core.resource().get_content(&ctx, &uri).await {
-        Ok(resp) => HttpResponse::Ok().json(resp),
+        Ok(resp) => {
+            log::info!("Resource get succeeded: uri='{}', user='{}'", uri, ctx.sub());
+            HttpResponse::Ok().json(resp)
+        }
         Err(e) => error_response(e.to_string(), e.http_status()),
     }
 }
@@ -153,8 +159,15 @@ pub async fn update_resource(
         return HttpResponse::BadRequest().json(ErrorBody::new(e.to_string()));
     }
     match core.resource().update(&ctx, &uri, &body).await {
-        Ok((resp, true)) => HttpResponse::Created().json(resp),
-        Ok((resp, false)) => HttpResponse::Ok().json(resp),
+        Ok((resp, created)) => {
+            if created {
+                log::info!("Resource create via update succeeded: uri='{}', user='{}'", uri, ctx.sub());
+            } else {
+                log::info!("Resource update succeeded: uri='{}', user='{}'", uri, ctx.sub());
+            }
+            let status = if created { StatusCode::CREATED } else { StatusCode::OK };
+            HttpResponse::build(status).json(resp)
+        }
         Err(e) => error_response(e.to_string(), e.http_status()),
     }
 }
@@ -188,7 +201,10 @@ pub async fn delete_resource(
     let uri = build_uri(&path.into_inner());
     log::info!("Resource delete HTTP request received: uri='{}', user='{}'", uri, ctx.sub());
     match core.resource().delete(&ctx, &uri).await {
-        Ok(()) => HttpResponse::NoContent().finish(),
+        Ok(()) => {
+            log::info!("Resource delete succeeded: uri='{}', user='{}'", uri, ctx.sub());
+            HttpResponse::NoContent().finish()
+        }
         Err(e) => error_response(e.to_string(), e.http_status()),
     }
 }
@@ -222,7 +238,10 @@ pub async fn get_resource_info(
     let uri = build_uri(&path.into_inner());
     log::info!("Resource get_info HTTP request received: uri='{}', user='{}'", uri, ctx.sub());
     match core.resource().get_info(&ctx, &uri).await {
-        Ok(resp) => HttpResponse::Ok().json(resp),
+        Ok(resp) => {
+            log::info!("Resource get_info succeeded: uri='{}', user='{}'", uri, ctx.sub());
+            HttpResponse::Ok().json(resp)
+        }
         Err(e) => error_response(e.to_string(), e.http_status()),
     }
 }
@@ -278,7 +297,10 @@ pub async fn retrieve_resource(
 
     // Step 3: retrieve resource content — policy evaluation + backend fetch + JWE encrypt + base64.
     match core.resource().retrieve(&attest_ctx, &uri).await {
-        Ok(resp) => HttpResponse::Ok().json(resp),
+        Ok(resp) => {
+            log::info!("Resource retrieve succeeded: uri='{}'", uri);
+            HttpResponse::Ok().json(resp)
+        }
         Err(e) => error_response(e.to_string(), e.http_status()),
     }
 }
