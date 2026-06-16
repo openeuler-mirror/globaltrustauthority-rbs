@@ -14,12 +14,14 @@ It includes:
 
 ## Quick start
 
-For a step-by-step setup, build, test, run, and service verification, see [**Quick start**](docs/build/build_and_install.md#2-quick-start) in`docs/build/build_and_install.md`.
+For a step-by-step setup, build, test, run, and service verification, see [**Quick start**](docs/build/build_and_install.md#2-quick-start) in [`docs/build/build_and_install.md`](docs/build/build_and_install.md).
 
 ## Documentation
 
 | Topic | Location |
 |-------|----------|
+| AI agent onboarding | [AGENTS.md](AGENTS.md) |
+| System architecture | [architecture.md](docs/design/architecture.md) |
 | Build, run, test | [build_and_install.md](docs/build/build_and_install.md) |
 | RPM installation | [rpm.md](docs/build/rpm.md) |
 | RBC client CLI usage | [rbc.md](docs/usage_guide/rbc.md) |

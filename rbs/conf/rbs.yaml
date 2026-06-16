@@ -26,7 +26,7 @@ rest:
     addrs: []   # e.g. ["127.0.0.1", "::1"] for a local reverse proxy
 
 # Bearer auth (JWT). Default admin: name and public key (PEM); JWT verified by this key. Role is always admin.
-# New admins: registered via Admin API (POST /rbs/v0/admin/users); their public_key/jwks_uri stored in user data.
+# New admins: registered via Admin API (POST /rbs/v0/users); their public_key/jwks_uri stored in user data.
 
 # Authentication configuration
 auth:
@@ -119,7 +119,7 @@ storage:
   sql_file_path: "rbs/rdb_sql/sqlite_rbs.sql"
 
 # # Resource backends (for multiple backends; omit when using single storage)
-# # Reserved names for res_provider: admin, attestation, resource
+# # Reserved names for res_provider: admin, attestation, resource, health
 # resource:
 #   default_provider: local
 #   backends:
