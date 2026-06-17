@@ -2,7 +2,9 @@
 
 ## Project Overview
 
-RBS (Resource Broker Service) distributes keys, certificates, and other resources in a highly secure manner by verifying remote attestation results from a Global Trust Authority.
+RBS (Resource Broker Service) brokers keys, certificates, and other resources after configured checks: remote attestation (when enabled), attestation-token validation, policy authorization, and JWE-encrypted responses.
+
+Architecture: [`docs/design/architecture.md`](docs/design/architecture.md).
 
 ## Tech Stack
 
@@ -10,7 +12,7 @@ RBS (Resource Broker Service) distributes keys, certificates, and other resource
 - **Web Framework**: actix-web 4.x
 - **Database**: sea-orm (SQLite, PostgreSQL, MySQL support)
 - **API Documentation**: OpenAPI 3.0 / Swagger, utoipa
-- **Logging**: log + log4rs with rotation and gzip compression
+- **Logging**: `log` facade + custom logger in `rbs/core/src/infra/logging/` (optional rotation/gzip via `flate2`)
 - **TLS**: OpenSSL
 - **Serialization**: serde, serde_json, serde_yaml
 
@@ -21,23 +23,29 @@ globaltrustauthority-rbs/
 ├── rbs/                    # Main RBS workspace member
 │   ├── api-types/         # Shared API types and OpenAPI schema
 │   ├── core/              # Core business logic, attestation, resource management
+│   │   └── tests/         # Core integration tests
 │   ├── rest/              # REST HTTP server (actix-web)
-│   └── tests/             # Core integration tests
+│   └── rdb_sql/           # SQL schema (SQLite, MySQL)
 ├── rbc/                   # Resource Broker Client CLI
-├── tools/
-│   └── rbs-admin-client/  # Admin client tool
+├── tools/                 # rbs-cli (unified CLI: admin, client, config, token, version)
+│   └── rbs-admin-client/  # Admin client library
 ├── scripts/               # Build and documentation scripts
-├── docs/                  # Generated API documentation
-│   └── api/rbs/          # Markdown and HTML API docs
+├── docs/
+│   ├── design/            # Architecture and design docs
+│   └── api/rbs/           # Generated API docs (Markdown, HTML)
+├── tests/                 # Workspace e2e / merge-readiness scripts
 └── service/               # Service deployment configurations
 ```
 
 ## Key Modules
 
 ### rbs/core
-- `AttestationManager` - Handles remote attestation
-- `ResourceManager` - Manages resource requests
-- Provider pattern: `AttestationProvider`, `ResourceProvider`, `UserProvider`
+- `AttestationManager` - Handles remote attestation (challenge and evidence exchange)
+- `ResourceService` - Resource retrieval, authorization, and JWE encryption
+- `PolicyService` - Policy CRUD and admin API operations
+- `AdminManager` - User administration and bootstrap
+- Provider pattern: `AttestationProvider`, `ResourceBackend` trait + `BackendProvider` registry, `PolicyClient` (policy adapter)
+- Auth integration: `UserKeyProvider` (implemented by `AdminManager` for bearer JWT verification)
 - All provider traits must implement `Send + Sync`
 - Uses `async_trait` for async trait objects
 
@@ -56,26 +64,26 @@ globaltrustauthority-rbs/
 
 ### Building
 
-RBS supports two invocation styles:
+RBS supports two invocation and deployment shapes (see `docs/design/architecture.md` §4):
 
-| Style | Description |
-|-------|-------------|
-| **RESTful** | RBS runs as an independent HTTP service, clients connect via REST API |
-| **built-in** | Library mode: link `rbs-core` as a dependency into the host application, direct function calls in the same process, no HTTP |
+| Style | Deployment shape | Description |
+|-------|------------------|-------------|
+| **RESTful** | **Standalone process** | RBS runs as an independent HTTP/HTTPS service (`rbs` binary); clients connect via REST API |
+| **built-in** | **Embedded / library** | Host application links `rbs-core` directly; in-process calls, no `rbs-rest` HTTP layer |
 
-Deployment modes:
+**Passport Model** and **Background-Check Model** are [RFC 9334](https://www.rfc-editor.org/rfc/rfc9334) attestation interaction flows documented in `docs/design/architecture.md` §5 — not deployment modes.
 
-| Mode | Description |
-|------|-------------|
-| **Background** | RBS runs in the background as a separate process |
-| **Passport** | RBS is embedded in the application, built-in style |
+Embedded/library mode is not production-ready with the default `BuiltinAttestationProvider` (currently returns `NotImplemented`); supply a real `AttestationProvider` implementation.
 
 ```bash
 # Build core library (for built-in mode, as library dependency)
 cargo build -p rbs-core
 
-# Build with REST HTTP service (for RESTful mode)
-cargo build -p rbs --features rest
+# Build REST binary (rest is the default feature)
+cargo build -p rbs
+
+# Library-only binary (no HTTP server)
+cargo build -p rbs --no-default-features --features lib
 
 # Full build (all crates)
 cargo build --workspace
@@ -87,10 +95,15 @@ cargo build --release --workspace
 ./scripts/build-rpm.sh
 ```
 
+See also: [`docs/build/build_and_install.md`](docs/build/build_and_install.md), [`docs/build/rpm.md`](docs/build/rpm.md).
+
 ### Testing
 
 ```bash
-# Run all tests
+# Merge-readiness gate (Cargo + OpenAPI check + e2e)
+./tests/test_all.sh
+
+# Fast Rust-only
 cargo test --workspace
 
 # Run tests for specific crate
@@ -101,7 +114,9 @@ cargo test -p rbs-rest
 cargo test -- --nocapture
 ```
 
-**Requirement**: All tests must pass before merging.
+See [`tests/README.md`](tests/README.md) for e2e layout and skip flags.
+
+**Requirement**: All tests must pass before merging (`./tests/test_all.sh`).
 
 ### API Documentation
 
@@ -123,39 +138,46 @@ In CI (`CI=true`), the script will fail if documentation is out of sync.
 
 ### API Path Convention
 
-- Challenge endpoint: `/rbs/v0/challenge` (GET)
-- Attestation: `/rbs/v0/attest` (POST)
-- Resource operations: `/rbs/v0/resource/...`
+- Challenge: `GET /rbs/v0/challenge`
+- Attestation: `POST /rbs/v0/attest`
+- Resource content (wildcard): `/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}` — GET/PUT/POST/DELETE for CRUD; `GET .../info` for metadata; `POST .../retrieve` for inline-evidence JWE retrieval
+- Policy admin (Bearer only): `/rbs/v0/resource/policy` (+ `/{policy_id}`); batch delete: `DELETE /rbs/v0/resource/policy?ids=...`
+- Admin users (Bearer only): `/rbs/v0/users` (+ `/{username}`)
+- Version (no auth): `GET /rbs/version`
+
+Full endpoint list: [`docs/proto/rbs_rest_api.yaml`](docs/proto/rbs_rest_api.yaml) or generated HTML/Markdown under `docs/api/rbs/`.
+
+## Security Invariants
+
+See [`docs/design/architecture.md` §10](docs/design/architecture.md#10-security-architecture) for the full threat model. Operational summary:
+
+- **Challenge nonce** — delegated to GTA; no local single-use nonce store in `rbs-core`.
+- **Default deny** — missing policy, invalid token, `AdminOnly` role mismatch, or backend errors reject access (owner Bearer GET does not require `role`).
+- **JWE boundary** — resource plaintext is JWE-encrypted before leaving RBS; `export_mode: plain` is rejected.
+- **Public middleware paths** — `/rbs/v0/challenge`, `/rbs/v0/attest`, `/rbs/version`, `POST .../retrieve` (handler-level inline attest; unauthenticated GTA fan-out — DoS/abuse surface; see architecture §10 rate limiting).
+- **Attest token replay** — reusable within `exp`; no `jti` tracking.
+- **Bearer vs Attest** — Bearer for admin/user/policy APIs and owner GET/GET info (`admin_policy.rego`); Attest for resource-bound Rego + TEE claims on GET/retrieve.
 
 ## Code Conventions
 
 ### Module Visibility
 
-- `rbs/rest/src/lib.rs` and `rbs/rest/src/server/mod.rs` expose public modules for testing:
-  ```rust
-  pub mod routes;
-  pub mod server;
-  ```
-
-- Route modules are public for integration tests:
-  ```rust
-  pub mod auth;
-  pub mod error;
-  pub mod resource;
-  pub mod version;
-  ```
+- `rbs/rest/src/lib.rs` exposes `routes`, `server`, and `middleware` for integration tests
+- `rbs/rest/src/server/mod.rs` exposes `http` and (when enabled) `rate_limit` only
+- Route modules: `admin`, `attestation`, `error`, `policy`, `resource`, `version` — auth lives in `middleware/auth.rs`, not `routes/`
 
 ### Naming
 
-- Route handler functions: `snake_case` (e.g., `get_challenge`, `attest_resource`)
-- Schema types: `PascalCase` (e.g., `ChallengeResponse`, `AttestRequest`)
+- Route handler functions: `snake_case` (e.g., `get_challenge`, `attest`, `retrieve_resource`) — HTTP layer in `rbs/rest/src/routes/`
+- Core/API attestation: `get_auth_challenge` on `AttestationManager` / `AttestationProvider` (e.g. route handler `get_challenge` in `routes/attestation.rs` delegates to it)
+- Schema types: `PascalCase` (e.g., `AuthChallengeResponse`, `AttestRequest`)
 - Configuration structs: `PascalCase` ending in `Config` (e.g., `LoggingConfig`, `RestConfig`)
 
 ### Logging
 
 - Use the `log` crate facade
 - Log levels: `error!`, `warn!`, `info!`, `debug!`, `trace!`
-- Always flush the logger after critical operations: `log::logger().flush()`
+- Call `log::logger().flush()` only in tests or shutdown paths — not on per-request hot paths
 
 ### OpenAPI Schema
 
@@ -168,44 +190,49 @@ In CI (`CI=true`), the script will fail if documentation is out of sync.
 ### Provider Implementation
 
 ```rust
-// Provider traits must implement Send + Sync
-pub trait AttestationProvider: Send + Sync {
-    fn get_challenge(&self, req: &ChallengeRequest) -> Result<ChallengeResponse>;
-    fn attest(&self, req: &AttestRequest) -> Result<AttestResponse>;
+use async_trait::async_trait;
+use std::sync::Arc;
+use rbs_api_types::{AttestRequest, AttestResponse, AuthChallengeResponse};
+use rbs_core::attestation::{AttestationManager, AttestationProvider};
+
+#[async_trait]
+impl AttestationProvider for MyProvider {
+    async fn get_auth_challenge(&self, as_provider: Option<&str>) -> Result<AuthChallengeResponse> {
+        // ...
+    }
+    async fn attest(&self, req: AttestRequest) -> Result<AttestResponse> {
+        // ...
+    }
 }
-```
 
-### Using Arc<dyn Trait>
-
-```rust
-let provider: Arc<dyn AttestationProvider> = Arc::new(MyProvider::new());
-let manager = AttestationManager::new(provider);
+let mut manager = AttestationManager::new();
+manager.register("gta", Arc::new(MyProvider::new()));
+manager.set_default("gta");
 ```
 
 ### Testing Private Code
 
-For integration tests accessing private modules, either:
-1. Make the module public in the parent lib.rs, OR
-2. Use `#[cfg(test)]` with `mod tests { use super::*; }`
+Prefer public APIs and `#[cfg(test)]` modules in-crate. Widen visibility only when the crate already exposes modules for integration tests (as `rbs-rest` does for `routes`).
 
 ## Known Issues and Caveats
 
 ### init_logging
 
-The `init_logging` function uses a global logger via `call_once`. In tests:
-- Multiple calls to `init_logging` in the same process may not switch log targets
+`init_logging` uses `Once` (`call_once`) for `log::set_logger`; repeated calls update inner logger state (level, file target) but do not re-register the global logger. In tests:
+- Multiple calls may not fully reset log output if the global logger is already set
 - Tests that rely on re-initializing logging should be run in isolation
 
 ### Database Migrations
 
-- Use sea-orm migration framework
-- Migrations are defined in `rbs/core/src/infra/db/migrations/`
+- SQL schema lives in `rbs/rdb_sql/` (e.g. `sqlite_rbs.sql`, `mysql_rbs.sql`)
+- Applied at startup via `infra/rdb/connection.rs::migrate_core_tables()` — not sea-orm `Migrator`
 
 ### Rate Limiting
 
-Rate limiting is feature-gated (`per-ip-rate-limit`). When enabled:
-- Configure trusted proxy addresses to extract client IP correctly
-- Set `requests_per_sec` and `burst` in `RestConfig`
+Compile-time feature `per-ip-rate-limit` on `rbs-rest` plus runtime `rest.rate_limit.enabled`. When enabled, configure:
+- `rest.rate_limit.requests_per_sec`
+- `rest.rate_limit.burst`
+- `rest.trusted_proxy.addrs` (client IP behind proxies)
 
 ## License
 
