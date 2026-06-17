@@ -54,7 +54,7 @@ impl ResourceService {
             ResourceError::PermissionDenied
         })?;
 
-        let parsed = self.validator.validate_uri(&req.uri).map_err(|e| {
+        let parsed = self.validator.validate_uri(uri).map_err(|e| {
             log::error!("Resource create denied: URI validation failed: {}", e);
             e
         })?;

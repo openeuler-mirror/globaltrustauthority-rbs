@@ -38,14 +38,12 @@ async fn resource_operations_report_url_build_failure() {
     let client = ResourceClient::new(unusable_admin_client());
     let path = resource_path();
     let create = ResourceCreateRequest {
-        uri: "".to_string(),
         policy_id: "policy-1".to_string(),
         additional_info: None,
         content_type: Some("text".to_string()),
         export_mode: Some("plain".to_string()),
     };
     let update = ResourceUpdateRequest {
-        uri: "".to_string(),
         policy_id: "policy-2".to_string(),
         additional_info: Some("Zm9v".to_string()),
         content_type: Some("json".to_string()),
@@ -79,7 +77,6 @@ async fn resource_paths_reject_ambiguous_segments() {
     let client = ResourceClient::new(admin_client("https://example.com"));
     let mut path = resource_path();
     let create = ResourceCreateRequest {
-        uri: "".to_string(),
         policy_id: "policy-1".to_string(),
         additional_info: None,
         content_type: Some("text".to_string()),

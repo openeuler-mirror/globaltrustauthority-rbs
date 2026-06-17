@@ -10,8 +10,8 @@ CREATE TABLE IF NOT EXISTS t_user_info (
     auth_value  TEXT NOT NULL,
     auth_alg    TEXT NOT NULL,
     status      INTEGER NOT NULL DEFAULT 1,
-    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS t_res_policy (
