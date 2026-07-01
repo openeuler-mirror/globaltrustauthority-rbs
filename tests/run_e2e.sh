@@ -9,124 +9,63 @@
 # PURPOSE.
 # See the Mulan PSL v2 for more details.
 #
-# Run e2e/interface tests (RBS, RBC, tools).
+# Run e2e/interface tests via pytest (suites: rbs, rbc, tools).
 # Invoke from workspace root: ./tests/run_e2e.sh
-#
-# By default runs all *.sh scripts under tests/rbs, tests/rbc, tests/tools in directory order;
-# any failure exits with non-zero.
-#
-# Usage:
-#   ./tests/run_e2e.sh
-#   ./tests/run_e2e.sh --suite rbs           # only rbs suite
-#   ./tests/run_e2e.sh --pattern version    # only scripts whose filename matches "version"
-#   ./tests/run_e2e.sh --testcase foo,bar    # filename must contain foo OR bar (comma-separated)
-#
-# Environment overrides:
-#   E2E_SUITES="rbs,tools"   # limit suites
-#   E2E_PATTERN="a,b"        # comma-separated filename substrings (OR); same as multiple --testcase
-#
-# tests/test_all.sh wraps this script: --testcase there requires --suite; run_e2e.sh alone does not.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=common.sh
+source "$SCRIPT_DIR/common.sh"
+
+CALLER=run_e2e.sh
 
 usage() {
   cat <<EOF
 Usage: ./tests/run_e2e.sh [OPTIONS]
 
-Run e2e/interface shell test suites.
+Run pytest e2e suites under tests/e2e/.
 
 Options:
-  --suite|-suite NAME   Run only the given suite (can be repeated). Known suites: rbs, rbc, tools
-  --pattern STR         Only run scripts whose basename matches STR (substring). STR may be
-                        comma-separated; a script runs if it matches any token (OR).
-  --testcase STR        Same as --pattern (repeatable; tokens accumulate)
+  --suite|-suite NAME   Suite marker (repeatable): rbs, rbc, tools
+  --pattern STR         Test-name substring token; comma-separated tokens are OR'd
+  --testcase STR        Alias for --pattern (repeatable)
   -h, --help            Show this help and exit
 
 Environment variables:
-  E2E_SUITES   Comma-separated list of suites to run (overrides default "rbs,rbc,tools")
-  E2E_PATTERN  Comma-separated filename substrings (OR match), same rules as --pattern
+  E2E_SUITES    Comma-separated suite markers (default: rbs,rbc,tools)
+  E2E_PATTERN   Comma-separated testcase substring tokens (OR)
+  PYTHON_BIN    Python interpreter for pytest
+
+Requires: python3, pytest (tests/requirements.txt), openssl, cargo (rest feature).
 EOF
-}
-
-# Trim leading/trailing whitespace (bash parameter expansion).
-trim_spaces() {
-  local s="$1"
-  s="${s#"${s%%[![:space:]]*}"}"
-  s="${s%"${s##*[![:space:]]}"}"
-  printf '%s' "$s"
-}
-
-# Append non-empty patterns from a comma-separated string into the name-referenced array.
-append_patterns_from_csv() {
-  local -n _arr=$1
-  local csv="$2"
-  [[ -z "$csv" ]] && return 0
-  local part parts
-  IFS=',' read -r -a parts <<< "$csv"
-  for part in "${parts[@]}"; do
-    part="$(trim_spaces "$part")"
-    [[ -n "$part" ]] && _arr+=("$part")
-  done
-}
-
-# Return 0 if basename matches any pattern, or if there are no patterns.
-filename_matches_patterns() {
-  local -n _arr=$1
-  local base="$2"
-  local p
-  [[ "${#_arr[@]}" -eq 0 ]] && return 0
-  for p in "${_arr[@]}"; do
-    [[ "$base" == *"$p"* ]] && return 0
-  done
-  return 1
 }
 
 main() {
   cd "$REPO_ROOT"
 
-  # Default suites
-  local default_e2e_suites=("rbs" "rbc" "tools")
-  local suites=()
-  local patterns=()
-  # Set to 1 when the caller restricts suites or patterns via CLI or env (empty result is an error).
-  local filter_was_explicit=0
+  local suites=() patterns=() empty_policy=skip
 
-  if [[ -n "${E2E_PATTERN:-}" ]]; then
-    append_patterns_from_csv patterns "${E2E_PATTERN}"
-    filter_was_explicit=1
-  fi
+  append_e2e_patterns_from_csv patterns "${E2E_PATTERN:-}"
+  [[ -n "${E2E_PATTERN:-}" ]] && empty_policy=fail
+  append_csv_to_array suites "${E2E_SUITES:-}"
+  [[ -n "${E2E_SUITES:-}" ]] && empty_policy=fail
 
-  # If E2E_SUITES is set, use it as initial suite list
-  if [[ -n "${E2E_SUITES:-}" ]]; then
-    IFS=',' read -r -a suites <<< "$E2E_SUITES"
-    filter_was_explicit=1
-  fi
-
-  # Parse CLI flags
   while [[ "${1-}" != "" ]]; do
     case "$1" in
       --suite|-suite)
         shift
-        if [[ "${1-}" == "" ]]; then
-          echo "Missing value for --suite" >&2
-          usage >&2
-          exit 1
-        fi
+        [[ -n "${1-}" ]] || { echo "Missing value for --suite" >&2; usage >&2; exit 1; }
+        validate_e2e_suites "$1"
         suites+=("$1")
-        filter_was_explicit=1
+        empty_policy=fail
         ;;
       --pattern|--testcase)
         shift
-        if [[ "${1-}" == "" ]]; then
-          echo "Missing value for --pattern/--testcase" >&2
-          usage >&2
-          exit 1
-        fi
-        append_patterns_from_csv patterns "$1"
-        filter_was_explicit=1
+        [[ -n "${1-}" ]] || { echo "Missing value for --pattern/--testcase" >&2; usage >&2; exit 1; }
+        append_e2e_patterns_from_csv patterns "$1"
+        empty_policy=fail
         ;;
       -h|--help)
         usage
@@ -141,42 +80,7 @@ main() {
     shift
   done
 
-  # If no suites specified anywhere, fall back to defaults
-  if [[ "${#suites[@]}" -eq 0 ]]; then
-    suites=("${default_e2e_suites[@]}")
-  fi
-
-  echo "=== E2e / interface tests (tests/run_e2e.sh) ==="
-
-  local any_e2e_script_ran=0
-
-  for suite in "${suites[@]}"; do
-    local dir="$SCRIPT_DIR/$suite"
-    [[ -d "$dir" ]] || continue
-
-    for f in "$dir"/*.sh; do
-      [[ -f "$f" ]] || continue
-      local base
-      base="$(basename "$f")"
-
-      if ! filename_matches_patterns patterns "$base"; then
-        continue
-      fi
-
-      echo "--- $suite: $base ---"
-      "$f"
-      any_e2e_script_ran=1
-    done
-  done
-
-  if [[ $any_e2e_script_ran -eq 1 ]]; then
-    echo "=== All e2e tests passed ==="
-  elif [[ $filter_was_explicit -eq 1 ]]; then
-    echo "run_e2e.sh: no scripts matched the requested suite/pattern filter" >&2
-    exit 1
-  else
-    echo "=== No e2e scripts to run ==="
-  fi
+  run_e2e_pytest suites patterns "$empty_policy"
 }
 
 main "$@"

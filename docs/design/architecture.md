@@ -814,8 +814,8 @@ Same fields and endpoint as [§11](#11-api-and-compatibility) (`GET /rbs/version
 | Gate | Command | Notes |
 |------|---------|-------|
 | Unit / integration | `cargo test --workspace` | Per-crate tests |
-| Merge-readiness | `./tests/test_all.sh` | Cargo + OpenAPI drift + e2e (required before merge) |
-| E2e / filters | `./tests/run_e2e.sh`, `tests/rbs/`, `tests/rbc/`, `tests/tools/` | Skip flags, suites: [`tests/README.md`](../../tests/README.md) |
+| Merge-readiness | `./tests/test_all.sh` | `pip install -r tests/requirements.txt` first; Cargo + OpenAPI drift + pytest e2e |
+| E2e / filters | `./tests/run_e2e.sh`, `tests/e2e/` | Skip flags, suite markers: [`tests/README.md`](../../tests/README.md) |
 
 ## 13. Extension Points
 
