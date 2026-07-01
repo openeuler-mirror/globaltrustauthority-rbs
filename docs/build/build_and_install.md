@@ -32,6 +32,7 @@ The procedures below are **sequential**: execute the commands in each block in o
 | **Disk** (~few GB) | `target/`, optional `rpm-build/`, Docker layers | `df -h .` |
 | **Network** (unless fully offline) | Crates.io, `git` remotes, `npm` when you run **`docs`** | — |
 | **Node.js** (only for **`./scripts/build.sh docs`**) | OpenAPI doc tooling needs **≥ 22.12** (`engines` in [`scripts/conf/openapi-docs/package.json`](../../scripts/conf/openapi-docs/package.json)); **24** is a practical local choice | `node -v` — if too old, use **nvm** / **fnm** at repo root; optional untracked **`.nvmrc`** (see **[§7](#7-further-reading-and-tooling)**) |
+| **Python 3** + **pip** | E2e tests (`./tests/test_all.sh`) run **pytest** under `tests/` | `python3 --version` — install e2e deps: `python3 -m pip install -r tests/requirements.txt` |
 
 **Out of scope for this document:** macOS and Windows as primary build hosts. Use a Linux virtual machine, **WSL2**, or the container workflow in §5.
 
@@ -65,6 +66,7 @@ cd globaltrustauthority-rbs
 ./scripts/build.sh
 
 # 4) Automated test suite (from repo root)
+python3 -m pip install -r tests/requirements.txt
 ./tests/test_all.sh
 
 # 5) Run RBS in the foreground (Ctrl-C to stop). Sample config listens on 127.0.0.1:6666
@@ -84,7 +86,7 @@ curl -sS http://127.0.0.1:6666/rbs/version
 test -x target/release/rbs && test -x target/release/rbs-cli && echo 'release binaries OK'
 ```
 
-**After step 4 (tests)** — `./tests/test_all.sh` must exit with status **0** (by default: workspace **`cargo test`**, then a check that **`docs/proto/rbs_rest_api.yaml`** matches **`cargo build -p rbs --features rest`**, then e2e). On failure, inspect the script output, then consult **[tests/README.md](../../tests/README.md)** for selective execution and skip flags.
+**After step 4 (tests)** — install e2e Python deps once (`python3 -m pip install -r tests/requirements.txt`), then `./tests/test_all.sh` must exit with status **0** (by default: workspace **`cargo test`**, OpenAPI YAML drift check, then **pytest** e2e). On failure, inspect the script output, then consult **[tests/README.md](../../tests/README.md)** for selective execution and skip flags.
 
 **After step 5 (server)** — keep the server process in the foreground in that terminal. The sample **`rbs/conf/rbs.yaml`** binds **`127.0.0.1:6666`** and references paths including **`/var/log/rbs`** and a SQLite URL under **`/root`**; **`sudo`** is therefore used in the example. For an unprivileged run, adjust **`logging.file_path`**, **`storage.url`**, and **`storage.sql_file_path`** in the configuration file first.
 
@@ -119,6 +121,7 @@ test -x target/release/rbs && test -x target/release/rbs-cli && echo 'build: OK'
 ### Phase C — Automated tests
 
 ```bash
+python3 -m pip install -r tests/requirements.txt
 ./tests/test_all.sh
 echo "tests exit code: $?"   # expect 0
 ```

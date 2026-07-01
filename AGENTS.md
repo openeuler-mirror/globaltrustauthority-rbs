@@ -33,7 +33,7 @@ globaltrustauthority-rbs/
 ├── docs/
 │   ├── design/            # Architecture and design docs
 │   └── api/rbs/           # Generated API docs (Markdown, HTML)
-├── tests/                 # Workspace e2e / merge-readiness scripts
+├── tests/                 # Merge gate + pytest e2e (see tests/README.md)
 └── service/               # Service deployment configurations
 ```
 
@@ -99,22 +99,42 @@ See also: [`docs/build/build_and_install.md`](docs/build/build_and_install.md), 
 
 ### Testing
 
+Two layers:
+
+| Layer | Runner | Location |
+|-------|--------|----------|
+| Rust unit / integration | `cargo test` | Per-crate `tests/` (`rbs/core/tests/`, `rbs/rest/tests/`, …) |
+| Black-box e2e | **pytest** + `httpx` | `tests/e2e/<suite>/` (`rbs`, `rbc`, `tools` markers) |
+
+**Merge gate** (required before merge): `./tests/test_all.sh` — Cargo workspace tests, OpenAPI YAML drift check, then pytest e2e.
+
 ```bash
-# Merge-readiness gate (Cargo + OpenAPI check + e2e)
+# E2e deps (once per environment)
+python3 -m pip install -r tests/requirements.txt
+
+# Merge gate (default: Cargo + OpenAPI + e2e)
 ./tests/test_all.sh
+
+# E2e only
+./tests/run_e2e.sh --suite rbs
 
 # Fast Rust-only
 cargo test --workspace
-
-# Run tests for specific crate
 cargo test -p rbs-core
 cargo test -p rbs-rest
 
-# Run with output
-cargo test -- --nocapture
+# Direct pytest (full -m / -k control)
+python3 -m pytest -c tests/pytest.ini tests/e2e -m rbs -v
+
+# Skip sections
+ENABLE_E2E_TESTS=0 ./tests/test_all.sh
+ENABLE_CARGO_TESTS=0 ./tests/test_all.sh
+./tests/test_all.sh --suite rbs --testcase version
 ```
 
-See [`tests/README.md`](tests/README.md) for e2e layout and skip flags.
+**E2e layout** (`tests/`): `test_all.sh`, `run_e2e.sh`, `common.sh`, `pytest.ini`, `helpers/` (RBS lifecycle/build), `e2e/rbs/` (process-level REST tests). RBS e2e needs `openssl`, `cargo` (`rest` feature), and git (for `GIT_HASH` at build time). Assertions belong in `test_*.py`, not `helpers/`.
+
+Full framework, fixtures, suite tokens, and empty-policy rules: [`tests/README.md`](tests/README.md). RBS suite constraints: [`tests/e2e/rbs/README.md`](tests/e2e/rbs/README.md).
 
 **Requirement**: All tests must pass before merging (`./tests/test_all.sh`).
 

@@ -29,6 +29,9 @@ rpm-build/
 .DS_Store
 Thumbs.db
 
+# Python (pytest)
+.pytest_cache/
+
 # Docker
 *.tar
 
