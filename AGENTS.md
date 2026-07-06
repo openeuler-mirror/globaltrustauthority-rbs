@@ -205,6 +205,17 @@ See [`docs/design/architecture.md` §10](docs/design/architecture.md#10-security
 - Use `#[utoipa::path]` for endpoint documentation
 - Example values in schema should be non-empty strings (build-time embedded)
 
+### Language
+
+- Commit messages, code comments, and documentation must be written in English
+- The only exception is bilingual community docs (`CONTRIBUTING.md`) which intentionally carry both Chinese and English
+
+### Consistency
+
+- Documentation, comments, and code implementation must stay consistent — covering test code, build scripts, deployment configs, and related docs
+- Any behavioral change must update all relevant artifacts in sync
+- Do not leave stale docs or comments that disagree with the code
+
 ## Common Patterns
 
 ### Provider Implementation
@@ -253,6 +264,10 @@ Compile-time feature `per-ip-rate-limit` on `rbs-rest` plus runtime `rest.rate_l
 - `rest.rate_limit.requests_per_sec`
 - `rest.rate_limit.burst`
 - `rest.trusted_proxy.addrs` (client IP behind proxies)
+
+## Contributing
+
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — bilingual (Chinese / English) contribution guide: setup, branch prefixes, coding standards, testing, merge gate, MR checklist; Chinese and English versions have the same effect; in case of divergence, the English version prevails
 
 ## License
 

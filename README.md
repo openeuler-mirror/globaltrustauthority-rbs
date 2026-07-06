@@ -31,7 +31,8 @@ For a step-by-step setup, build, test, run, and service verification, see [**Qui
 | Test suite | [README.md](tests/README.md) |
 | Sample config | [rbs.yaml](rbs/conf/rbs.yaml) |
 | Developer tooling | [Further reading](docs/build/build_and_install.md#7-further-reading-and-tooling) |
+| Contributing | [CONTRIBUTING.md](CONTRIBUTING.md) |
 
 ## License
 
-Licensed under the **Mulan Public License, version 2** — see [LICENSE](LICENSE).
+Licensed under the **Mulan Permissive Software License, v2 (Mulan PSL v2)** — see [LICENSE](LICENSE).
