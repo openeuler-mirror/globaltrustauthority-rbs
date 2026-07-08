@@ -45,16 +45,16 @@ impl ResourceService {
     // ── POST - create ─────────────────────────────────────────────────
 
     pub async fn create(
-        &self, ctx: &AuthContext, req: &CreateResourceRequest,
+        &self, ctx: &AuthContext, uri: &str, req: &CreateResourceRequest,
     ) -> Result<ResourceResponse, ResourceError> {
-        log::info!("Resource create requested: uri={}, user={}", req.uri, ctx.sub());
+        log::info!("Resource create requested: uri={}, user={}", uri, ctx.sub());
 
         self.authz.check_action(ctx, Action::Create, RequiredRole::UserScoped).await.map_err(|_| {
             log::error!("Resource create denied: permission denied for user '{}'", ctx.sub());
             ResourceError::PermissionDenied
         })?;
 
-        let parsed = self.validator.validate_uri(&req.uri).map_err(|e| {
+        let parsed = self.validator.validate_uri(uri).map_err(|e| {
             log::error!("Resource create denied: URI validation failed: {}", e);
             e
         })?;
@@ -78,14 +78,14 @@ impl ResourceService {
                 log::error!("Resource create failed: backend '{}' not found", parsed.res_provider);
                 ResourceError::BackendUnsupported { provider: parsed.res_provider.clone() }
             })?;
-        if !backend.check_resource_exists(&req.uri).await? {
-            log::error!("Resource create denied: resource '{}' not found in backend", req.uri);
+        if !backend.check_resource_exists(uri).await? {
+            log::error!("Resource create denied: resource '{}' not found in backend", uri);
             return Err(ResourceError::BackendNotFound);
         }
 
-        if self.repo.find_by_uri(&req.uri).await?.is_some() {
-            log::error!("Resource create denied: uri '{}' already exists", req.uri);
-            return Err(ResourceError::AlreadyExists { uri: req.uri.clone() });
+        if self.repo.find_by_uri(uri).await?.is_some() {
+            log::error!("Resource create denied: uri '{}' already exists", uri);
+            return Err(ResourceError::AlreadyExists { uri: uri.to_string() });
         }
 
         let now = chrono::Utc::now().timestamp_millis();
@@ -98,9 +98,9 @@ impl ResourceService {
             policy_id: req.policy_id.clone(),
         };
         self.repo.insert(&entity).await?;
-        log::info!("Resource created: uri='{}', user='{}', policy_id='{}'", req.uri, username, req.policy_id);
+        log::info!("Resource created: uri='{}', user='{}', policy_id='{}'", uri, username, req.policy_id);
         Ok(ResourceResponse {
-            uri: req.uri.clone(), provider_name: entity.provider_name,
+            uri: uri.to_string(), provider_name: entity.provider_name,
             repository_name: entity.repo_name,
             resource_type: entity.res_type, resource_name: entity.res_name,
             created_at: millis_to_rfc3339(entity.created_at), updated_at: millis_to_rfc3339(entity.updated_at),

@@ -63,13 +63,11 @@ fn test_resource_retrieve_request_is_attest_request() {
 #[test]
 fn test_create_resource_request() {
     let json = serde_json::json!({
-        "uri": "/rbs/v0/vault/repo1/secret/mykey",
         "policy_id": "pol-001",
         "content_type": "json",
         "export_mode": "jwe"
     });
     let req: CreateResourceRequest = serde_json::from_value(json).unwrap();
-    assert_eq!(req.uri, "/rbs/v0/vault/repo1/secret/mykey");
     assert_eq!(req.policy_id, "pol-001");
     assert_eq!(req.export_mode.as_deref(), Some("jwe"));
 }
@@ -77,7 +75,6 @@ fn test_create_resource_request() {
 #[test]
 fn test_create_resource_request_defaults() {
     let json = serde_json::json!({
-        "uri": "/rbs/v0/vault/repo1/secret/mykey",
         "policy_id": "pol-001"
     });
     let req: CreateResourceRequest = serde_json::from_value(json).unwrap();

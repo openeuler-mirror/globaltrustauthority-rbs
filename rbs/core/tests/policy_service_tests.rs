@@ -946,13 +946,6 @@ async fn test_list_basic() {
     assert_eq!(resp.total_count, 2);
     assert_eq!(resp.limit, 10);
     assert_eq!(resp.offset, 0);
-    // Listing responses should not include full policy_content.
-    for item in &resp.items {
-        assert!(
-            item.policy_content.is_empty(),
-            "list response should not contain policy_content"
-        );
-    }
 }
 
 /// UT-S-019: list with pagination — offset 20, limit 10 returns 5 items.

@@ -135,7 +135,6 @@ async fn execute_res_command(cli: &ResCli, service: &ResourceClient) -> Result<B
                 .create_resource(
                     &build_path(&args.path),
                     &ResourceCreateRequest {
-                        uri: format!("{}/{}/{}/{}", &args.path.provider_name, &args.path.repository_name, &args.path.resource_type, &args.path.resource_name),
                         policy_id: args.policy_id.clone(),
                         additional_info: args.additional_info.clone(),
                         content_type: args.content_type.clone(),
@@ -151,7 +150,6 @@ async fn execute_res_command(cli: &ResCli, service: &ResourceClient) -> Result<B
                 .update_resource(
                     &build_path(&args.path),
                     &ResourceUpdateRequest {
-                        uri: format!("{}/{}/{}/{}", &args.path.provider_name, &args.path.repository_name, &args.path.resource_type, &args.path.resource_name),
                         policy_id: args.policy_id.clone().unwrap_or_default(),
                         additional_info: args.additional_info.clone(),
                         content_type: args.content_type.clone(),

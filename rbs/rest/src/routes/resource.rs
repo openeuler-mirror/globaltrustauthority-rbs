@@ -71,13 +71,13 @@ pub async fn create_resource(
 ) -> HttpResponse {
     let ctx = match require_auth(&req) { Ok(c) => c, Err(r) => return r };
     log::info!("Resource create HTTP request received: user='{}'", ctx.sub());
-    let mut cr = body.into_inner();
+    let cr = body.into_inner();
     if let Err(e) = Validate::validate(&cr) {
         log::error!("Resource create validation error: {}", e);
         return HttpResponse::BadRequest().json(ErrorBody::new(e.to_string()));
     }
-    cr.uri = build_uri(&path.into_inner());
-    match core.resource().create(&ctx, &cr).await {
+    let uri = build_uri(&path.into_inner());
+    match core.resource().create(&ctx, &uri, &cr).await {
         Ok(resp) => {
             log::info!("Resource create succeeded: uri='{}', user='{}'", resp.uri, ctx.sub());
             HttpResponse::Created().json(resp)

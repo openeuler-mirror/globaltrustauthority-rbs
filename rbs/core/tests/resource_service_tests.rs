@@ -193,7 +193,6 @@ fn make_entity() -> ResourceEntity {
 /// Build a default valid `CreateResourceRequest`.
 fn create_req() -> CreateResourceRequest {
     CreateResourceRequest {
-        uri: TEST_URI.to_string(),
         policy_id: TEST_POLICY_ID.to_string(),
         content_type: Some("text".to_string()),
         export_mode: Some("jwe".to_string()),
@@ -361,7 +360,7 @@ async fn test_post_create_success() {
         },
     );
 
-    let result = svc.create(&admin_ctx(TEST_USER), &create_req()).await;
+    let result = svc.create(&admin_ctx(TEST_USER), TEST_URI, &create_req()).await;
     // When the service is implemented this should be Ok(_).
     let _ = result;
 }
@@ -377,7 +376,7 @@ async fn test_post_create_permission_denied() {
         },
     );
 
-    let result = svc.create(&attest_ctx(), &create_req()).await;
+    let result = svc.create(&attest_ctx(), TEST_URI, &create_req()).await;
     // Authz denies Attest tokens for admin operations.
     match result {
         Err(ResourceError::PermissionDenied) => {}
@@ -405,7 +404,7 @@ async fn test_post_create_policy_use_denied() {
     );
 
     let result = svc
-        .create(&admin_ctx(TEST_USER), &create_req())
+        .create(&admin_ctx(TEST_USER), TEST_URI, &create_req())
         .await;
     // The first authz call (UserScoped) passes for a Bearer token.
     // A hypothetical second authz call with AdminOnly would fail (role = "user")
@@ -432,7 +431,7 @@ async fn test_post_create_policy_invalid() {
         },
     );
 
-    let result = svc.create(&admin_ctx(TEST_USER), &create_req()).await;
+    let result = svc.create(&admin_ctx(TEST_USER), TEST_URI, &create_req()).await;
     match result {
         Err(ResourceError::PolicyIdInvalid(_)) => {}
         _ => panic!("Expected PolicyIdInvalid, got {:?}", result),
@@ -453,7 +452,7 @@ async fn test_post_create_backend_not_found() {
         |_bp| {},
     );
 
-    let result = svc.create(&admin_ctx(TEST_USER), &create_req()).await;
+    let result = svc.create(&admin_ctx(TEST_USER), TEST_URI, &create_req()).await;
     match result {
         Err(ResourceError::BackendUnsupported { provider }) if provider == "vault" => {}
         _ => panic!("Expected BackendUnsupported for 'vault', got {:?}", result),
@@ -474,7 +473,7 @@ async fn test_post_create_already_exists() {
         },
     );
 
-    let result = svc.create(&admin_ctx(TEST_USER), &create_req()).await;
+    let result = svc.create(&admin_ctx(TEST_USER), TEST_URI, &create_req()).await;
     match result {
         Err(ResourceError::AlreadyExists { .. }) => {}
         _ => panic!("Expected AlreadyExists, got {:?}", result),
@@ -493,7 +492,7 @@ async fn test_post_create_empty_policy_id() {
     let mut req = create_req();
     req.policy_id.clear();
 
-    let result = svc.create(&admin_ctx(TEST_USER), &req).await;
+    let result = svc.create(&admin_ctx(TEST_USER), TEST_URI, &req).await;
     match result {
         Err(ResourceError::ParamInvalid { field }) if field == "policy_id" => {}
         _ => panic!("Expected ParamInvalid for policy_id, got {:?}", result),
@@ -509,10 +508,9 @@ async fn test_post_create_unknown_provider() {
         |_| {},
     );
 
-    let mut req = create_req();
-    req.uri = "/rbs/v0/unknown/default/secret/mykey".to_string();
+    let req = create_req();
 
-    let result = svc.create(&admin_ctx(TEST_USER), &req).await;
+    let result = svc.create(&admin_ctx(TEST_USER), "/rbs/v0/unknown/default/secret/mykey", &req).await;
     match result {
         Err(ResourceError::BackendUnsupported { provider }) if provider == "unknown" => {}
         _ => panic!("Expected BackendUnsupported for 'unknown', got {:?}", result),
@@ -1104,7 +1102,7 @@ async fn test_post_create_optional_fields_none() {
     req.export_mode = None;
     req.additional_info = None;
 
-    let result = svc.create(&admin_ctx(TEST_USER), &req).await;
+    let result = svc.create(&admin_ctx(TEST_USER), TEST_URI, &req).await;
     assert!(result.is_ok(), "Expected Ok, got {:?}", result);
 }
 

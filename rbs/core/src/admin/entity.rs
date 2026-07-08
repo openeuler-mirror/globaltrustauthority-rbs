@@ -94,10 +94,10 @@ pub struct Model {
     pub auth_alg: String,
     /// Account status.
     pub status: UserStatus,
-    /// Creation timestamp (UTC).
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    /// Last modification timestamp (UTC).
-    pub updated_at: chrono::DateTime<chrono::Utc>,
+    /// Creation timestamp (epoch millis).
+    pub created_at: i64,
+    /// Last modification timestamp (epoch millis).
+    pub updated_at: i64,
 }
 
 /// Relationships (none for users table).

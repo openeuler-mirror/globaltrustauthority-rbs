@@ -76,7 +76,7 @@ impl AdminManager {
 
         let (auth_value, auth_alg) = self.read_admin_key()?;
         let user_id = generate_uuid();
-        let now = now_without_nanos();
+        let now = now_epoch_millis();
 
         let model = UserActiveModel {
             user_id: Set(user_id.clone()),
@@ -371,7 +371,7 @@ impl AdminManager {
         max_users: u32,
     ) -> std::result::Result<UserModel, sea_orm::TransactionError<sea_orm::DbErr>> {
         let user_id = generate_uuid();
-        let now = now_without_nanos();
+        let now = now_epoch_millis();
         let role: DbRole = req.role.unwrap_or(Role::User).into();
         let status = if req.enabled.unwrap_or(true) { UserStatus::Enabled } else { UserStatus::Disabled };
         let username = req.username.clone();
@@ -485,7 +485,7 @@ impl AdminManager {
                     active.auth_type = Set(DbAuthType::from(auth_type));
                 }
 
-                active.updated_at = Set(now_without_nanos());
+                active.updated_at = Set(now_epoch_millis());
                 active.update(txn).await
             })
         })
@@ -702,9 +702,16 @@ fn map_authz_err(e: AuthzError, ctx: &AuthContext) -> RbsError {
     }
 }
 
-/// Get current timestamp without nanoseconds.
-fn now_without_nanos() -> chrono::DateTime<chrono::Utc> {
-    chrono::Utc::now().with_nanosecond(0).unwrap()
+/// Get current timestamp as epoch millis.
+fn now_epoch_millis() -> i64 {
+    chrono::Utc::now().timestamp_millis()
+}
+
+/// Convert epoch millis to RFC 3339 string.
+fn millis_to_rfc3339(ms: i64) -> String {
+    chrono::DateTime::from_timestamp_millis(ms)
+        .map(|dt| dt.with_nanosecond(0).unwrap_or(dt).to_rfc3339())
+        .unwrap_or_default()
 }
 
 /// Convert a database model to API response.
@@ -714,8 +721,8 @@ fn model_to_response(m: &UserModel) -> UserResponse {
         username: m.username.clone(),
         role: m.role.into(),
         enabled: m.status == UserStatus::Enabled,
-        created_at: m.created_at.to_rfc3339(),
-        updated_at: m.updated_at.to_rfc3339(),
+        created_at: millis_to_rfc3339(m.created_at),
+        updated_at: millis_to_rfc3339(m.updated_at),
     }
 }
 
@@ -750,9 +757,12 @@ mod tests {
     }
 
     #[test]
-    fn timestamp_generation_has_zero_nanoseconds() {
-        let ts = now_without_nanos();
-        assert_eq!(ts.timestamp_subsec_nanos(), 0);
+    fn timestamp_generation_returns_epoch_millis() {
+        let ts = now_epoch_millis();
+        // Epoch millis should be a reasonable positive number (after year 2000)
+        assert!(ts > 946_684_800_000);
+        // Should be divisible by 1 (just an i64, no nanosecond check needed)
+        assert_eq!(ts % 1, 0);
     }
 
     #[test]
@@ -879,7 +889,7 @@ mod tests {
     // ── Filtered list_users integration tests (SQLite in-memory) ──
 
     async fn setup_test_users(db: &sea_orm::DatabaseConnection) {
-        let now = chrono::Utc::now().with_nanosecond(0).unwrap();
+        let now = chrono::Utc::now().timestamp_millis();
         let users = vec![
             ("Alice", DbRole::Admin, UserStatus::Enabled),
             ("Bob", DbRole::User, UserStatus::Enabled),
