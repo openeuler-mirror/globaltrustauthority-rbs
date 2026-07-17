@@ -1,5 +1,7 @@
 # globaltrustauthority-rbs
 
+English | [中文](README_zh.md)
+
 **Resource Broker Service (RBS)** securely releases keys, certificates, and other sensitive resources to workloads that pass remote attestation through the [Global Trust Authority](https://gitcode.com/openeuler/global-trust-authority).
 
 ## Overview
