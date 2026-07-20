@@ -72,6 +72,7 @@ async fn main() -> anyhow::Result<()> {
         attestation: config.attestation.clone(),
         auth: config.auth.clone(),
         admin: config.admin.clone(),
+        policy: config.policy.clone(),
         resource: config.resource.clone(),
     };
     let core = std::sync::Arc::new(rbs_core::RbsCoreBuilder::new(core_config).build());

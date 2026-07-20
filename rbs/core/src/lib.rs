@@ -125,7 +125,9 @@ impl RbsCoreBuilder {
         let authz_facade = AuthzFacade::new(engine.clone());
         let authz: Arc<dyn AuthzChecker> = Arc::new(AuthzCheckerImpl::new(engine.clone()));
 
-        let policy_config = PolicyConfig::default();
+        let mut policy_config = PolicyConfig::default();
+        policy_config.max_per_user = self.config.policy.max_per_user;
+        log::info!("Policy config: max_per_user={}", policy_config.max_per_user);
         let policy_validator = PolicyValidator::new(policy_config.clone());
         let db = infra::rdb::get_connection_from_pool()
             .expect("database connection pool must be initialized before building RbsCore");

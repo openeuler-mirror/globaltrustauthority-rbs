@@ -47,6 +47,10 @@ admin:
   admin_key:
     public_key_path: "/etc/rbs/admin_pub.pem"   # PEM format (or jwks_file for JWK format)
 
+# Policy module configuration
+policy:
+  max_per_user: 10   # max policies per user; create rejected when count reaches this limit (1..=100)
+
 # Logging (default: file + rotation for RPM install; set file_path to empty or remove to use stderr only)
 logging:
   level: info                    # trace | debug | info | warn | error | off
@@ -118,20 +122,24 @@ storage:
   url: "sqlite:///root/rbs.db"
   sql_file_path: "rbs/rdb_sql/sqlite_rbs.sql"
 
-# # Resource backends (for multiple backends; omit when using single storage)
-# # Reserved names for res_provider: admin, attestation, resource, health
-# resource:
-#   default_provider: local
-#   backends:
-#     local:
-#       type: local
-#     # vault:
-#     #   type: vault
-#     #   url: "https://vault:8200"
-#     #   token: "${VAULT_TOKEN}"
-#     #   mount_path: "secret"
-#     # ca:
-#     #   type: ca
-#     #   url: "https://ca-server:8443"
-#     #   token: "${CA_TOKEN}"
-#     #   default_profile: "server"
+# Resource backends (for multiple backends). Reserved provider names: admin, attestation,
+# resource, health — do not use them as backend keys. Validated at startup: backends must be
+# non-empty and each entry must pass ResourceProviderConfig::validate (see field constraints).
+resource:
+  backends:
+    vault:
+      type: vault                 # whitelist ["vault"]; other values fail-fast at startup
+      url: "https://127.0.0.1:8200"  # must start with http:// or https://, length ≤ 2048
+      token: "${VAULT_TOKEN}"     # Vault access token; Sensitive (redacted in logs, zeroized on drop)
+      mount_path: "secret"        # secrets engine mount path; non-empty, length ≤ 128
+      kv_version: "v2"            # whitelist ["v1", "v2"]; v2 uses /data/ and /metadata/ paths
+      verify_ssl: true            # TLS verification; production must be true
+      timeout: 30                 # request timeout in seconds; range [1, 3600]
+      max_connections: 100        # connection count; range [1, 10000]
+      max_retries: 2              # retry count on failure; ≤ 100
+    # second:
+    #   type: vault
+    #   url: "https://127.0.0.1:8201"
+    #   token: "${VAULT_TOKEN_2}"
+    #   mount_path: "secret"
+    #   kv_version: "v2"
