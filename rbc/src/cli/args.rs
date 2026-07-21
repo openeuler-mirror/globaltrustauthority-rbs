@@ -17,6 +17,7 @@ use crate::cli::execute::{validate_file_path, validate_not_empty};
 pub const DEFAULT_AGENT_CONFIG: &str = "/etc/attestation_agent/agent_config.yaml";
 
 #[derive(Args, Debug, Clone)]
+#[command(about = "Run attestation and protected-resource client commands")]
 pub struct ClientCli {
     #[command(subcommand)]
     pub command: ClientAction,
@@ -84,7 +85,6 @@ pub struct CollectEvidenceArgs {
 
     #[arg(long = "runtime-data", action = ArgAction::Append, help = "Runtime data entry in key=value form; repeat to add multiple entries")]
     pub runtime_data: Vec<String>,
-
 }
 
 #[derive(Args, Debug, Clone)]
@@ -124,7 +124,7 @@ pub struct GetTokenArgs {
 #[derive(Args, Debug, Clone)]
 #[command(group(
     ArgGroup::new("resource_auth")
-        .args(["attest_token", "bearer_token", "evidence"])
+        .args(["attest_token", "evidence", "passport", "background"])
         .required(true)
 ))]
 pub struct GetResourceArgs {
@@ -134,14 +134,32 @@ pub struct GetResourceArgs {
     #[arg(long, value_parser = validate_not_empty, help = "Resource URI to fetch")]
     pub uri: String,
 
-    #[arg(long, value_parser = validate_not_empty, conflicts_with_all = ["bearer_token", "evidence"], help = "Attestation token used for resource retrieval")]
+    #[arg(long, value_parser = validate_not_empty, conflicts_with = "evidence", help = "Attestation token used for resource retrieval")]
     pub attest_token: Option<String>,
 
-    #[arg(long, value_parser = validate_not_empty, conflicts_with_all = ["attest_token", "evidence"], help = "Bearer token used for resource retrieval")]
-    pub bearer_token: Option<String>,
-
-    #[arg(long, conflicts_with_all = ["attest_token", "bearer_token"], help = "Evidence JSON or @file path")]
+    #[arg(long, conflicts_with = "attest_token", help = "Evidence JSON or @file path")]
     pub evidence: Option<String>,
+
+    #[arg(long, conflicts_with_all = ["private_key_file", "private_key_passphrase"], help = "Run the passport auto flow: challenge -> native get-token -> get-resource")]
+    pub passport: bool,
+
+    #[arg(long, conflicts_with_all = ["private_key_file", "private_key_passphrase"], help = "Run the background auto flow: challenge -> native collect-evidence -> retrieve resource")]
+    pub background: bool,
+
+    #[arg(
+        long,
+        conflicts_with_all = ["attest_token", "evidence"],
+        help = "Attester-data JSON or @file path merged into the auto-flow request"
+    )]
+    pub attester_data: Option<String>,
+
+    #[arg(
+        long = "runtime-data",
+        action = ArgAction::Append,
+        conflicts_with_all = ["attest_token", "evidence"],
+        help = "Runtime data entry in key=value form; repeat to add multiple entries for auto-flow modes"
+    )]
+    pub runtime_data: Vec<String>,
 
     #[arg(long, value_parser = validate_file_path, help = "Path to a PEM private key used to decrypt returned content when needed")]
     pub private_key_file: Option<String>,
@@ -197,7 +215,7 @@ mod tests {
     }
 
     #[test]
-    fn get_resource_rejects_both_attest_and_bearer_token() {
+    fn get_resource_rejects_removed_bearer_token_option() {
         let command = GetResourceArgs::augment_args(clap::Command::new("get-resource"));
         let matches = command
             .try_get_matches_from([
@@ -209,7 +227,49 @@ mod tests {
                 "--bearer-token",
                 "bearer-token",
             ])
-            .expect_err("conflicting token types should fail");
+            .expect_err("bearer token option should be rejected");
+        assert_eq!(matches.kind(), clap::error::ErrorKind::UnknownArgument);
+    }
+
+    #[test]
+    fn get_resource_accepts_passport_mode() {
+        let command = GetResourceArgs::augment_args(clap::Command::new("get-resource"));
+        let matches = command
+            .try_get_matches_from(["get-resource", "--uri", "vault/default/demo", "--passport"])
+            .expect("passport mode should parse");
+        assert!(matches.get_flag("passport"));
+    }
+
+    #[test]
+    fn get_resource_rejects_passport_with_private_key_file() {
+        let command = GetResourceArgs::augment_args(clap::Command::new("get-resource"));
+        let matches = command
+            .try_get_matches_from([
+                "get-resource",
+                "--uri",
+                "vault/default/demo",
+                "--passport",
+                "--private-key-file",
+                "/tmp/private.pem",
+            ])
+            .expect_err("passport should reject external private keys");
+        assert_eq!(matches.kind(), clap::error::ErrorKind::ArgumentConflict);
+    }
+
+    #[test]
+    fn get_resource_rejects_manual_token_with_runtime_data() {
+        let command = GetResourceArgs::augment_args(clap::Command::new("get-resource"));
+        let matches = command
+            .try_get_matches_from([
+                "get-resource",
+                "--uri",
+                "vault/default/demo",
+                "--attest-token",
+                "token",
+                "--runtime-data",
+                "env=test",
+            ])
+            .expect_err("manual token mode should reject auto-flow runtime data");
         assert_eq!(matches.kind(), clap::error::ErrorKind::ArgumentConflict);
     }
 

@@ -10,10 +10,9 @@
  * See the Mulan PSL v2 for more details.
  */
 
-use rbs_admin_client::resource::{
-    ResourceClient, ResourceCreateRequest, ResourcePath, ResourceService, ResourceUpdateRequest,
-};
+use rbs_admin_client::resource::{ResourceClient, ResourcePath, ResourceService};
 use rbs_admin_client::AdminClient;
+use rbs_api_types::{CreateResourceRequest, UpdateResourceRequest};
 
 fn admin_client(base_url: &str) -> AdminClient {
     AdminClient::new(base_url, "test-token", &None).expect("admin client should be created")
@@ -37,13 +36,13 @@ fn resource_path() -> ResourcePath {
 async fn resource_operations_report_url_build_failure() {
     let client = ResourceClient::new(unusable_admin_client());
     let path = resource_path();
-    let create = ResourceCreateRequest {
+    let create = CreateResourceRequest {
         policy_id: "policy-1".to_string(),
         additional_info: None,
         content_type: Some("text".to_string()),
         export_mode: Some("plain".to_string()),
     };
-    let update = ResourceUpdateRequest {
+    let update = UpdateResourceRequest {
         policy_id: "policy-2".to_string(),
         additional_info: Some("Zm9v".to_string()),
         content_type: Some("json".to_string()),
@@ -73,19 +72,9 @@ fn resource_client_is_constructible_with_valid_base_url() {
 }
 
 #[tokio::test]
-async fn resource_paths_reject_ambiguous_segments() {
-    let client = ResourceClient::new(admin_client("https://example.com"));
-    let mut path = resource_path();
-    let create = ResourceCreateRequest {
-        policy_id: "policy-1".to_string(),
-        additional_info: None,
-        content_type: Some("text".to_string()),
-        export_mode: Some("plain".to_string()),
-    };
+async fn get_resource_rejects_ambiguous_uri_segments() {
+    let client = ResourceClient::new(unusable_admin_client());
+    let error = client.get_resource("vault/default/secret/%2e%2e").await.expect_err("ambiguous URI should fail");
 
-    for segment in ["../admin", "repo/name", "repo?debug=true", "repo#fragment", "repo\\name", "%2e%2e"] {
-        path.repository_name = segment.to_string();
-        let err = client.create_resource(&path, &create).await.expect_err("ambiguous segment should fail");
-        assert!(err.to_string().contains("path segment must not contain"), "{err}");
-    }
+    assert_eq!(error.to_string(), "resource URI segment must not contain URL path control characters");
 }

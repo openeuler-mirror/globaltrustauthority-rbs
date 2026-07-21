@@ -16,10 +16,10 @@ use serde::{Deserialize, Serialize};
 use crate::attestation::{DEFAULT_AS_PROVIDER, POLICY_SEGMENT};
 use crate::client::AdminClient;
 use crate::error::RbsAdminClientError;
-use crate::{send_empty_json, send_json};
+use crate::{send_empty, send_json};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-pub struct Policy {
+pub struct AttestationPolicy {
     #[serde(default)]
     pub id: Option<String>,
     pub name: String,
@@ -40,7 +40,7 @@ pub struct Policy {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct PolicyCreateRequest {
+pub struct AttestationPolicyCreateRequest {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
@@ -52,7 +52,7 @@ pub struct PolicyCreateRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct PolicyUpdateRequest {
+pub struct AttestationPolicyUpdateRequest {
     pub id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
@@ -69,7 +69,7 @@ pub struct PolicyUpdateRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-pub struct PolicyListParams {
+pub struct AttestationPolicyListParams {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ids: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -77,7 +77,7 @@ pub struct PolicyListParams {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct PolicyDeleteRequest {
+pub struct AttestationPolicyDeleteRequest {
     pub delete_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ids: Option<Vec<String>>,
@@ -88,7 +88,7 @@ pub struct PolicyDeleteRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct PolicyListResponse {
     #[serde(default)]
-    pub policies: Vec<Policy>,
+    pub policies: Vec<AttestationPolicy>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -127,20 +127,30 @@ impl PolicyClient {
 
 #[async_trait]
 pub trait PolicyService {
-    async fn list_policies(&self, params: &PolicyListParams) -> Result<PolicyListResponse, RbsAdminClientError>;
+    async fn list_policies(
+        &self,
+        params: &AttestationPolicyListParams,
+    ) -> Result<PolicyListResponse, RbsAdminClientError>;
 
-    async fn create_policy(&self, request: &PolicyCreateRequest)
-        -> Result<PolicyMutationResponse, RbsAdminClientError>;
+    async fn create_policy(
+        &self,
+        request: &AttestationPolicyCreateRequest,
+    ) -> Result<PolicyMutationResponse, RbsAdminClientError>;
 
-    async fn update_policy(&self, request: &PolicyUpdateRequest)
-        -> Result<PolicyMutationResponse, RbsAdminClientError>;
+    async fn update_policy(
+        &self,
+        request: &AttestationPolicyUpdateRequest,
+    ) -> Result<PolicyMutationResponse, RbsAdminClientError>;
 
-    async fn delete_policies(&self, request: &PolicyDeleteRequest) -> Result<(), RbsAdminClientError>;
+    async fn delete_policies(&self, request: &AttestationPolicyDeleteRequest) -> Result<(), RbsAdminClientError>;
 }
 
 #[async_trait]
 impl PolicyService for PolicyClient {
-    async fn list_policies(&self, params: &PolicyListParams) -> Result<PolicyListResponse, RbsAdminClientError> {
+    async fn list_policies(
+        &self,
+        params: &AttestationPolicyListParams,
+    ) -> Result<PolicyListResponse, RbsAdminClientError> {
         let mut url = self.box_url()?;
         {
             let mut query = url.query_pairs_mut();
@@ -160,7 +170,7 @@ impl PolicyService for PolicyClient {
 
     async fn create_policy(
         &self,
-        request: &PolicyCreateRequest,
+        request: &AttestationPolicyCreateRequest,
     ) -> Result<PolicyMutationResponse, RbsAdminClientError> {
         let url = self.box_url()?;
         send_json(&self.client, Method::POST, url, Some(request)).await
@@ -168,14 +178,14 @@ impl PolicyService for PolicyClient {
 
     async fn update_policy(
         &self,
-        request: &PolicyUpdateRequest,
+        request: &AttestationPolicyUpdateRequest,
     ) -> Result<PolicyMutationResponse, RbsAdminClientError> {
         let url = self.box_url()?;
         send_json(&self.client, Method::PUT, url, Some(request)).await
     }
 
-    async fn delete_policies(&self, request: &PolicyDeleteRequest) -> Result<(), RbsAdminClientError> {
+    async fn delete_policies(&self, request: &AttestationPolicyDeleteRequest) -> Result<(), RbsAdminClientError> {
         let url = self.box_url()?;
-        send_empty_json(&self.client, Method::DELETE, url, request).await
+        send_empty(&self.client, Method::DELETE, url, Some(request)).await
     }
 }

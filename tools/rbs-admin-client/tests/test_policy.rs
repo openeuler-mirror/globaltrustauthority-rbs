@@ -11,7 +11,7 @@
  */
 
 use rbs_admin_client::attestation::policy::{
-    PolicyClient, PolicyCreateRequest, PolicyDeleteRequest, PolicyListParams, PolicyService, PolicyUpdateRequest,
+    PolicyClient, AttestationPolicyCreateRequest, AttestationPolicyDeleteRequest, AttestationPolicyListParams, PolicyService, AttestationPolicyUpdateRequest,
 };
 use rbs_admin_client::AdminClient;
 use serde_json::json;
@@ -34,7 +34,7 @@ fn policy_client(server: &MockServer) -> PolicyClient {
 #[tokio::test]
 async fn policy_client_uses_collection_endpoint_for_list_create_update_and_delete() {
     let server = MockServer::start().await;
-    let create = PolicyCreateRequest {
+    let create = AttestationPolicyCreateRequest {
         name: "policy_name_1".to_string(),
         description: Some("demo policy".to_string()),
         attester_type: vec!["tpm".to_string()],
@@ -42,7 +42,7 @@ async fn policy_client_uses_collection_endpoint_for_list_create_update_and_delet
         content: "cGFja2FnZSBwb2xpY3kKYWxsb3cgPSB0cnVl".to_string(),
         is_default: Some(false),
     };
-    let update = PolicyUpdateRequest {
+    let update = AttestationPolicyUpdateRequest {
         id: "policy_id_1".to_string(),
         name: Some("policy_name_1_new".to_string()),
         description: Some("updated desc".to_string()),
@@ -51,7 +51,7 @@ async fn policy_client_uses_collection_endpoint_for_list_create_update_and_delet
         content: Some("cGFja2FnZSBwb2xpY3kKYWxsb3cgPSBmYWxzZQ==".to_string()),
         is_default: Some(true),
     };
-    let delete = PolicyDeleteRequest {
+    let delete = AttestationPolicyDeleteRequest {
         delete_type: "id".to_string(),
         ids: Some(vec!["policy_id_1".to_string(), "policy_id_2".to_string()]),
         attester_type: None,
@@ -113,7 +113,7 @@ async fn policy_client_uses_collection_endpoint_for_list_create_update_and_delet
 
     let client = policy_client(&server);
     let list = client
-        .list_policies(&PolicyListParams {
+        .list_policies(&AttestationPolicyListParams {
             ids: Some(vec!["policy_id_1".to_string(), "policy_id_2".to_string()]),
             attester_type: Some("tpm".to_string()),
         })
@@ -134,7 +134,7 @@ async fn policy_client_uses_collection_endpoint_for_list_create_update_and_delet
 #[tokio::test]
 async fn policy_operations_report_url_build_failure() {
     let client = PolicyClient::new(unusable_admin_client(), None);
-    let request = PolicyCreateRequest {
+    let request = AttestationPolicyCreateRequest {
         name: "policy_name_1".to_string(),
         description: None,
         attester_type: vec!["tpm".to_string()],

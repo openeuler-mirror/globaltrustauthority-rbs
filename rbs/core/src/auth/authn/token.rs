@@ -338,6 +338,18 @@ fn classify_pem_key(
                 })?;
             Ok((Some(dk), None))
         }
+        openssl::pkey::Id::RSA_PSS => {
+            let rsa = pkey.rsa().map_err(|e| AuthError::TokenInvalid {
+                reason: format!("failed to extract RSA-PSS public key: {}", e),
+            })?;
+            Ok((
+                Some(DecodingKey::from_rsa_raw_components(
+                    rsa.n().to_vec().as_slice(),
+                    rsa.e().to_vec().as_slice(),
+                )),
+                None,
+            ))
+        }
         _ => Err(AuthError::TokenInvalid {
             reason: "unsupported key type for AttestToken".to_string(),
         }),

@@ -13,8 +13,8 @@ use base64::engine::general_purpose;
 use base64::Engine;
 use clap::{Args, Subcommand};
 use rbs_admin_client::attestation::policy::{
-    PolicyClient, PolicyCreateRequest, PolicyDeleteRequest, PolicyListParams, PolicyListResponse,
-    PolicyMutationResponse, PolicyService, PolicyUpdateRequest,
+    PolicyClient, AttestationPolicyCreateRequest, AttestationPolicyDeleteRequest, AttestationPolicyListParams, PolicyListResponse,
+    PolicyMutationResponse, PolicyService, AttestationPolicyUpdateRequest,
 };
 use rbs_admin_client::AdminClient;
 use serde::Serialize;
@@ -184,7 +184,7 @@ async fn execute_policy_command(cli: &PolicyCli, service: &PolicyClient) -> Resu
     match &cli.command {
         PolicyCommand::List(args) => {
             let resp = service
-                .list_policies(&PolicyListParams { ids: args.ids.clone(), attester_type: args.attester_type.clone() })
+                .list_policies(&AttestationPolicyListParams { ids: args.ids.clone(), attester_type: args.attester_type.clone() })
                 .await?;
             Ok(Box::new(PolicyListOutput(resp)))
         },
@@ -197,7 +197,7 @@ async fn execute_policy_command(cli: &PolicyCli, service: &PolicyClient) -> Resu
                 _ => {},
             }
             let resp = service
-                .create_policy(&PolicyCreateRequest {
+                .create_policy(&AttestationPolicyCreateRequest {
                     name: args.name.clone(),
                     description: args.description.clone(),
                     attester_type: args.attester_type.clone(),
@@ -224,7 +224,7 @@ async fn execute_policy_command(cli: &PolicyCli, service: &PolicyClient) -> Resu
                 _ => None,
             };
             let resp = service
-                .update_policy(&PolicyUpdateRequest {
+                .update_policy(&AttestationPolicyUpdateRequest {
                     id: args.id.clone(),
                     name: args.name.clone(),
                     description: args.description.clone(),
@@ -266,7 +266,7 @@ fn validate_update_args(args: &UpdateArgs) -> Result<(), CliError> {
     Ok(())
 }
 
-fn build_delete_request(args: &DeleteArgs) -> Result<PolicyDeleteRequest, CliError> {
+fn build_delete_request(args: &DeleteArgs) -> Result<AttestationPolicyDeleteRequest, CliError> {
     let ids = (!args.ids.is_empty()).then(|| args.ids.clone());
 
     match args.delete_type.as_str() {
@@ -274,7 +274,7 @@ fn build_delete_request(args: &DeleteArgs) -> Result<PolicyDeleteRequest, CliErr
             if ids.is_none() {
                 return Err(CliError::InvalidArgument("ids are required when delete_type is `id`".to_string()));
             }
-            Ok(PolicyDeleteRequest { delete_type: DELETE_POLICY_ID.to_string(), ids, attester_type: None })
+            Ok(AttestationPolicyDeleteRequest { delete_type: DELETE_POLICY_ID.to_string(), ids, attester_type: None })
         },
         DELETE_POLICY_ATTESTER_TYPE => {
             if args.attester_type.is_none() {
@@ -282,7 +282,7 @@ fn build_delete_request(args: &DeleteArgs) -> Result<PolicyDeleteRequest, CliErr
                     "attester_type is required when delete_type is `attester_type`".to_string(),
                 ));
             }
-            Ok(PolicyDeleteRequest {
+            Ok(AttestationPolicyDeleteRequest {
                 delete_type: DELETE_POLICY_ATTESTER_TYPE.to_string(),
                 ids: None,
                 attester_type: args.attester_type.clone(),
@@ -294,13 +294,13 @@ fn build_delete_request(args: &DeleteArgs) -> Result<PolicyDeleteRequest, CliErr
                     "ids and attester_type must not be set when delete_type is `all`".to_string(),
                 ));
             }
-            Ok(PolicyDeleteRequest { delete_type: DELETE_POLICY_ALL.to_string(), ids: None, attester_type: None })
+            Ok(AttestationPolicyDeleteRequest { delete_type: DELETE_POLICY_ALL.to_string(), ids: None, attester_type: None })
         },
         _ => unreachable!(),
     }
 }
 
-fn delete_message(request: &PolicyDeleteRequest) -> String {
+fn delete_message(request: &AttestationPolicyDeleteRequest) -> String {
     match request.delete_type.as_str() {
         DELETE_POLICY_ID => format!("deleted policies: {}", request.ids.clone().unwrap_or_default().join(",")),
         DELETE_POLICY_ATTESTER_TYPE => {
@@ -403,24 +403,6 @@ mod tests {
     }
 
     #[test]
-    fn policy_update_request_omits_content_when_not_provided() {
-        let request = PolicyUpdateRequest {
-            id: "policy-1".to_string(),
-            name: Some("new-policy-name".to_string()),
-            description: None,
-            attester_type: None,
-            content_type: None,
-            content: None,
-            is_default: None,
-        };
-        let json = serde_json::to_value(&request).expect("serialize update request");
-
-        assert_eq!(json["name"], "new-policy-name");
-        assert!(json.get("content").is_none());
-        assert!(json.get("content_type").is_none());
-    }
-
-    #[test]
     fn update_text_content_encodes_file_content() {
         let path = std::env::temp_dir().join(format!("policy-update-content-{}.rego", std::process::id()));
         std::fs::write(&path, "package policy").expect("write policy content");
@@ -462,7 +444,7 @@ mod tests {
     #[test]
     fn delete_message_matches_delete_mode() {
         assert_eq!(
-            delete_message(&PolicyDeleteRequest {
+            delete_message(&AttestationPolicyDeleteRequest {
                 delete_type: "id".to_string(),
                 ids: Some(vec!["a".to_string(), "b".to_string()]),
                 attester_type: None,
@@ -470,7 +452,7 @@ mod tests {
             "deleted policies: a,b"
         );
         assert_eq!(
-            delete_message(&PolicyDeleteRequest {
+            delete_message(&AttestationPolicyDeleteRequest {
                 delete_type: "attester_type".to_string(),
                 ids: None,
                 attester_type: Some("tpm".to_string()),
@@ -482,7 +464,7 @@ mod tests {
     #[test]
     fn policy_outputs_render_text() {
         let list = PolicyListOutput(PolicyListResponse {
-            policies: vec![rbs_admin_client::attestation::policy::Policy {
+            policies: vec![rbs_admin_client::attestation::policy::AttestationPolicy {
                 id: Some("policy-1".to_string()),
                 name: "allow-secret".to_string(),
                 description: Some("demo".to_string()),

@@ -174,11 +174,14 @@ rbs-cli -b http://127.0.0.1:8080 \
 
 ### `client get-resource`
 
-Fetch a protected resource. This command has three mutually exclusive authentication modes:
+Fetch a protected resource through the client attestation flow. This command has four mutually exclusive authentication modes:
 
 - `--attest-token`
-- `--bearer-token`
 - `--evidence`
+- `--passport`
+- `--background`
+
+Bearer-token resource access is handled by `rbs-cli res get`, because that path uses the admin bearer token and an explicit private key to decrypt the returned JWE content.
 
 #### `client get-resource` by attest token
 
@@ -197,8 +200,7 @@ rbs-cli client get-resource [OPTIONS] \
 | `--agent-config <AGENT_CONFIG>` | No | `/etc/attestation_agent/agent_config.yaml` | Path to the attestation agent config file. |
 | `--uri <URI>` | Yes | none | Resource URI to fetch. |
 | `--attest-token <ATTEST_TOKEN>` | Yes | none | Attestation token. Supports inline input or `@file`. |
-| `--bearer-token <BEARER_TOKEN>` | No | unset | Mutually exclusive with `--attest-token` and `--evidence`. |
-| `--evidence <EVIDENCE>` | No | unset | Mutually exclusive with `--attest-token` and `--bearer-token`. |
+| `--evidence <EVIDENCE>` | No | unset | Mutually exclusive with `--attest-token`. |
 | `--private-key-file <PRIVATE_KEY_FILE>` | No | unset | PEM private key used to decrypt returned content when needed. |
 | `--private-key-passphrase [<@PATH>]` | No | unset | Read the private key passphrase interactively or from `@PATH`. |
 
@@ -209,40 +211,6 @@ rbs-cli -b http://127.0.0.1:8080 \
   client get-resource \
   --uri vault/default/secret/test-key \
   --attest-token @/tmp/token.jwt \
-  --agent-config /etc/attestation_agent/agent_config.yaml \
-  --private-key-file /tmp/private_key.pem \
-  -o /tmp/resource.txt
-```
-
-#### `client get-resource` by bearer token
-
-**Usage**
-
-```bash
-rbs-cli client get-resource [OPTIONS] \
-  --uri <URI> \
-  --bearer-token <BEARER_TOKEN>
-```
-
-**Parameters**
-
-| Option | Required | Default | Meaning / Notes |
-|---|---|---|---|
-| `--agent-config <AGENT_CONFIG>` | No | `/etc/attestation_agent/agent_config.yaml` | Path to the attestation agent config file. |
-| `--uri <URI>` | Yes | none | Resource URI to fetch. |
-| `--bearer-token <BEARER_TOKEN>` | Yes | none | Bearer token. Supports inline input or `@file`. |
-| `--attest-token <ATTEST_TOKEN>` | No | unset | Mutually exclusive with `--bearer-token` and `--evidence`. |
-| `--evidence <EVIDENCE>` | No | unset | Mutually exclusive with `--attest-token` and `--bearer-token`. |
-| `--private-key-file <PRIVATE_KEY_FILE>` | No | unset | PEM private key used to decrypt returned content when needed. |
-| `--private-key-passphrase [<@PATH>]` | No | unset | Read the private key passphrase interactively or from `@PATH`. |
-
-**Example**
-
-```bash
-rbs-cli -b http://127.0.0.1:8080 \
-  client get-resource \
-  --uri vault/default/secret/test-key \
-  --bearer-token @/tmp/bearer.jwt \
   --agent-config /etc/attestation_agent/agent_config.yaml \
   --private-key-file /tmp/private_key.pem \
   -o /tmp/resource.txt
@@ -265,8 +233,7 @@ rbs-cli client get-resource [OPTIONS] \
 | `--agent-config <AGENT_CONFIG>` | No | `/etc/attestation_agent/agent_config.yaml` | Path to the attestation agent config file. |
 | `--uri <URI>` | Yes | none | Resource URI to fetch. |
 | `--evidence <EVIDENCE>` | Yes | none | Evidence JSON or `@file` path. |
-| `--attest-token <ATTEST_TOKEN>` | No | unset | Mutually exclusive with `--evidence` and `--bearer-token`. |
-| `--bearer-token <BEARER_TOKEN>` | No | unset | Mutually exclusive with `--evidence` and `--attest-token`. |
+| `--attest-token <ATTEST_TOKEN>` | No | unset | Mutually exclusive with `--evidence`. |
 | `--private-key-file <PRIVATE_KEY_FILE>` | No | unset | PEM private key used to decrypt returned content when needed. |
 | `--private-key-passphrase [<@PATH>]` | No | unset | Read the private key passphrase interactively or from `@PATH`. |
 
@@ -279,6 +246,82 @@ rbs-cli -b http://127.0.0.1:8080 \
   --evidence @/tmp/evidence.json \
   --agent-config /etc/attestation_agent/agent_config.yaml \
   --private-key-file /tmp/private_key.pem \
+  -o /tmp/resource.txt
+```
+
+#### `client get-resource` by `--passport` auto flow
+
+**Usage**
+
+```bash
+rbs-cli client get-resource [OPTIONS] \
+  --uri <URI> \
+  --passport
+```
+
+**Parameters**
+
+| Option | Required | Default | Meaning / Notes |
+|---|---|---|---|
+| `--agent-config <AGENT_CONFIG>` | No | `/etc/attestation_agent/agent_config.yaml` | Path to the attestation agent config file. |
+| `--uri <URI>` | Yes | none | Resource URI to fetch. |
+| `--passport` | Yes | none | Run the auto flow: `native get-token -> get-resource`. |
+| `--attester-data <ATTESTER_DATA>` | No | unset | Attester-data JSON or `@file` path merged into the auto-flow request. |
+| `--runtime-data <RUNTIME_DATA>` | No | repeatable | Runtime data entry in `key=value` form; repeat to add multiple entries. |
+| `--private-key-file <PRIVATE_KEY_FILE>` | No | unset | Not allowed with `--passport`. |
+| `--private-key-passphrase [<@PATH>]` | No | unset | Not allowed with `--passport`. |
+
+Notes:
+
+- `--passport` is mutually exclusive with `--attest-token`, `--evidence`, and external private-key options.
+- The command uses an in-memory `TeePubKeyPair` and automatically decrypts encrypted resource content when possible.
+
+**Example**
+
+```bash
+rbs-cli -b http://127.0.0.1:8080 \
+  client get-resource \
+  --uri vault/default/secret/test-key \
+  --passport \
+  --agent-config /etc/attestation_agent/agent_config.yaml \
+  -o /tmp/resource.txt
+```
+
+#### `client get-resource` by `--background` auto flow
+
+**Usage**
+
+```bash
+rbs-cli client get-resource [OPTIONS] \
+  --uri <URI> \
+  --background
+```
+
+**Parameters**
+
+| Option | Required | Default | Meaning / Notes |
+|---|---|---|---|
+| `--agent-config <AGENT_CONFIG>` | No | `/etc/attestation_agent/agent_config.yaml` | Path to the attestation agent config file. |
+| `--uri <URI>` | Yes | none | Resource URI to fetch. |
+| `--background` | Yes | none | Run the auto flow: `challenge -> native collect-evidence -> retrieve resource`. |
+| `--attester-data <ATTESTER_DATA>` | No | unset | Attester-data JSON or `@file` path merged into the auto-flow request. |
+| `--runtime-data <RUNTIME_DATA>` | No | repeatable | Runtime data entry in `key=value` form; repeat to add multiple entries. |
+| `--private-key-file <PRIVATE_KEY_FILE>` | No | unset | Not allowed with `--background`. |
+| `--private-key-passphrase [<@PATH>]` | No | unset | Not allowed with `--background`. |
+
+Notes:
+
+- `--background` is mutually exclusive with `--attest-token`, `--evidence`, and external private-key options.
+- The command uses an in-memory `TeePubKeyPair` and automatically decrypts encrypted resource content when possible.
+
+**Example**
+
+```bash
+rbs-cli -b http://127.0.0.1:8080 \
+  client get-resource \
+  --uri vault/default/secret/test-key \
+  --background \
+  --agent-config /etc/attestation_agent/agent_config.yaml \
   -o /tmp/resource.txt
 ```
 
@@ -545,42 +588,64 @@ rbs-cli -b http://127.0.0.1:8080 -t "$RBS_TOKEN" \
 
 ---
 
-## Resource Metadata Commands
+## Resource Commands
 
-`rbs-cli res` manages resource metadata bindings for keys, secrets, and certs.
+`rbs-cli res` manages resource metadata bindings and retrieves encrypted resource content for keys, secrets, and certs.
 
-### Shared path fields
+### Shared URI field
 
-The following fields are reused by `res get`, `res create`, `res update`, and `res delete`:
+The following URI option is reused by `res get`, `res get-res-info`, `res create`, `res update`, and `res delete`:
 
 | Option | Required | Default | Meaning / Notes |
 |---|---|---|---|
-| `--provider-name <PROVIDER_NAME>` | Yes | none | Resource provider, for example `vault`. |
-| `--repository-name <REPOSITORY_NAME>` | Yes | none | Repository or namespace name. |
-| `--resource-type <RESOURCE_TYPE>` | Yes | none | Resource type: `key`, `secret`, or `cert`. |
-| `--resource-name <RESOURCE_NAME>` | Yes | none | Resource name. |
+| `--uri <URI>` | Yes | none | Resource URI in `provider/repository/type/name` form, for example `vault/default/secret/my-secret`. The resource type must be `key`, `secret`, or `cert`. |
 
 ### `res get`
+
+Fetch resource content with the bearer token configured by `-t/--token`, then decrypt the returned JWE content with a private key. The private key must match the `enc-pubkey` claim in the bearer token.
 
 **Usage**
 
 ```bash
 rbs-cli res get [OPTIONS] \
-  --provider-name <PROVIDER_NAME> \
-  --repository-name <REPOSITORY_NAME> \
-  --resource-type <RESOURCE_TYPE> \
-  --resource-name <RESOURCE_NAME>
+  --uri <URI> \
+  --private-key-file <PRIVATE_KEY_FILE>
 ```
+
+**Parameters**
+
+| Option | Required | Default | Meaning / Notes |
+|---|---|---|---|
+| shared URI field | Yes | none | See the shared URI table above. |
+| `--private-key-file <PRIVATE_KEY_FILE>` | Yes | none | PEM private key used to decrypt the returned JWE content. |
+| `--private-key-passphrase [<@PATH>]` | No | unset | Read the private key passphrase interactively or from `@PATH`. Inline passphrase values are rejected. |
 
 **Example**
 
 ```bash
 rbs-cli -b http://127.0.0.1:8080 -t "$RBS_TOKEN" \
   res get \
-  --provider-name vault \
-  --repository-name default \
-  --resource-type secret \
-  --resource-name my-secret
+  --uri vault/default/secret/my-secret \
+  --private-key-file /tmp/enc-private-key.pem
+```
+
+### `res get-res-info`
+
+Fetch resource metadata only. This command does not return or decrypt resource content.
+
+**Usage**
+
+```bash
+rbs-cli res get-res-info [OPTIONS] \
+  --uri <URI>
+```
+
+**Example**
+
+```bash
+rbs-cli -b http://127.0.0.1:8080 -t "$RBS_TOKEN" \
+  res get-res-info \
+  --uri vault/default/secret/my-secret
 ```
 
 ### `res create`
@@ -589,10 +654,7 @@ rbs-cli -b http://127.0.0.1:8080 -t "$RBS_TOKEN" \
 
 ```bash
 rbs-cli res create [OPTIONS] \
-  --provider-name <PROVIDER_NAME> \
-  --repository-name <REPOSITORY_NAME> \
-  --resource-type <RESOURCE_TYPE> \
-  --resource-name <RESOURCE_NAME> \
+  --uri <URI> \
   --policy-id <POLICY_ID>
 ```
 
@@ -600,24 +662,21 @@ rbs-cli res create [OPTIONS] \
 
 | Option | Required | Default | Meaning / Notes |
 |---|---|---|---|
-| shared path fields | Yes | none | See the shared path table above. |
+| shared URI field | Yes | none | See the shared URI table above. |
 | `--policy-id <POLICY_ID>` | Yes | none | Bound resource policy ID. |
 | `--additional-info <ADDITIONAL_INFO>` | No | unset | Optional Base64 `additional_info` value or `@file` path. |
 | `--content-type <CONTENT_TYPE>` | No | unset | Resource content type: `jwt`, `json`, `text`, `binary`, `jwk`, or `jwe`. |
-| `--export-mode <EXPORT_MODE>` | No | unset | Export mode: `plain` or `jwe`. |
+| `--export-mode <EXPORT_MODE>` | No | unset | Export mode. Currently only `jwe` is accepted. |
 
 **Example**
 
 ```bash
 rbs-cli -b http://127.0.0.1:8080 -t "$RBS_TOKEN" \
   res create \
-  --provider-name vault \
-  --repository-name default \
-  --resource-type secret \
-  --resource-name my-secret \
+  --uri vault/default/secret/my-secret \
   --policy-id policy-1 \
   --content-type text \
-  --export-mode plain
+  --export-mode jwe
 ```
 
 ### `res update`
@@ -626,35 +685,27 @@ rbs-cli -b http://127.0.0.1:8080 -t "$RBS_TOKEN" \
 
 ```bash
 rbs-cli res update [OPTIONS] \
-  --provider-name <PROVIDER_NAME> \
-  --repository-name <REPOSITORY_NAME> \
-  --resource-type <RESOURCE_TYPE> \
-  --resource-name <RESOURCE_NAME>
+  --uri <URI> \
+  --policy-id <POLICY_ID>
 ```
 
 **Parameters**
 
 | Option | Required | Default | Meaning / Notes |
 |---|---|---|---|
-| shared path fields | Yes | none | See the shared path table above. |
-| `--policy-id <POLICY_ID>` | No | unset | Bound resource policy ID. |
+| shared URI field | Yes | none | See the shared URI table above. |
+| `--policy-id <POLICY_ID>` | Yes | none | Bound resource policy ID. |
 | `--additional-info <ADDITIONAL_INFO>` | No | unset | Optional Base64 `additional_info` value or `@file` path. |
 | `--content-type <CONTENT_TYPE>` | No | unset | Resource content type: `jwt`, `json`, `text`, `binary`, `jwk`, or `jwe`. |
-| `--export-mode <EXPORT_MODE>` | No | unset | Export mode: `plain` or `jwe`. |
-
-Notes:
-
-- At least one updatable field must be provided.
+| `--export-mode <EXPORT_MODE>` | No | unset | Export mode. Currently only `jwe` is accepted. |
 
 **Example**
 
 ```bash
 rbs-cli -b http://127.0.0.1:8080 -t "$RBS_TOKEN" \
   res update \
-  --provider-name vault \
-  --repository-name default \
-  --resource-type secret \
-  --resource-name my-secret \
+  --uri vault/default/secret/my-secret \
+  --policy-id policy-1 \
   --export-mode jwe
 ```
 
@@ -664,10 +715,7 @@ rbs-cli -b http://127.0.0.1:8080 -t "$RBS_TOKEN" \
 
 ```bash
 rbs-cli res delete [OPTIONS] \
-  --provider-name <PROVIDER_NAME> \
-  --repository-name <REPOSITORY_NAME> \
-  --resource-type <RESOURCE_TYPE> \
-  --resource-name <RESOURCE_NAME>
+  --uri <URI>
 ```
 
 **Example**
@@ -675,10 +723,7 @@ rbs-cli res delete [OPTIONS] \
 ```bash
 rbs-cli -b http://127.0.0.1:8080 -t "$RBS_TOKEN" \
   res delete \
-  --provider-name vault \
-  --repository-name default \
-  --resource-type secret \
-  --resource-name my-secret
+  --uri vault/default/secret/my-secret
 ```
 
 ---

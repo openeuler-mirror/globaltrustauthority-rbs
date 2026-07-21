@@ -145,8 +145,6 @@ impl ConfigBuilder {
 pub enum GetResourceRequest<'a> {
     /// Authorize with a pre-obtained attest token.
     ByAttestToken(&'a str),
-    /// Authorize with a bearer token.
-    ByBearerToken(&'a str),
     /// Authorize by submitting raw evidence for inline attestation.
     ByEvidence { value: &'a Value },
 }
@@ -344,8 +342,7 @@ impl Session {
         let rest = self.client.rest_client.clone();
         let resp: ResourceContentResponse = self.client.runtime.block_on(async {
             match request {
-                GetResourceRequest::ByAttestToken(token) => rest.get_resource_by_attest(uri, token).await,
-                GetResourceRequest::ByBearerToken(token) => rest.get_resource_by_bearer(uri, token).await,
+                GetResourceRequest::ByAttestToken(token) => rest.get_resource(uri, token).await,
                 GetResourceRequest::ByEvidence { value } => {
                     let rbc_evidences: RbcEvidencesPayload = serde_json::from_value(value.clone())
                         .map_err(|e| RbcError::InvalidInput(format!("invalid evidence: {e}")))?;

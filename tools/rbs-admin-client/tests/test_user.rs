@@ -11,7 +11,8 @@
  */
 
 use openssl::rsa::Rsa;
-use rbs_admin_client::{AdminClient, CreateUserRequest, ListUsersParams, UpdateUserRequest, UserClient, UserService};
+use rbs_admin_client::{AdminClient, UserClient, UserService};
+use rbs_api_types::{AuthType, Role, UserCreateRequest, UserListQuery, UserUpdateRequest};
 use serde_json::json;
 use wiremock::matchers::{body_json, header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -36,11 +37,11 @@ fn generate_test_public_key_pem() -> String {
 #[tokio::test]
 async fn create_user_sends_expected_request_and_decodes_response() {
     let server = MockServer::start().await;
-    let request = CreateUserRequest {
+    let request = UserCreateRequest {
         username: "ops-user".to_string(),
-        role: Some("user".to_string()),
+        role: Some(Role::User),
         enabled: Some(true),
-        auth_type: "jwt".to_string(),
+        auth_type: AuthType::Jwt,
         public_key: Some(generate_test_public_key_pem()),
         jwk: None,
     };
@@ -65,7 +66,7 @@ async fn create_user_sends_expected_request_and_decodes_response() {
 
     assert_eq!(user.id, "user-1");
     assert_eq!(user.username, "ops-user");
-    assert_eq!(user.role, "user");
+    assert_eq!(user.role, Role::User);
     assert!(user.enabled);
 }
 
@@ -97,7 +98,10 @@ async fn list_users_appends_pagination() {
         .await;
 
     let client = build_user_client(&server);
-    let resp = client.list(&ListUsersParams { limit: 20, offset: 5 }).await.expect("list should succeed");
+    let resp = client
+        .list(&UserListQuery { limit: Some(20), offset: Some(5), role: None, enabled: None })
+        .await
+        .expect("list should succeed");
 
     assert_eq!(resp.total_count, 1);
     assert_eq!(resp.limit, 20);
@@ -126,12 +130,40 @@ async fn list_users_allows_default_filters() {
 
     let client = build_user_client(&server);
     let resp = client
-        .list(&ListUsersParams { limit: 10, offset: 0 })
+        .list(&UserListQuery { limit: Some(10), offset: Some(0), role: None, enabled: None })
         .await
         .expect("list without optional filters should succeed");
 
     assert!(resp.users.is_empty());
     assert_eq!(resp.total_count, 0);
+}
+
+#[tokio::test]
+async fn list_users_appends_role_and_enabled_filters() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/rbs/v0/users"))
+        .and(query_param("limit", "10"))
+        .and(query_param("offset", "0"))
+        .and(query_param("role", "user"))
+        .and(query_param("enabled", "true"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "users": [],
+            "total_count": 0,
+            "limit": 10,
+            "offset": 0
+        })))
+        .mount(&server)
+        .await;
+
+    let client = build_user_client(&server);
+    let response = client
+        .list(&UserListQuery { limit: None, offset: None, role: Some(Role::User), enabled: Some(true) })
+        .await
+        .expect("filtered list should succeed");
+
+    assert!(response.users.is_empty());
 }
 
 #[tokio::test]
@@ -151,10 +183,10 @@ async fn get_update_and_delete_user_use_item_endpoint() {
         .mount(&server)
         .await;
 
-    let update_request = UpdateUserRequest {
-        role: Some("user".to_string()),
+    let update_request = UserUpdateRequest {
+        role: Some(Role::User),
         enabled: Some(false),
-        auth_type: Some("jwt".to_string()),
+        auth_type: Some(AuthType::Jwt),
         public_key: None,
         jwk: Some(json!({"kty":"EC","crv":"P-256","x":"x","y":"y"})),
     };
@@ -194,7 +226,7 @@ async fn get_update_and_delete_user_use_item_endpoint() {
 async fn item_operations_reject_blank_username_without_sending_request() {
     let server = MockServer::start().await;
     let client = build_user_client(&server);
-    let request = UpdateUserRequest { role: None, enabled: Some(true), auth_type: None, public_key: None, jwk: None };
+    let request = UserUpdateRequest { role: None, enabled: Some(true), auth_type: None, public_key: None, jwk: None };
 
     let get_err = client.get("   ").await.expect_err("blank username should fail");
     assert!(get_err.to_string().contains("username must not be empty"));
@@ -208,19 +240,24 @@ async fn item_operations_reject_blank_username_without_sending_request() {
 
 #[tokio::test]
 async fn item_operations_reject_ambiguous_username_segments() {
-    let server = MockServer::start().await;
-    let client = build_user_client(&server);
-    let request = UpdateUserRequest { role: None, enabled: Some(true), auth_type: None, public_key: None, jwk: None };
+    let client = build_unusable_base_user_client();
+    let request = UserUpdateRequest { role: None, enabled: Some(true), auth_type: None, public_key: None, jwk: None };
 
     for username in ["../admin", "ops/user", "ops?debug=true", "ops#fragment", "ops\\user", "%2e%2e"] {
         let get_err = client.get(username).await.expect_err("ambiguous username should fail");
-        assert!(get_err.to_string().contains("path segment must not contain"), "{get_err}");
+        assert!(get_err.to_string().contains("username must not contain URL path control characters"), "{get_err}");
 
         let update_err = client.update(username, &request).await.expect_err("ambiguous username should fail");
-        assert!(update_err.to_string().contains("path segment must not contain"), "{update_err}");
+        assert!(
+            update_err.to_string().contains("username must not contain URL path control characters"),
+            "{update_err}"
+        );
 
         let delete_err = client.delete(username).await.expect_err("ambiguous username should fail");
-        assert!(delete_err.to_string().contains("path segment must not contain"), "{delete_err}");
+        assert!(
+            delete_err.to_string().contains("username must not contain URL path control characters"),
+            "{delete_err}"
+        );
     }
 }
 
@@ -259,11 +296,11 @@ async fn delete_returns_sanitized_server_error() {
 #[tokio::test]
 async fn create_reports_invalid_json_response_body() {
     let server = MockServer::start().await;
-    let request = CreateUserRequest {
+    let request = UserCreateRequest {
         username: "ops-user".to_string(),
         role: None,
         enabled: None,
-        auth_type: "jwt".to_string(),
+        auth_type: AuthType::Jwt,
         public_key: None,
         jwk: None,
     };
@@ -284,11 +321,11 @@ async fn create_reports_invalid_json_response_body() {
 #[tokio::test]
 async fn collection_operations_report_url_build_failure() {
     let client = build_unusable_base_user_client();
-    let request = CreateUserRequest {
+    let request = UserCreateRequest {
         username: "ops-user".to_string(),
         role: None,
         enabled: None,
-        auth_type: "jwt".to_string(),
+        auth_type: AuthType::Jwt,
         public_key: None,
         jwk: None,
     };
@@ -297,7 +334,7 @@ async fn collection_operations_report_url_build_failure() {
     assert_eq!(err.to_string(), "failed to build users collection URL");
 
     let err = client
-        .list(&ListUsersParams { limit: 10, offset: 0 })
+        .list(&UserListQuery { limit: Some(10), offset: Some(0), role: None, enabled: None })
         .await
         .expect_err("unusable base URL should fail before request");
     assert_eq!(err.to_string(), "failed to build users collection URL");
@@ -306,7 +343,7 @@ async fn collection_operations_report_url_build_failure() {
 #[tokio::test]
 async fn item_operations_report_item_url_build_failure() {
     let client = build_unusable_base_user_client();
-    let request = UpdateUserRequest { role: None, enabled: Some(false), auth_type: None, public_key: None, jwk: None };
+    let request = UserUpdateRequest { role: None, enabled: Some(false), auth_type: None, public_key: None, jwk: None };
 
     let get_err = client.get("ops-user").await.expect_err("get should fail before request");
     assert_eq!(get_err.to_string(), "base URL cannot be used to build user item path");

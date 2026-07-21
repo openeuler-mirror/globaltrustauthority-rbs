@@ -84,7 +84,10 @@ fn emit_output(
     Ok(())
 }
 
-fn resolve_context(args: &GlobalArgs, command: &ClientAction) -> Result<ClientCommandContext, Box<dyn std::error::Error>> {
+fn resolve_context(
+    args: &GlobalArgs,
+    command: &ClientAction,
+) -> Result<ClientCommandContext, Box<dyn std::error::Error>> {
     build_client_context(
         &ClientRuntimeInputs {
             base_url: args.base_url.clone(),
@@ -125,12 +128,15 @@ mod tests {
             "vault/default/demo",
             "--attest-token",
             "token-value",
+            "--private-key-file",
+            "/tmp/private.pem",
         ]);
         assert_eq!(cli.global.as_provider, "gta");
         match cli.command {
             ClientAction::GetResource(args) => {
                 assert_eq!(args.uri, "vault/default/demo");
                 assert_eq!(args.attest_token.as_deref(), Some("token-value"));
+                assert_eq!(args.private_key_file.as_deref(), Some("/tmp/private.pem"));
             },
             _ => panic!("expected get-resource command"),
         }

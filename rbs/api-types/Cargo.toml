@@ -13,6 +13,9 @@ thiserror.workspace = true
 utoipa.workspace = true
 validator.workspace = true
 uuid.workspace = true
+tabled.workspace = true
+strum.workspace = true
+strum_macros.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]

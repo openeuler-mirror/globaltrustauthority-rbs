@@ -11,90 +11,33 @@
  */
 use crate::client::AdminClient;
 use crate::error::RbsAdminClientError;
-use crate::path_url::build_path_url;
-use crate::{send_empty, send_json};
+use crate::{send_empty, send_json, validate_path_segment};
 use async_trait::async_trait;
+use rbs_api_types::{UserCreateRequest, UserListQuery, UserListResponse, UserResponse, UserUpdateRequest};
 use reqwest::Method;
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use tabled::Tabled;
 
 const USERS_PATH: &str = "/rbs/v0/users";
-const USER_ITEM_URL_ERROR: &str = "base URL cannot be used to build user item path";
-
 #[derive(Clone)]
 pub struct UserClient {
     client: AdminClient,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct CreateUserRequest {
-    pub username: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub role: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub enabled: Option<bool>,
-    pub auth_type: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub public_key: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub jwk: Option<Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct UpdateUserRequest {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub role: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub enabled: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub auth_type: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub public_key: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub jwk: Option<Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-pub struct ListUsersParams {
-    pub limit: i64,
-    pub offset: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Tabled)]
-pub struct User {
-    pub id: String,
-    pub username: String,
-    pub role: String,
-    pub enabled: bool,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct UserListResponse {
-    pub users: Vec<User>,
-    pub total_count: i64,
-    pub limit: i64,
-    pub offset: i64,
-}
-
 #[async_trait]
 pub trait UserService {
-    async fn create(&self, request: &CreateUserRequest) -> Result<User, RbsAdminClientError>;
+    async fn create(&self, request: &UserCreateRequest) -> Result<UserResponse, RbsAdminClientError>;
 
     async fn delete(&self, username: &str) -> Result<(), RbsAdminClientError>;
 
-    async fn update(&self, username: &str, request: &UpdateUserRequest) -> Result<User, RbsAdminClientError>;
+    async fn update(&self, username: &str, request: &UserUpdateRequest) -> Result<UserResponse, RbsAdminClientError>;
 
-    async fn list(&self, params: &ListUsersParams) -> Result<UserListResponse, RbsAdminClientError>;
+    async fn list(&self, params: &UserListQuery) -> Result<UserListResponse, RbsAdminClientError>;
 
-    async fn get(&self, username: &str) -> Result<User, RbsAdminClientError>;
+    async fn get(&self, username: &str) -> Result<UserResponse, RbsAdminClientError>;
 }
 
 #[async_trait]
 impl UserService for UserClient {
-    async fn create(&self, request: &CreateUserRequest) -> Result<User, RbsAdminClientError> {
+    async fn create(&self, request: &UserCreateRequest) -> Result<UserResponse, RbsAdminClientError> {
         let url = self
             .client
             .base_url
@@ -108,10 +51,10 @@ impl UserService for UserClient {
             return Err(RbsAdminClientError::ClientError("username must not be empty".to_string()));
         }
         let url = self.item_url(username)?;
-        send_empty(&self.client, Method::DELETE, url).await
+        send_empty::<()>(&self.client, Method::DELETE, url, None).await
     }
 
-    async fn update(&self, username: &str, request: &UpdateUserRequest) -> Result<User, RbsAdminClientError> {
+    async fn update(&self, username: &str, request: &UserUpdateRequest) -> Result<UserResponse, RbsAdminClientError> {
         if username.trim().is_empty() {
             return Err(RbsAdminClientError::ClientError("username must not be empty".to_string()));
         }
@@ -119,7 +62,7 @@ impl UserService for UserClient {
         send_json(&self.client, Method::PUT, url, Some(request)).await
     }
 
-    async fn list(&self, params: &ListUsersParams) -> Result<UserListResponse, RbsAdminClientError> {
+    async fn list(&self, params: &UserListQuery) -> Result<UserListResponse, RbsAdminClientError> {
         let mut url = self
             .client
             .base_url
@@ -127,13 +70,19 @@ impl UserService for UserClient {
             .map_err(|_| RbsAdminClientError::ClientError("failed to build users collection URL".to_string()))?;
         {
             let mut query = url.query_pairs_mut();
-            query.append_pair("limit", &params.limit.to_string());
-            query.append_pair("offset", &params.offset.to_string());
+            query.append_pair("limit", &params.limit.unwrap_or(10).to_string());
+            query.append_pair("offset", &params.offset.unwrap_or(0).to_string());
+            if let Some(role) = params.role {
+                query.append_pair("role", &role.to_string());
+            }
+            if let Some(enabled) = params.enabled {
+                query.append_pair("enabled", &enabled.to_string());
+            }
         }
         send_json(&self.client, Method::GET, url, Option::<&()>::None).await
     }
 
-    async fn get(&self, username: &str) -> Result<User, RbsAdminClientError> {
+    async fn get(&self, username: &str) -> Result<UserResponse, RbsAdminClientError> {
         if username.trim().is_empty() {
             return Err(RbsAdminClientError::ClientError("username must not be empty".to_string()));
         }
@@ -148,6 +97,9 @@ impl UserClient {
     }
 
     fn item_url(&self, username: &str) -> Result<reqwest::Url, RbsAdminClientError> {
-        build_path_url(&self.client.base_url, &["rbs", "v0", "users", username], USER_ITEM_URL_ERROR)
+        validate_path_segment(username, "username")?;
+        self.client.base_url.join(format!("{}/{}", USERS_PATH, username).as_str()).map_err(|_| {
+            RbsAdminClientError::ClientError("base URL cannot be used to build user item path".to_string())
+        })
     }
 }

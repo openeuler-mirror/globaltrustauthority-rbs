@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::attestation::{DEFAULT_AS_PROVIDER, REF_VALUE_SEGMENT};
 use crate::error::RbsAdminClientError;
-use crate::{send_empty_json, send_json, AdminClient};
+use crate::{send_empty, send_json, AdminClient};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct RefValue {
@@ -172,6 +172,6 @@ impl RefValueService for RefValueClient {
 
     async fn delete_ref_values(&self, request: &RefValueDeleteRequest) -> Result<(), RbsAdminClientError> {
         let url = self.box_url()?;
-        send_empty_json(&self.client, Method::DELETE, url, request).await
+        send_empty(&self.client, Method::DELETE, url, Some(request)).await
     }
 }

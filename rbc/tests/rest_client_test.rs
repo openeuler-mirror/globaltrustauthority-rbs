@@ -66,29 +66,7 @@ async fn test_get_resource_with_attest_token() {
         .await;
 
     let client = RbsRestClient::new(&mock_server.uri(), None, None).unwrap();
-    let resp = client.get_resource_by_attest(uri, "attest-token").await.unwrap();
-    assert_eq!(resp.uri, uri);
-    assert_eq!(resp.content, "c2VjcmV0LWRhdGE=");
-}
-
-#[tokio::test]
-async fn test_get_resource_with_bearer_token() {
-    let mock_server = MockServer::start().await;
-    let uri = "vault/default/secret/my-key";
-    Mock::given(method("GET"))
-        .and(path(format!("/rbs/v0/{uri}")))
-        .and(header("Authorization", "Bearer bearer-token"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "uri": uri,
-            "content": "c2VjcmV0LWRhdGE=",
-            "content_type": "jwe",
-            "export_mode": "jwe"
-        })))
-        .mount(&mock_server)
-        .await;
-
-    let client = RbsRestClient::new(&mock_server.uri(), None, None).unwrap();
-    let resp = client.get_resource_by_bearer(uri, "bearer-token").await.unwrap();
+    let resp = client.get_resource(uri, "attest-token").await.unwrap();
     assert_eq!(resp.uri, uri);
     assert_eq!(resp.content, "c2VjcmV0LWRhdGE=");
 }
@@ -110,7 +88,7 @@ async fn test_get_resource_percent_encodes_path_segments() {
         .await;
 
     let client = RbsRestClient::new(&mock_server.uri(), None, None).unwrap();
-    let resp = client.get_resource_by_attest(uri, "attest-token").await.unwrap();
+    let resp = client.get_resource(uri, "attest-token").await.unwrap();
     assert_eq!(resp.uri, uri);
 }
 
@@ -130,7 +108,7 @@ async fn test_get_resource_rejects_ambiguous_resource_uri() {
         "vault\\default\\secret\\key",
         "vault/%2e%2e/secret/key",
     ] {
-        let err = client.get_resource_by_attest(uri, "token").await.unwrap_err();
+        let err = client.get_resource(uri, "token").await.unwrap_err();
         assert!(matches!(err, RbcError::InvalidInput(_)), "expected InvalidInput for {uri:?}, got {err:?}");
     }
 }
@@ -145,7 +123,7 @@ async fn test_http_404_returns_resource_not_found() {
         .await;
 
     let client = RbsRestClient::new(&mock_server.uri(), None, None).unwrap();
-    let err = client.get_resource_by_attest("missing", "token").await.unwrap_err();
+    let err = client.get_resource("missing", "token").await.unwrap_err();
     assert!(matches!(err, RbcError::ResourceNotFound(_)), "expected ResourceNotFound, got: {err:?}");
 }
 

@@ -15,9 +15,10 @@ use std::io::{self, IsTerminal, Read};
 use std::path::Path;
 
 use base64::Engine as _;
+use josekit::jwe::JweHeader;
 use openssl::bn::BigNumContext;
 use openssl::ec::PointConversionForm;
-use openssl::pkey::{Id, PKey, Private, Public};
+use openssl::pkey::{Id, PKey, Public};
 use openssl::x509::X509;
 use rbs_api_types::{AttesterData, AuthChallengeResponse, RbcEvidencesPayload};
 use serde_json::{json, Map, Value};
@@ -27,9 +28,10 @@ use zeroize::Zeroizing;
 use crate::cli::args::{AttesterArgs, ClientAction, CollectEvidenceArgs, GetResourceArgs, GetTokenArgs};
 use crate::cli::context::{ClientCommandContext, ExecutionOptions};
 use crate::cli::output::{ClientOutput, ResourceOutput};
+use crate::cli::utils::load_private_key_pem;
 use crate::error::RbcError;
 use crate::sdk::{GetResourceRequest, Session};
-use crate::tools::tee_key::{KeyType, TeePublicKey};
+use crate::tools::tee_key::TeePublicKey;
 
 #[derive(Debug, Error)]
 pub enum CliError {
@@ -116,8 +118,24 @@ fn execute_get_resource(
 ) -> Result<ClientOutput, CliError> {
     let _ = options;
     let client = context.build_rbc_client(None)?;
-    let session = client.new_session(None)?;
-    let resource = if let Some(evidence_input) = args.evidence.as_deref() {
+    let auto_attester_data = if args.passport || args.background {
+        Some(build_attester_data(&AttesterArgs {
+            attester_pubkey: None,
+            attester_data: args.attester_data.clone(),
+            runtime_data: args.runtime_data.clone(),
+        })?)
+    } else {
+        None
+    };
+    let session = client.new_session(auto_attester_data.as_ref())?;
+    let resource = if args.background {
+        let challenge = client.get_auth_challenge()?;
+        let evidence = session.collect_evidence(&challenge)?;
+        session.get_resource(&args.uri, GetResourceRequest::ByEvidence { value: &evidence })?
+    } else if args.passport {
+        let attest = session.attest(None)?;
+        session.get_resource(&args.uri, GetResourceRequest::ByAttestToken(&attest.token))?
+    } else if let Some(evidence_input) = args.evidence.as_deref() {
         let evidence = read_evidence_payload(evidence_input)?;
         let evidence = serde_json::to_value(evidence)?;
         session.get_resource(&args.uri, GetResourceRequest::ByEvidence { value: &evidence })?
@@ -125,14 +143,17 @@ fn execute_get_resource(
         let token = read_trimmed_path_value(token)?;
         session.get_resource(&args.uri, GetResourceRequest::ByAttestToken(&token))?
     } else {
-        let token = args.bearer_token.as_deref().ok_or_else(|| {
-            CliError::InvalidArgument("missing required bearer token; pass --bearer-token".to_string())
-        })?;
-        let token = read_trimmed_path_value(token)?;
-        session.get_resource(&args.uri, GetResourceRequest::ByBearerToken(&token))?
+        return Err(CliError::InvalidArgument(
+            "missing resource authentication mode; pass --attest-token, --evidence, --passport, or --background"
+                .to_string(),
+        ));
     };
 
-    let content = maybe_decrypt_resource(&session, resource.content.as_ref(), args)?;
+    let content = if args.passport || args.background {
+        maybe_decrypt_resource_with_session_key(&session, resource.content.as_ref(), resource.content_type.as_deref())?
+    } else {
+        maybe_decrypt_resource(&session, resource.content.as_ref(), args)?
+    };
     Ok(ClientOutput::Resource(ResourceOutput { uri: resource.uri, content, content_type: resource.content_type }))
 }
 
@@ -278,11 +299,11 @@ fn maybe_decrypt_resource(session: &Session, content: &[u8], args: &GetResourceA
         return Ok(content.to_vec());
     };
 
-    let (_key_type, private_pem) = load_private_key_pem(private_key_file, &args.private_key_passphrase)?;
+    let passphrase = load_passphrase_bytes(&args.private_key_passphrase)?;
+    let private_pem = load_private_key_pem(private_key_file, passphrase.as_ref().map(|value| value.as_slice()))?;
     let ciphertext = String::from_utf8(content.to_vec()).map_err(|_| {
         CliError::InvalidArgument("resource content is not valid UTF-8 JWE; cannot decrypt".to_string())
     })?;
-    let passphrase = load_passphrase_bytes(&args.private_key_passphrase)?;
     let plaintext = session.decrypt_content(
         &ciphertext,
         Some(private_pem.as_str()),
@@ -291,51 +312,50 @@ fn maybe_decrypt_resource(session: &Session, content: &[u8], args: &GetResourceA
     Ok(plaintext.to_vec())
 }
 
-fn load_private_key_pem(
-    path: &str,
-    passphrase: &Option<Option<String>>,
-) -> Result<(KeyType, Zeroizing<String>), CliError> {
-    let private_key = load_private_key(path, passphrase)?;
-    let pem = private_key
-        .private_key_to_pem_pkcs8()
-        .map_err(|err| CliError::InvalidArgument(format!("failed to export private key: {err}")))?;
-    let pem = Zeroizing::new(
-        String::from_utf8(pem)
-            .map_err(|err| CliError::InvalidArgument(format!("private key PEM is not valid UTF-8: {err}")))?,
-    );
+fn maybe_decrypt_resource_with_session_key(
+    session: &Session,
+    content: &[u8],
+    content_type: Option<&str>,
+) -> Result<Vec<u8>, CliError> {
+    if !should_attempt_session_decrypt(content, content_type) {
+        return Ok(content.to_vec());
+    }
 
-    let key_type = match private_key.id() {
-        Id::RSA => KeyType::Rsa,
-        Id::EC => KeyType::Ec,
-        other => {
-            return Err(CliError::InvalidArgument(format!(
-                "unsupported private key type `{other:?}`; expected RSA or EC"
-            )))
-        },
+    let ciphertext = String::from_utf8(content.to_vec()).map_err(|_| {
+        CliError::InvalidArgument("resource content is not valid UTF-8 JWE; cannot decrypt".to_string())
+    })?;
+    let plaintext = session.decrypt_content(&ciphertext, None, None)?;
+    Ok(plaintext.to_vec())
+}
+
+fn should_attempt_session_decrypt(content: &[u8], content_type: Option<&str>) -> bool {
+    if matches!(content_type, Some("jwe")) {
+        return true;
+    }
+
+    let Ok(value) = std::str::from_utf8(content) else {
+        return false;
     };
+    let mut parts = value.split('.');
+    let Some(protected_header) = parts.next() else {
+        return false;
+    };
+    if parts.count() != 4 {
+        return false;
+    }
 
-    Ok((key_type, pem))
+    let Ok(header_json) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(protected_header) else {
+        return false;
+    };
+    let Ok(header) = JweHeader::from_bytes(&header_json) else {
+        return false;
+    };
+    header.algorithm().is_some() && header.content_encryption().is_some()
 }
 
 fn load_passphrase_bytes(passphrase: &Option<Option<String>>) -> Result<Option<Zeroizing<Vec<u8>>>, CliError> {
     let passphrase = load_passphrase(passphrase)?;
     Ok(passphrase.map(|value| Zeroizing::new(value.as_bytes().to_vec())))
-}
-
-fn load_private_key(path: &str, passphrase: &Option<Option<String>>) -> Result<PKey<Private>, CliError> {
-    let private_key_pem = Zeroizing::new(fs::read(path).map_err(|_| {
-        CliError::Message(format!(
-            "unable to read private key file `{path}`. Please check that the file exists and is readable"
-        ))
-    })?);
-    let passphrase = load_passphrase(passphrase)?;
-
-    match &passphrase {
-        Some(passphrase) => PKey::private_key_from_pem_passphrase(&private_key_pem, passphrase.as_bytes())
-            .map_err(|err| CliError::InvalidArgument(format!("unable to read the encrypted private key: {err}"))),
-        None => PKey::private_key_from_pem(&private_key_pem)
-            .map_err(|err| CliError::InvalidArgument(format!("failed to parse private key PEM: {err}"))),
-    }
 }
 
 fn load_passphrase(passphrase: &Option<Option<String>>) -> Result<Option<Zeroizing<String>>, CliError> {
@@ -450,5 +470,19 @@ mod tests {
         let value = read_trimmed_path_value(&format!("@{}", path.display())).expect("file");
         assert_eq!(value, "nonce-value");
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn should_attempt_session_decrypt_detects_jwe_content() {
+        let header =
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(r#"{"alg":"RSA-OAEP-256","enc":"A256GCM"}"#);
+        let jwe = format!("{header}.encrypted_key.iv.ciphertext.tag");
+
+        assert!(should_attempt_session_decrypt(jwe.as_bytes(), Some("text")));
+        assert!(should_attempt_session_decrypt(b"not-even-utf8", Some("jwe")));
+        assert!(!should_attempt_session_decrypt(b"1.2.3.4.5", Some("text")));
+        assert!(!should_attempt_session_decrypt(b"eyJhbGciOiJSU0EtT0FFUC0yNTYifQ.a.b.c.d", Some("text")));
+        assert!(!should_attempt_session_decrypt(b"not-base64.a.b.c.d", Some("text")));
+        assert!(!should_attempt_session_decrypt(b"{\"hello\":\"world\"}", Some("json")));
     }
 }

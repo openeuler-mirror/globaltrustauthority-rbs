@@ -12,9 +12,8 @@
 pub mod attestation;
 mod client;
 mod error;
-mod path_url;
+pub mod res_policy;
 pub mod resource;
-pub mod resource_policy;
 pub mod user;
 
 use reqwest::{Method, StatusCode, Url};
@@ -24,79 +23,35 @@ use tracing::{info, warn};
 
 pub use client::AdminClient;
 pub use error::RbsAdminClientError;
-pub use user::{
-    CreateUserRequest, ListUsersParams, UpdateUserRequest, User, UserClient, UserListResponse, UserService,
-};
+pub use user::{UserClient, UserService};
 
-pub(crate) async fn send_empty(
-    client: &crate::client::AdminClient,
-    method: Method,
-    url: Url,
-) -> Result<(), RbsAdminClientError> {
-    let method_name = method.as_str().to_string();
-    let url_text = url.to_string();
-    info!(method = %method_name, url = %url_text, "sending admin request");
-    let response = client
-        .http_client
-        .request(method, url)
-        .bearer_auth(client.bearer_token())
-        .send()
-        .await
-        .map_err(|err| {
-            warn!(method = %method_name, url = %url_text, error = %err, "admin request send failed");
-            RbsAdminClientError::ClientError("Unable to connect to the service. Please try again later.".to_string())
-        })?;
-    let status = response.status();
-    info!(method = %method_name, url = %url_text, status = %status, "received admin response");
-    let body = response.text().await.map_err(|err| {
-        warn!(method = %method_name, url = %url_text, status = %status, error = %err, "failed to read admin response body");
-        RbsAdminClientError::ClientError("Unable to read the service response. Please try again later.".to_string())
-    })?;
-
-    if status.is_success() {
-        Ok(())
-    } else {
-        warn!(method = %method_name, url = %url_text, status = %status, body_len = body.len(), "admin request returned error");
-        Err(http_error(status, &body))
+/// Reject input that would change URL path semantics when appended as one path segment.
+pub(crate) fn validate_path_segment(value: &str, field_name: &str) -> Result<(), RbsAdminClientError> {
+    if value.trim().is_empty() {
+        return Err(RbsAdminClientError::ClientError(format!("{field_name} must not be empty")));
     }
+    if value == "."
+        || value == ".."
+        || value.contains(['/', '?', '#', '\\', '%'])
+        || value.chars().any(char::is_control)
+    {
+        return Err(RbsAdminClientError::ClientError(format!(
+            "{field_name} must not contain URL path control characters"
+        )));
+    }
+    Ok(())
 }
 
-pub(crate) async fn send_empty_json<B>(
-    client: &crate::client::AdminClient,
+pub(crate) async fn send_empty<B>(
+    client: &AdminClient,
     method: Method,
     url: Url,
-    body: &B,
+    body: Option<&B>,
 ) -> Result<(), RbsAdminClientError>
 where
     B: Serialize + ?Sized,
 {
-    let method_name = method.as_str().to_string();
-    let url_text = url.to_string();
-    info!(method = %method_name, url = %url_text, body_type = std::any::type_name::<B>(), "sending admin JSON request");
-    let response = client
-        .http_client
-        .request(method, url)
-        .bearer_auth(client.bearer_token())
-        .json(body)
-        .send()
-        .await
-        .map_err(|err| {
-            warn!(method = %method_name, url = %url_text, error = %err, "admin JSON request send failed");
-            RbsAdminClientError::ClientError("Unable to connect to the service. Please try again later.".to_string())
-        })?;
-    let status = response.status();
-    info!(method = %method_name, url = %url_text, status = %status, "received admin response");
-    let body = response.text().await.map_err(|err| {
-        warn!(method = %method_name, url = %url_text, status = %status, error = %err, "failed to read admin response body");
-        RbsAdminClientError::ClientError("Unable to read the service response. Please try again later.".to_string())
-    })?;
-
-    if status.is_success() {
-        Ok(())
-    } else {
-        warn!(method = %method_name, url = %url_text, status = %status, body_len = body.len(), "admin request returned error");
-        Err(http_error(status, &body))
-    }
+    send_raw(client, method, url, body).await.map(|_| ())
 }
 
 pub(crate) async fn send_json<T, B>(
@@ -107,7 +62,25 @@ pub(crate) async fn send_json<T, B>(
 ) -> Result<T, RbsAdminClientError>
 where
     T: DeserializeOwned,
-    B: Serialize + ?Sized + std::fmt::Debug,
+    B: Serialize + ?Sized,
+{
+    let body = send_raw(client, method, url, body).await?;
+    serde_json::from_str(&body).map_err(|err| {
+        warn!(body_len = body.len(), error = %err, "failed to deserialize admin response");
+        RbsAdminClientError::ClientError(
+            "The service returned an unexpected response. Please try again later.".to_string(),
+        )
+    })
+}
+
+async fn send_raw<B>(
+    client: &AdminClient,
+    method: Method,
+    url: Url,
+    body: Option<&B>,
+) -> Result<String, RbsAdminClientError>
+where
+    B: Serialize + ?Sized,
 {
     let method_name = method.as_str().to_string();
     let url_text = url.to_string();
@@ -115,7 +88,7 @@ where
         method = %method_name,
         url = %url_text,
         body_type = ?body.as_ref().map(|_| std::any::type_name::<B>()),
-        "sending admin request expecting JSON"
+        "sending admin request"
     );
     let mut request = client.http_client.request(method, url).bearer_auth(client.bearer_token());
     if let Some(body) = body {
@@ -133,17 +106,12 @@ where
         RbsAdminClientError::ClientError("Unable to read the service response. Please try again later.".to_string())
     })?;
 
-    if !status.is_success() {
+    if status.is_success() {
+        Ok(body)
+    } else {
         warn!(method = %method_name, url = %url_text, status = %status, body_len = body.len(), "admin request returned error");
-        return Err(http_error(status, &body));
+        Err(http_error(status, &body))
     }
-
-    serde_json::from_str(&body).map_err(|err| {
-        warn!(method = %method_name, url = %url_text, status = %status, body_len = body.len(), error = %err, "failed to deserialize admin response");
-        RbsAdminClientError::ClientError(
-            "The service returned an unexpected response. Please try again later.".to_string(),
-        )
-    })
 }
 
 pub(crate) fn http_error(status: StatusCode, body: &str) -> RbsAdminClientError {
@@ -176,13 +144,17 @@ mod tests {
             http_error(StatusCode::FORBIDDEN, "").to_string(),
             "You do not have permission to perform this action."
         );
-        assert_eq!(
-            http_error(StatusCode::NOT_FOUND, "").to_string(),
-            "The requested item was not found."
-        );
+        assert_eq!(http_error(StatusCode::NOT_FOUND, "").to_string(), "The requested item was not found.");
         assert_eq!(
             http_error(StatusCode::INTERNAL_SERVER_ERROR, "").to_string(),
             "The service is temporarily unavailable. Please try again later."
         );
+    }
+
+    #[test]
+    fn path_segment_validator_rejects_ambiguous_values() {
+        for value in ["../admin", "ops/user", "ops?debug=true", "ops#fragment", "ops\\user", "%2e%2e"] {
+            assert!(validate_path_segment(value, "username").is_err(), "{value} should fail");
+        }
     }
 }
