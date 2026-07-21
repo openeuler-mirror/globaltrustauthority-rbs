@@ -15,8 +15,9 @@
 use super::{
     AdminConfig, AdminKeyConfig, AttestTokenVerificationConfig, AttestationBackendConfig,
     AttestationBackendMode, AttestationConfig, AttestationCredentials, AttestationRestConfig,
-    AuthConfig, Database, LogRotationConfig, LoggingConfig, PerIpRateLimitConfig, RbsConfig,
-    RestConfig,
+    AuthConfig, BearerTokenVerificationConfig, Database, LogRotationConfig, LoggingConfig,
+    PerIpRateLimitConfig, PolicyLimitsConfig, ResourceProviderConfig, ResourceProvidersConfig,
+    RbsConfig, RestConfig,
 };
 
 /// Maximum allowed file mode (octal). Files cannot have permissions beyond 0o7777
@@ -147,6 +148,44 @@ const ATTEST_API_KEY_PREFIX_MAIN: &str = "m.";
 
 /// Sub API key prefix.
 const ATTEST_API_KEY_PREFIX_SUB: &str = "s.";
+
+// =============================================================================
+// BearerTokenVerificationConfig limits
+// =============================================================================
+
+/// Maximum length of a Bearer JWT issuer/audience claim string.
+const BEARER_CLAIM_MAX_LEN: usize = 256;
+
+// =============================================================================
+// ResourceProviderConfig limits
+// =============================================================================
+
+/// Valid resource backend types. Only "vault" is implemented.
+const RESOURCE_BACKEND_TYPES_VALID: [&str; 1] = ["vault"];
+
+/// Valid Vault KV engine versions.
+const RESOURCE_KV_VERSIONS_VALID: [&str; 2] = ["v1", "v2"];
+
+/// Maximum length of a resource backend base URL string.
+const RESOURCE_URL_MAX_LEN: usize = 2048;
+
+/// Maximum length of a Vault secrets-engine mount path string.
+const RESOURCE_MOUNT_PATH_MAX_LEN: usize = 128;
+
+/// Minimum resource backend request timeout in seconds.
+const RESOURCE_TIMEOUT_SECS_MIN: u32 = 1;
+
+/// Maximum resource backend request timeout in seconds.
+const RESOURCE_TIMEOUT_SECS_MAX: u32 = 3600;
+
+/// Minimum resource backend connection count.
+const RESOURCE_MAX_CONNECTIONS_MIN: u32 = 1;
+
+/// Maximum resource backend connection count.
+const RESOURCE_MAX_CONNECTIONS_MAX: u32 = 10000;
+
+/// Maximum resource backend retry count.
+const RESOURCE_MAX_RETRIES_MAX: u32 = 100;
 
 pub fn parse_octal_str(s: &str) -> Result<u32, String> {
     let s = s.trim();
@@ -539,9 +578,35 @@ impl AttestTokenVerificationConfig {
     }
 }
 
+impl BearerTokenVerificationConfig {
+    fn validate(&self) {
+        if self.issuer.is_empty() {
+            panic!("auth.bearer_token.issuer must not be empty");
+        }
+        if self.issuer.len() > BEARER_CLAIM_MAX_LEN {
+            panic!(
+                "auth.bearer_token.issuer length {} exceeds maximum {}",
+                self.issuer.len(),
+                BEARER_CLAIM_MAX_LEN
+            );
+        }
+        if self.audience.is_empty() {
+            panic!("auth.bearer_token.audience must not be empty");
+        }
+        if self.audience.len() > BEARER_CLAIM_MAX_LEN {
+            panic!(
+                "auth.bearer_token.audience length {} exceeds maximum {}",
+                self.audience.len(),
+                BEARER_CLAIM_MAX_LEN
+            );
+        }
+    }
+}
+
 impl AuthConfig {
     fn validate(&self) {
         self.attest_token.validate();
+        self.bearer_token.validate();
     }
 }
 
@@ -571,6 +636,89 @@ impl AdminConfig {
     }
 }
 
+impl PolicyLimitsConfig {
+    fn validate(&self) {
+        if self.max_per_user < 1 || self.max_per_user > 100 {
+            panic!(
+                "policy.max_per_user must be in [1, 100], got {}",
+                self.max_per_user
+            );
+        }
+    }
+}
+
+impl ResourceProviderConfig {
+    fn validate(&self, name: &str) {
+        if !RESOURCE_BACKEND_TYPES_VALID.contains(&self.backend_type.as_str()) {
+            panic!(
+                "resource.backends['{}'].type = '{}' is invalid; must be one of {:?}",
+                name, self.backend_type, RESOURCE_BACKEND_TYPES_VALID
+            );
+        }
+        if self.url.is_empty() {
+            panic!("resource.backends['{}'].url must not be empty", name);
+        }
+        if !self.url.starts_with("http://") && !self.url.starts_with("https://") {
+            panic!(
+                "resource.backends['{}'].url must start with http:// or https://, got '{}'",
+                name, self.url
+            );
+        }
+        if self.url.len() > RESOURCE_URL_MAX_LEN {
+            panic!(
+                "resource.backends['{}'].url length {} exceeds maximum {}",
+                name, self.url.len(), RESOURCE_URL_MAX_LEN
+            );
+        }
+        if self.mount_path.is_empty() || self.mount_path.len() > RESOURCE_MOUNT_PATH_MAX_LEN {
+            panic!(
+                "resource.backends['{}'].mount_path length must be 1..{}, got {}",
+                name, RESOURCE_MOUNT_PATH_MAX_LEN, self.mount_path.len()
+            );
+        }
+        if !RESOURCE_KV_VERSIONS_VALID.contains(&self.kv_version.as_str()) {
+            panic!(
+                "resource.backends['{}'].kv_version = '{}' is invalid; must be one of {:?}",
+                name, self.kv_version, RESOURCE_KV_VERSIONS_VALID
+            );
+        }
+        if self.timeout < RESOURCE_TIMEOUT_SECS_MIN || self.timeout > RESOURCE_TIMEOUT_SECS_MAX {
+            panic!(
+                "resource.backends['{}'].timeout = {} is out of range [{}, {}]",
+                name, self.timeout, RESOURCE_TIMEOUT_SECS_MIN, RESOURCE_TIMEOUT_SECS_MAX
+            );
+        }
+        if self.max_connections < RESOURCE_MAX_CONNECTIONS_MIN
+            || self.max_connections > RESOURCE_MAX_CONNECTIONS_MAX
+        {
+            panic!(
+                "resource.backends['{}'].max_connections = {} is out of range [{}, {}]",
+                name, self.max_connections, RESOURCE_MAX_CONNECTIONS_MIN, RESOURCE_MAX_CONNECTIONS_MAX
+            );
+        }
+        if self.max_retries > RESOURCE_MAX_RETRIES_MAX {
+            panic!(
+                "resource.backends['{}'].max_retries = {} exceeds maximum {}",
+                name, self.max_retries, RESOURCE_MAX_RETRIES_MAX
+            );
+        }
+    }
+}
+
+impl ResourceProvidersConfig {
+    fn validate(&self) {
+        if self.backends.is_empty() {
+            panic!("resource.backends must have at least one backend when `resource:` section is present");
+        }
+        for (name, backend) in &self.backends {
+            if name.is_empty() {
+                panic!("resource.backends key must not be empty");
+            }
+            backend.validate(name);
+        }
+    }
+}
+
 impl RbsConfig {
     /// Validates all configuration fields and panics if any constraint is violated.
     /// Called at startup before building the core to fail-fast on bad configuration.
@@ -582,8 +730,12 @@ impl RbsConfig {
         self.attestation.validate();
         self.auth.validate();
         self.admin.validate();
+        self.policy.validate();
         if let Some(ref storage) = self.storage {
             storage.validate();
+        }
+        if let Some(ref resource) = self.resource {
+            resource.validate();
         }
     }
 }
@@ -1063,6 +1215,7 @@ logging:
         assert_eq!(rest.listen_addr, "127.0.0.1:6666");
         assert_eq!(config.logging.level, "info");
         assert_eq!(config.logging.format, "text");
+        assert_eq!(config.policy.max_per_user, 10);
     }
 
     #[test]
@@ -1075,6 +1228,127 @@ unknown_field: {}
 "#;
         let result: Result<RbsConfig, _> = serde_yaml::from_str(yaml);
         assert!(result.is_err(), "top-level keys other than rest/logging/attestation/storage/auth must be rejected");
+    }
+
+    #[test]
+    fn policy_config_default_and_override() {
+        // Omitted `policy:` section → default 10
+        let y = "rest: {}\nlogging:\n  level: info\n";
+        let c: RbsConfig = serde_yaml::from_str(y).unwrap();
+        assert_eq!(c.policy.max_per_user, 10);
+
+        // Explicit override
+        let y = "rest: {}\nlogging:\n  level: info\npolicy:\n  max_per_user: 50\n";
+        let c: RbsConfig = serde_yaml::from_str(y).unwrap();
+        assert_eq!(c.policy.max_per_user, 50);
+    }
+
+    #[test]
+    #[should_panic(expected = "policy.max_per_user")]
+    fn policy_max_per_user_out_of_range_panics() {
+        let y = "rest: {}\nlogging:\n  level: info\npolicy:\n  max_per_user: 0\n";
+        let c: RbsConfig = serde_yaml::from_str(y).unwrap();
+        // Call PolicyLimitsConfig::validate directly to isolate from sibling
+        // validators (e.g. attestation) that would panic first on minimal YAML.
+        c.policy.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "auth.bearer_token.issuer must not be empty")]
+    fn bearer_token_rejects_empty_issuer() {
+        let c = BearerTokenVerificationConfig { issuer: String::new(), audience: "aud".to_string() };
+        c.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "auth.bearer_token.audience must not be empty")]
+    fn bearer_token_rejects_empty_audience() {
+        let c = BearerTokenVerificationConfig { issuer: "iss".to_string(), audience: String::new() };
+        c.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "auth.bearer_token.issuer length")]
+    fn bearer_token_rejects_oversize_issuer() {
+        let c = BearerTokenVerificationConfig {
+            issuer: "x".repeat(BEARER_CLAIM_MAX_LEN + 1),
+            audience: "aud".to_string(),
+        };
+        c.validate();
+    }
+
+    #[test]
+    fn bearer_token_valid_passes() {
+        let c = BearerTokenVerificationConfig {
+            issuer: "rbs-cli".to_string(),
+            audience: "globaltrustauthority-rbs".to_string(),
+        };
+        c.validate(); // must not panic
+    }
+
+    fn valid_resource_backend() -> ResourceProviderConfig {
+        ResourceProviderConfig {
+            backend_type: "vault".to_string(),
+            url: "https://vault:8200".to_string(),
+            token: super::super::Sensitive::new(String::new()),
+            mount_path: "secret".to_string(),
+            kv_version: "v2".to_string(),
+            verify_ssl: true,
+            timeout: 30,
+            max_connections: 100,
+            max_retries: 2,
+        }
+    }
+
+    #[test]
+    fn resource_provider_valid_passes() {
+        valid_resource_backend().validate("vault");
+    }
+
+    #[test]
+    #[should_panic(expected = ".type = 'etcd' is invalid")]
+    fn resource_provider_rejects_bad_type() {
+        let mut b = valid_resource_backend();
+        b.backend_type = "etcd".to_string();
+        b.validate("vault");
+    }
+
+    #[test]
+    #[should_panic(expected = ".url must start with http")]
+    fn resource_provider_rejects_bad_url_scheme() {
+        let mut b = valid_resource_backend();
+        b.url = "ftp://vault:8200".to_string();
+        b.validate("vault");
+    }
+
+    #[test]
+    #[should_panic(expected = ".kv_version = 'v9' is invalid")]
+    fn resource_provider_rejects_bad_kv_version() {
+        let mut b = valid_resource_backend();
+        b.kv_version = "v9".to_string();
+        b.validate("vault");
+    }
+
+    #[test]
+    #[should_panic(expected = ".timeout = 0 is out of range")]
+    fn resource_provider_rejects_timeout_out_of_range() {
+        let mut b = valid_resource_backend();
+        b.timeout = 0;
+        b.validate("vault");
+    }
+
+    #[test]
+    #[should_panic(expected = "resource.backends must have at least one backend")]
+    fn resource_providers_empty_rejected() {
+        let rp = ResourceProvidersConfig { backends: std::collections::HashMap::new() };
+        rp.validate();
+    }
+
+    #[test]
+    fn resource_providers_valid_passes() {
+        let mut backends = std::collections::HashMap::new();
+        backends.insert("vault".to_string(), valid_resource_backend());
+        ResourceProvidersConfig { backends }.validate();
     }
 }
 

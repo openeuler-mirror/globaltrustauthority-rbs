@@ -129,7 +129,7 @@ impl Default for Database {
     }
 }
 
-/// Top-level run configuration (`rbs.yaml`). Only **`rest`**, **`logging`**, **`storage`**, **`attestation`**, **`auth`**, and **`admin`** are deserialized;
+/// Top-level run configuration (`rbs.yaml`). Only **`rest`**, **`logging`**, **`storage`**, **`attestation`**, **`auth`**, **`admin`**, and **`policy`** are deserialized;
 /// any other top-level key is rejected (`deny_unknown_fields`).
 ///
 /// In YAML, `rest` may be omitted or null (deserializes as `None`). The `rbs` binary's `load_config`
@@ -148,6 +148,9 @@ pub struct RbsConfig {
     pub auth: AuthConfig,
     #[serde(default)]
     pub admin: AdminConfig,
+    /// Policy module configuration (yaml-facing subset).
+    #[serde(default)]
+    pub policy: PolicyLimitsConfig,
     /// Resource provider backends (optional).
     #[serde(default)]
     pub resource: Option<ResourceProvidersConfig>,
@@ -163,6 +166,7 @@ impl Default for RbsConfig {
             attestation: AttestationConfig::default(),
             auth: AuthConfig::default(),
             admin: AdminConfig::default(),
+            policy: PolicyLimitsConfig::default(),
             resource: None,
         }
     }
@@ -192,6 +196,9 @@ pub struct CoreConfig {
     pub auth: AuthConfig,
     #[serde(default)]
     pub admin: AdminConfig,
+    /// Policy module configuration (yaml-facing subset).
+    #[serde(default)]
+    pub policy: PolicyLimitsConfig,
     /// Resource provider backends (optional).
     #[serde(default)]
     pub resource: Option<ResourceProvidersConfig>,
@@ -204,6 +211,7 @@ impl Default for CoreConfig {
             attestation: AttestationConfig::default(),
             auth: AuthConfig::default(),
             admin: AdminConfig::default(),
+            policy: PolicyLimitsConfig::default(),
             resource: None,
         }
     }
@@ -550,6 +558,24 @@ pub struct AdminKeyConfig {
     pub public_key_path: Option<String>,
     /// Path to JWK key file (mutually exclusive with public_key_path).
     pub jwks_file: Option<String>,
+}
+
+/// Policy module configuration (yaml-facing subset). Only `max_per_user` is configurable
+/// from `rbs.yaml`; the remaining `PolicyConfig` fields stay at code defaults.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PolicyLimitsConfig {
+    /// Maximum number of policies per user (1..=100).
+    #[serde(default = "default_policy_max_per_user")]
+    pub max_per_user: usize,
+}
+
+fn default_policy_max_per_user() -> usize { 10 }
+
+impl Default for PolicyLimitsConfig {
+    fn default() -> Self {
+        Self { max_per_user: default_policy_max_per_user() }
+    }
 }
 
 // ── Resource backend configuration ──
