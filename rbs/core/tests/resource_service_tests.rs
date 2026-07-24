@@ -263,6 +263,18 @@ fn attest_payload_no_pubkey() -> AttestContext {
     }
 }
 
+/// Attestation context with tee-pubkey at attester_data top level (no runtime_data nesting).
+/// Exercises the retrieve fallback path: claims["attester_data"]["tee-pubkey"].
+fn attest_payload_top_level_pubkey() -> AttestContext {
+    AttestContext {
+        claims: json!({
+            "nonce": "abc123",
+            "attester_data": {"tee-pubkey": EC_P256_JWK}
+        }),
+        token_type: TokenType::Attest,
+    }
+}
+
 /// Attest AuthContext with tee-pubkey (nested: attester_data.runtime_data.tee-pubkey).
 fn attest_with_pubkey() -> AuthContext {
     AuthContext::Attest(AttestContext {
@@ -1202,6 +1214,25 @@ async fn test_retrieve_jwe_no_pubkey() {
     );
     let result = svc.retrieve(&attest_payload_no_pubkey(), TEST_URI).await;
     assert!(matches!(result, Err(ResourceError::JweEncryptionFailed { .. })));
+}
+
+/// UT-RS-021b: retrieve success via attester_data top-level tee-pubkey (fallback path)
+///
+/// When tee-pubkey lives at claims["attester_data"]["tee-pubkey"] (top-level of
+/// attester_data, not nested under runtime_data), the retrieve fallback path
+/// must still extract the pubkey and succeed JWE encryption.
+#[tokio::test]
+async fn test_retrieve_jwe_pubkey_attester_data_top_level() {
+    let mut entity = make_entity(); entity.export_mode = "jwe".to_string();
+    let svc = make_service(
+        |repo| { *repo.find_by_uri_result.lock().unwrap() = Ok(Some(entity)); },
+        |policy| { *policy.get_policy_content_result.lock().unwrap() = Ok("package x\n\ndefault attestation_valid = true".into()); },
+        |bp| { bp.register("vault", Arc::new(MockResourceBackend::with_content(b"secret-data".to_vec()))); },
+    );
+    let result = svc.retrieve(&attest_payload_top_level_pubkey(), TEST_URI).await;
+    assert!(result.is_ok(), "retrieve via attester_data top-level tee-pubkey should succeed: {:?}", result.err());
+    let resp = result.unwrap();
+    assert_ne!(resp.content.as_bytes(), b"secret-data", "JWE content should not be plaintext");
 }
 
 // ===========================================================================

@@ -439,7 +439,7 @@ sequenceDiagram
     Note over Client,REST: attestation backend failure → 502
 ```
 
-Background-Check `retrieve` accepts the TEE encryption pubkey from nested `attester_data.runtime_data.tee-pubkey` **or** top-level `tee-pubkey` in attest token claims (Passport GET accepts nested only — §8.3).
+Background-Check `retrieve` accepts the TEE encryption pubkey from nested `attester_data.runtime_data.tee-pubkey` **or** `attester_data`-top-level `tee-pubkey` (`claims["attester_data"]["tee-pubkey"]`) in attest token claims (Passport GET accepts nested only — §8.3).
 
 ### 8.5 Policy Lifecycle (Authenticated User, Bearer)
 
