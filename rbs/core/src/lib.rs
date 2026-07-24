@@ -143,12 +143,7 @@ impl RbsCoreBuilder {
             resource_config.configured_backends = rp_config.backends.keys().cloned().collect();
             for (name, backend_cfg) in &rp_config.backends {
                 if backend_cfg.backend_type == "vault" {
-                    let vault = resource::adapter::VaultBackend::new(
-                        backend_cfg.url.clone(),
-                        backend_cfg.token.get().clone(),
-                        backend_cfg.mount_path.clone(),
-                        backend_cfg.kv_version.clone(),
-                    );
+                    let vault = resource::adapter::VaultBackend::new(backend_cfg);
                     backend_provider.register(name, Arc::new(vault));
                     log::info!("Registered resource backend '{}' (type=vault, url={})",
                         name, backend_cfg.url);

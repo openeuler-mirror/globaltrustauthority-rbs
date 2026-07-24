@@ -371,7 +371,9 @@ impl ResourceService {
             .and_then(|ad| ad.get("runtime_data"))
             .and_then(|rd| rd.get(ATTEST_TEE_PUBKEY_KEY))
             .and_then(|v| Self::json_value_to_string(&v))
-            .or_else(|| attest_ctx.claims.get(ATTEST_TEE_PUBKEY_KEY).and_then(|v| Self::json_value_to_string(&v)))
+            .or_else(|| attest_ctx.claims.get("attester_data")
+                .and_then(|ad| ad.get(ATTEST_TEE_PUBKEY_KEY))
+                .and_then(|v| Self::json_value_to_string(&v)))
             .ok_or_else(|| {
                 log::error!("Resource retrieve failed: TEE public key not found in attestation claims for uri '{}'", uri);
                 ResourceError::JweEncryptionFailed {

@@ -31,14 +31,18 @@ rm -rf %{buildroot}
 cd %{_project_root}
 
 # Install binary files
-install -D -m 755 target/release/rbc %{buildroot}%{_bindir}/rbc
+install -D -m 755 target/release/rbc-cli %{buildroot}%{_bindir}/rbc-cli
+
+# Install shared library
+install -D -m 755 target/release/librbc.so %{buildroot}%{_libdir}/librbc.so
 
 # Install configuration file
 install -D -m 644 rbc/conf/rbc.yaml %{buildroot}%{_sysconfdir}/rbc/rbc.yaml
 
 %files
 %defattr(-,root,root,-)
-%{_bindir}/rbc
+%{_bindir}/rbc-cli
+%{_libdir}/librbc.so
 %config(noreplace) %{_sysconfdir}/rbc/rbc.yaml
 
 %changelog

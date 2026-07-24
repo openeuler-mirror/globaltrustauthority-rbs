@@ -3358,6 +3358,7 @@ dependencies = [
  "tokio",
  "uuid",
  "validator",
+ "wiremock",
  "zeroize",
 ]
 
