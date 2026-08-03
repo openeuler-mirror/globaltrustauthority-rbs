@@ -10,7 +10,8 @@
  * See the Mulan PSL v2 for more details.
  */
 
-use rbs_admin_client::{AdminClient, CreateUserRequest, ListUsersParams, UpdateUserRequest, UserClient, UserService};
+use rbs_admin_client::{AdminClient, UserClient, UserService};
+use rbs_api_types::{AuthType, Role, UserCreateRequest, UserListQuery, UserUpdateRequest};
 
 fn unusable_admin_client() -> AdminClient {
     AdminClient::new("data:text/plain,not-a-base-url", "test-token", &None)
@@ -20,18 +21,18 @@ fn unusable_admin_client() -> AdminClient {
 #[tokio::test]
 async fn user_client_reports_argument_and_url_failures() {
     let client = UserClient::new(unusable_admin_client());
-    let create = CreateUserRequest {
+    let create = UserCreateRequest {
         username: "ops".to_string(),
-        role: Some("user".to_string()),
+        role: Some(Role::User),
         enabled: Some(true),
-        auth_type: "jwt".to_string(),
+        auth_type: AuthType::Jwt,
         public_key: None,
         jwk: None,
     };
-    let update = UpdateUserRequest {
-        role: Some("user".to_string()),
+    let update = UserUpdateRequest {
+        role: Some(Role::User),
         enabled: Some(false),
-        auth_type: Some("jwt".to_string()),
+        auth_type: Some(AuthType::Jwt),
         public_key: None,
         jwk: None,
     };
@@ -42,7 +43,7 @@ async fn user_client_reports_argument_and_url_failures() {
     );
     assert_eq!(
         client
-            .list(&ListUsersParams { limit: 10, offset: 0 })
+            .list(&UserListQuery { limit: Some(10), offset: Some(0), role: None, enabled: None })
             .await
             .expect_err("list should fail")
             .to_string(),

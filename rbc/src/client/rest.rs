@@ -82,27 +82,12 @@ impl RbsRestClient {
     }
 
     /// GET /rbs/v0/{uri} + Authorization header → ResourceContentResponse
-    pub async fn get_resource_by_attest(&self, uri: &str, token: &str) -> Result<ResourceContentResponse, RbcError> {
-        self.get_resource_with_auth_scheme(uri, token, "Attest").await
-    }
-
-    /// GET /rbs/v0/{uri} + Authorization header → ResourceContentResponse
-    pub async fn get_resource_by_bearer(&self, uri: &str, token: &str) -> Result<ResourceContentResponse, RbcError> {
-        self.get_resource_with_auth_scheme(uri, token, "Bearer").await
-    }
-
-    /// GET /rbs/v0/{uri} + Authorization header → ResourceContentResponse
-    async fn get_resource_with_auth_scheme(
-        &self,
-        uri: &str,
-        token: &str,
-        scheme: &str,
-    ) -> Result<ResourceContentResponse, RbcError> {
+    pub async fn get_resource(&self, uri: &str, token: &str) -> Result<ResourceContentResponse, RbcError> {
         let url = self.resource_url(uri, None)?;
         let resp = self
             .http
             .get(url)
-            .header("Authorization", format!("{scheme} {token}"))
+            .header("Authorization", format!("Attest {token}"))
             .send()
             .await
             .map_err(|e| RbcError::NetworkError(e.to_string()))?;

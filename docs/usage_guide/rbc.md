@@ -467,11 +467,14 @@ rbc-cli -b https://rbs.example.com \
 
 ### 7.1.4 `get-resource`
 
-Fetch a protected resource. This command has three mutually exclusive authentication modes:
+Fetch a protected resource through the attestation client flow. This command has four mutually exclusive authentication modes:
 
 - `--attest-token`
-- `--bearer-token`
 - `--evidence`
+- `--passport`
+- `--background`
+
+Bearer-token resource access is handled by `rbs-cli res get`, which uses an admin bearer token and an explicit private key to decrypt the returned JWE content.
 
 #### By attest token
 
@@ -490,8 +493,7 @@ rbc-cli get-resource [OPTIONS] \
 | `--agent-config <AGENT_CONFIG>` | No | `/etc/attestation_agent/agent_config.yaml` | Path to the attestation agent config file. |
 | `--uri <URI>` | Yes | none | Resource URI to fetch. |
 | `--attest-token <ATTEST_TOKEN>` | Yes | none | Attestation token. Supports inline input or `@file`. |
-| `--bearer-token <BEARER_TOKEN>` | No | unset | Mutually exclusive with `--attest-token` and `--evidence`. |
-| `--evidence <EVIDENCE>` | No | unset | Mutually exclusive with `--attest-token` and `--bearer-token`. |
+| `--evidence <EVIDENCE>` | No | unset | Mutually exclusive with `--attest-token`. |
 | `--private-key-file <PRIVATE_KEY_FILE>` | No | unset | PEM private key used to decrypt returned content when needed. |
 | `--private-key-passphrase [<@PATH>]` | No | unset | Read the private key passphrase interactively or from `@PATH`. |
 
@@ -502,40 +504,6 @@ rbc-cli -b https://rbs.example.com \
   get-resource \
   --uri default/repo/key/test-key \
   --attest-token @/tmp/token.txt \
-  --agent-config /etc/attestation_agent/agent_config.yaml \
-  --private-key-file private_key.pem \
-  -o /tmp/resource.txt
-```
-
-#### By bearer token
-
-**Usage**
-
-```bash
-rbc-cli get-resource [OPTIONS] \
-  --uri <URI> \
-  --bearer-token <BEARER_TOKEN>
-```
-
-**Parameters**
-
-| Option | Required | Default | Meaning / Notes |
-|---|---|---|---|
-| `--agent-config <AGENT_CONFIG>` | No | `/etc/attestation_agent/agent_config.yaml` | Path to the attestation agent config file. |
-| `--uri <URI>` | Yes | none | Resource URI to fetch. |
-| `--bearer-token <BEARER_TOKEN>` | Yes | none | Bearer token. Supports inline input or `@file`. |
-| `--attest-token <ATTEST_TOKEN>` | No | unset | Mutually exclusive with `--bearer-token` and `--evidence`. |
-| `--evidence <EVIDENCE>` | No | unset | Mutually exclusive with `--bearer-token` and `--attest-token`. |
-| `--private-key-file <PRIVATE_KEY_FILE>` | No | unset | PEM private key used to decrypt returned content when needed. |
-| `--private-key-passphrase [<@PATH>]` | No | unset | Read the private key passphrase interactively or from `@PATH`. |
-
-**Example**
-
-```bash
-rbc-cli -b https://rbs.example.com \
-  get-resource \
-  --uri default/repo/key/test-key \
-  --bearer-token @/tmp/bearer.txt \
   --agent-config /etc/attestation_agent/agent_config.yaml \
   --private-key-file private_key.pem \
   -o /tmp/resource.txt
@@ -558,8 +526,7 @@ rbc-cli get-resource [OPTIONS] \
 | `--agent-config <AGENT_CONFIG>` | No | `/etc/attestation_agent/agent_config.yaml` | Path to the attestation agent config file. |
 | `--uri <URI>` | Yes | none | Resource URI to fetch. |
 | `--evidence <EVIDENCE>` | Yes | none | Evidence JSON or `@file` path. |
-| `--attest-token <ATTEST_TOKEN>` | No | unset | Mutually exclusive with `--evidence` and `--bearer-token`. |
-| `--bearer-token <BEARER_TOKEN>` | No | unset | Mutually exclusive with `--evidence` and `--attest-token`. |
+| `--attest-token <ATTEST_TOKEN>` | No | unset | Mutually exclusive with `--evidence`. |
 | `--private-key-file <PRIVATE_KEY_FILE>` | No | unset | PEM private key used to decrypt returned content when needed. |
 | `--private-key-passphrase [<@PATH>]` | No | unset | Read the private key passphrase interactively or from `@PATH`. |
 
@@ -572,6 +539,82 @@ rbc-cli -b https://rbs.example.com \
   --evidence @/tmp/evidence.json \
   --agent-config /etc/attestation_agent/agent_config.yaml \
   --private-key-file private_key.pem \
+  -o /tmp/resource.txt
+```
+
+#### By `--passport` auto flow
+
+**Usage**
+
+```bash
+rbc-cli get-resource [OPTIONS] \
+  --uri <URI> \
+  --passport
+```
+
+**Parameters**
+
+| Option | Required | Default | Meaning / Notes |
+|---|---|---|---|
+| `--agent-config <AGENT_CONFIG>` | No | `/etc/attestation_agent/agent_config.yaml` | Path to the attestation agent config file. |
+| `--uri <URI>` | Yes | none | Resource URI to fetch. |
+| `--passport` | Yes | none | Run the auto flow: `native get-token -> get-resource`. |
+| `--attester-data <ATTESTER_DATA>` | No | unset | Attester-data JSON or `@file` path merged into the auto-flow request. |
+| `--runtime-data <RUNTIME_DATA>` | No | repeatable | Runtime data entry in `key=value` form; repeat to add multiple entries. |
+| `--private-key-file <PRIVATE_KEY_FILE>` | No | unset | Not allowed with `--passport`. |
+| `--private-key-passphrase [<@PATH>]` | No | unset | Not allowed with `--passport`. |
+
+Notes:
+
+- `--passport` is mutually exclusive with `--attest-token`, `--evidence`, and external private-key options.
+- The session generates an in-memory `TeePubKeyPair` and automatically decrypts encrypted resource content when possible.
+
+**Example**
+
+```bash
+rbc-cli -b https://rbs.example.com \
+  get-resource \
+  --uri default/repo/key/test-key \
+  --passport \
+  --agent-config /etc/attestation_agent/agent_config.yaml \
+  -o /tmp/resource.txt
+```
+
+#### By `--background` auto flow
+
+**Usage**
+
+```bash
+rbc-cli get-resource [OPTIONS] \
+  --uri <URI> \
+  --background
+```
+
+**Parameters**
+
+| Option | Required | Default | Meaning / Notes |
+|---|---|---|---|
+| `--agent-config <AGENT_CONFIG>` | No | `/etc/attestation_agent/agent_config.yaml` | Path to the attestation agent config file. |
+| `--uri <URI>` | Yes | none | Resource URI to fetch. |
+| `--background` | Yes | none | Run the auto flow: `challenge -> native collect-evidence -> retrieve resource`. |
+| `--attester-data <ATTESTER_DATA>` | No | unset | Attester-data JSON or `@file` path merged into the auto-flow request. |
+| `--runtime-data <RUNTIME_DATA>` | No | repeatable | Runtime data entry in `key=value` form; repeat to add multiple entries. |
+| `--private-key-file <PRIVATE_KEY_FILE>` | No | unset | Not allowed with `--background`. |
+| `--private-key-passphrase [<@PATH>]` | No | unset | Not allowed with `--background`. |
+
+Notes:
+
+- `--background` is mutually exclusive with `--attest-token`, `--evidence`, and external private-key options.
+- The session generates an in-memory `TeePubKeyPair` and automatically decrypts encrypted resource content when possible.
+
+**Example**
+
+```bash
+rbc-cli -b https://rbs.example.com \
+  get-resource \
+  --uri default/repo/key/test-key \
+  --background \
+  --agent-config /etc/attestation_agent/agent_config.yaml \
   -o /tmp/resource.txt
 ```
 

@@ -3,7 +3,7 @@
 //! These types define the HTTP contract for the policy CRUD API.
 
 use serde::{Deserialize, Serialize};
-
+use tabled::Tabled;
 // ── Validation constants ──
 
 /// Maximum length of a policy ID (UUID v4: 36 chars).
@@ -52,7 +52,7 @@ pub struct UpdatePolicyRequest {
 }
 
 /// Policy response returned to callers.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema, Tabled)]
 #[serde(rename_all = "snake_case")]
 pub struct PolicyResponse {
     pub policy_id: String,
@@ -61,7 +61,8 @@ pub struct PolicyResponse {
     pub content_type: String,
     pub created_at: String,
     pub updated_at: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[tabled(skip)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub applied_resources: Option<Vec<String>>,
 }
 
@@ -110,10 +111,7 @@ fn validate_policy_name(name: &str) -> Result<(), validator::ValidationError> {
 fn validate_content_type(content_type: &str) -> Result<(), validator::ValidationError> {
     if !POLICY_CONTENT_TYPE_WHITELIST.contains(&content_type) {
         let mut err = validator::ValidationError::new("invalid_content_type");
-        err.message = Some(format!(
-            "content_type must be one of: {}",
-            POLICY_CONTENT_TYPE_WHITELIST.join(", ")
-        ).into());
+        err.message = Some(format!("content_type must be one of: {}", POLICY_CONTENT_TYPE_WHITELIST.join(", ")).into());
         return Err(err);
     }
     Ok(())
@@ -123,16 +121,9 @@ fn validate_content_type(content_type: &str) -> Result<(), validator::Validation
 /// Checks both length (1..36) and UUID v4 format.
 pub fn validate_policy_id(id: &str) -> Result<(), String> {
     if id.is_empty() || id.len() > POLICY_ID_MAX_LEN as usize {
-        Err(format!(
-            "policy_id length must be 1..{}, got {}",
-            POLICY_ID_MAX_LEN,
-            id.len()
-        ))
+        Err(format!("policy_id length must be 1..{}, got {}", POLICY_ID_MAX_LEN, id.len()))
     } else if uuid::Uuid::parse_str(id).is_err() {
-        Err(format!(
-            "policy_id must be a valid UUID, got '{}'",
-            id
-        ))
+        Err(format!("policy_id must be a valid UUID, got '{}'", id))
     } else {
         Ok(())
     }

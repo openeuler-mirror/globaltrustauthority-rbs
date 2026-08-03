@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use crate::attestation::{CERT_SEGMENT, DEFAULT_AS_PROVIDER};
 use crate::client::AdminClient;
 use crate::error::RbsAdminClientError;
-use crate::{send_empty_json, send_json};
+use crate::{send_empty, send_json};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct CertRecord {
@@ -199,6 +199,6 @@ impl CertService for CertClient {
 
     async fn delete_certs(&self, request: &CertDeleteRequest) -> Result<(), RbsAdminClientError> {
         let url = self.box_url()?;
-        send_empty_json(&self.client, Method::DELETE, url, request).await
+        send_empty(&self.client, Method::DELETE, url, Some(request)).await
     }
 }

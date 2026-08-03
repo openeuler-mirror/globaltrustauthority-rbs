@@ -14,6 +14,8 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use strum_macros::{Display, EnumString};
+use tabled::Tabled;
 use validator::Validate;
 
 use crate::error::RbsError;
@@ -24,8 +26,9 @@ pub const USERNAME_MAX_LEN: usize = 36;
 // ── Enums ──
 
 /// User role. `Admin` is pre-configured and cannot be created via the API.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema, Display, EnumString)]
 #[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum Role {
     Admin,
     User,
@@ -144,7 +147,7 @@ impl UserUpdateRequest {
 }
 
 /// Response for user retrieval, creation, and update.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema, Tabled)]
 #[serde(rename_all = "snake_case")]
 pub struct UserResponse {
     /// Stable user ID (UUID).

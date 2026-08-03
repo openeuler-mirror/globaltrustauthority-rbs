@@ -110,7 +110,12 @@ fn command_providers(
         ClientAction::GetToken(args) if args.evidence.is_some() => {
             (default_evidence, Some(vec![provider_config(ProviderType::Rbs, agent_config)]))
         },
-        ClientAction::GetToken(_) => (default_evidence, Some(vec![provider_config(ProviderType::Native, agent_config)])),
+        ClientAction::GetToken(_) => {
+            (default_evidence, Some(vec![provider_config(ProviderType::Native, agent_config)]))
+        },
+        ClientAction::GetResource(args) if args.passport => {
+            (default_evidence, Some(vec![provider_config(ProviderType::Native, agent_config)]))
+        },
         ClientAction::CollectEvidence(_) => {
             (Some(vec![provider_config(ProviderType::Native, agent_config)]), default_token)
         },
@@ -122,9 +127,7 @@ fn provider_config(provider_type: ProviderType, agent_config: &str) -> ProviderR
     ProviderRawConfig {
         provider_type,
         enabled: true,
-        rest: [("config_path".to_string(), Value::String(agent_config.to_string()))]
-            .into_iter()
-            .collect(),
+        rest: [("config_path".to_string(), Value::String(agent_config.to_string()))].into_iter().collect(),
     }
 }
 

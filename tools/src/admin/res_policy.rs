@@ -9,25 +9,23 @@
  * PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
-use base64::Engine;
-use base64::engine::general_purpose;
-use crate::common::DEFAULT_PAGE_LIMIT;
-use crate::common::MAX_PAGE_LIMIT;
-use clap::{ArgGroup, Args, Subcommand, ValueEnum};
-use rbs_admin_client::resource_policy::{
-    ResourcePolicy, ResourcePolicyClient, ResourcePolicyContentType, ResourcePolicyCreateRequest, ResourcePolicyListParams,
-    ResourcePolicyListResponse, ResourcePolicyService, ResourcePolicyUpdateRequest,
-};
-use rbs_admin_client::AdminClient;
-use serde::Serialize;
-use tabled::settings::Style;
-use tabled::Table;
-
 use crate::common::formatter::{Formatter, TextOutput};
 use crate::common::utils::read_path_file;
-use crate::common::validate::validate_trimmed_string_max_len;
+use crate::common::validate::{validate_trimmed_string_max_len, validate_url_path_segment};
+use crate::common::DEFAULT_PAGE_LIMIT;
+use crate::common::MAX_PAGE_LIMIT;
 use crate::config::GlobalOptions;
 use crate::error::CliError;
+use base64::engine::general_purpose;
+use base64::Engine;
+use clap::{ArgGroup, Args, Subcommand, ValueEnum};
+use rbs_admin_client::res_policy::{ResourcePolicyClient, ResourcePolicyContentType, ResourcePolicyService};
+use rbs_admin_client::AdminClient;
+use rbs_api_types::{CreatePolicyRequest, PolicyListQuery, PolicyListResponse, PolicyResponse, UpdatePolicyRequest};
+use serde::Serialize;
+use std::fmt::Display;
+use tabled::settings::Style;
+use tabled::Table;
 
 const POLICY_ID_MAX_LEN: usize = 256;
 const POLICY_NAME_MAX_LEN: usize = 255;
@@ -37,6 +35,14 @@ pub enum ResPolicyContentTypeArg {
     #[default]
     #[value(name = "base64")]
     Base64,
+}
+
+impl Display for ResPolicyContentTypeArg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ResPolicyContentTypeArg::Base64 => write!(f, "{}", "base64"),
+        }
+    }
 }
 
 impl From<ResPolicyContentTypeArg> for ResourcePolicyContentType {
@@ -88,7 +94,7 @@ pub struct ListArgs {
     #[arg(
         long,
         value_delimiter = ',',
-        value_parser = |s: &str| validate_trimmed_string_max_len(s, POLICY_ID_MAX_LEN, "policy_id"),
+        value_parser = |s: &str| validate_url_path_segment(s, POLICY_ID_MAX_LEN, "policy_id"),
         help = "Comma-separated resource policy IDs"
     )]
     pub ids: Option<Vec<String>>,
@@ -102,7 +108,7 @@ pub struct ListArgs {
 
 #[derive(Args, Debug, Clone)]
 pub struct GetArgs {
-    #[arg(long, value_parser = |s: &str| validate_trimmed_string_max_len(s, POLICY_ID_MAX_LEN, "policy_id"), help = "Resource policy ID")]
+    #[arg(long, value_parser = |s: &str| validate_url_path_segment(s, POLICY_ID_MAX_LEN, "policy_id"), help = "Resource policy ID")]
     pub id: String,
 }
 
@@ -120,7 +126,7 @@ pub struct CreateArgs {
 
 #[derive(Args, Debug, Clone)]
 pub struct UpdateArgs {
-    #[arg(long, value_parser = |s: &str| validate_trimmed_string_max_len(s, POLICY_ID_MAX_LEN, "policy_id"), help = "Resource policy ID")]
+    #[arg(long, value_parser = |s: &str| validate_url_path_segment(s, POLICY_ID_MAX_LEN, "policy_id"), help = "Resource policy ID")]
     pub id: String,
 
     #[arg(long, value_parser = |s: &str| validate_trimmed_string_max_len(s, POLICY_NAME_MAX_LEN, "name"), help = "Resource policy name")]
@@ -143,13 +149,13 @@ pub struct UpdateArgs {
     )
 )]
 pub struct DeleteArgs {
-    #[arg(long, value_parser = |s: &str| validate_trimmed_string_max_len(s, POLICY_ID_MAX_LEN, "policy_id"), help = "Single resource policy ID")]
+    #[arg(long, value_parser = |s: &str| validate_url_path_segment(s, POLICY_ID_MAX_LEN, "policy_id"), help = "Single resource policy ID")]
     pub id: Option<String>,
 
     #[arg(
         long,
         value_delimiter = ',',
-        value_parser = |s: &str| validate_trimmed_string_max_len(s, POLICY_ID_MAX_LEN, "policy_id"),
+        value_parser = |s: &str| validate_url_path_segment(s, POLICY_ID_MAX_LEN, "policy_id"),
         help = "Comma-separated resource policy IDs"
     )]
     pub ids: Option<Vec<String>>,
@@ -173,8 +179,8 @@ async fn execute_res_policy_command(
     match &cli.command {
         ResPolicyCommand::List(args) => {
             let resp = service
-                .list_policies(&ResourcePolicyListParams {
-                    ids: args.ids.clone(),
+                .list_policies(&PolicyListQuery {
+                    ids: args.ids.clone().and_then(|v| (!v.is_empty()).then(|| v.join(","))),
                     limit: Some(args.limit),
                     offset: Some(args.offset),
                 })
@@ -187,9 +193,9 @@ async fn execute_res_policy_command(
         },
         ResPolicyCommand::Create(args) => {
             let resp = service
-                .create_policy(&ResourcePolicyCreateRequest {
+                .create_policy(&CreatePolicyRequest {
                     name: args.name.clone(),
-                    content_type: args.content_type.into(),
+                    content_type: args.content_type.to_string(),
                     content: args.content.clone(),
                 })
                 .await?;
@@ -199,9 +205,9 @@ async fn execute_res_policy_command(
             let resp = service
                 .update_policy(
                     &args.id,
-                    &ResourcePolicyUpdateRequest {
+                    &UpdatePolicyRequest {
                         name: args.name.clone(),
-                        content_type: args.content_type.into(),
+                        content_type: args.content_type.to_string(),
                         content: args.content.clone(),
                     },
                 )
@@ -223,7 +229,7 @@ async fn execute_res_policy_command(
 }
 
 #[derive(Debug, Serialize)]
-struct ResourcePolicyListOutput(ResourcePolicyListResponse);
+struct ResourcePolicyListOutput(PolicyListResponse);
 
 impl Formatter for ResourcePolicyListOutput {
     fn render_text(&self) -> Result<String, CliError> {
@@ -232,6 +238,9 @@ impl Formatter for ResourcePolicyListOutput {
             let table = Table::new(self.0.items.iter()).with(Style::markdown()).to_string();
             lines.extend(table.lines().map(|line| line.to_string()));
         }
+        lines.push(format!("total_count: {}", self.0.total_count));
+        lines.push(format!("limit: {}", self.0.limit));
+        lines.push(format!("offset: {}", self.0.offset));
         Ok(lines.join("\n"))
     }
 
@@ -241,7 +250,7 @@ impl Formatter for ResourcePolicyListOutput {
 }
 
 #[derive(Debug, Serialize)]
-struct ResourcePolicyMutationOutput(ResourcePolicy);
+struct ResourcePolicyMutationOutput(PolicyResponse);
 
 impl Formatter for ResourcePolicyMutationOutput {
     fn render_text(&self) -> Result<String, CliError> {
@@ -253,10 +262,9 @@ impl Formatter for ResourcePolicyMutationOutput {
     }
 }
 
-fn format_policy_multiline(policy: &ResourcePolicy) -> String {
+fn format_policy_multiline(policy: &PolicyResponse) -> String {
     let applied_resources = serde_json::to_string(&policy.applied_resources.clone().unwrap_or_default())
         .unwrap_or_else(|_| "[]".to_string());
-
     [
         format!("{:<20}{}", "policy_id:", policy.policy_id),
         format!("{:<20}{}", "policy_name:", policy.policy_name),
@@ -283,15 +291,15 @@ fn normalize_base64_policy_content(value: &str) -> Result<String, CliError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rbs_admin_client::resource_policy::ResourcePolicyContentType;
+    use rbs_admin_client::res_policy::ResourcePolicyContentType;
 
     #[test]
     fn format_policy_multiline_includes_core_fields() {
-        let policy = ResourcePolicy {
+        let policy = PolicyResponse {
             policy_id: "policy-1".to_string(),
             policy_name: "allow-secret".to_string(),
             policy_version: 2,
-            content_type: ResourcePolicyContentType::Base64,
+            content_type: ResourcePolicyContentType::Base64.to_string(),
             created_at: "2026-01-01T00:00:00Z".to_string(),
             updated_at: "2026-01-02T00:00:00Z".to_string(),
             applied_resources: Some(vec!["vault/default/secret/demo".to_string()]),
@@ -306,27 +314,29 @@ mod tests {
 
     #[test]
     fn resource_policy_outputs_render_text() {
-        let list = ResourcePolicyListOutput(ResourcePolicyListResponse {
-            items: vec![ResourcePolicy {
+        let list = ResourcePolicyListOutput(PolicyListResponse {
+            items: vec![PolicyResponse {
                 policy_id: "policy-1".to_string(),
                 policy_name: "allow-secret".to_string(),
                 policy_version: 1,
-                content_type: ResourcePolicyContentType::Base64,
+                content_type: ResourcePolicyContentType::Base64.to_string(),
                 created_at: "2026-01-01T00:00:00Z".to_string(),
                 updated_at: "2026-01-02T00:00:00Z".to_string(),
                 applied_resources: None,
             }],
             total_count: 1,
+            limit: 10,
+            offset: 0,
         });
         let text = list.render_text().expect("render list");
         assert!(text.contains("resource_policies: total=1"));
         assert!(text.contains("allow-secret"));
 
-        let mutation = ResourcePolicyMutationOutput(ResourcePolicy {
+        let mutation = ResourcePolicyMutationOutput(PolicyResponse {
             policy_id: "policy-1".to_string(),
             policy_name: "allow-secret".to_string(),
             policy_version: 1,
-            content_type: ResourcePolicyContentType::Base64,
+            content_type: ResourcePolicyContentType::Base64.to_string(),
             created_at: "2026-01-01T00:00:00Z".to_string(),
             updated_at: "2026-01-02T00:00:00Z".to_string(),
             applied_resources: None,
@@ -358,5 +368,15 @@ mod tests {
         let value = normalize_base64_policy_content(&format!("@{}", path.display())).expect("raw file");
         assert_eq!(value, "YWxsb3cgPSB0cnVl");
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn resource_policy_id_rejects_url_path_control_characters() {
+        let command = GetArgs::augment_args(clap::Command::new("get"));
+        let error = command
+            .try_get_matches_from(["get", "--id", "policy?debug=true"])
+            .expect_err("policy ID with a query delimiter should fail during CLI parsing");
+
+        assert!(error.to_string().contains("policy_id must not contain URL path control characters"));
     }
 }

@@ -70,8 +70,28 @@ pub fn validate_trimmed_string_max_len(value: &str, max: usize, field_name: &str
 
 pub fn validate_resource_segment(value: &str, max: usize) -> Result<String, CliError> {
     validate_max_len(value, max)?;
-    if value.trim().is_empty() || value.contains('/') {
-        return Err(CliError::InvalidArgument("resource path segment must not be empty or contain `/`".to_string()));
+    if value.trim().is_empty()
+        || value == "."
+        || value == ".."
+        || value.contains(['/', '?', '#', '\\', '%'])
+        || value.chars().any(char::is_control)
+    {
+        return Err(CliError::InvalidArgument(
+            "resource path segment must not be empty or contain URL control characters".to_string(),
+        ));
+    }
+    Ok(value.to_string())
+}
+
+pub fn validate_url_path_segment(value: &str, max: usize, field_name: &str) -> Result<String, CliError> {
+    validate_max_len(value, max)?;
+    if value.trim().is_empty()
+        || value == "."
+        || value == ".."
+        || value.contains(['/', '?', '#', '\\', '%'])
+        || value.chars().any(char::is_control)
+    {
+        return Err(CliError::InvalidArgument(format!("{field_name} must not contain URL path control characters")));
     }
     Ok(value.to_string())
 }
@@ -169,6 +189,17 @@ pub fn validate_i64(value: &str, min: i64, max: i64, field: &str) -> Result<i64,
     Ok(parsed)
 }
 
+pub fn validate_passphrase_len(value: &str, max: usize) -> Result<(), CliError> {
+    if value.len() <= max {
+        Ok(())
+    } else {
+        Err(CliError::InvalidArgument(format!(
+            "private key passphrase must not exceed {max} characters; got {}",
+            value.len()
+        )))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,6 +214,13 @@ mod tests {
     fn validate_resource_segment_rejects_slashes() {
         let err = validate_resource_segment("a/b", 16).expect_err("slash should fail");
         assert!(err.to_string().contains("resource path segment"));
+    }
+
+    #[test]
+    fn validate_url_path_segment_rejects_ambiguous_values() {
+        for value in ["../admin", "ops?debug=true", "ops#fragment", "ops\\user", "%2e%2e"] {
+            assert!(validate_url_path_segment(value, 64, "policy_id").is_err(), "{value} should fail");
+        }
     }
 
     #[test]

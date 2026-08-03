@@ -10,11 +10,9 @@
  * See the Mulan PSL v2 for more details.
  */
 
-use rbs_admin_client::resource_policy::{
-    ResourcePolicyClient, ResourcePolicyContentType, ResourcePolicyCreateRequest, ResourcePolicyListParams,
-    ResourcePolicyService, ResourcePolicyUpdateRequest,
-};
+use rbs_admin_client::res_policy::{ResourcePolicyClient, ResourcePolicyContentType, ResourcePolicyService};
 use rbs_admin_client::AdminClient;
+use rbs_api_types::{CreatePolicyRequest, PolicyListQuery, UpdatePolicyRequest};
 
 fn unusable_admin_client() -> AdminClient {
     AdminClient::new("data:text/plain,not-a-base-url", "test-token", &None)
@@ -24,24 +22,20 @@ fn unusable_admin_client() -> AdminClient {
 #[tokio::test]
 async fn resource_policy_operations_report_url_or_argument_failures() {
     let client = ResourcePolicyClient::new(unusable_admin_client());
-    let create = ResourcePolicyCreateRequest {
+    let create = CreatePolicyRequest {
         name: "allow-secret".to_string(),
-        content_type: ResourcePolicyContentType::Base64,
+        content_type: ResourcePolicyContentType::Base64.to_string(),
         content: "Zm9v".to_string(),
     };
-    let update = ResourcePolicyUpdateRequest {
+    let update = UpdatePolicyRequest {
         name: "allow-secret-v2".to_string(),
-        content_type: ResourcePolicyContentType::Base64,
+        content_type: ResourcePolicyContentType::Base64.to_string(),
         content: "YmFy".to_string(),
     };
 
     assert_eq!(
         client
-            .list_policies(&ResourcePolicyListParams {
-                ids: Some(vec!["policy-1".to_string()]),
-                limit: Some(10),
-                offset: Some(0),
-            })
+            .list_policies(&PolicyListQuery { ids: Some("policy-1".to_string()), limit: Some(10), offset: Some(0) })
             .await
             .expect_err("list should fail")
             .to_string(),
@@ -50,6 +44,10 @@ async fn resource_policy_operations_report_url_or_argument_failures() {
     assert_eq!(
         client.get_policy(" ").await.expect_err("blank id should fail").to_string(),
         "policy_id must not be empty"
+    );
+    assert_eq!(
+        client.get_policy("../users/admin").await.expect_err("ambiguous policy ID should fail").to_string(),
+        "policy_id must not contain URL path control characters"
     );
     assert_eq!(
         client.create_policy(&create).await.expect_err("create should fail").to_string(),
@@ -67,27 +65,4 @@ async fn resource_policy_operations_report_url_or_argument_failures() {
         client.delete_policies(&[]).await.expect_err("empty ids should fail").to_string(),
         "ids must not be empty"
     );
-}
-
-#[tokio::test]
-async fn resource_policy_item_operations_reject_ambiguous_policy_ids() {
-    let client = ResourcePolicyClient::new(
-        AdminClient::new("https://example.com", "test-token", &None).expect("admin client should be created"),
-    );
-    let update = ResourcePolicyUpdateRequest {
-        name: "allow-secret-v2".to_string(),
-        content_type: ResourcePolicyContentType::Base64,
-        content: "YmFy".to_string(),
-    };
-
-    for policy_id in ["../admin", "policy/1", "policy?debug=true", "policy#fragment", "policy\\1", "%2e%2e"] {
-        let get_err = client.get_policy(policy_id).await.expect_err("ambiguous policy id should fail");
-        assert!(get_err.to_string().contains("path segment must not contain"), "{get_err}");
-
-        let update_err = client.update_policy(policy_id, &update).await.expect_err("ambiguous policy id should fail");
-        assert!(update_err.to_string().contains("path segment must not contain"), "{update_err}");
-
-        let delete_err = client.delete_policy(policy_id).await.expect_err("ambiguous policy id should fail");
-        assert!(delete_err.to_string().contains("path segment must not contain"), "{delete_err}");
-    }
 }

@@ -25,7 +25,9 @@ use zeroize::Zeroizing;
 
 use crate::common::formatter::Formatter as OutputFormatter;
 use crate::common::utils::read_path_file;
-use crate::common::validate::{validate_file_path, validate_file_size, validate_string_max_len};
+use crate::common::validate::{
+    validate_file_path, validate_file_size, validate_passphrase_len, validate_string_max_len,
+};
 use crate::config::GlobalOptions;
 use crate::error::CliError;
 use crate::token::Token;
@@ -130,7 +132,12 @@ pub enum TokenCommand {
     long_about = "Generate a signed JWT using a PEM private key. Standard claims such as iss, sub, aud, exp, nbf, iat, and jti can be set explicitly, and extra custom claims can be merged from JSON input."
 )]
 pub struct GenerateArgs {
-    #[arg(long, value_parser = validate_file_path, help = "Path to the PEM private key used for signing")]
+    #[arg(
+        long,
+        required = true,
+        value_parser = validate_file_path,
+        help = "Path to the PEM private key used for signing"
+    )]
     pub private_key_file: Option<String>,
 
     #[arg(
@@ -247,7 +254,7 @@ impl TokenGenerate {
                             .map(Zeroizing::new)
                             .map_err(|_| CliError::Message("unable to read the private key passphrase".to_string()))
                             .and_then(|value| {
-                                validate_passphrase_len(&value)?;
+                                validate_passphrase_len(&value, PASSPHRASE_MAX_LEN)?;
                                 Ok(value)
                             })?,
                     )
@@ -257,7 +264,7 @@ impl TokenGenerate {
                         .read_to_string(&mut passphrase)
                         .map_err(|_| CliError::Message("unable to read the private key passphrase".to_string()))?;
                     trim_line_end(&mut passphrase);
-                    validate_passphrase_len(&passphrase)?;
+                    validate_passphrase_len(&passphrase, PASSPHRASE_MAX_LEN)?;
                     Some(passphrase)
                 }
             },
@@ -274,7 +281,7 @@ impl TokenGenerate {
                     ))
                 })?);
                 trim_line_end(&mut passphrase);
-                validate_passphrase_len(&passphrase)?;
+                validate_passphrase_len(&passphrase, PASSPHRASE_MAX_LEN)?;
                 Some(passphrase)
             },
         };
@@ -489,17 +496,6 @@ fn validate_audience_count(values: &[String]) -> Result<(), CliError> {
         Ok(())
     } else {
         Err(CliError::InvalidArgument(format!("audience count must not exceed {AUD_MAX_COUNT}; got {}", values.len())))
-    }
-}
-
-fn validate_passphrase_len(value: &str) -> Result<(), CliError> {
-    if value.len() <= PASSPHRASE_MAX_LEN {
-        Ok(())
-    } else {
-        Err(CliError::InvalidArgument(format!(
-            "private key passphrase must not exceed {PASSPHRASE_MAX_LEN} characters; got {}",
-            value.len()
-        )))
     }
 }
 

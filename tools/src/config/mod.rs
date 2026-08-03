@@ -150,7 +150,7 @@ impl Default for GlobalOptions {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use clap::Parser;
+    use clap::{CommandFactory, Parser};
 
     #[test]
     fn output_format_from_str_rejects_invalid_value() {
@@ -162,5 +162,20 @@ mod tests {
     fn root_command_without_subcommand_prints_help() {
         let err = Cli::try_parse_from(["rbs-cli"]).expect_err("missing subcommand should print help");
         assert_eq!(err.kind(), clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand);
+    }
+
+    #[test]
+    fn token_gen_requires_private_key_file_at_cli_parse_time() {
+        let err = Cli::try_parse_from(["rbs-cli", "token", "gen"])
+            .expect_err("token generation without a private key should fail during argument parsing");
+        assert_eq!(err.kind(), clap::error::ErrorKind::MissingRequiredArgument);
+        assert!(err.to_string().contains("--private-key-file"));
+        assert!(err.to_string().contains("Usage:"));
+    }
+
+    #[test]
+    fn root_help_describes_client_command() {
+        let help = Cli::command().render_help().to_string();
+        assert!(help.contains("Run attestation and protected-resource client commands"));
     }
 }

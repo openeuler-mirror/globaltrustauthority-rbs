@@ -9,8 +9,6 @@
  * PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
-use base64::Engine;
-use base64::engine::general_purpose;
 use crate::common::clap::Page;
 use crate::common::formatter::Formatter;
 use crate::common::utils::read_path_file;
@@ -18,15 +16,17 @@ use crate::common::validate::validate_pubkey_file;
 use crate::common::validate::{validate_max_len, validate_not_empty};
 use crate::common::ROLE_ARRAY;
 use crate::common::ROLE_USER;
-use crate::common::{JWT, USERNAME_MAX_LEN};
+use crate::common::USERNAME_MAX_LEN;
 use crate::config::GlobalOptions;
 use crate::error::CliError;
+use base64::engine::general_purpose;
+use base64::Engine;
 use clap::ArgGroup;
 use clap::{Args, Subcommand};
 use rbs_admin_client::{
-    AdminClient, CreateUserRequest, ListUsersParams, RbsAdminClientError, UpdateUserRequest, User, UserClient,
-    UserListResponse, UserService,
+    AdminClient, RbsAdminClientError, UserClient, UserService,
 };
+use rbs_api_types::{AuthType, Role, UserCreateRequest, UserListQuery, UserListResponse, UserResponse, UserUpdateRequest};
 use regex::Regex;
 use serde::Serialize;
 use serde_json::Value;
@@ -139,7 +139,12 @@ pub fn run(cli: &UserCli, global: &GlobalOptions) -> Result<Box<dyn Formatter>, 
 async fn execute_user_command(cli: &UserCli, service: &UserClient) -> Result<Box<dyn Formatter>, CliError> {
     match &cli.command {
         UserCommand::List(args) => {
-            let resp = service.list(&ListUsersParams { limit: args.page.limit, offset: args.page.offset }).await?;
+            let resp = service.list(&UserListQuery {
+                limit: Some(args.page.limit),
+                offset: Some(args.page.offset),
+                role: None,
+                enabled: None
+            }).await?;
             Ok(Box::new(UserListOutput(resp)))
         },
         UserCommand::Get(args) => {
@@ -150,11 +155,13 @@ async fn execute_user_command(cli: &UserCli, service: &UserClient) -> Result<Box
             let (pub_key, jwk) = read_pubkey_and_jwk(&args.public_key, &args.jwk)?;
             let pub_key = pub_key.map(|value| general_purpose::STANDARD.encode(value));
             let resp = service
-                .create(&CreateUserRequest {
+                .create(&UserCreateRequest {
                     username: args.username.clone(),
-                    role: args.role.clone(),
+                    role: args.role.as_deref()
+                        .map(|s| s.parse::<Role>().map_err(|err| CliError::Message(err.to_string())))
+                        .transpose()?,
                     enabled: args.enabled,
-                    auth_type: JWT.to_string(),
+                    auth_type: AuthType::Jwt,
                     public_key: pub_key.clone(),
                     jwk: jwk.clone(),
                 })
@@ -168,10 +175,12 @@ async fn execute_user_command(cli: &UserCli, service: &UserClient) -> Result<Box
             let resp = service
                 .update(
                     &args.username,
-                    &UpdateUserRequest {
-                        role: args.role.clone(),
+                    &UserUpdateRequest {
+                        role: args.role.as_deref()
+                            .map(|s| s.parse::<Role>().map_err(|err| CliError::Message(err.to_string())))
+                            .transpose()?,
                         enabled: args.enabled,
-                        auth_type: Some(JWT.to_string()),
+                        auth_type: Some(AuthType::Jwt),
                         public_key: pub_key.clone(),
                         jwk: jwk.clone(),
                     },
@@ -218,7 +227,7 @@ fn read_pubkey_and_jwk(
 }
 
 #[derive(Debug, Serialize)]
-struct UserOutput(User);
+struct UserOutput(UserResponse);
 
 impl Formatter for UserOutput {
     fn render_text(&self) -> Result<String, CliError> {
@@ -226,7 +235,7 @@ impl Formatter for UserOutput {
         Ok([
             format!("{:<20}{}", "id:", user.id),
             format!("{:<20}{}", "username:", user.username),
-            format!("{:<20}{}", "role:", user.role),
+            format!("{:<20}{}", "role:", serde_json::to_string(&user.role).map_err(|err| CliError::Message(format!("{}", err)))?),
             format!("{:<20}{}", "enabled", user.enabled),
             format!("{:<20}{}", "created_at", user.created_at),
             format!("{:<20}{}", "updated_at", user.updated_at),
@@ -337,10 +346,10 @@ mod tests {
 
     #[test]
     fn user_outputs_render_text() {
-        let user = UserOutput(User {
+        let user = UserOutput(UserResponse {
             id: "user-1".to_string(),
             username: "ops".to_string(),
-            role: "user".to_string(),
+            role: Role::User,
             enabled: true,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             updated_at: "2026-01-02T00:00:00Z".to_string(),
@@ -350,10 +359,10 @@ mod tests {
         assert!(rendered.contains("ops"));
 
         let list = UserListOutput(UserListResponse {
-            users: vec![User {
+            users: vec![UserResponse {
                 id: "user-1".to_string(),
                 username: "ops".to_string(),
-                role: "user".to_string(),
+                role: Role::User,
                 enabled: true,
                 created_at: "2026-01-01T00:00:00Z".to_string(),
                 updated_at: "2026-01-02T00:00:00Z".to_string(),
