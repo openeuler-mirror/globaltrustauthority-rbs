@@ -30,6 +30,24 @@ pub async fn create_connection(config: &Database) -> Result<DatabaseConnection, 
        .connect_timeout(std::time::Duration::from_secs(config.timeout))
        .sqlx_logging(false);
 
+    // SQLite: enable WAL + busy_timeout + synchronous=NORMAL for concurrent-write safety.
+    // Default SQLite uses journal_mode=DELETE, under which a deferred read transaction's
+    // SHARED lock blocks a concurrent write from upgrading to EXCLUSIVE, producing
+    // intermittent "database is locked" (SQLITE_BUSY, code 5) on workloads like concurrent
+    // user creation. WAL lets readers and the single writer coexist; busy_timeout makes a
+    // contended writer wait instead of failing immediately; synchronous=NORMAL is the
+    // WAL-appropriate, durable-but-faster setting. These pragmas are applied per-connection
+    // by sqlx via map_sqlx_sqlite_opts. Note: sqlx-sqlite rejects unknown URL query params,
+    // so PRAGMAs cannot be set via `?journal_mode=...` in the URL — they must go through the
+    // options builder.
+    if matches!(config.db_type.as_str(), "sqlite" | "memory") {
+        opt.map_sqlx_sqlite_opts(|o| {
+            o.journal_mode(sea_orm::sqlx::sqlite::SqliteJournalMode::Wal)
+                .busy_timeout(std::time::Duration::from_secs(5))
+                .synchronous(sea_orm::sqlx::sqlite::SqliteSynchronous::Normal)
+        });
+    }
+
     Db::connect(opt)
         .await
         .map_err(|e| DbError::ConnectionError(e.to_string()))
