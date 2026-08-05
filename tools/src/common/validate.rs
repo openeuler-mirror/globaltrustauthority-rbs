@@ -246,4 +246,59 @@ mod tests {
         let err = validate_i64("11", 1, 10, "limit").expect_err("out of range should fail");
         assert_eq!(err, "limit must be between 1 and 10");
     }
+
+    // Exercise shared string validators at max-1, max, normal, and max+1.
+    #[test]
+    fn validate_string_length_matrix() {
+        let max = 8;
+        assert!(validate_string_max_len(&"x".repeat(max - 1), max).is_ok());
+        assert!(validate_string_max_len("normal", max).is_ok());
+        assert!(validate_string_max_len(&"x".repeat(max), max).is_ok());
+        assert!(validate_string_max_len(&"x".repeat(max + 1), max).is_err());
+        assert!(validate_trimmed_string_max_len("normal", max, "name").is_ok());
+        assert!(validate_trimmed_string_max_len("   ", max, "name").is_err());
+    }
+
+    // Cover resource and policy URI segment boundaries and URL controls.
+    #[test]
+    fn validate_uri_segment_length_matrix() {
+        let max = 12;
+        let values = ["x".repeat(max - 1), "normal".to_string(), "x".repeat(max)];
+        for value in &values {
+            assert!(validate_resource_segment(value, max).is_ok());
+            assert!(validate_url_path_segment(value, max, "id").is_ok());
+        }
+        assert!(validate_resource_segment(&"x".repeat(max + 1), max).is_err());
+        assert!(validate_url_path_segment(&"x".repeat(max + 1), max, "id").is_err());
+        for value in ["", ".", "..", "a/b", "a?b", "a#b", "a\\b", "a%b", "a\n"] {
+            assert!(validate_resource_segment(value, max).is_err(), "{value:?} should fail");
+            assert!(validate_url_path_segment(value, max, "id").is_err(), "{value:?} should fail");
+        }
+    }
+
+    // Check pagination values at both inclusive bounds and adjacent values.
+    #[test]
+    fn validate_pagination_boundary_matrix() {
+        assert!(validate_i64("0", 0, 100, "offset").is_ok());
+        assert!(validate_i64("1", 0, 100, "offset").is_ok());
+        assert!(validate_i64("100", 0, 100, "offset").is_ok());
+        assert!(validate_i64("-1", 0, 100, "offset").is_err());
+        assert!(validate_i64("101", 0, 100, "offset").is_err());
+        assert!(validate_i64("1", 1, 100, "limit").is_ok());
+        assert!(validate_i64("100", 1, 100, "limit").is_ok());
+        assert!(validate_i64("0", 1, 100, "limit").is_err());
+        assert!(validate_i64("101", 1, 100, "limit").is_err());
+    }
+
+    // Ensure passphrases accept the configured maximum but reject max+1.
+    #[test]
+    fn validate_passphrase_length_matrix() {
+        let max = 16;
+        assert!(validate_passphrase_len("", max).is_ok());
+        assert!(validate_passphrase_len("p", max).is_ok());
+        assert!(validate_passphrase_len(&"p".repeat(max - 1), max).is_ok());
+        assert!(validate_passphrase_len("normal", max).is_ok());
+        assert!(validate_passphrase_len(&"p".repeat(max), max).is_ok());
+        assert!(validate_passphrase_len(&"p".repeat(max + 1), max).is_err());
+    }
 }

@@ -31,10 +31,10 @@ pub struct Cli {
 
 #[derive(clap::Args, Debug, Clone)]
 pub struct GlobalArgs {
-    #[arg(short = 'b', long, help = "Base URL of the RBS service")]
+    #[arg(short = 'b', long, value_parser = validate_base_url, help = "Base URL of the RBS service")]
     pub base_url: Option<String>,
 
-    #[arg(long, help = "CA certificate file used to verify the RBS server")]
+    #[arg(long, value_parser = rbc::cli::execute::validate_file_path, help = "CA certificate file used to verify the RBS server")]
     pub cert: Option<String>,
 
     #[arg(long, help = "Request timeout in seconds")]
@@ -49,20 +49,34 @@ pub struct GlobalArgs {
     #[arg(short, long, global = true, value_enum, default_value_t = OutputFormat::Text, help = "Output format")]
     pub format: OutputFormat,
 
-    #[arg(short, long, global = true, help = "Write command output to a file")]
+    #[arg(short, long, global = true, value_parser = rbc::cli::execute::validate_file_path, help = "Write command output to a file")]
     pub output_file: Option<String>,
 
     #[arg(long, global = true, help = "Do not print command output")]
     pub noout: bool,
+
+    #[arg(short, long, global = true, conflicts_with = "verbose", help = "Suppress non-essential output")]
+    pub quiet: bool,
+
+    #[arg(short, long, global = true, help = "Enable verbose diagnostics")]
+    pub verbose: bool,
 }
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt::init();
     let cli = Cli::parse();
+    let level = if cli.global.quiet { tracing::Level::ERROR } else if cli.global.verbose { tracing::Level::INFO } else { tracing::Level::WARN };
+    tracing_subscriber::fmt().with_max_level(level).with_writer(std::io::stderr).init();
+    tracing::info!(base_url = ?cli.global.base_url, "starting rbc-cli");
     let context = resolve_context(&cli.global, &cli.command)?;
     let options = ExecutionOptions { as_provider: cli.global.as_provider.clone() };
     let output = execute_action(&cli.command, &context, &options)?;
-    emit_output(&output, &cli.global.format, cli.global.output_file.as_deref(), cli.global.noout)?;
+    emit_output(
+        &output,
+        &cli.global.format,
+        cli.global.output_file.as_deref(),
+        cli.global.noout,
+        cli.global.quiet,
+    )?;
     Ok(())
 }
 
@@ -71,14 +85,17 @@ fn emit_output(
     format: &OutputFormat,
     output_file: Option<&str>,
     noout: bool,
+    quiet: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let rendered = output.render(format)?;
     if let Some(path) = output_file {
         std::fs::write(path, &rendered)?;
-        eprintln!("output written to {path}");
+        if !quiet {
+            eprintln!("output written to {path}");
+        }
         return Ok(());
     }
-    if !noout {
+    if !noout && !quiet {
         println!("{rendered}");
     }
     Ok(())
@@ -106,6 +123,17 @@ fn parse_key_algorithm(value: &str) -> Result<KeyType, String> {
         "ec" => Ok(KeyType::Ec),
         _ => Err(format!("invalid key algorithm `{value}`; expected `rsa` or `ec`")),
     }
+}
+
+fn validate_base_url(value: &str) -> Result<String, String> {
+    if value.trim().is_empty() {
+        return Err("base URL must not be empty".to_string());
+    }
+    let url = reqwest::Url::parse(value).map_err(|err| format!("invalid base URL: {err}"))?;
+    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
+        return Err("base URL must use http or https and include a host".to_string());
+    }
+    Ok(value.to_string())
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -147,7 +175,7 @@ mod tests {
         let path = std::env::temp_dir().join(format!("rbc-cli-output-{}.txt", std::process::id()));
         let output = ClientOutput::Auth(rbs_api_types::AuthChallengeResponse { nonce: "nonce-value".to_string() });
 
-        emit_output(&output, &OutputFormat::Text, Some(path.to_str().expect("utf8 path")), false).expect("emit output");
+        emit_output(&output, &OutputFormat::Text, Some(path.to_str().expect("utf8 path")), false, false).expect("emit output");
 
         let written = std::fs::read_to_string(&path).expect("read output");
         assert_eq!(written, "nonce-value");
@@ -165,6 +193,8 @@ mod tests {
             format: OutputFormat::Text,
             output_file: None,
             noout: false,
+            quiet: false,
+            verbose: false,
         };
 
         let err = resolve_context(
@@ -188,6 +218,8 @@ mod tests {
             format: OutputFormat::Text,
             output_file: None,
             noout: false,
+            quiet: false,
+            verbose: false,
         };
 
         let context = resolve_context(
@@ -223,6 +255,8 @@ mod tests {
             format: OutputFormat::Text,
             output_file: None,
             noout: false,
+            quiet: false,
+            verbose: false,
         };
         let command = ClientAction::GetToken(rbc::cli::GetTokenArgs {
             agent: rbc::cli::AgentConfigArgs { agent_config: "/tmp/agent.yaml".to_string() },
@@ -254,6 +288,8 @@ mod tests {
             format: OutputFormat::Text,
             output_file: None,
             noout: false,
+            quiet: false,
+            verbose: false,
         };
         let command = ClientAction::GetToken(rbc::cli::GetTokenArgs {
             agent: rbc::cli::AgentConfigArgs { agent_config: "/tmp/agent.yaml".to_string() },
@@ -285,6 +321,8 @@ mod tests {
             format: OutputFormat::Text,
             output_file: None,
             noout: false,
+            quiet: false,
+            verbose: false,
         };
 
         let context = resolve_context(
@@ -310,5 +348,15 @@ mod tests {
                 .map(|provider| provider.provider_type),
             Some(ProviderType::Rbs)
         );
+    }
+
+    // Validate RBC's base URL parser for valid schemes and malformed inputs.
+    #[test]
+    fn base_url_validator_matrix() {
+        assert!(validate_base_url("http://127.0.0.1:8080").is_ok());
+        assert!(validate_base_url("https://rbs.example.com").is_ok());
+        assert!(validate_base_url("").is_err());
+        assert!(validate_base_url("not a url").is_err());
+        assert!(validate_base_url("ftp://rbs.example.com").is_err());
     }
 }

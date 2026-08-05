@@ -120,7 +120,11 @@ impl TeeKeyPair {
             PKey::private_key_from_pem_passphrase(pem.as_bytes(), pw)
                 .map_err(|e| RbcError::KeyGenError(format!("PEM parse/decrypt: {e}")))?
         } else {
-            PKey::private_key_from_pem(pem.as_bytes()).map_err(|e| RbcError::KeyGenError(format!("PEM parse: {e}")))?
+            // The default OpenSSL password callback reads from the controlling terminal when the
+            // PEM is encrypted. Use an explicit non-interactive callback so library calls and
+            // tests fail immediately instead of hanging while waiting for a passphrase.
+            PKey::private_key_from_pem_callback(pem.as_bytes(), |_| Ok(0))
+                .map_err(|e| RbcError::KeyGenError(format!("PEM parse: {e}")))?
         };
 
         let private_der =

@@ -67,12 +67,11 @@ impl TrustedProxySet {
 /// Resolves the client IP for rate limiting and audit: when the direct peer is a trusted proxy,
 /// uses Forwarded/X-Forwarded-For (realip); otherwise uses the peer address.
 fn client_ip_for_request(
-    peer_str: Option<&str>,
+    peer_addr: Option<SocketAddr>,
     realip_str: Option<&str>,
     trusted: &TrustedProxySet,
 ) -> Option<IpAddr> {
-    let peer_sa = peer_str.and_then(|s| s.parse::<SocketAddr>().ok())?;
-    let peer_ip = peer_sa.ip();
+    let peer_ip = peer_addr?.ip();
     if trusted.is_trusted(peer_ip) {
         // Use forwarded client IP only when peer is trusted (prevents spoofing).
         if let Some(rip) = realip_str {
@@ -116,9 +115,10 @@ where
     let trusted = req.app_data::<web::Data<TrustedProxySet>>().map(|d| d.get_ref().clone()).unwrap_or_default();
     let ip = {
         let conn = req.connection_info();
-        let peer_str = conn.peer_addr().map(std::string::ToString::to_string);
         let realip_str = conn.realip_remote_addr().map(std::string::ToString::to_string);
-        client_ip_for_request(peer_str.as_deref(), realip_str.as_deref(), &trusted)
+        // Use Actix's typed peer address. ConnectionInfo::peer_addr() may be a bare IP,
+        // so parsing it as a SocketAddr can silently bypass the limiter.
+        client_ip_for_request(req.peer_addr(), realip_str.as_deref(), &trusted)
     };
     let ip = match ip {
         Some(ip) => ip,
@@ -176,7 +176,7 @@ mod tests {
     fn client_ip_trusted_peer_uses_realip_socket_addr() {
         let trusted = TrustedProxySet::from_addrs(&["127.0.0.1".to_string()]);
         let ip = client_ip_for_request(
-            Some("127.0.0.1:8080"),
+            Some("127.0.0.1:8080".parse().unwrap()),
             Some("192.0.2.1:12345"),
             &trusted,
         );
@@ -187,7 +187,7 @@ mod tests {
     fn client_ip_trusted_peer_uses_realip_bare_ip() {
         let trusted = TrustedProxySet::from_addrs(&["127.0.0.1".to_string()]);
         let ip = client_ip_for_request(
-            Some("127.0.0.1:8080"),
+            Some("127.0.0.1:8080".parse().unwrap()),
             Some("192.0.2.50"),
             &trusted,
         );
@@ -198,7 +198,7 @@ mod tests {
     fn client_ip_untrusted_peer_ignores_realip() {
         let trusted = TrustedProxySet::from_addrs(&["10.0.0.1".to_string()]);
         let ip = client_ip_for_request(
-            Some("192.0.2.1:4321"),
+            Some("192.0.2.1:4321".parse().unwrap()),
             Some("10.0.0.1:80"),
             &trusted,
         );
@@ -209,7 +209,7 @@ mod tests {
     fn client_ip_trusted_peer_no_realip_falls_back_to_peer() {
         let trusted = TrustedProxySet::from_addrs(&["127.0.0.1".to_string()]);
         let ip = client_ip_for_request(
-            Some("127.0.0.1:8080"),
+            Some("127.0.0.1:8080".parse().unwrap()),
             None,
             &trusted,
         );

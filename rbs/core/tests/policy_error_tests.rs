@@ -33,21 +33,21 @@ fn test_name_invalid_http_status() {
     );
 }
 
-/// NameDuplicate -> 400
+/// NameDuplicate -> 409
 #[test]
 fn test_name_duplicate_http_status() {
     assert_eq!(
         PolicyError::NameDuplicate { name: "my-policy".to_string() }.http_status(),
-        400
+        409
     );
 }
 
-/// CountExceed -> 400
+/// CountExceed -> 409
 #[test]
 fn test_count_exceed_http_status() {
     assert_eq!(
         PolicyError::CountExceed { max: 10, current: 11 }.http_status(),
-        400
+        409
     );
 }
 

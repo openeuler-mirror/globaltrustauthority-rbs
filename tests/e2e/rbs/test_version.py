@@ -13,13 +13,14 @@
 from __future__ import annotations
 
 import re
+import ssl
 from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
 
-from helpers.env import E2E_PORT_HTTP, E2E_PORT_HTTPS
+from helpers.env import E2E_PORT_HTTPS
 from helpers.rbs_server import RbsServer
 
 pytestmark = [pytest.mark.e2e, pytest.mark.rbs]
@@ -47,14 +48,14 @@ def _assert_version_response(data: dict[str, Any]) -> None:
     assert isinstance(build_date, str) and build_date, "build.build_date must be a non-empty string"
 
 
-def test_version_http(rbs_server: RbsServer) -> None:
-    listen = f"127.0.0.1:{E2E_PORT_HTTP}"
+def test_version_http(rbs_server: RbsServer, isolated_http_port: int) -> None:
+    listen = f"127.0.0.1:{isolated_http_port}"
     base_url = f"http://{listen}"
     config = rbs_server.write_config(listen_addr=listen, https_enabled=False)
     rbs_server.start(config)
     rbs_server.wait_for_version(base_url, verify=True)
 
-    with httpx.Client(timeout=10.0) as client:
+    with httpx.Client(timeout=10.0, trust_env=False) as client:
         resp = client.get(f"{base_url}/rbs/version")
     assert resp.status_code == 200
     _assert_version_response(resp.json())
@@ -75,9 +76,10 @@ def test_version_https(rbs_server: RbsServer, rbs_scratch_dir: Path) -> None:
         log_name="rbs_https.log",
     )
     rbs_server.start(config)
-    rbs_server.wait_for_version(base_url, verify=False)
+    tls_context = ssl.create_default_context(cafile=str(cert_path))
+    rbs_server.wait_for_version(base_url, verify=tls_context)
 
-    with httpx.Client(verify=False, timeout=10.0) as client:
+    with httpx.Client(verify=tls_context, timeout=10.0, trust_env=False) as client:
         resp = client.get(f"{base_url}/rbs/version")
     assert resp.status_code == 200
     _assert_version_response(resp.json())

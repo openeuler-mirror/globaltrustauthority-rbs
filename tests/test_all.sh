@@ -46,19 +46,26 @@ Examples:
 Environment variables (default: both enabled):
   ENABLE_CARGO_TESTS=\${ENABLE_CARGO_TESTS:-1}
   ENABLE_E2E_TESTS=\${ENABLE_E2E_TESTS:-1}
+  E2E_AUTO_SETUP=\${E2E_AUTO_SETUP:-1}  # initialize Python e2e dependencies automatically
+  E2E_VENV_DIR=\${E2E_VENV_DIR:-tests/.venv}  # auto-created Python environment
 EOF
 }
 
 assert_openapi_yaml_matches_build() {
   echo ""
   echo "=== OpenAPI: docs/proto/rbs_rest_api.yaml matches rbs build output ==="
+  local before_yaml
+  before_yaml="$(mktemp)"
+  cp "$REPO_ROOT/docs/proto/rbs_rest_api.yaml" "$before_yaml"
   cargo build -p rbs --features rest -q
-  if ! git diff --quiet HEAD -- docs/proto/rbs_rest_api.yaml; then
+  if ! cmp -s "$before_yaml" "$REPO_ROOT/docs/proto/rbs_rest_api.yaml"; then
     echo "error: docs/proto/rbs_rest_api.yaml differs from \`cargo build -p rbs --features rest\`." >&2
-    echo "Regenerate: cargo build -p rbs --features rest && git add docs/proto/rbs_rest_api.yaml" >&2
-    git diff HEAD -- docs/proto/rbs_rest_api.yaml >&2 || true
+    echo "Regenerate: cargo build -p rbs --features rest" >&2
+    diff -u "$before_yaml" "$REPO_ROOT/docs/proto/rbs_rest_api.yaml" >&2 || true
+    rm -f "$before_yaml"
     exit 1
   fi
+  rm -f "$before_yaml"
   echo "OpenAPI YAML is in sync with the rbs crate build."
 }
 

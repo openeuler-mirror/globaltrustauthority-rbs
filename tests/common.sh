@@ -17,18 +17,58 @@ resolve_python_bin() {
   if [[ -n "${PYTHON_BIN:-}" ]]; then
     return 0
   fi
-  if [[ -x /usr/bin/python3 ]]; then
-    PYTHON_BIN=/usr/bin/python3
-  else
-    PYTHON_BIN=python3
+  if [[ -n "${VIRTUAL_ENV:-}" && -x "$VIRTUAL_ENV/bin/python" ]]; then
+    PYTHON_BIN="$VIRTUAL_ENV/bin/python"
+    return 0
   fi
+  PYTHON_BIN="$(command -v python3 2>/dev/null || true)"
+  if [[ -n "$PYTHON_BIN" ]]; then
+    return 0
+  fi
+  echo "${CALLER:-tests}: python3 is required for e2e tests" >&2
+  exit 1
+}
+
+python_deps_available() {
+  "$PYTHON_BIN" -c "import pytest, httpx, yaml, jwcrypto" 2>/dev/null
 }
 
 ensure_pytest_deps() {
+  local requested_python="${PYTHON_BIN:-}"
+  local active_venv="${VIRTUAL_ENV:-}"
   resolve_python_bin
-  if ! "$PYTHON_BIN" -c "import pytest, httpx, yaml" 2>/dev/null; then
+  if python_deps_available; then
+    return 0
+  fi
+
+  if [[ "${E2E_AUTO_SETUP:-1}" != "1" ]]; then
     echo "${CALLER:-tests}: e2e Python dependencies are required. Install with:" >&2
     echo "  python3 -m pip install -r tests/requirements.txt" >&2
+    echo "Set E2E_AUTO_SETUP=1 to let the test wrapper initialize them automatically." >&2
+    exit 1
+  fi
+
+  if [[ -n "$requested_python" || -n "$active_venv" ]]; then
+    echo "${CALLER:-tests}: installing e2e Python dependencies with $PYTHON_BIN" >&2
+    "$PYTHON_BIN" -m pip install -r "$SCRIPT_DIR/requirements.txt"
+  else
+    local e2e_venv=${E2E_VENV_DIR:-${SCRIPT_DIR:?}/.venv}
+    if [[ -x "$e2e_venv/bin/python" ]]; then
+      PYTHON_BIN="$e2e_venv/bin/python"
+      if python_deps_available; then
+        return 0
+      fi
+    else
+      echo "${CALLER:-tests}: creating e2e Python environment at $e2e_venv" >&2
+      "$PYTHON_BIN" -m venv "$e2e_venv"
+    fi
+    PYTHON_BIN="$e2e_venv/bin/python"
+    echo "${CALLER:-tests}: installing e2e Python dependencies with $PYTHON_BIN" >&2
+    "$PYTHON_BIN" -m pip install -r "$SCRIPT_DIR/requirements.txt"
+  fi
+
+  if ! python_deps_available; then
+    echo "${CALLER:-tests}: e2e Python dependency initialization failed for $PYTHON_BIN" >&2
     exit 1
   fi
 }

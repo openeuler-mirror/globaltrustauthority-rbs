@@ -323,6 +323,17 @@ mod tests {
         assert!(err.to_string().contains("username must contain only letters"));
     }
 
+    // Validate username min, normal, max, and max+1 length behavior.
+    #[test]
+    fn validate_username_length_matrix() {
+        assert!(validate_username("a").is_ok());
+        assert!(validate_username("ab").is_ok());
+        assert!(validate_username(&"u".repeat(USERNAME_MAX_LEN - 1)).is_ok());
+        assert!(validate_username(&"u".repeat(USERNAME_MAX_LEN)).is_ok());
+        assert!(validate_username(&"u".repeat(USERNAME_MAX_LEN + 1)).is_err());
+        assert!(validate_username("").is_err());
+    }
+
     #[test]
     fn read_pubkey_and_jwk_reads_inputs() {
         let dir = std::env::temp_dir();

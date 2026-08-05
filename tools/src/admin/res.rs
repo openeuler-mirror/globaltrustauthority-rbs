@@ -417,6 +417,31 @@ mod tests {
         assert!(err.to_string().contains("resource path segment"));
     }
 
+    // Cover every resource URI segment at max-1, normal, max, and max+1.
+    #[test]
+    fn validate_resource_uri_segment_length_matrix() {
+        for length in [RESOURCE_SEGMENT_MAX_LEN - 1, RESOURCE_SEGMENT_MAX_LEN] {
+            let segment = "x".repeat(length);
+            let uri = format!("{segment}/repo/secret/name");
+            assert!(validate_resource_uri(&uri).is_ok());
+        }
+        assert!(validate_resource_uri("v/r/secret/name").is_ok());
+        let too_long = "x".repeat(RESOURCE_SEGMENT_MAX_LEN + 1);
+        assert!(validate_resource_uri(&format!("{too_long}/repo/secret/name")).is_err());
+    }
+
+    // Check additional-info and passphrase boundaries used by resource commands.
+    #[test]
+    fn validate_resource_option_length_matrix() {
+        for length in [ADDITIONAL_INFO_MAX_LEN - 1, ADDITIONAL_INFO_MAX_LEN] {
+            assert!(validate_trimmed_string_max_len(&"a".repeat(length), ADDITIONAL_INFO_MAX_LEN, "additional-info").is_ok());
+        }
+        assert!(validate_trimmed_string_max_len(&"a".repeat(ADDITIONAL_INFO_MAX_LEN + 1), ADDITIONAL_INFO_MAX_LEN, "additional-info").is_err());
+        assert!(validate_passphrase_len(&"p".repeat(PASSPHRASE_MAX_LEN - 1)).is_ok());
+        assert!(validate_passphrase_len(&"p".repeat(PASSPHRASE_MAX_LEN)).is_ok());
+        assert!(validate_passphrase_len(&"p".repeat(PASSPHRASE_MAX_LEN + 1)).is_err());
+    }
+
     #[test]
     fn decode_resource_jwe_requires_base64_utf8() {
         let jwe = "header.encrypted_key.iv.ciphertext.tag";

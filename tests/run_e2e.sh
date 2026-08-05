@@ -37,8 +37,10 @@ Environment variables:
   E2E_SUITES    Comma-separated suite markers (default: rbs,rbc,tools)
   E2E_PATTERN   Comma-separated testcase substring tokens (OR)
   PYTHON_BIN    Python interpreter for pytest
+  E2E_VENV_DIR  Auto-created Python environment (default: tests/.venv)
+  E2E_AUTO_SETUP Set to 0 to fail instead of installing missing Python packages
 
-Requires: python3, pytest (tests/requirements.txt), openssl, cargo (rest feature).
+Requires: python3 with venv/pip, openssl, cargo (rest feature).
 EOF
 }
 

@@ -15,6 +15,7 @@ from __future__ import annotations
 import os
 import shutil
 import signal
+import ssl
 import subprocess
 import time
 from contextlib import suppress
@@ -36,9 +37,12 @@ class RbsServer:
         self._repo_root = repo_root
         self._proc: subprocess.Popen[bytes] | None = None
         self._started_with_setsid = False
+        self._private_key_path = self._scratch_dir / "e2e_key.pem"
         self._pub_key_path = self._scratch_dir / "e2e_pub.pem"
         self._db_path = self._scratch_dir / "rbs.db"
         self._log_path: Path | None = None
+        self._process_log_path: Path | None = None
+        self._process_log_file: Any | None = None
 
     def _failure_diagnostics(self) -> str:
         parts: list[str] = []
@@ -48,24 +52,48 @@ class RbsServer:
                 parts.append(f"process exit code {rc}")
         if self._log_path is not None and self._log_path.is_file():
             parts.append(f"server log: {self._log_path}")
+        if self._process_log_path is not None and self._process_log_path.is_file():
+            parts.append(f"server stderr: {self._process_log_path}")
         return "; ".join(parts) if parts else "no server log captured"
 
     def ensure_e2e_materials(self) -> None:
         """Generate RSA public key and sqlite DB file required by RBS startup."""
         if not self._pub_key_path.is_file():
-            key_path = self._scratch_dir / "e2e_key.pem"
             subprocess.run(
-                ["openssl", "genrsa", "-out", str(key_path), "2048"],
+                ["openssl", "genrsa", "-out", str(self._private_key_path), "2048"],
                 check=True,
                 capture_output=True,
             )
             subprocess.run(
-                ["openssl", "rsa", "-in", str(key_path), "-pubout", "-out", str(self._pub_key_path)],
+                ["openssl", "rsa", "-in", str(self._private_key_path), "-pubout", "-out", str(self._pub_key_path)],
                 check=True,
                 capture_output=True,
             )
-            key_path.unlink(missing_ok=True)
         self._db_path.touch(exist_ok=True)
+
+    @property
+    def attestation_signing_key_path(self) -> Path:
+        """Private key paired with RBS's temporary AttestToken verification key."""
+        self.ensure_e2e_materials()
+        return self._private_key_path
+
+    @property
+    def attestation_public_key_path(self) -> Path:
+        """Public half of the temporary key used by the bootstrapped admin user."""
+        self.ensure_e2e_materials()
+        return self._pub_key_path
+
+    @property
+    def attestation_private_key_path(self) -> Path:
+        """Private key used by E2E clients to decrypt returned JWE content."""
+        self.ensure_e2e_materials()
+        return self._private_key_path
+
+    @property
+    def database_path(self) -> Path:
+        """SQLite database used by the E2E deployment."""
+        self.ensure_e2e_materials()
+        return self._db_path
 
     def write_config(
         self,
@@ -75,6 +103,15 @@ class RbsServer:
         cert_file: str = "",
         key_file: str = "",
         log_name: str = "rbs.log",
+        gta_base_url: str = "http://127.0.0.1:9",
+        openbao_base_url: str | None = None,
+        openbao_token: str = "",
+        rate_limit_enabled: bool = False,
+        requests_per_sec: int = 60,
+        burst: int | None = None,
+        trusted_proxy_addrs: list[str] | None = None,
+        max_users: int = 10,
+        max_policies: int = 10,
     ) -> Path:
         self.ensure_e2e_materials()
         pub_key = str(self._pub_key_path)
@@ -88,6 +125,12 @@ class RbsServer:
                     "cert_file": cert_file,
                     "key_file": key_file,
                 },
+                "rate_limit": {
+                    "enabled": rate_limit_enabled,
+                    "requests_per_sec": requests_per_sec,
+                    "burst": burst,
+                },
+                "trusted_proxy": {"addrs": trusted_proxy_addrs or []},
             },
             "logging": {
                 "level": "info",
@@ -99,6 +142,10 @@ class RbsServer:
                     "public_key_path": pub_key,
                     "issuer": "Global Trust Authority",
                 },
+                "bearer_token": {
+                    "issuer": "rbs-cli",
+                    "audience": "globaltrustauthority-rbs",
+                },
             },
             "storage": {
                 "db_type": "sqlite",
@@ -108,21 +155,21 @@ class RbsServer:
                 "sql_file_path": "rbs/rdb_sql/sqlite_rbs.sql",
             },
             "admin": {
-                "max_users": 10,
+                "max_users": max_users,
                 "admin_key": {
                     "public_key_path": pub_key,
                 },
             },
+            "policy": {
+                "max_per_user": max_policies,
+            },
             "attestation": {
                 "default_as_provider": "gta",
-                # Version-only e2e: /rbs/version does not call GTA. Port 9 (discard) satisfies
-                # required attestation.backends config without a mock server. Attestation-flow
-                # tests must replace this with a reachable GTA stub or mock base_url.
                 "backends": {
                     "gta": {
                         "mode": "rest",
                         "rest": {
-                            "base_url": "http://127.0.0.1:9",
+                            "base_url": gta_base_url,
                             "timeout_secs": 5,
                             "retries": 0,
                             "tls_verify": False,
@@ -135,6 +182,22 @@ class RbsServer:
                 },
             },
         }
+        if openbao_base_url is not None:
+            config["resource"] = {
+                "backends": {
+                    "vault": {
+                        "type": "vault",
+                        "url": openbao_base_url,
+                        "token": openbao_token,
+                        "mount_path": "secret",
+                        "kv_version": "v2",
+                        "verify_ssl": False,
+                        "timeout": 5,
+                        "max_connections": 10,
+                        "max_retries": 0,
+                    }
+                }
+            }
         config_path = self._scratch_dir / "rbs.yaml"
         config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
         return config_path
@@ -142,14 +205,16 @@ class RbsServer:
     def start(self, config_path: Path) -> None:
         self.stop()
         cmd = [str(self._binary), "--config", str(config_path)]
+        self._process_log_path = self._scratch_dir / "rbs-process.log"
+        self._process_log_file = self._process_log_path.open("wb")
         setsid = shutil.which("setsid")
         if setsid:
             self._proc = subprocess.Popen(
                 [setsid, *cmd],
                 cwd=self._repo_root,
                 stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stdout=self._process_log_file,
+                stderr=subprocess.STDOUT,
             )
             self._started_with_setsid = True
         else:
@@ -157,18 +222,20 @@ class RbsServer:
                 cmd,
                 cwd=self._repo_root,
                 stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stdout=self._process_log_file,
+                stderr=subprocess.STDOUT,
             )
             self._started_with_setsid = False
 
     def stop(self) -> None:
         proc = self._proc
         if proc is None:
+            self._close_process_log()
             return
         if proc.poll() is not None:
             self._proc = None
             self._started_with_setsid = False
+            self._close_process_log()
             return
         pid = proc.pid
         with suppress(ProcessLookupError):
@@ -194,16 +261,25 @@ class RbsServer:
         self._proc = None
         self._started_with_setsid = False
 
+        self._close_process_log()
+
+    def _close_process_log(self) -> None:
+        if self._process_log_file is not None:
+            self._process_log_file.close()
+            self._process_log_file = None
+
     def wait_for_version(
         self,
         base_url: str,
         *,
-        verify: bool = True,
+        verify: bool | ssl.SSLContext = True,
         max_wait: int = E2E_WAIT_SECS,
     ) -> None:
         deadline = time.monotonic() + max_wait
         last_error: Exception | None = None
-        with httpx.Client(verify=verify, timeout=2.0) as client:
+        # E2E services always run on loopback. Do not inherit a developer or CI
+        # proxy configuration, which can redirect local readiness checks.
+        with httpx.Client(verify=verify, timeout=2.0, trust_env=False) as client:
             while time.monotonic() < deadline:
                 if self._proc is not None and self._proc.poll() is not None:
                     raise RuntimeError(
@@ -243,6 +319,8 @@ class RbsServer:
                 "-nodes",
                 "-subj",
                 "/CN=localhost",
+                "-addext",
+                "subjectAltName=DNS:localhost,IP:127.0.0.1",
             ],
             check=True,
             capture_output=True,
