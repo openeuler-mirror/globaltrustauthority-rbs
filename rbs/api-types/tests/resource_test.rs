@@ -89,8 +89,27 @@ fn test_update_resource_request() {
         "export_mode": "jwe"
     });
     let req: UpdateResourceRequest = serde_json::from_value(json).unwrap();
-    assert_eq!(req.policy_id, "pol-002");
+    assert_eq!(req.policy_id.as_deref(), Some("pol-002"));
     assert_eq!(req.export_mode.as_deref(), Some("jwe"));
+}
+
+#[test]
+fn test_update_resource_request_policy_id_length_bounds() {
+    use validator::Validate;
+
+    // `policy_id` is optional on update, but when present the length bounds
+    // (1..=36, mirroring the UUID-v4 policy id) must still be enforced.
+    let ok = UpdateResourceRequest { policy_id: None, content_type: None, export_mode: None, additional_info: None };
+    assert!(ok.validate().is_ok(), "None policy_id should pass");
+
+    let empty = UpdateResourceRequest { policy_id: Some(String::new()), content_type: None, export_mode: None, additional_info: None };
+    assert!(empty.validate().is_err(), "empty policy_id should fail min=1");
+
+    let too_long = UpdateResourceRequest { policy_id: Some("x".repeat(37)), content_type: None, export_mode: None, additional_info: None };
+    assert!(too_long.validate().is_err(), "37-char policy_id should fail max=36");
+
+    let max = UpdateResourceRequest { policy_id: Some("x".repeat(36)), content_type: None, export_mode: None, additional_info: None };
+    assert!(max.validate().is_ok(), "36-char policy_id should pass");
 }
 
 #[test]

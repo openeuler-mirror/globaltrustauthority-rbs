@@ -43,7 +43,7 @@ async fn resource_operations_report_url_build_failure() {
         export_mode: Some("plain".to_string()),
     };
     let update = UpdateResourceRequest {
-        policy_id: "policy-2".to_string(),
+        policy_id: Some("policy-2".to_string()),
         additional_info: Some("Zm9v".to_string()),
         content_type: Some("json".to_string()),
         export_mode: Some("jwe".to_string()),

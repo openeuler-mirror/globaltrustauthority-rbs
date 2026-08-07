@@ -127,20 +127,35 @@ impl ResourceService {
             log::error!("Resource update denied: URI validation failed: {}", e);
             e
         })?;
-        if req.policy_id.is_empty() {
-            log::error!("Resource update denied: empty policy_id");
-            return Err(ResourceError::ParamInvalid { field: "policy_id" });
-        }
         if let Some(ref ct) = req.content_type { self.validator.validate_content_type(ct).map_err(|e| { log::error!("Resource update denied: {}", e); e })?; }
         if let Some(ref em) = req.export_mode { self.validator.validate_export_mode(em).map_err(|e| { log::error!("Resource update denied: {}", e); e })?; }
         self.validator.validate_additional_info(req.additional_info.as_deref()).map_err(|e| { log::error!("Resource update denied: {}", e); e })?;
         let username = ctx.sub();
 
+        // Resolve the effective policy id. An explicit `Some(policy_id)` rebinds the
+        // resource (and is validated); `None` keeps the existing resource's binding.
+        // A brand-new resource created via the upsert path still requires an explicit policy.
+        let existing = self.repo.find_by_uri(uri).await?;
+        let effective_policy_id = match req.policy_id.as_deref() {
+            Some(pid) if !pid.is_empty() => pid.to_string(),
+            Some(_) => {
+                log::error!("Resource update denied: empty policy_id");
+                return Err(ResourceError::ParamInvalid { field: "policy_id" });
+            }
+            None => match existing.as_ref() {
+                Some(entity) => entity.policy_id.clone(),
+                None => {
+                    log::error!("Resource update denied: policy_id required to create a new resource");
+                    return Err(ResourceError::ParamInvalid { field: "policy_id" });
+                }
+            },
+        };
+
         // ── step 2b: policy and backend check (for both create and update) ──
-        let valid = self.policy_client.validate_policy(&req.policy_id, username).await?;
+        let valid = self.policy_client.validate_policy(&effective_policy_id, username).await?;
         if !valid {
-            log::error!("Resource update denied: policy_id '{}' invalid for user '{}'", req.policy_id, username);
-            return Err(ResourceError::PolicyIdInvalid(req.policy_id.clone()));
+            log::error!("Resource update denied: policy_id '{}' invalid for user '{}'", effective_policy_id, username);
+            return Err(ResourceError::PolicyIdInvalid(effective_policy_id.clone()));
         }
         let backend = self.backend_provider.get_backend(&parsed.res_provider)
             .ok_or_else(|| {
@@ -152,7 +167,6 @@ impl ResourceService {
             return Err(ResourceError::BackendNotFound);
         }
 
-        let existing = self.repo.find_by_uri(uri).await?;
         let now = chrono::Utc::now().timestamp_millis();
 
         if let Some(existing_entity) = existing {
@@ -168,7 +182,7 @@ impl ResourceService {
                 created_at: existing_entity.created_at, updated_at: now,
                 content_type: req.content_type.clone().or(existing_entity.content_type),
                 export_mode: req.export_mode.clone().unwrap_or(existing_entity.export_mode),
-                policy_id: req.policy_id.clone(),
+                policy_id: effective_policy_id.clone(),
             };
             let old_update_time = existing_entity.updated_at;
             let affected = self.repo.update(uri, &updated, old_update_time).await?;
@@ -185,10 +199,10 @@ impl ResourceService {
                 res_name: parsed.resource_name, res_info: req.additional_info.clone(),
                 created_at: now, updated_at: now, content_type: req.content_type.clone(),
                 export_mode: req.export_mode.clone().unwrap_or_else(|| "jwe".to_string()),
-                policy_id: req.policy_id.clone(),
+                policy_id: effective_policy_id.clone(),
             };
             self.repo.insert(&entity).await?;
-            log::info!("Resource created via update: uri='{}', user='{}', policy_id='{}'", uri, username, req.policy_id);
+            log::info!("Resource created via update: uri='{}', user='{}', policy_id='{}'", uri, username, effective_policy_id);
             Ok((ResourceResponse { uri: uri.to_string(), provider_name: entity.provider_name, repository_name: entity.repo_name, resource_type: entity.res_type, resource_name: entity.res_name, created_at: millis_to_rfc3339(entity.created_at), updated_at: millis_to_rfc3339(entity.updated_at), content_type: entity.content_type, export_mode: entity.export_mode, policy_id: entity.policy_id, additional_info: entity.res_info }, true))
         }
     }

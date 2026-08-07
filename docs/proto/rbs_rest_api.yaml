@@ -1456,12 +1456,18 @@ components:
           type: string
     UpdateResourceRequest:
       type: object
-      description: Request body for `PUT /rbs/v0/{uri}` — update or create a resource.
-      required:
-      - policy_id
+      description: |-
+        Request body for `PUT /rbs/v0/{uri}` — update or create a resource.
+
+        `policy_id` is optional on update: an explicit value rebinds the resource to
+        a new policy (validated as usual); omitting it keeps the existing resource's
+        binding. A brand-new resource created via the upsert path still requires an
+        explicit `policy_id`.
       properties:
         policy_id:
-          type: string
+          type:
+          - string
+          - 'null'
         content_type:
           type:
           - string

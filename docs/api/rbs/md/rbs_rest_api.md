@@ -4698,11 +4698,16 @@ Policy update request body.
 
 Request body for `PUT /rbs/v0/{uri}` — update or create a resource.
 
+`policy_id` is optional on update: an explicit value rebinds the resource to
+a new policy (validated as usual); omitting it keeps the existing resource's
+binding. A brand-new resource created via the upsert path still requires an
+explicit `policy_id`.
+
 ### Properties
 
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
-|policy_id|string|true|none|none|
+|policy_id|string,null|false|none|none|
 |content_type|string,null|false|none|none|
 |export_mode|string,null|false|none|none|
 |additional_info|string,null|false|none|none|

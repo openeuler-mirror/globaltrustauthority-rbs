@@ -47,11 +47,17 @@ pub struct CreateResourceRequest {
 // ── Update ──────────────────────────────────────────────────────────────────
 
 /// Request body for `PUT /rbs/v0/{uri}` — update or create a resource.
+///
+/// `policy_id` is optional on update: an explicit value rebinds the resource to
+/// a new policy (validated as usual); omitting it keeps the existing resource's
+/// binding. A brand-new resource created via the upsert path still requires an
+/// explicit `policy_id`.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema, validator::Validate)]
 #[serde(rename_all = "snake_case")]
 pub struct UpdateResourceRequest {
     #[validate(length(min = 1, max = 36))]
-    pub policy_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub policy_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
