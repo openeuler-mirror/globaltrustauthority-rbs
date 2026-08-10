@@ -159,8 +159,28 @@ impl BearerTokenVerifier {
                 }
             })?;
 
-        // Validate claims
+        // Validate exp explicitly so an expired ES512 token returns TokenExpired,
+        // matching the jsonwebtoken path. josekit's JwtPayloadValidator only checks
+        // exp when present and reports expiry as a generic InvalidClaim, so presence
+        // and expiry are handled here before delegating iss/aud to josekit.
+        let now = std::time::SystemTime::now();
+        match payload.expires_at() {
+            None => {
+                warn!("BearerToken ES512 rejected: missing exp claim");
+                return Err(AuthError::TokenInvalid {
+                    reason: "missing exp claim".to_string(),
+                });
+            }
+            Some(exp) if exp <= now => {
+                warn!("BearerToken ES512 rejected: token expired");
+                return Err(AuthError::TokenExpired);
+            }
+            _ => {}
+        }
+
+        // Validate remaining claims (iss, aud, nbf, iat). exp is already handled.
         let mut validator = JwtPayloadValidator::new();
+        validator.set_base_time(now);
         validator.set_issuer(&self.config.issuer);
         validator.set_audience(&self.config.audience);
 
@@ -181,16 +201,6 @@ impl BearerTokenVerifier {
                 }
             }
         })?;
-
-        // Require exp claim — josekit JwtPayloadValidator only validates exp if present,
-        // but does not reject tokens that lack it. Explicitly reject to match jsonwebtoken
-        // path which requires exp via set_required_spec_claims.
-        if payload.expires_at().is_none() {
-            warn!("BearerToken ES512 rejected: missing exp claim");
-            return Err(AuthError::TokenInvalid {
-                reason: "missing exp claim".to_string(),
-            });
-        }
 
         // Extract claims (signature is trusted at this point).
         let iss = payload
@@ -321,6 +331,12 @@ fn extract_sub_from_payload(token: &str) -> Result<String, AuthError> {
 mod tests {
     use super::*;
     use crate::auth::authn::common::SUPPORTED_ALGORITHMS;
+    use josekit::jws::{JwsHeader, ES512};
+    use josekit::jwt::{self, JwtPayload};
+    use openssl::ec::{EcGroup, EcKey};
+    use openssl::nid::Nid;
+    use openssl::pkey::PKey;
+    use std::time::{Duration, SystemTime};
 
     /// Generate a fresh RSA public key PEM for each test.
     fn generate_test_public_key_pem() -> String {
@@ -576,5 +592,110 @@ mod tests {
         assert!(!tracker.has_entry("testuser"),
             "successful verify() should clear lockout counter via record_success");
         assert!(!tracker.is_locked("testuser"));
+    }
+
+    /// Generate an EC P-521 key pair for ES512 tests.
+    /// Returns (public_pem, private_pem).
+    fn generate_test_es512_key_pair() -> (String, String) {
+        let group = EcGroup::from_curve_name(Nid::SECP521R1).expect("P-521 group");
+        let ec = EcKey::generate(&group).expect("generate EC key");
+        let pkey = PKey::from_ec_key(ec).expect("PKey from EC");
+        let pub_pem = String::from_utf8(pkey.public_key_to_pem().expect("pub pem")).unwrap();
+        let priv_pem = String::from_utf8(
+            pkey.private_key_to_pem_pkcs8().expect("priv pem"),
+        )
+        .unwrap();
+        (pub_pem, priv_pem)
+    }
+
+    /// Build an ES512-signed JWT with the given expiry (None = no exp claim).
+    /// Sets iss/aud/sub to match the verifier config used in tests.
+    fn sign_es512_token(priv_pem: &str, exp: Option<SystemTime>) -> String {
+        let mut payload = JwtPayload::new();
+        payload.set_issuer("https://auth.example.com");
+        payload.set_subject("es512-user");
+        payload.set_audience(vec!["globaltrustauthority-rbs"]);
+        if let Some(t) = exp {
+            payload.set_expires_at(&t);
+        }
+
+        let mut header = JwsHeader::new();
+        header.set_token_type("JWT");
+        header.set_algorithm("ES512");
+
+        let signer = ES512.signer_from_pem(priv_pem.as_bytes()).expect("signer");
+        jwt::encode_with_signer(&payload, &header, &signer).expect("encode jwt")
+    }
+
+    fn es512_verifier(pub_pem: &str) -> BearerTokenVerifier {
+        let config = BearerTokenVerificationConfig {
+            issuer: "https://auth.example.com".to_string(),
+            audience: "globaltrustauthority-rbs".to_string(),
+        };
+        let key_provider = Arc::new(StubKeyProvider(pub_pem.to_string()));
+        let lockout_tracker = Arc::new(LockoutTracker::new());
+        BearerTokenVerifier::new(config, key_provider, lockout_tracker)
+    }
+
+    /// An expired ES512 token must return AuthError::TokenExpired (not the
+    /// generic TokenInvalid). This is the regression test for the ES512
+    /// expiry-error-type fix.
+    #[tokio::test]
+    async fn test_es512_expired_returns_token_expired() {
+        let (pub_pem, priv_pem) = generate_test_es512_key_pair();
+        let verifier = es512_verifier(&pub_pem);
+
+        // exp in the past.
+        let exp = SystemTime::now() - Duration::from_secs(3600);
+        let token = sign_es512_token(&priv_pem, Some(exp));
+
+        let result = verifier.verify(&token).await;
+        assert!(result.is_err(), "expired ES512 token must be rejected");
+        match result.unwrap_err() {
+            AuthError::TokenExpired => {}
+            other => panic!("expected TokenExpired, got: {:?}", other),
+        }
+    }
+
+    /// An ES512 token without an exp claim must be rejected (TokenInvalid,
+    /// "missing exp claim"). Ensures the explicit missing-exp guard still
+    /// works after reordering the exp check before josekit's validate().
+    #[tokio::test]
+    async fn test_es512_missing_exp_rejected() {
+        let (pub_pem, priv_pem) = generate_test_es512_key_pair();
+        let verifier = es512_verifier(&pub_pem);
+
+        let token = sign_es512_token(&priv_pem, None);
+
+        let result = verifier.verify(&token).await;
+        assert!(result.is_err(), "ES512 token without exp must be rejected");
+        match result.unwrap_err() {
+            AuthError::TokenInvalid { reason } => {
+                assert!(
+                    reason.contains("exp"),
+                    "reason should mention exp, got: {}",
+                    reason
+                );
+            }
+            other => panic!("expected TokenInvalid, got: {:?}", other),
+        }
+    }
+
+    /// A valid ES512 token (correct signature, iss/aud, non-expired exp)
+    /// verifies successfully. Regression guard for the happy path after
+    /// reordering exp validation before josekit's claim validation.
+    #[tokio::test]
+    async fn test_es512_valid_token_succeeds() {
+        let (pub_pem, priv_pem) = generate_test_es512_key_pair();
+        let verifier = es512_verifier(&pub_pem);
+
+        let exp = SystemTime::now() + Duration::from_secs(3600);
+        let token = sign_es512_token(&priv_pem, Some(exp));
+
+        let result = verifier.verify(&token).await;
+        assert!(result.is_ok(), "valid ES512 token should verify: {:?}", result.err());
+        let ctx = result.unwrap();
+        assert_eq!(ctx.sub, "es512-user");
+        assert_eq!(ctx.token_type, TokenType::Bearer);
     }
 }
