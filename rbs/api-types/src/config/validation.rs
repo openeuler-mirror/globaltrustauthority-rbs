@@ -410,6 +410,27 @@ impl AttestationRestConfig {
             );
         }
 
+        // client_cert_path / client_key_path: length limit + both-or-neither (mTLS pair)
+        if !self.client_cert_path.is_empty() && self.client_cert_path.len() > FILE_PATH_MAX_LEN {
+            panic!(
+                "attestation.backends.*.rest.client_cert_path length {} exceeds maximum {}",
+                self.client_cert_path.len(), FILE_PATH_MAX_LEN
+            );
+        }
+        if !self.client_key_path.is_empty() && self.client_key_path.len() > FILE_PATH_MAX_LEN {
+            panic!(
+                "attestation.backends.*.rest.client_key_path length {} exceeds maximum {}",
+                self.client_key_path.len(), FILE_PATH_MAX_LEN
+            );
+        }
+        // For mutual TLS, both cert and key must be provided together; one without the other
+        // is a misconfiguration (mirrors attestation_agent::utils::client::with_tls_config).
+        if self.client_cert_path.is_empty() ^ self.client_key_path.is_empty() {
+            panic!(
+                "attestation.backends.*.rest.client_cert_path and client_key_path must be provided together (both empty = one-way TLS, both set = mTLS)"
+            );
+        }
+
         // credentials validation
         self.credentials.validate();
     }

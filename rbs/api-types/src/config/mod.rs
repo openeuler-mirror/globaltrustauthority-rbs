@@ -285,6 +285,13 @@ pub struct AttestationRestConfig {
     /// If empty, uses system default CA bundle.
     #[serde(skip_serializing_if = "String::is_empty")]
     pub ca_file: String,
+    /// Client certificate file (PEM) for mutual TLS (mTLS).
+    /// When set, `client_key_path` must also be set. Empty = one-way TLS.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub client_cert_path: String,
+    /// Client private key file (PKCS#8 PEM) for mTLS. Paired with `client_cert_path`.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub client_key_path: String,
     /// REST backend credentials (user_id, api_key).
     #[serde(default)]
     pub credentials: AttestationCredentials,
@@ -298,6 +305,8 @@ impl Default for AttestationRestConfig {
             retries: 3,
             tls_verify: true,
             ca_file: String::new(),
+            client_cert_path: String::new(),
+            client_key_path: String::new(),
             credentials: AttestationCredentials::default(),
         }
     }

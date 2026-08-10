@@ -203,7 +203,7 @@ fn create_req() -> CreateResourceRequest {
 /// Build a default valid `UpdateResourceRequest`.
 fn update_req() -> UpdateResourceRequest {
     UpdateResourceRequest {
-        policy_id: TEST_POLICY_ID.to_string(),
+        policy_id: Some(TEST_POLICY_ID.to_string()),
         content_type: Some("text".to_string()),
         export_mode: Some("jwe".to_string()),
         additional_info: None,
@@ -621,6 +621,76 @@ async fn test_put_create_no_permission() {
     match result {
         Err(ResourceError::PermissionDenied) => {}
         _ => panic!("Expected PermissionDenied, got {:?}", result),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests – PUT /update with omitted policy_id (keeps existing binding)
+// ---------------------------------------------------------------------------
+
+/// UT-RS-010a: PUT update with `policy_id: None` on an existing resource keeps the
+/// existing binding and still succeeds (the existing policy is re-validated).
+#[tokio::test]
+async fn test_put_update_none_policy_keeps_existing_binding() {
+    let svc = make_service(
+        |repo| {
+            *repo.find_by_uri_result.lock().unwrap() = Ok(Some(make_entity()));
+            *repo.update_result.lock().unwrap() = Ok(1);
+        },
+        |policy| { *policy.validate_policy_result.lock().unwrap() = Ok(true); },
+        |bp| { bp.register("vault", Arc::new(MockResourceBackend::new())); },
+    );
+
+    let mut req = update_req();
+    req.policy_id = None;
+
+    let result = svc.update(&admin_ctx(TEST_USER), TEST_URI, &req).await;
+    match &result {
+        Ok(_) => {}
+        Err(e) => panic!("Expected Ok with kept binding, got Err({:?})", e),
+    }
+}
+
+/// UT-RS-010b: PUT update with `policy_id: None` still validates the existing
+/// binding — when `validate_policy` returns false, the update is rejected with
+/// `PolicyIdInvalid`, proving the kept binding is enforced.
+#[tokio::test]
+async fn test_put_update_none_policy_validates_existing_binding() {
+    let svc = make_service(
+        |repo| {
+            *repo.find_by_uri_result.lock().unwrap() = Ok(Some(make_entity()));
+        },
+        |policy| { *policy.validate_policy_result.lock().unwrap() = Ok(false); },
+        |bp| { bp.register("vault", Arc::new(MockResourceBackend::new())); },
+    );
+
+    let mut req = update_req();
+    req.policy_id = None;
+
+    let result = svc.update(&admin_ctx(TEST_USER), TEST_URI, &req).await;
+    match result {
+        Err(ResourceError::PolicyIdInvalid(_)) => {}
+        other => panic!("Expected PolicyIdInvalid, got {:?}", other),
+    }
+}
+
+/// UT-RS-010c: PUT update with `policy_id: None` on a non-existent resource
+/// (upsert create path) is rejected — a brand-new resource requires an explicit policy.
+#[tokio::test]
+async fn test_put_update_none_policy_new_resource_rejected() {
+    let svc = make_service(
+        |repo| { *repo.find_by_uri_result.lock().unwrap() = Ok(None); },
+        |_| {},
+        |bp| { bp.register("vault", Arc::new(MockResourceBackend::new())); },
+    );
+
+    let mut req = update_req();
+    req.policy_id = None;
+
+    let result = svc.update(&admin_ctx(TEST_USER), TEST_URI, &req).await;
+    match result {
+        Err(ResourceError::ParamInvalid { field }) if field == "policy_id" => {}
+        other => panic!("Expected ParamInvalid {{ policy_id }}, got {:?}", other),
     }
 }
 

@@ -121,8 +121,8 @@ pub struct UpdateArgs {
     #[command(flatten)]
     pub path: PathArgs,
 
-    #[arg(long, value_parser = |s: &str| validate_trimmed_string_max_len(s, POLICY_ID_MAX_LEN, "policy-id"), help = "Bound resource policy ID")]
-    pub policy_id: String,
+    #[arg(long, value_parser = |s: &str| validate_trimmed_string_max_len(s, POLICY_ID_MAX_LEN, "policy-id"), help = "New policy ID to rebind the resource to; omit to keep the current binding")]
+    pub policy_id: Option<String>,
 
     #[arg(long, value_parser = |s: &str| validate_trimmed_string_max_len(s, ADDITIONAL_INFO_MAX_LEN, "additional-info"), help = "Optional Base64 additional_info value or @file path")]
     pub additional_info: Option<String>,
@@ -393,14 +393,13 @@ mod tests {
     }
 
     #[test]
-    fn update_requires_policy_id() {
+    fn update_allows_missing_policy_id() {
+        // `--policy-id` is optional on update: omitting it keeps the existing binding.
         let command = UpdateArgs::augment_args(clap::Command::new("update"));
-        let error = command
+        let matches = command
             .try_get_matches_from(["update", "--uri", "vault/default/secret/demo", "--export-mode", "jwe"])
-            .expect_err("policy ID must be required for updates");
-
-        assert_eq!(error.kind(), clap::error::ErrorKind::MissingRequiredArgument);
-        assert!(error.to_string().contains("--policy-id"));
+            .expect("update should succeed without --policy-id");
+        assert!(matches.get_one::<String>("policy_id").is_none(), "policy_id should be absent when --policy-id is omitted");
     }
 
     #[test]

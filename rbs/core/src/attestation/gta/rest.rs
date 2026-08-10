@@ -140,6 +140,19 @@ impl GtaRestClient {
             builder = builder.add_root_certificate(cert);
         }
 
+        // Mutual TLS: load the client certificate + key as a reqwest Identity.
+        // Mirrors attestation_agent::utils::client (with_tls_config): both files present
+        // enables mTLS; validated as a pair in AttestationRestConfig::validate.
+        if !config.client_cert_path.is_empty() && !config.client_key_path.is_empty() {
+            let cert_pem = std::fs::read(&config.client_cert_path)
+                .expect("Failed to read client certificate file");
+            let key_pem = std::fs::read(&config.client_key_path)
+                .expect("Failed to read client key file");
+            let identity = reqwest::Identity::from_pkcs8_pem(&cert_pem, &key_pem)
+                .expect("Failed to build client identity (cert/key must be PKCS#8 PEM)");
+            builder = builder.identity(identity);
+        }
+
         builder.build().expect("Failed to build HTTP client")
     }
 

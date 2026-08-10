@@ -81,37 +81,6 @@ attestation:
           main_api_key: "${MAIN_API_KEY}"   # optional (reserved for future use)
           sub_api_key: "${SUB_API_KEY}"   # optional
 
-# # Storage: users, resource policies, and default resource persistence.
-# #
-# # type: sqlite | memory | mysql | postgres
-# # - sqlite  — File-backed SQLite (default). Use sqlite.path (absolute path recommended in production).
-# # - memory  — SQLite in-memory only; sqlx connects with sqlite::memory: (ephemeral; dev/test).
-# # - mysql   — MySQL / MariaDB via URL; use mysql.url, pool and optional timeout_secs.
-# # - postgres — PostgreSQL via URL; use postgres.url, pool and optional timeout_secs.
-# #
-# # Network backends (mysql, postgres): timeout_secs applies to connect/query where the pool supports it.
-# # Omitted optional blocks are ignored; only the block matching `type` is read at runtime.
-# storage:
-#   type: sqlite
-#   sqlite:
-#     path: "/var/lib/rbs/rbs.db"
-
-# # --- Examples (uncomment one; keep a single active `storage:` root in real files) ---
-# #
-# # In-memory SQLite (sqlx ::memory:), no persistence:
-# # storage:
-# #   type: memory
-# #   memory: {}
-# #
-# # PostgreSQL:
-# # storage:
-# #   type: postgres
-# #   postgres:
-# #     url: "${DATABASE_URL}"
-# #     max_connections: 10
-# #     timeout_secs: 10
-# #
-# Database configuration
 storage:
   db_type: sqlite
   # #  max_connections secs
@@ -137,9 +106,4 @@ resource:
       timeout: 30                 # request timeout in seconds; range [1, 3600]
       max_connections: 100        # connection count; range [1, 10000]
       max_retries: 2              # retry count on failure; ≤ 100
-    # second:
-    #   type: vault
-    #   url: "https://127.0.0.1:8201"
-    #   token: "${VAULT_TOKEN_2}"
-    #   mount_path: "secret"
-    #   kv_version: "v2"
+
