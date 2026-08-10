@@ -216,19 +216,16 @@ impl GtaRestClient {
                     }
                 }
                 Err(e) if attempt <= self.config.retries => {
-                    log::warn!("GTA GET {} network error (attempt {}/{}): {}", url, attempt, self.config.retries, e);
+                    log::warn!("GTA GET {} network error (attempt {}/{}), retrying: {}", url, attempt, self.config.retries, e);
                     tokio::time::sleep(Duration::from_secs(5)).await;
-                    if e.is_timeout() {
-                        continue;
-                    }
-                    return Err(GtaError::NetworkError(e.to_string()));
+                    continue;
                 }
                 Err(e) => {
                     if e.is_timeout() {
                         log::error!("GTA GET {} timed out after {} retries", url, self.config.retries);
                         return Err(GtaError::TimeoutError(e.to_string()));
                     }
-                    log::error!("GTA GET {} network error: {}", url, e);
+                    log::error!("GTA GET {} network error after {} retries: {}", url, self.config.retries, e);
                     return Err(GtaError::NetworkError(e.to_string()));
                 }
             }
@@ -275,19 +272,16 @@ impl GtaRestClient {
                     }
                 }
                 Err(e) if attempt <= self.config.retries => {
-                    log::warn!("GTA POST {} network error (attempt {}/{}): {}", url, attempt, self.config.retries, e);
+                    log::warn!("GTA POST {} network error (attempt {}/{}), retrying: {}", url, attempt, self.config.retries, e);
                     tokio::time::sleep(Duration::from_secs(5)).await;
-                    if e.is_timeout() {
-                        continue;
-                    }
-                    return Err(GtaError::NetworkError(e.to_string()));
+                    continue;
                 }
                 Err(e) => {
                     if e.is_timeout() {
                         log::error!("GTA POST {} timed out after {} retries", url, self.config.retries);
                         return Err(GtaError::TimeoutError(e.to_string()));
                     }
-                    log::error!("GTA POST {} network error: {}", url, e);
+                    log::error!("GTA POST {} network error after {} retries: {}", url, self.config.retries, e);
                     return Err(GtaError::NetworkError(e.to_string()));
                 }
             }
