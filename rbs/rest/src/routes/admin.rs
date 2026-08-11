@@ -14,6 +14,7 @@
 
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, http::StatusCode};
 use rbs_api_types::{ErrorBody, Role, UserCreateRequest, UserListQuery, UserListResponse, UserResponse, UserUpdateRequest, validate_username};
+use rbs_api_types::error::RbsError;
 use rbs_core::RbsCore;
 use std::sync::Arc;
 use validator::Validate;
@@ -248,6 +249,18 @@ pub async fn delete_user(
             log::info!("Admin delete_user succeeded: username='{}', user='{}'", username, ctx.sub());
             HttpResponse::NoContent().finish()
         }
-        Err(e) => error_response(e.external_message(), e.http_status()),
+        Err(e) => {
+            // Surface the dependency counts for the block-on-dependents case so
+            // the caller knows what to clean up; other errors use the stable
+            // external message.
+            let msg = match &e {
+                RbsError::UserHasDependents { policies, resources } => format!(
+                    "user '{}' still owns {} policy(ies) and {} resource(s); delete them first",
+                    username, policies, resources
+                ),
+                _ => e.external_message().to_string(),
+            };
+            error_response(msg, e.http_status())
+        }
     }
 }

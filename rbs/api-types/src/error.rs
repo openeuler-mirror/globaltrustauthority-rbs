@@ -214,6 +214,9 @@ pub enum RbsError {
     #[error("resource conflict")]
     ResourceConflict,
 
+    #[error("user owns {policies} policy(ies) and {resources} resource(s)")]
+    UserHasDependents { policies: u64, resources: u64 },
+
     #[error("resource gone")]
     ResourceGone,
 
@@ -266,7 +269,8 @@ impl RbsError {
             | Self::ParamMalformed
             | Self::InvalidParameter(_)
             | Self::NotImplemented => ErrorClass::Param,
-            Self::ResourceNotFound | Self::ResourceConflict | Self::ResourceGone | Self::ResourceQuotaExceeded => {
+            Self::ResourceNotFound | Self::ResourceConflict | Self::ResourceGone | Self::ResourceQuotaExceeded
+            | Self::UserHasDependents { .. } => {
                 ErrorClass::Resource
             }
             Self::AttestationProviderUnavailable
@@ -295,6 +299,7 @@ impl RbsError {
             Self::NotImplemented => StableCode::NotImplemented,
             Self::ResourceNotFound => StableCode::ResourceNotFound,
             Self::ResourceConflict => StableCode::ResourceConflict,
+            Self::UserHasDependents { .. } => StableCode::ResourceConflict,
             Self::ResourceGone => StableCode::ResourceGone,
             Self::ResourceQuotaExceeded => StableCode::ResourceQuotaExceeded,
             Self::AttestationProviderUnavailable
@@ -337,6 +342,7 @@ impl RbsError {
             Self::NotImplemented => "not implemented",
             Self::ResourceNotFound => "resource not found",
             Self::ResourceConflict => "resource conflict",
+            Self::UserHasDependents { .. } => "user has dependents",
             Self::ResourceGone => "resource no longer available",
             Self::ResourceQuotaExceeded => "resource quota exceeded",
             Self::AttestationProviderUnavailable
