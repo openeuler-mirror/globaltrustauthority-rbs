@@ -1,0 +1,15 @@
+[package]
+name = "e2e-tpm-attester"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "e2e_tpm_attester"
+crate-type = ["dylib"]
+
+[dependencies]
+plugin_manager = { git = "https://gitcode.com/openeuler/global-trust-authority.git" }
+gta_tpm_attester = { git = "https://gitcode.com/openeuler/global-trust-authority.git", package = "tpm_attester" }
+
+[workspace]

@@ -37,9 +37,10 @@ cd globaltrustauthority-rbs
 - **Linux** `x86_64` 或 `aarch64`（macOS/Windows 非主平台；可用 **WSL2** 或见 build 文档 §5 容器流程）
 - **Rust** stable 工具链（若 `cargo build` 报 `Cargo.lock` 错误，请用 [rustup](https://rustup.rs/)）
 - `openssl`、`git`（构建与 RBS e2e 所需；git 为 `GIT_HASH` 嵌入所需）
+- `bao` 或 `openbao`、C 编译器（e2e 所需）；RBC/tools 原生证明 e2e 还需要 `swtpm` 与 `tpm2-tools`
 - **cargo-deny**（运行 §4 中的 `cargo deny check` / `cargo deny-all` 前需安装；合并门本身不包含此项）
 - **Node.js** >= 22.12（经 `./scripts/generate-api-docs.sh` 生成 API 文档；合并门 OpenAPI 检查仅比对 YAML，不调用 Node）
-- Python 3 + `tests/requirements.txt` 中的包（`pytest`、`httpx`、`PyYAML`）（e2e 层）：
+- Python 3 + `tests/requirements.txt` 中的包（`pytest`、`httpx`、`PyYAML`、`jwcrypto`）（e2e 层）：
 
   `python3 -m pip install -r tests/requirements.txt`
 
@@ -299,11 +300,13 @@ prerequisites:
   complains about `Cargo.lock`)
 - `openssl` and `git` (required for builds and RBS e2e tests; git is also used
   to embed `GIT_HASH`)
+- `bao` or `openbao` and a C compiler for e2e; the RBC/tools native-attestation
+  e2e flows also require `swtpm` and `tpm2-tools`
 - **cargo-deny** (install it before running `cargo deny check` / `cargo deny-all`
   in §4; the merge gate does not run this step)
 - **Node.js** >= 22.12 (used by `./scripts/generate-api-docs.sh`; the merge gate
   only checks OpenAPI YAML drift and does not invoke Node)
-- Python 3 + packages from `tests/requirements.txt` (`pytest`, `httpx`, `PyYAML`)
+- Python 3 + packages from `tests/requirements.txt` (`pytest`, `httpx`, `PyYAML`, `jwcrypto`)
   for the e2e layer:
 
   `python3 -m pip install -r tests/requirements.txt`

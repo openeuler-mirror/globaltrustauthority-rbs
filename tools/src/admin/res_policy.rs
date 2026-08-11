@@ -379,4 +379,19 @@ mod tests {
 
         assert!(error.to_string().contains("policy_id must not contain URL path control characters"));
     }
+
+    // Validate policy names and IDs at their declared inclusive length bounds.
+    #[test]
+    fn resource_policy_name_and_id_length_matrix() {
+        assert!(validate_trimmed_string_max_len("", POLICY_NAME_MAX_LEN, "name").is_err());
+        assert!(validate_trimmed_string_max_len("n", POLICY_NAME_MAX_LEN, "name").is_ok());
+        for length in [POLICY_NAME_MAX_LEN - 1, POLICY_NAME_MAX_LEN] {
+            assert!(validate_trimmed_string_max_len(&"n".repeat(length), POLICY_NAME_MAX_LEN, "name").is_ok());
+        }
+        assert!(validate_trimmed_string_max_len(&"n".repeat(POLICY_NAME_MAX_LEN + 1), POLICY_NAME_MAX_LEN, "name").is_err());
+        for length in [POLICY_ID_MAX_LEN - 1, POLICY_ID_MAX_LEN] {
+            assert!(validate_url_path_segment(&"i".repeat(length), POLICY_ID_MAX_LEN, "policy_id").is_ok());
+        }
+        assert!(validate_url_path_segment(&"i".repeat(POLICY_ID_MAX_LEN + 1), POLICY_ID_MAX_LEN, "policy_id").is_err());
+    }
 }

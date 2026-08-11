@@ -216,12 +216,11 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 [[package]]
 name = "agent_utils"
 version = "0.1.0"
-source = "git+https://gitcode.com/openeuler/global-trust-authority#963415c673f0bfa54519d18f56e1533af08a106a"
+source = "git+https://gitcode.com/openeuler/global-trust-authority#6417a33079a70ad95b57abe0bf8ad7f252f20e0a"
 dependencies = [
  "config",
  "log",
  "once_cell",
- "openssl",
  "plugin_manager",
  "regex",
  "reqwest",
@@ -423,7 +422,7 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 [[package]]
 name = "attestation_client"
 version = "0.1.0"
-source = "git+https://gitcode.com/openeuler/global-trust-authority#963415c673f0bfa54519d18f56e1533af08a106a"
+source = "git+https://gitcode.com/openeuler/global-trust-authority#6417a33079a70ad95b57abe0bf8ad7f252f20e0a"
 dependencies = [
  "agent_utils",
  "challenge",
@@ -431,7 +430,6 @@ dependencies = [
  "plugin_manager",
  "serde_json",
  "thiserror 2.0.18",
- "tokio",
 ]
 
 [[package]]
@@ -701,7 +699,7 @@ dependencies = [
 [[package]]
 name = "challenge"
 version = "0.1.0"
-source = "git+https://gitcode.com/openeuler/global-trust-authority#963415c673f0bfa54519d18f56e1533af08a106a"
+source = "git+https://gitcode.com/openeuler/global-trust-authority#6417a33079a70ad95b57abe0bf8ad7f252f20e0a"
 dependencies = [
  "agent_utils",
  "base64 0.22.1",
@@ -798,13 +796,12 @@ dependencies = [
 [[package]]
 name = "config"
 version = "0.1.0"
-source = "git+https://gitcode.com/openeuler/global-trust-authority#963415c673f0bfa54519d18f56e1533af08a106a"
+source = "git+https://gitcode.com/openeuler/global-trust-authority#6417a33079a70ad95b57abe0bf8ad7f252f20e0a"
 dependencies = [
  "config_manager",
  "cron",
  "serde",
  "serde_json",
- "serde_yaml",
  "uuid",
  "zeroize",
 ]
@@ -812,9 +809,8 @@ dependencies = [
 [[package]]
 name = "config_manager"
 version = "0.1.0"
-source = "git+https://gitcode.com/openeuler/global-trust-authority#963415c673f0bfa54519d18f56e1533af08a106a"
+source = "git+https://gitcode.com/openeuler/global-trust-authority#6417a33079a70ad95b57abe0bf8ad7f252f20e0a"
 dependencies = [
- "pem 2.0.1",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -1288,29 +1284,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "env_filter"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32e90c2accc4b07a8456ea0debdc2e7587bdd890680d71173a15d4ae604f6eef"
-dependencies = [
- "log",
- "regex",
-]
-
-[[package]]
-name = "env_logger"
-version = "0.11.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0621c04f2196ac3f488dd583365b9c09be011a4ab8b9f37248ffcc8f6198b56a"
-dependencies = [
- "anstream",
- "anstyle",
- "env_filter",
- "jiff",
- "log",
-]
-
-[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1323,7 +1296,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2141,30 +2114,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
-name = "jiff"
-version = "0.2.24"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f00b5dbd620d61dfdcb6007c9c1f6054ebd75319f163d886a9055cec1155073d"
-dependencies = [
- "jiff-static",
- "log",
- "portable-atomic",
- "portable-atomic-util",
- "serde_core",
-]
-
-[[package]]
-name = "jiff-static"
-version = "0.2.24"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e000de030ff8022ea1da3f466fbb0f3a809f5e51ed31f6dd931c35181ad8e6d7"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.117",
-]
-
-[[package]]
 name = "jobserver"
 version = "0.1.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2235,7 +2184,7 @@ checksum = "5a87cc7a48537badeae96744432de36f4be2b4a34a05a5ef32e9dd8a1c169dde"
 dependencies = [
  "base64 0.22.1",
  "js-sys",
- "pem 3.0.6",
+ "pem",
  "ring",
  "serde",
  "serde_json",
@@ -2255,7 +2204,7 @@ dependencies = [
  "js-sys",
  "p256",
  "p384",
- "pem 3.0.6",
+ "pem",
  "rand 0.8.6",
  "rsa",
  "serde",
@@ -2528,7 +2477,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2813,16 +2762,6 @@ dependencies = [
 
 [[package]]
 name = "pem"
-version = "2.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b13fe415cdf3c8e44518e18a7c95a13431d9bdf6d15367d82b23c377fdd441a"
-dependencies = [
- "base64 0.21.7",
- "serde",
-]
-
-[[package]]
-name = "pem"
 version = "3.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d30c53c26bc5b31a98cd02d20f25a7c8567146caf63ed593a9d87b2775291be"
@@ -2915,12 +2854,11 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 [[package]]
 name = "plugin_manager"
 version = "0.1.0"
-source = "git+https://gitcode.com/openeuler/global-trust-authority#963415c673f0bfa54519d18f56e1533af08a106a"
+source = "git+https://gitcode.com/openeuler/global-trust-authority#6417a33079a70ad95b57abe0bf8ad7f252f20e0a"
 dependencies = [
  "async-trait",
  "libloading",
  "log",
- "serde",
  "serde_json",
  "thiserror 2.0.18",
 ]
@@ -2928,12 +2866,10 @@ dependencies = [
 [[package]]
 name = "policy_engine"
 version = "0.1.0"
-source = "git+https://gitcode.com/openeuler/global-trust-authority#963415c673f0bfa54519d18f56e1533af08a106a"
+source = "git+https://gitcode.com/openeuler/global-trust-authority#6417a33079a70ad95b57abe0bf8ad7f252f20e0a"
 dependencies = [
- "env_logger",
  "log",
  "regorus",
- "serde",
  "serde_json",
  "thiserror 2.0.18",
 ]
@@ -2952,15 +2888,6 @@ name = "portable-atomic"
 version = "1.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c33a9471896f1c69cecef8d20cbe2f7accd12527ce60845ff44c153bb2a21b49"
-
-[[package]]
-name = "portable-atomic-util"
-version = "0.2.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2a106d1259c23fac8e543272398ae0e3c0b8d33c88ed73d0cc71b0f1d902618"
-dependencies = [
- "portable-atomic",
-]
 
 [[package]]
 name = "potential_utf"
@@ -3248,6 +3175,7 @@ dependencies = [
  "serde_yaml",
  "thiserror 2.0.18",
  "tokio",
+ "tracing",
  "tracing-subscriber",
  "wiremock",
  "zeroize",
@@ -3684,7 +3612,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4529,7 +4457,7 @@ dependencies = [
  "getrandom 0.4.2",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

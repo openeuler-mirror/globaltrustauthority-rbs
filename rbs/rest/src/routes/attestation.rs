@@ -60,7 +60,7 @@ pub async fn get_challenge(
     responses(
         (status = 200, description = "Attestation token (JSON).", body = AttestResponse),
         (status = 400, description = "Invalid request.", body = ErrorBody),
-        (status = 404, description = "Provider not found.", body = ErrorBody),
+        (status = 503, description = "Attestation provider unavailable.", body = ErrorBody),
         (status = 500, description = "Internal server error.", body = ErrorBody),
     )
 )]

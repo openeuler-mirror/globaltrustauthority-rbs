@@ -145,4 +145,18 @@ mod tests {
         assert!(options.format_explicitly_set);
         assert!(options.verbose);
     }
+
+    // Validate global URL, token, and output path inputs before any HTTP request.
+    #[test]
+    fn global_input_validation_matrix() {
+        assert!(validate_base_url("http://127.0.0.1:8080").is_ok());
+        assert!(validate_base_url("").is_err());
+        assert!(validate_base_url("not a URL").is_err());
+        assert!(validate_token("t").is_ok());
+        assert!(validate_token(&"t".repeat(16_384)).is_ok());
+        assert!(validate_token(&"t".repeat(16_385)).is_err());
+        assert!(validate_output_file("/tmp/rbs-cli-output.json").is_ok());
+        assert!(validate_output_file("").is_err());
+        assert!(validate_output_file("/").is_err());
+    }
 }

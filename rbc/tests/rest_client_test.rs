@@ -114,6 +114,28 @@ async fn test_get_resource_rejects_ambiguous_resource_uri() {
 }
 
 #[tokio::test]
+async fn test_get_resource_accepts_minimal_normal_and_long_segments() {
+    let mock_server = MockServer::start().await;
+    for uri in ["a/b/c/d", "vault/default/secret/key-with-dashes", &format!("{}/repo/type/name", "x".repeat(128))] {
+        Mock::given(method("GET"))
+            .and(path(format!("/rbs/v0/{uri}")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "uri": uri,
+                "content": "c2VjcmV0",
+                "content_type": "jwe",
+                "export_mode": "jwe"
+            })))
+            .mount(&mock_server)
+            .await;
+    }
+
+    let client = RbsRestClient::new(&mock_server.uri(), None, None).unwrap();
+    for uri in ["a/b/c/d", "vault/default/secret/key-with-dashes", &format!("{}/repo/type/name", "x".repeat(128))] {
+        assert!(client.get_resource(uri, "token").await.is_ok(), "URI should be accepted: {uri}");
+    }
+}
+
+#[tokio::test]
 async fn test_http_404_returns_resource_not_found() {
     let mock_server = MockServer::start().await;
     Mock::given(method("GET"))

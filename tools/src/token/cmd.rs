@@ -573,3 +573,60 @@ fn default_exp() -> u64 {
         .map(|duration| duration.as_secs() + DEFAULT_EXP_AFTER_SECONDS)
         .unwrap_or(DEFAULT_EXP_AFTER_SECONDS)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Cover JWT string claim lengths at max-1, normal, max, and max+1.
+    #[test]
+    fn token_claim_length_matrix() {
+        assert!(validate_string_max_len(&"i".repeat(ISS_MAX_LEN - 1), ISS_MAX_LEN).is_ok());
+        assert!(validate_string_max_len("issuer", ISS_MAX_LEN).is_ok());
+        assert!(validate_string_max_len(&"i".repeat(ISS_MAX_LEN), ISS_MAX_LEN).is_ok());
+        assert!(validate_string_max_len(&"i".repeat(ISS_MAX_LEN + 1), ISS_MAX_LEN).is_err());
+        assert!(validate_string_max_len(&"s".repeat(SUB_MAX_LEN), SUB_MAX_LEN).is_ok());
+        assert!(validate_string_max_len(&"s".repeat(SUB_MAX_LEN + 1), SUB_MAX_LEN).is_err());
+        assert!(validate_string_max_len(&"r".repeat(ROLE_MAX_LEN), ROLE_MAX_LEN).is_ok());
+        assert!(validate_string_max_len(&"r".repeat(ROLE_MAX_LEN + 1), ROLE_MAX_LEN).is_err());
+        assert!(validate_string_max_len(&"k".repeat(KID_MAX_LEN), KID_MAX_LEN).is_ok());
+        assert!(validate_string_max_len(&"k".repeat(KID_MAX_LEN + 1), KID_MAX_LEN).is_err());
+    }
+
+    // Enforce the claims payload size boundary and JSON shape validation.
+    #[test]
+    fn token_claims_input_and_merge_matrix() {
+        assert!(validate_claims_input("").is_ok());
+        assert!(validate_claims_input("{}").is_ok());
+        assert!(validate_claims_input(&"x".repeat(CLAIMS_MAX_SIZE as usize - 1)).is_ok());
+        assert!(validate_claims_input(&"x".repeat(CLAIMS_MAX_SIZE as usize)).is_ok());
+        assert!(validate_claims_input(&"x".repeat(CLAIMS_MAX_SIZE as usize + 1)).is_err());
+
+        let mut payload = Map::new();
+        payload.insert("iss".to_string(), Value::String("issuer".to_string()));
+        merge_claims(&mut payload, r#"{"custom":true}"#).expect("custom claims should merge");
+        assert_eq!(payload["custom"], Value::Bool(true));
+        assert!(merge_claims(&mut payload, r#"{"iss":"override"}"#).is_err());
+        assert!(merge_claims(&mut payload, "[]").is_err());
+        assert!(merge_claims(&mut payload, "not-json").is_err());
+    }
+
+    // Verify audience count accepts max-1, normal, and max but rejects max+1.
+    #[test]
+    fn token_audience_count_matrix() {
+        assert!(validate_audience_count(&vec!["a".to_string(); AUD_MAX_COUNT - 1]).is_ok());
+        assert!(validate_audience_count(&["a".to_string()]).is_ok());
+        assert!(validate_audience_count(&vec!["a".to_string(); AUD_MAX_COUNT]).is_ok());
+        assert!(validate_audience_count(&vec!["a".to_string(); AUD_MAX_COUNT + 1]).is_err());
+    }
+
+    // Validate exp/nbf/iat ordering, including the equality boundary.
+    #[test]
+    fn token_time_claim_matrix() {
+        let now = default_exp();
+        assert!(validate_time_claims(now, Some(now - 2), Some(now - 1)).is_ok());
+        assert!(validate_time_claims(now, Some(now), None).is_err());
+        assert!(validate_time_claims(now, None, Some(now)).is_err());
+        assert!(validate_time_claims(now - DEFAULT_EXP_AFTER_SECONDS - 1, None, None).is_err());
+    }
+}

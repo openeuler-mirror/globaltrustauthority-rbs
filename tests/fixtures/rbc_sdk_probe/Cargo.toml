@@ -1,0 +1,12 @@
+[package]
+name = "rbc-sdk-e2e-probe"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+rbc = { path = "../../../rbc" }
+rbs-api-types = { path = "../../../rbs/api-types" }
+serde_json = "1.0"
+
+[workspace]

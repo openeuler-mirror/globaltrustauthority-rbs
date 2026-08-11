@@ -485,4 +485,14 @@ mod tests {
         assert!(!should_attempt_session_decrypt(b"not-base64.a.b.c.d", Some("text")));
         assert!(!should_attempt_session_decrypt(b"{\"hello\":\"world\"}", Some("json")));
     }
+
+    // Validate RBC CLI required strings and path inputs before any network call.
+    #[test]
+    fn cli_validator_boundary_matrix() {
+        assert!(validate_not_empty("x").is_ok());
+        assert!(validate_not_empty("  ").is_err());
+        assert!(validate_file_path("relative.pem").is_ok());
+        assert!(validate_file_path("").is_err());
+        assert!(validate_file_path(".").is_err());
+    }
 }

@@ -33,7 +33,10 @@ impl Modify for SecurityAddon {
                     HttpBuilder::new()
                         .scheme(HttpAuthScheme::Bearer)
                         .bearer_format("JWT")
-                        .description(Some("JWT Bearer Token. Obtain via Admin API or attestation."))
+                        .description(Some(
+                            "JWT Bearer token. Send as `Authorization: Bearer <token>`. Obtain via \
+                             Admin API or attestation.",
+                        ))
                         .build(),
                 ),
             );
@@ -43,7 +46,10 @@ impl Modify for SecurityAddon {
                     HttpBuilder::new()
                         .scheme(HttpAuthScheme::Bearer)
                         .bearer_format("Attest")
-                        .description(Some("Attest Token. Obtain via POST /rbs/v0/attest."))
+                        .description(Some(
+                            "Attest token. Send as `Authorization: Attest <token>`. Obtain via \
+                             `POST /rbs/v0/attest`.",
+                        ))
                         .build(),
                 ),
             );

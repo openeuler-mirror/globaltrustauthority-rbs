@@ -11,48 +11,42 @@
 from __future__ import annotations
 
 import shutil
-import subprocess
+import socket
 from pathlib import Path
 
 import pytest
 
-from helpers.rbs_build import E2eBuildError, rbs_e2e_cargo_env
+from helpers.openbao_server import OpenBaoServer
 from helpers.rbs_server import RbsServer
 
 
-@pytest.fixture(scope="session")
-def rbs_binary(repo_root: Path) -> Path:
-    for tool in ("openssl", "cargo"):
-        if shutil.which(tool) is None:
-            pytest.skip(f"{tool} is required for RBS e2e tests")
-    binary = repo_root / "target" / "debug" / "rbs"
-    try:
-        build_env = rbs_e2e_cargo_env(repo_root)
-    except E2eBuildError as exc:
-        pytest.skip(str(exc))
-    try:
-        subprocess.run(
-            ["cargo", "build", "-p", "rbs", "--bin", "rbs", "--features", "rest", "--quiet"],
-            cwd=repo_root,
-            check=True,
-            env=build_env,
-        )
-    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
-        pytest.skip(f"failed to build RBS binary with cargo: {exc}")
-    if not binary.is_file():
-        pytest.skip(f"RBS binary not found at {binary}")
-    return binary
-
-
 @pytest.fixture
-def rbs_scratch_dir(tmp_path: Path) -> Path:
-    return tmp_path
+def isolated_http_port() -> int:
+    """Return a currently unused loopback port for one isolated RBS scenario."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        return int(listener.getsockname()[1])
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
+def rbs_scratch_dir(tmp_path_factory: pytest.TempPathFactory, request: pytest.FixtureRequest) -> Path:
+    return tmp_path_factory.mktemp(request.module.__name__.replace(".", "_"))
+
+
+@pytest.fixture(scope="module")
 def rbs_server(rbs_binary: Path, rbs_scratch_dir: Path, repo_root: Path) -> RbsServer:
-    # Function scope: isolated config/process per test. Shared server fixtures can be
-    # added at module/session scope later for tests that do not need a fresh instance.
+    """Provide an isolated server for startup, HTTPS, and rate-limit scenarios."""
     server = RbsServer(rbs_binary, rbs_scratch_dir, repo_root)
+    yield server
+    server.stop()
+
+
+@pytest.fixture(scope="module")
+def openbao_server(rbs_scratch_dir: Path) -> OpenBaoServer:
+    binary = shutil.which("bao") or shutil.which("openbao")
+    if binary is None:
+        pytest.fail("bao or openbao is required for OpenBao E2E tests", pytrace=False)
+    server = OpenBaoServer(binary, rbs_scratch_dir)
+    server.start()
     yield server
     server.stop()

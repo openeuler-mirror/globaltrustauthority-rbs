@@ -28,7 +28,10 @@ pub fn load_private_key_pem(path: &str, passphrase: Option<&[u8]>) -> Result<Zer
     let private_key = match passphrase {
         Some(passphrase) => PKey::private_key_from_pem_passphrase(&source_pem, passphrase)
             .map_err(|err| RbcError::InvalidInput(format!("parse encrypted private key PEM: {err}")))?,
-        None => PKey::private_key_from_pem(&source_pem)
+        // Never allow OpenSSL's default password callback to read from the terminal. Interactive
+        // prompting belongs to the CLI argument layer; this loader must return immediately when an
+        // encrypted PEM reaches it without a passphrase.
+        None => PKey::private_key_from_pem_callback(&source_pem, |_| Ok(0))
             .map_err(|err| RbcError::InvalidInput(format!("parse private key PEM: {err}")))?,
     };
 
