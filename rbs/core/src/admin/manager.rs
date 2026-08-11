@@ -311,6 +311,40 @@ impl AdminManager {
             log::error!("Failed to get DB connection for delete_user: {}", e);
             internal_err(e)
         })?;
+
+        // Block deletion while the user still owns policies or resources.
+        // Otherwise those rows would be orphaned (no FK), and a re-registered
+        // user of the same name would silently inherit them — an escalation.
+        // Mirrors the policy-delete `BeingReferenced` guard.
+        use crate::policy::repository::entity as policy_entity;
+        use crate::resource::repository::entity as resource_entity;
+        let policy_count = policy_entity::Entity::find()
+            .filter(policy_entity::Column::Username.eq(username.to_owned()))
+            .count(&*db)
+            .await
+            .map_err(|e| {
+                log::error!("Failed to count policies for delete_user '{}': {}", username, e);
+                internal_err(e)
+            })?;
+        let resource_count = resource_entity::Entity::find()
+            .filter(resource_entity::Column::Username.eq(username.to_owned()))
+            .count(&*db)
+            .await
+            .map_err(|e| {
+                log::error!("Failed to count resources for delete_user '{}': {}", username, e);
+                internal_err(e)
+            })?;
+        if policy_count > 0 || resource_count > 0 {
+            log::error!(
+                "Delete user '{}' blocked: owns {} policy(ies), {} resource(s)",
+                username, policy_count, resource_count
+            );
+            return Err(RbsError::UserHasDependents {
+                policies: policy_count,
+                resources: resource_count,
+            });
+        }
+
         let result = UserEntity::delete_by_id(username)
             .exec(&*db)
             .await
