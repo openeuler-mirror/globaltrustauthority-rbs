@@ -24,28 +24,73 @@ pub mod version;
 pub use error::{not_found, json_error_handler, query_error_handler};
 
 /// Configures routes under /rbs/v0 (scope is already /v0 when called from server).
+///
+/// Every method-specific endpoint is registered as a `web::resource` whose
+/// `default_service` returns 404. Without this, an unsupported HTTP method on
+/// such a path matches the path pattern but not any route, and actix falls
+/// through to the greedy wildcard `GET/POST/PUT/DELETE /{uri:.+}` below — which
+/// then runs the wrong handler (create/get/update/delete_resource) and yields
+/// a misleading 401 (auth skipped for public paths, then `require_auth`
+/// fails) or 400 (`validate_uri` rejects the extra `/info`|`/retrieve`
+/// segment). The 404 `default_service` keeps the request within the matched
+/// resource so unsupported methods simply report "not found".
 pub fn config(cfg: &mut web::ServiceConfig) {
-    cfg.route("/challenge", web::get().to(attestation::get_challenge))
-    .route("/attest", web::post().to(attestation::attest))
-    // Policy routes
-    .route("/resource/policy", web::get().to(policy::list_policies))
-    .route("/resource/policy", web::post().to(policy::create_policy))
-    .route("/resource/policy", web::delete().to(policy::batch_delete_policies))
-    .route("/resource/policy/{policy_id}", web::get().to(policy::get_policy))
-    .route("/resource/policy/{policy_id}", web::put().to(policy::update_policy))
-    .route("/resource/policy/{policy_id}", web::delete().to(policy::delete_policy))
-    // Admin / user management routes (MUST be before wildcard routes)
-    .route("/users", web::get().to(admin::list_users))
-    .route("/users", web::post().to(admin::create_user))
-    .route("/users/{username}", web::get().to(admin::get_user))
-    .route("/users/{username}", web::put().to(admin::update_user))
-    .route("/users/{username}", web::delete().to(admin::delete_user))
-    // Resource routes (wildcard - must be last)
-    .route("/{uri:.+}/info", web::get().to(resource::get_resource_info))
-    .route("/{uri:.+}/retrieve", web::post().to(resource::retrieve_resource))
-    .route("/{uri:.+}", web::post().to(resource::create_resource))
-    .route("/{uri:.+}", web::get().to(resource::get_resource))
-    .route("/{uri:.+}", web::put().to(resource::update_resource))
-    .route("/{uri:.+}", web::delete().to(resource::delete_resource))
-    .default_service(web::to(not_found));
+    cfg
+        // Attestation: challenge is GET-only (public), attest is POST-only (public).
+        .service(
+            web::resource("/challenge")
+                .route(web::get().to(attestation::get_challenge))
+                .default_service(web::to(not_found)),
+        )
+        .service(
+            web::resource("/attest")
+                .route(web::post().to(attestation::attest))
+                .default_service(web::to(not_found)),
+        )
+        // Policy routes
+        .service(
+            web::resource("/resource/policy")
+                .route(web::get().to(policy::list_policies))
+                .route(web::post().to(policy::create_policy))
+                .route(web::delete().to(policy::batch_delete_policies))
+                .default_service(web::to(not_found)),
+        )
+        .service(
+            web::resource("/resource/policy/{policy_id}")
+                .route(web::get().to(policy::get_policy))
+                .route(web::put().to(policy::update_policy))
+                .route(web::delete().to(policy::delete_policy))
+                .default_service(web::to(not_found)),
+        )
+        // Admin / user management routes (MUST be before wildcard routes)
+        .service(
+            web::resource("/users")
+                .route(web::get().to(admin::list_users))
+                .route(web::post().to(admin::create_user))
+                .default_service(web::to(not_found)),
+        )
+        .service(
+            web::resource("/users/{username}")
+                .route(web::get().to(admin::get_user))
+                .route(web::put().to(admin::update_user))
+                .route(web::delete().to(admin::delete_user))
+                .default_service(web::to(not_found)),
+        )
+        // Resource routes (wildcard - must be last)
+        .service(
+            web::resource("/{uri:.+}/info")
+                .route(web::get().to(resource::get_resource_info))
+                .default_service(web::to(not_found)),
+        )
+        // retrieve is a public POST-only endpoint.
+        .service(
+            web::resource("/{uri:.+}/retrieve")
+                .route(web::post().to(resource::retrieve_resource))
+                .default_service(web::to(not_found)),
+        )
+        .route("/{uri:.+}", web::post().to(resource::create_resource))
+        .route("/{uri:.+}", web::get().to(resource::get_resource))
+        .route("/{uri:.+}", web::put().to(resource::update_resource))
+        .route("/{uri:.+}", web::delete().to(resource::delete_resource))
+        .default_service(web::to(not_found));
 }
