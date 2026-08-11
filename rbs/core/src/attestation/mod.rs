@@ -16,7 +16,7 @@ pub mod manager;
 pub mod provider;
 
 pub use manager::AttestationManager;
-pub use provider::AttestationProvider;
+pub use provider::{AttestationProvider, CertProvider, PolicyProvider, RefValueProvider};
 
 pub mod gta;
 pub use gta::{BuiltinAttestationProvider, GtaRestProvider};

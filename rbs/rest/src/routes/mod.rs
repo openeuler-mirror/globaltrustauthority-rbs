@@ -16,6 +16,7 @@ use actix_web::web;
 
 pub mod admin;
 pub mod attestation;
+pub mod attestation_mgmt;
 pub mod error;
 pub mod policy;
 pub mod resource;
@@ -74,6 +75,97 @@ pub fn config(cfg: &mut web::ServiceConfig) {
                 .route(web::get().to(admin::get_user))
                 .route(web::put().to(admin::update_user))
                 .route(web::delete().to(admin::delete_user))
+                .default_service(web::to(not_found)),
+        )
+        // Attestation management routes (MUST be before wildcard routes)
+        // ref_value — with as_provider
+        .service(
+            web::resource("/attestation/{as_provider}/ref_value")
+                .route(web::get().to(attestation_mgmt::list_ref_values))
+                .route(web::post().to(attestation_mgmt::create_ref_value))
+                .route(web::put().to(attestation_mgmt::update_ref_value))
+                .route(web::delete().to(attestation_mgmt::delete_ref_values))
+                .default_service(web::to(not_found)),
+        )
+        .service(
+            web::resource("/attestation/{as_provider}/ref_value/{id}")
+                .route(web::get().to(attestation_mgmt::get_ref_value))
+                .route(web::delete().to(attestation_mgmt::delete_ref_value))
+                .default_service(web::to(not_found)),
+        )
+        // ref_value — without as_provider (default gta)
+        .service(
+            web::resource("/attestation/ref_value")
+                .route(web::get().to(attestation_mgmt::list_ref_values_default))
+                .route(web::post().to(attestation_mgmt::create_ref_value_default))
+                .route(web::put().to(attestation_mgmt::update_ref_value_default))
+                .route(web::delete().to(attestation_mgmt::delete_ref_values_default))
+                .default_service(web::to(not_found)),
+        )
+        .service(
+            web::resource("/attestation/ref_value/{id}")
+                .route(web::get().to(attestation_mgmt::get_ref_value_default))
+                .route(web::delete().to(attestation_mgmt::delete_ref_value_default))
+                .default_service(web::to(not_found)),
+        )
+        // cert — with as_provider
+        .service(
+            web::resource("/attestation/{as_provider}/cert")
+                .route(web::get().to(attestation_mgmt::list_certs))
+                .route(web::post().to(attestation_mgmt::create_cert))
+                .route(web::put().to(attestation_mgmt::update_cert))
+                .route(web::delete().to(attestation_mgmt::delete_certs))
+                .default_service(web::to(not_found)),
+        )
+        .service(
+            web::resource("/attestation/{as_provider}/cert/{id}")
+                .route(web::get().to(attestation_mgmt::get_cert))
+                .route(web::delete().to(attestation_mgmt::delete_cert))
+                .default_service(web::to(not_found)),
+        )
+        // cert — without as_provider (default gta)
+        .service(
+            web::resource("/attestation/cert")
+                .route(web::get().to(attestation_mgmt::list_certs_default))
+                .route(web::post().to(attestation_mgmt::create_cert_default))
+                .route(web::put().to(attestation_mgmt::update_cert_default))
+                .route(web::delete().to(attestation_mgmt::delete_certs_default))
+                .default_service(web::to(not_found)),
+        )
+        .service(
+            web::resource("/attestation/cert/{id}")
+                .route(web::get().to(attestation_mgmt::get_cert_default))
+                .route(web::delete().to(attestation_mgmt::delete_cert_default))
+                .default_service(web::to(not_found)),
+        )
+        // attestation policy — with as_provider
+        .service(
+            web::resource("/attestation/{as_provider}/policy")
+                .route(web::get().to(attestation_mgmt::list_attestation_policies))
+                .route(web::post().to(attestation_mgmt::create_attestation_policy))
+                .route(web::put().to(attestation_mgmt::update_attestation_policy))
+                .route(web::delete().to(attestation_mgmt::delete_attestation_policies))
+                .default_service(web::to(not_found)),
+        )
+        .service(
+            web::resource("/attestation/{as_provider}/policy/{id}")
+                .route(web::get().to(attestation_mgmt::get_attestation_policy))
+                .route(web::delete().to(attestation_mgmt::delete_attestation_policy))
+                .default_service(web::to(not_found)),
+        )
+        // attestation policy — without as_provider (default gta)
+        .service(
+            web::resource("/attestation/policy")
+                .route(web::get().to(attestation_mgmt::list_attestation_policies_default))
+                .route(web::post().to(attestation_mgmt::create_attestation_policy_default))
+                .route(web::put().to(attestation_mgmt::update_attestation_policy_default))
+                .route(web::delete().to(attestation_mgmt::delete_attestation_policies_default))
+                .default_service(web::to(not_found)),
+        )
+        .service(
+            web::resource("/attestation/policy/{id}")
+                .route(web::get().to(attestation_mgmt::get_attestation_policy_default))
+                .route(web::delete().to(attestation_mgmt::delete_attestation_policy_default))
                 .default_service(web::to(not_found)),
         )
         // Resource routes (wildcard - must be last)

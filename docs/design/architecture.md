@@ -156,7 +156,7 @@ flowchart TB
 
     subgraph rest_crate ["rbs-rest"]
         Server["Actix Web Server"]
-        Routes["Routes<br/>(attest, resource, policy, admin)"]
+        Routes["Routes<br/>(attest, attestation_mgmt, resource, policy, admin, version)"]
         MW["Middleware<br/>(auth, rate limit, TLS)"]
         OpenAPI["OpenAPI / utoipa"]
     end
@@ -611,6 +611,7 @@ flowchart LR
 | `POST /rbs/v0/{uri}/retrieve` | Public middleware; handler inline attestation; ignores `Authorization` |
 | Resource `GET` / `GET .../info` | **Attest** or **Bearer** |
 | Policy, user, resource CRUD (non-GET) | **Bearer** only |
+| Attestation management (`/attestation/...`) | **Bearer** + admin (inline `require_admin`) |
 | All other routes | Middleware auth (Bearer and/or Attest per path) |
 
 ### Token validation matrix
@@ -708,7 +709,7 @@ flowchart TD
 
 | Class | Mount | Paths | Actix pattern | Validation |
 |-------|-------|-------|---------------|------------|
-| **Fixed v0** | `routes/mod.rs` under `/rbs/v0` | `/challenge`, `/attest`, `/resource/policy[/{policy_id}]`, `/users[/{username}]` | Exact routes | — |
+| **Fixed v0** | `routes/mod.rs` under `/rbs/v0` | `/challenge`, `/attest`, `/attestation/{as_provider}/{type}[/{id}]`, `/attestation/{type}[/{id}]`, `/resource/policy[/{policy_id}]`, `/users[/{username}]` | Exact routes | Attestation management routes registered before wildcard; `attestation` prefix excluded from `is_resource_get_path` to prevent Attest token bypass |
 | **Wildcard v0** | Same file, **last** | `/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}` (+ `GET .../info`, `POST .../retrieve`, CRUD) | `/{uri:.+}` | Four-segment shape enforced in `rbs/core`; reserved `res_provider` values (`admin`, `attestation`, `resource`, `health`) rejected to avoid shadowing system paths |
 | **Version** | `server/http.rs` on `/rbs` | `GET /rbs/version` | Exact route | Not under `v0` |
 
@@ -722,6 +723,7 @@ Full token matrix: [§10](#10-security-architecture). Summary:
 | `/challenge`, `/attest` | Public middleware | Forwards to attestation provider (GTA) |
 | `POST .../retrieve` | Public middleware; handler inline | Inline evidence validation and token parsing; ignores `Authorization` header |
 | Resource `GET` / `GET .../info` | **Attest** or **Bearer** | — |
+| Attestation management (`/attestation/...`) | **Bearer** + admin | Inline `require_admin` checks `role == "admin"`; 3 resources (ref_value/cert/policy) × 6 operations; RBS proxies to GTA with `User-Id` + `main_api_key` |
 | Resource POST/PUT/DELETE, users, policies | **Bearer** only | — |
 
 ### API version vs build version
@@ -757,7 +759,7 @@ flowchart LR
 |----------------|----------|-------|
 | `rbc`, `rbc-cli`, `rbs-cli client`, CLI/FFI entry points | RBS OpenAPI / REST | Must stay aligned with REST contract |
 | `rbs-cli admin` user / resource-policy | RBS REST paths | — |
-| `rbs-cli admin` cert / policy / ref-value | GTA REST (`/rbs/v0/attestation/...`) | **Not** RBS server OpenAPI |
+| `rbs-cli admin` cert / policy / ref-value | RBS REST (`/rbs/v0/attestation/...`) | Proxied to GTA by RBS server; included in RBS OpenAPI |
 | [`docs/api/rbc/sdk.md`](../api/rbc/sdk.md) | Client SDK reference | Does not define the RBS server API |
 
 ### Error model
@@ -825,7 +827,8 @@ Extensions follow dependency direction: `rbs-api-types` (contracts) → `rbs-cor
 
 | Extension | Location | Purpose |
 |-----------|----------|---------|
-| `AttestationProvider` | `rbs/core/src/attestation/provider.rs` | Challenge + evidence → attest token (GTA REST default; `BuiltinAttestationProvider` stub) |
+| `AttestationProvider` | `rbs/core/src/attestation/provider.rs` | Challenge + evidence → attest token (GTA REST default; `BuiltinAttestationProvider` stub); also exposes `as_ref_value`/`as_cert`/`as_policy` accessors for management subtypes |
+| `RefValueProvider` / `CertProvider` / `PolicyProvider` | `rbs/core/src/attestation/provider.rs` | Management subtypes for ref_value/cert/policy CRUD (6 methods each); accessed via `as_*()` accessors on `AttestationProvider`; `AttestationRestClient` implements all three, `BuiltinAttestationProvider` returns `None` (501) |
 | `ResourceBackend` | `rbs/core/src/resource/adapter/mod.rs` | Read protected content after authorization |
 | `BackendProvider` | same | Registry: `res_provider` → `Arc<dyn ResourceBackend>` |
 | `PolicyClient` / `DbPolicyClient` | same | Runtime policy reads for `ResourceService` (validation + content) |

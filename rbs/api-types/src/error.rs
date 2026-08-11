@@ -63,6 +63,7 @@ pub enum StableCode {
     ResourceConflict,
     ResourceGone,
     ResourceQuotaExceeded,
+    ManagementProviderNotFound,
     // Provider errors
     ProviderUnavailable,
     ProviderTimeout,
@@ -105,7 +106,9 @@ impl From<StableCode> for HttpStatus {
                 HttpStatus::BadRequest
             }
             StableCode::NotImplemented => HttpStatus::NotImplemented,
-            StableCode::ResourceNotFound | StableCode::ResourceGone => HttpStatus::NotFound,
+            StableCode::ResourceNotFound
+            | StableCode::ResourceGone
+            | StableCode::ManagementProviderNotFound => HttpStatus::NotFound,
             StableCode::ResourceConflict | StableCode::ResourceQuotaExceeded => HttpStatus::Conflict,
             StableCode::RateLimitExceeded => HttpStatus::TooManyRequests,
             StableCode::ProviderUnavailable
@@ -154,7 +157,8 @@ impl From<StableCode> for Retryable {
             | StableCode::NotImplemented
             | StableCode::ResourceConflict
             | StableCode::AuthzInsufficientPermissions
-            | StableCode::ResourceQuotaExceeded => Retryable::No,
+            | StableCode::ResourceQuotaExceeded
+            | StableCode::ManagementProviderNotFound => Retryable::No,
             StableCode::RateLimitExceeded
             | StableCode::ProviderTimeout
             | StableCode::DependencyUnavailable => Retryable::Yes,
@@ -223,9 +227,15 @@ pub enum RbsError {
     #[error("resource quota exceeded")]
     ResourceQuotaExceeded,
 
+    #[error("management provider not found: {0}")]
+    ManagementProviderNotFound(String),
+
     // Provider errors
     #[error("attestation provider unavailable")]
     AttestationProviderUnavailable,
+
+    #[error("attestation provider error: {body}")]
+    AttestationProviderError { body: String },
 
     #[error("resource provider unavailable")]
     ResourceProviderUnavailable,
@@ -269,11 +279,16 @@ impl RbsError {
             | Self::ParamMalformed
             | Self::InvalidParameter(_)
             | Self::NotImplemented => ErrorClass::Param,
-            Self::ResourceNotFound | Self::ResourceConflict | Self::ResourceGone | Self::ResourceQuotaExceeded
-            | Self::UserHasDependents { .. } => {
+            Self::ResourceNotFound
+            | Self::ResourceConflict
+            | Self::ResourceGone
+            | Self::ResourceQuotaExceeded
+            | Self::UserHasDependents { .. }
+            | Self::ManagementProviderNotFound(_) => {
                 ErrorClass::Resource
             }
             Self::AttestationProviderUnavailable
+            | Self::AttestationProviderError { .. }
             | Self::ResourceProviderUnavailable
             | Self::ProviderTimeout
             | Self::ProviderNotFound(_)
@@ -302,7 +317,9 @@ impl RbsError {
             Self::UserHasDependents { .. } => StableCode::ResourceConflict,
             Self::ResourceGone => StableCode::ResourceGone,
             Self::ResourceQuotaExceeded => StableCode::ResourceQuotaExceeded,
+            Self::ManagementProviderNotFound(_) => StableCode::ManagementProviderNotFound,
             Self::AttestationProviderUnavailable
+            | Self::AttestationProviderError { .. }
             | Self::ResourceProviderUnavailable
             | Self::ProviderNotFound(_)
             | Self::PolicyEvaluationError(_) => StableCode::ProviderUnavailable,
@@ -328,31 +345,47 @@ impl RbsError {
     /// Returns the error message suitable for external display.
     ///
     /// Does not leak internal implementation details.
-    pub fn external_message(&self) -> &'static str {
+    /// Returns `String` because some variants (e.g. `ManagementProviderNotFound`)
+    /// include dynamic context such as the provider name.
+    pub fn external_message(&self) -> String {
         match self {
-            Self::AuthnMissingToken { .. } => "missing authentication",
-            Self::AuthnInvalidToken { .. } => "invalid authentication",
-            Self::AuthnExpiredToken { .. } => "authentication expired",
-            Self::AuthzDenied => "access denied",
-            Self::AuthzInsufficientPermissions => "insufficient permissions",
-            Self::ParamMissing { .. } => "missing required parameter",
-            Self::ParamInvalid { .. } => "invalid parameter",
-            Self::ParamMalformed => "malformed request",
-            Self::InvalidParameter(_) => "invalid parameter",
-            Self::NotImplemented => "not implemented",
-            Self::ResourceNotFound => "resource not found",
-            Self::ResourceConflict => "resource conflict",
-            Self::UserHasDependents { .. } => "user has dependents",
-            Self::ResourceGone => "resource no longer available",
-            Self::ResourceQuotaExceeded => "resource quota exceeded",
+            Self::AuthnMissingToken { .. } => "missing authentication".to_string(),
+            Self::AuthnInvalidToken { .. } => "invalid authentication".to_string(),
+            Self::AuthnExpiredToken { .. } => "authentication expired".to_string(),
+            Self::AuthzDenied => "access denied".to_string(),
+            Self::AuthzInsufficientPermissions => "insufficient permissions".to_string(),
+            Self::ParamMissing { .. } => "missing required parameter".to_string(),
+            Self::ParamInvalid { .. } => "invalid parameter".to_string(),
+            Self::ParamMalformed => "malformed request".to_string(),
+            Self::InvalidParameter(_) => "invalid parameter".to_string(),
+            Self::NotImplemented => "not implemented".to_string(),
+            Self::ResourceNotFound => "resource not found".to_string(),
+            Self::ResourceConflict => "resource conflict".to_string(),
+            Self::UserHasDependents { .. } => "user has dependents".to_string(),
+            Self::ResourceGone => "resource no longer available".to_string(),
+            Self::ResourceQuotaExceeded => "resource quota exceeded".to_string(),
+            Self::AttestationProviderError { body } => body.clone(),
             Self::AttestationProviderUnavailable
             | Self::ResourceProviderUnavailable
             | Self::ProviderTimeout
             | Self::ProviderNotFound(_)
-            | Self::PolicyEvaluationError(_) => "service temporarily unavailable",
-            Self::DependencyUnavailable { .. } => "service dependency unavailable",
-            Self::RateLimitExceeded => "rate limit exceeded",
-            Self::InternalError | Self::InternalUnexpected { .. } => "internal server error",
+            | Self::PolicyEvaluationError(_) => "service temporarily unavailable".to_string(),
+            Self::DependencyUnavailable { .. } => "service dependency unavailable".to_string(),
+            Self::RateLimitExceeded => "rate limit exceeded".to_string(),
+            Self::InternalError | Self::InternalUnexpected { .. } => "internal server error".to_string(),
+            Self::ManagementProviderNotFound(name) => {
+                format!("management provider not found: {}", name)
+            }
+        }
+    }
+
+    /// If this error carries a raw passthrough body (e.g. an upstream GTA error
+    /// response), return it so the HTTP layer can emit it verbatim. Returns
+    /// `None` for all other variants, which should be wrapped in `ErrorBody`.
+    pub fn passthrough_body(&self) -> Option<&str> {
+        match self {
+            Self::AttestationProviderError { body } => Some(body),
+            _ => None,
         }
     }
 }

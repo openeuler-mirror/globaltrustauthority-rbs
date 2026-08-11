@@ -10,358 +10,51 @@
  * See the Mulan PSL v2 for more details.
  */
 
-//! REST-based GTA attestation provider implementation.
+//! REST-based GTA attestation provider — business logic layer.
 //!
-//! This provider communicates with GTA REST API to perform attestation operations.
-//!
-//! Architecture:
-//! - `GtaRestClient`: HTTP communication layer (TLS, timeouts, retries)
-//! - `AttestationRestClient`: Attestation-specific logic (request/response transformation)
-//! - GTA types: Request/response structures matching GTA REST API format
-//!
-//! Future extension points:
-//! - Policy/RefValue/Cert REST clients can be added alongside AttestationRestClient
-//! - Builtin mode uses GtaBuiltinProvider directly (no HTTP)
+//! `AttestationRestClient` combines `GtaRestClient` (HTTP, see `client.rs`)
+//! with request/response transformation. Implements `AttestationProvider`
+//! (challenge/attest + `as_*()` subtype accessors) and the three management
+//! subtypes (`RefValueProvider`/`CertProvider`/`PolicyProvider`).
 
 use async_trait::async_trait;
-use reqwest::Client;
-use serde::{Deserialize, Serialize};
-use std::time::Duration;
 
+use rbs_api_types::attestation_mgmt::{PolicyListQuery, AttestationPolicyListResponse};
 use rbs_api_types::{
-    AttestRequest, AttestResponse, AuthChallengeResponse,
-    config::AttestationRestConfig,
-    error::RbsError,
+    AttestRequest, AttestResponse, AuthChallengeResponse, AttestationDeleteType,
+    CertCreateRequest, CertDeleteRequest, CertListQuery, CertListResponse,
+    CertMutationResponse, CertUpdateRequest, PolicyCreateRequest, PolicyDeleteRequest,
+    PolicyDeleteType, PolicyMutationResponse, PolicyUpdateRequest, RefValueCreateRequest,
+    RefValueDeleteRequest, RefValueListQuery, RefValueListResponse, RefValueMutationResponse,
+    RefValueUpdateRequest, config::AttestationRestConfig, error::RbsError,
 };
 
-use crate::attestation::provider::AttestationProvider;
+use crate::attestation::provider::{
+    AttestationProvider, CertProvider, PolicyProvider, RefValueProvider,
+};
+use super::client::{GtaAttestRequest, GtaAttestResponse, GtaChallengeResponse, GtaEvidence, GtaMeasurement, GtaRestClient};
 
 // GTA REST API paths
 const GTA_CHALLENGE_PATH: &str = "/global-trust-authority/service/v1/challenge";
 const GTA_ATTEST_PATH: &str = "/global-trust-authority/service/v1/attest";
-
-// GTA REST API Types (matching GTA service format)
-
-/// GTA Challenge response from `GET /challenge`.
-#[derive(Debug, Clone, Deserialize)]
-struct GtaChallengeResponse {
-    #[allow(dead_code)]
-    service_version: String,
-    nonce: String,
-}
-
-/// GTA Attest request body (RBS → GTA).
-#[derive(Debug, Clone, Serialize)]
-struct GtaAttestRequest {
-    measurements: Vec<GtaMeasurement>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct GtaMeasurement {
-    node_id: String,
-    nonce: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    nonce_type: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    token_fmt: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    attester_data: Option<serde_json::Value>,
-    evidences: Vec<GtaEvidence>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct GtaEvidence {
-    attester_type: String,
-    evidence: serde_json::Value,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    policy_ids: Option<Vec<String>>,
-}
-
-/// GTA Attest response from `POST /attest`.
-#[derive(Debug, Clone, Deserialize)]
-struct GtaAttestResponse {
-    #[allow(dead_code)]
-    service_version: String,
-    tokens: Vec<GtaToken>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct GtaToken {
-    #[allow(dead_code)]
-    node_id: String,
-    token: String,
-}
-
-/// GTA REST API error response.
-#[derive(Debug, Clone, Deserialize)]
-struct GtaErrorResponse {
-    message: String,
-}
-
-// GtaRestClient: HTTP Communication Layer
-
-/// GTA REST API HTTP client.
-///
-/// Handles low-level HTTP communication: TLS configuration, timeouts,
-/// retries, and error mapping. Does not know about attestation semantics.
-#[derive(Debug, Clone)]
-struct GtaRestClient {
-    config: AttestationRestConfig,
-    client: Client,
-    base_url: String,
-}
-
-impl GtaRestClient {
-    /// Create a new GTA REST client.
-    fn new(config: AttestationRestConfig) -> Self {
-        let client = Self::build_client(&config);
-        let base_url = config.base_url.trim_end_matches('/').to_string();
-        Self {
-            config,
-            client,
-            base_url,
-        }
-    }
-
-    /// Build HTTP client with TLS configuration.
-    fn build_client(config: &AttestationRestConfig) -> Client {
-        let mut builder = Client::builder()
-            .timeout(Duration::from_secs(config.timeout_secs as u64));
-
-        if !config.tls_verify {
-            builder = builder.danger_accept_invalid_certs(true);
-        }
-
-        if !config.ca_file.is_empty() {
-            let cert = std::fs::read(&config.ca_file)
-                .expect("Failed to read CA certificate file");
-            let cert = reqwest::Certificate::from_pem(&cert)
-                .expect("Failed to parse CA certificate");
-            builder = builder.add_root_certificate(cert);
-        }
-
-        // Mutual TLS: load the client certificate + key as a reqwest Identity.
-        // Mirrors attestation_agent::utils::client (with_tls_config): both files present
-        // enables mTLS; validated as a pair in AttestationRestConfig::validate.
-        if !config.client_cert_path.is_empty() && !config.client_key_path.is_empty() {
-            let cert_pem = std::fs::read(&config.client_cert_path)
-                .expect("Failed to read client certificate file");
-            let key_pem = std::fs::read(&config.client_key_path)
-                .expect("Failed to read client key file");
-            let identity = reqwest::Identity::from_pkcs8_pem(&cert_pem, &key_pem)
-                .expect("Failed to build client identity (cert/key must be PKCS#8 PEM)");
-            builder = builder.identity(identity);
-        }
-
-        builder.build().expect("Failed to build HTTP client")
-    }
-
-    /// Build full URL for a path.
-    fn url(&self, path: &str) -> String {
-        format!("{}/{}", self.base_url, path.trim_start_matches('/'))
-    }
-
-    /// Extract error message from response body, falling back to HTTP status if absent or empty.
-    async fn extract_error_message(resp: reqwest::Response, status: reqwest::StatusCode) -> String {
-        let status_str = format!("HTTP {}", status);
-
-        let body_text = match resp.text().await {
-            Ok(text) => text,
-            Err(_) => return status_str,
-        };
-
-        // Try to parse as GTA JSON error — safe to include in logs.
-        if let Ok(err_resp) = serde_json::from_str::<GtaErrorResponse>(&body_text) {
-            if !err_resp.message.is_empty() {
-                return err_resp.message;
-            }
-        }
-
-        // Non-JSON body may contain internal information; log at debug level only.
-        if !body_text.is_empty() {
-            log::debug!("GTA returned non-JSON error body ({}): {}", status_str, body_text);
-        }
-
-        status_str
-    }
-
-    /// GET request with retry logic.
-    async fn get<T: for<'de> serde::Deserialize<'de>>(&self, path: &str) -> Result<T, GtaError> {
-        let url = self.url(path);
-        let user_id = &self.config.credentials.user_id;
-        let mut attempt = 0;
-
-        loop {
-            attempt += 1;
-            let mut req = self.client.get(&url);
-            if !user_id.is_empty() {
-                req = req.header("User-Id", user_id);
-            }
-            match req.send().await {
-                Ok(resp) => {
-                    let status = resp.status();
-                    if status.is_success() {
-                        return resp.json().await.map_err(|e| {
-                            log::error!("GTA GET {} response parse error: {}", url, e);
-                            GtaError::ParseError(e.to_string())
-                        });
-                    } else if status.is_server_error() && attempt <= self.config.retries {
-                        log::warn!("GTA GET {} returned {}, retrying (attempt {}/{})", url, status, attempt, self.config.retries);
-                        tokio::time::sleep(Duration::from_secs(5)).await;
-                        continue;
-                    } else {
-                        let message = Self::extract_error_message(resp, status).await;
-                        log::error!("GTA GET {} failed: HTTP {}", url, status);
-                        return Err(GtaError::ServerError(message));
-                    }
-                }
-                Err(e) if attempt <= self.config.retries => {
-                    log::warn!("GTA GET {} network error (attempt {}/{}), retrying: {}", url, attempt, self.config.retries, e);
-                    tokio::time::sleep(Duration::from_secs(5)).await;
-                    continue;
-                }
-                Err(e) => {
-                    if e.is_timeout() {
-                        log::error!("GTA GET {} timed out after {} retries", url, self.config.retries);
-                        return Err(GtaError::TimeoutError(e.to_string()));
-                    }
-                    log::error!("GTA GET {} network error after {} retries: {}", url, self.config.retries, e);
-                    return Err(GtaError::NetworkError(e.to_string()));
-                }
-            }
-        }
-    }
-
-    /// POST request with JSON body and custom headers.
-    async fn post<T, B>(&self, path: &str, body: &B) -> Result<T, GtaError>
-    where
-        T: for<'de> serde::Deserialize<'de>,
-        B: serde::Serialize,
-    {
-        let url = self.url(path);
-        let user_id = &self.config.credentials.user_id;
-        let api_key = self.config.credentials.sub_api_key.get();
-        let mut attempt = 0;
-
-        loop {
-            attempt += 1;
-            // Build request with headers each iteration (RequestBuilder doesn't implement Clone)
-            let mut req = self.client.post(&url);
-            if !user_id.is_empty() {
-                req = req.header("User-Id", user_id);
-            }
-            if !api_key.is_empty() {
-                req = req.header("API-Key", api_key);
-            }
-            match req.json(body).send().await {
-                Ok(resp) => {
-                    let status = resp.status();
-                    if status.is_success() {
-                        return resp.json().await.map_err(|e| {
-                            log::error!("GTA POST {} response parse error: {}", url, e);
-                            GtaError::ParseError(e.to_string())
-                        });
-                    } else if status.is_server_error() && attempt <= self.config.retries {
-                        log::warn!("GTA POST {} returned {}, retrying (attempt {}/{})", url, status, attempt, self.config.retries);
-                        tokio::time::sleep(Duration::from_secs(5)).await;
-                        continue;
-                    } else {
-                        let message = Self::extract_error_message(resp, status).await;
-                        log::error!("GTA POST {} failed: HTTP {}", url, status);
-                        return Err(GtaError::ServerError(message));
-                    }
-                }
-                Err(e) if attempt <= self.config.retries => {
-                    log::warn!("GTA POST {} network error (attempt {}/{}), retrying: {}", url, attempt, self.config.retries, e);
-                    tokio::time::sleep(Duration::from_secs(5)).await;
-                    continue;
-                }
-                Err(e) => {
-                    if e.is_timeout() {
-                        log::error!("GTA POST {} timed out after {} retries", url, self.config.retries);
-                        return Err(GtaError::TimeoutError(e.to_string()));
-                    }
-                    log::error!("GTA POST {} network error after {} retries: {}", url, self.config.retries, e);
-                    return Err(GtaError::NetworkError(e.to_string()));
-                }
-            }
-        }
-    }
-}
-
-/// GTA REST API errors.
-#[derive(Debug)]
-enum GtaError {
-    /// Network connectivity issues (non-timeout).
-    NetworkError(String),
-    /// Request timeout.
-    TimeoutError(String),
-    /// HTTP 5xx from GTA server.
-    ServerError(String),
-    /// Response parse error.
-    ParseError(String),
-    /// Request validation error.
-    #[allow(dead_code)]
-    ValidationError(String),
-}
-
-impl From<GtaError> for RbsError {
-    fn from(err: GtaError) -> RbsError {
-        match err {
-            GtaError::NetworkError(msg) => {
-                log::error!("Attestation provider network error: {}", msg);
-                RbsError::AttestationProviderUnavailable
-            }
-            GtaError::TimeoutError(msg) => {
-                log::error!("Attestation provider timeout: {}", msg);
-                RbsError::ProviderTimeout
-            }
-            GtaError::ServerError(msg) => {
-                log::error!("Attestation provider server error: {}", msg);
-                RbsError::AttestationProviderUnavailable
-            }
-            GtaError::ParseError(context) => {
-                log::error!("Attestation provider parse error: {}", context);
-                RbsError::InternalUnexpected { context }
-            }
-            GtaError::ValidationError(msg) => {
-                log::warn!("Attestation provider validation error: {}", msg);
-                RbsError::InvalidParameter(msg)
-            }
-        }
-    }
-}
-
-impl std::fmt::Display for GtaError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            GtaError::NetworkError(msg) => write!(f, "network error: {}", msg),
-            GtaError::TimeoutError(msg) => write!(f, "timeout error: {}", msg),
-            GtaError::ServerError(msg) => write!(f, "server error: {}", msg),
-            GtaError::ParseError(msg) => write!(f, "parse error: {}", msg),
-            GtaError::ValidationError(msg) => write!(f, "validation error: {}", msg),
-        }
-    }
-}
-
-// AttestationRestClient: Attestation-Specific Logic
+const GTA_REF_VALUE_PATH: &str = "/global-trust-authority/service/v1/ref_value";
+const GTA_CERT_PATH: &str = "/global-trust-authority/service/v1/cert";
+const GTA_POLICY_PATH: &str = "/global-trust-authority/service/v1/policy";
 
 /// REST client for GTA attestation operations.
 ///
 /// Implements `AttestationProvider` by combining `GtaRestClient` with
-/// request/response transformation logic.
+/// request/response transformation logic. Also implements the three
+/// management subtypes via `as_ref_value`/`as_cert`/`as_policy`.
 #[derive(Debug, Clone)]
 pub struct AttestationRestClient {
     rest_client: GtaRestClient,
 }
 
 impl AttestationRestClient {
-    /// Create a new attestation REST client.
     #[must_use]
     pub fn new(config: AttestationRestConfig) -> Self {
-        Self {
-            rest_client: GtaRestClient::new(config),
-        }
+        Self { rest_client: GtaRestClient::new(config) }
     }
 
     /// Transform RBS AttestRequest to GTA AttestRequest format.
@@ -371,49 +64,35 @@ impl AttestationRestClient {
             .enumerate()
             .map(|(idx, m)| Self::transform_measurement(m, idx))
             .collect::<Result<Vec<_>, _>>()?;
-
         Ok(GtaAttestRequest { measurements })
     }
 
-    /// Validates a single evidence item and transforms it to GTA format.
-    /// Returns an error if required fields (attester_type, evidence) are missing.
     fn transform_evidence_item(
-        measurement_idx: usize,
-        evidence_idx: usize,
-        e: &rbs_api_types::RbcEvidenceItem,
+        measurement_idx: usize, evidence_idx: usize, e: &rbs_api_types::RbcEvidenceItem,
     ) -> Result<GtaEvidence, RbsError> {
-        let attester_type = e.attester_type.clone()
-            .ok_or_else(|| RbsError::InvalidParameter(format!(
-                "rbc_evidences.measurements[{}].evidences[{}].attester_type is required but None",
-                measurement_idx, evidence_idx
-            )))?;
-
-        let evidence = e.evidence.clone()
-            .ok_or_else(|| RbsError::InvalidParameter(format!(
-                "rbc_evidences.measurements[{}].evidences[{}].evidence is required but None",
-                measurement_idx, evidence_idx
-            )))?;
-
+        let attester_type = e.attester_type.clone().ok_or_else(|| RbsError::InvalidParameter(format!(
+            "rbc_evidences.measurements[{}].evidences[{}].attester_type is required but None",
+            measurement_idx, evidence_idx
+        )))?;
+        let evidence = e.evidence.clone().ok_or_else(|| RbsError::InvalidParameter(format!(
+            "rbc_evidences.measurements[{}].evidences[{}].evidence is required but None",
+            measurement_idx, evidence_idx
+        )))?;
         Ok(GtaEvidence {
-            attester_type,
-            evidence,
+            attester_type, evidence,
             policy_ids: e.policy_ids.clone(),
+            ref_value_id: e.ref_value_id.clone(),
         })
     }
 
     fn transform_measurement(
-        m: &rbs_api_types::RbcMeasurement,
-        measurement_idx: usize,
+        m: &rbs_api_types::RbcMeasurement, measurement_idx: usize,
     ) -> Result<GtaMeasurement, RbsError> {
-        // Convert attester_data (AttesterData) to serde_json::Value
         let attester_data = m.attester_data.as_ref()
-            .map(|ad| {
-                serde_json::to_value(ad).map_err(|e| RbsError::InvalidParameter(format!(
-                    "failed to serialize attester_data: {}", e
-                )))
-            })
+            .map(|ad| serde_json::to_value(ad).map_err(|e| RbsError::InvalidParameter(
+                format!("failed to serialize attester_data: {}", e)
+            )))
             .transpose()?;
-
         let evidences = match m.evidences.as_ref() {
             Some(evidences_list) => {
                 let mut transformed = Vec::with_capacity(evidences_list.len());
@@ -424,68 +103,155 @@ impl AttestationRestClient {
             }
             None => Vec::new(),
         };
-
-        // node_id is optional, use empty string if not provided
-        let node_id = m.node_id.clone().unwrap_or_default();
-
         Ok(GtaMeasurement {
-            node_id,
+            node_id: m.node_id.clone().unwrap_or_default(),
             nonce: Some(m.nonce.clone()),
             nonce_type: m.nonce_type.clone(),
             token_fmt: m.token_fmt.clone(),
-            attester_data,
-            evidences,
+            attester_data, evidences,
         })
     }
 }
+
+// ── AttestationProvider impl (runtime + as_* subtype accessors) ────────────
 
 #[async_trait]
 impl AttestationProvider for AttestationRestClient {
     async fn get_auth_challenge(&self, _as_provider: Option<&str>) -> Result<AuthChallengeResponse, RbsError> {
         log::debug!("GTA get_auth_challenge: requesting challenge from GTA");
         let gta_resp: GtaChallengeResponse = self.rest_client
-            .get(GTA_CHALLENGE_PATH)
-            .await
-            .map_err(RbsError::from)?;
-
+            .get(GTA_CHALLENGE_PATH).await.map_err(RbsError::from)?;
         log::info!("GTA get_auth_challenge: challenge received successfully");
-        Ok(AuthChallengeResponse {
-            nonce: gta_resp.nonce,
-        })
+        Ok(AuthChallengeResponse { nonce: gta_resp.nonce })
     }
 
     async fn attest(&self, req: AttestRequest) -> Result<AttestResponse, RbsError> {
         log::info!("GTA attest: sending attestation request ({} measurements)", req.rbc_evidences.measurements.len());
         let gta_req = AttestationRestClient::transform_to_gta_format(&req)?;
-
         let gta_resp: GtaAttestResponse = self.rest_client
-            .post(GTA_ATTEST_PATH, &gta_req)
-            .await
-            .map_err(RbsError::from)?;
-
-        let token = gta_resp.tokens
-            .first()
-            .map(|t| t.token.clone())
-            .unwrap_or_default();
-
+            .post(GTA_ATTEST_PATH, &gta_req).await.map_err(RbsError::from)?;
+        let token = gta_resp.tokens.first().map(|t| t.token.clone()).unwrap_or_default();
         log::info!("GTA attest: attestation completed, received {} token(s)", gta_resp.tokens.len());
         Ok(AttestResponse { token })
     }
+
+    fn as_ref_value(&self) -> Option<&dyn RefValueProvider> { Some(self) }
+    fn as_cert(&self) -> Option<&dyn CertProvider> { Some(self) }
+    fn as_policy(&self) -> Option<&dyn PolicyProvider> { Some(self) }
 }
 
-// GtaRestProvider (Public Type Alias)
+// ── RefValueProvider impl ────────────────────────────────────────────────────
 
-/// REST-based GTA attestation provider.
-///
-/// This is the public type that implements `AttestationProvider`.
-/// Internally it delegates to `AttestationRestClient` which combines
-/// `GtaRestClient` (HTTP communication) with format transformation.
-///
-/// # Type Alias Note
-///
-/// For future extensions (policy, ref_value, cert REST clients),
-/// this may become a struct containing multiple REST clients instead of
-/// a type alias to `AttestationRestClient`.
+#[async_trait]
+impl RefValueProvider for AttestationRestClient {
+    async fn list_ref_values(&self, as_provider: &str, query: RefValueListQuery) -> Result<RefValueListResponse, RbsError> {
+        log::debug!("GTA list_ref_values: provider='{}'", as_provider);
+        self.rest_client.get_mgmt_with_query(GTA_REF_VALUE_PATH, &query).await.map_err(RbsError::from)
+    }
+
+    async fn get_ref_value(&self, as_provider: &str, id: String) -> Result<RefValueListResponse, RbsError> {
+        log::debug!("GTA get_ref_value: provider='{}', id='{}'", as_provider, id);
+        let query = RefValueListQuery { ids: Some(id), attester_type: None, limit: None, offset: None };
+        self.rest_client.get_mgmt_with_query(GTA_REF_VALUE_PATH, &query).await.map_err(RbsError::from)
+    }
+
+    async fn create_ref_value(&self, as_provider: &str, req: RefValueCreateRequest) -> Result<RefValueMutationResponse, RbsError> {
+        log::debug!("GTA create_ref_value: provider='{}', name='{}'", as_provider, req.name);
+        self.rest_client.post_mgmt(GTA_REF_VALUE_PATH, &req).await.map_err(RbsError::from)
+    }
+
+    async fn update_ref_value(&self, as_provider: &str, req: RefValueUpdateRequest) -> Result<RefValueMutationResponse, RbsError> {
+        log::debug!("GTA update_ref_value: provider='{}', id='{}'", as_provider, req.id);
+        self.rest_client.put_mgmt(GTA_REF_VALUE_PATH, &req).await.map_err(RbsError::from)
+    }
+
+    async fn delete_ref_values(&self, as_provider: &str, req: RefValueDeleteRequest) -> Result<(), RbsError> {
+        log::debug!("GTA delete_ref_values: provider='{}'", as_provider);
+        self.rest_client.delete_mgmt(GTA_REF_VALUE_PATH, &req).await.map_err(RbsError::from)
+    }
+
+    async fn delete_ref_value(&self, as_provider: &str, id: String) -> Result<(), RbsError> {
+        log::debug!("GTA delete_ref_value: provider='{}', id='{}'", as_provider, id);
+        let req = RefValueDeleteRequest { delete_type: AttestationDeleteType::Id, ids: Some(vec![id]), attester_type: None };
+        self.rest_client.delete_mgmt(GTA_REF_VALUE_PATH, &req).await.map_err(RbsError::from)
+    }
+}
+
+// ── CertProvider impl ────────────────────────────────────────────────────────
+
+#[async_trait]
+impl CertProvider for AttestationRestClient {
+    async fn list_certs(&self, as_provider: &str, query: CertListQuery) -> Result<CertListResponse, RbsError> {
+        log::debug!("GTA list_certs: provider='{}'", as_provider);
+        self.rest_client.get_mgmt_with_query(GTA_CERT_PATH, &query).await.map_err(RbsError::from)
+    }
+
+    async fn get_cert(&self, as_provider: &str, id: String) -> Result<CertListResponse, RbsError> {
+        log::debug!("GTA get_cert: provider='{}', id='{}'", as_provider, id);
+        let query = CertListQuery { ids: Some(id), cert_type: None, limit: None, offset: None };
+        self.rest_client.get_mgmt_with_query(GTA_CERT_PATH, &query).await.map_err(RbsError::from)
+    }
+
+    async fn create_cert(&self, as_provider: &str, req: CertCreateRequest) -> Result<CertMutationResponse, RbsError> {
+        log::debug!("GTA create_cert: provider='{}', name='{}'", as_provider, req.name);
+        self.rest_client.post_mgmt(GTA_CERT_PATH, &req).await.map_err(RbsError::from)
+    }
+
+    async fn update_cert(&self, as_provider: &str, req: CertUpdateRequest) -> Result<CertMutationResponse, RbsError> {
+        log::debug!("GTA update_cert: provider='{}', id='{}'", as_provider, req.id);
+        self.rest_client.put_mgmt(GTA_CERT_PATH, &req).await.map_err(RbsError::from)
+    }
+
+    async fn delete_certs(&self, as_provider: &str, req: CertDeleteRequest) -> Result<(), RbsError> {
+        log::debug!("GTA delete_certs: provider='{}'", as_provider);
+        self.rest_client.delete_mgmt(GTA_CERT_PATH, &req).await.map_err(RbsError::from)
+    }
+
+    async fn delete_cert(&self, as_provider: &str, id: String) -> Result<(), RbsError> {
+        log::debug!("GTA delete_cert: provider='{}', id='{}'", as_provider, id);
+        let req = CertDeleteRequest { delete_type: AttestationDeleteType::Id, ids: Some(vec![id]), cert_type: None };
+        self.rest_client.delete_mgmt(GTA_CERT_PATH, &req).await.map_err(RbsError::from)
+    }
+}
+
+// ── PolicyProvider impl ──────────────────────────────────────────────────────
+
+#[async_trait]
+impl PolicyProvider for AttestationRestClient {
+    async fn list_policies(&self, as_provider: &str, query: PolicyListQuery) -> Result<AttestationPolicyListResponse, RbsError> {
+        log::debug!("GTA list_policies: provider='{}'", as_provider);
+        self.rest_client.get_mgmt_with_query(GTA_POLICY_PATH, &query).await.map_err(RbsError::from)
+    }
+
+    async fn get_policy(&self, as_provider: &str, id: String) -> Result<AttestationPolicyListResponse, RbsError> {
+        log::debug!("GTA get_policy: provider='{}', id='{}'", as_provider, id);
+        let query = PolicyListQuery { ids: Some(id), attester_type: None, limit: None, offset: None };
+        self.rest_client.get_mgmt_with_query(GTA_POLICY_PATH, &query).await.map_err(RbsError::from)
+    }
+
+    async fn create_policy(&self, as_provider: &str, req: PolicyCreateRequest) -> Result<PolicyMutationResponse, RbsError> {
+        log::debug!("GTA create_policy: provider='{}', name='{}'", as_provider, req.name);
+        self.rest_client.post_mgmt(GTA_POLICY_PATH, &req).await.map_err(RbsError::from)
+    }
+
+    async fn update_policy(&self, as_provider: &str, req: PolicyUpdateRequest) -> Result<PolicyMutationResponse, RbsError> {
+        log::debug!("GTA update_policy: provider='{}', id='{}'", as_provider, req.id);
+        self.rest_client.put_mgmt(GTA_POLICY_PATH, &req).await.map_err(RbsError::from)
+    }
+
+    async fn delete_policies(&self, as_provider: &str, req: PolicyDeleteRequest) -> Result<(), RbsError> {
+        log::debug!("GTA delete_policies: provider='{}'", as_provider);
+        self.rest_client.delete_mgmt(GTA_POLICY_PATH, &req).await.map_err(RbsError::from)
+    }
+
+    async fn delete_policy(&self, as_provider: &str, id: String) -> Result<(), RbsError> {
+        log::debug!("GTA delete_policy: provider='{}', id='{}'", as_provider, id);
+        let req = PolicyDeleteRequest { delete_type: PolicyDeleteType::Id, ids: Some(vec![id]), attester_type: None };
+        self.rest_client.delete_mgmt(GTA_POLICY_PATH, &req).await.map_err(RbsError::from)
+    }
+}
+
+/// REST-based GTA attestation provider (public type alias).
 pub type GtaRestProvider = AttestationRestClient;
 
 #[cfg(test)]
@@ -502,7 +268,6 @@ mod tests {
             },
             attester_data: None,
         };
-
         let gta_req = AttestationRestClient::transform_to_gta_format(&req).unwrap();
         assert!(gta_req.measurements.is_empty());
     }
@@ -525,6 +290,7 @@ mod tests {
                                 attester_type: Some("tpm_boot".to_string()),
                                 evidence: Some(serde_json::json!({"quote": "abc123"})),
                                 policy_ids: Some(vec!["policy-1".to_string()]),
+                                ref_value_id: Some("R1".to_string()),
                             }
                         ]),
                     }
@@ -532,24 +298,22 @@ mod tests {
             },
             attester_data: None,
         };
-
         let gta_req = AttestationRestClient::transform_to_gta_format(&req).unwrap();
         assert_eq!(gta_req.measurements.len(), 1);
-
         let m = &gta_req.measurements[0];
         assert_eq!(m.node_id, "node-1");
         assert_eq!(m.nonce, Some("test_nonce".to_string()));
         assert_eq!(m.evidences.len(), 1);
         assert_eq!(m.evidences[0].attester_type, "tpm_boot");
         assert_eq!(m.evidences[0].evidence, serde_json::json!({"quote": "abc123"}));
+        assert_eq!(m.evidences[0].ref_value_id, Some("R1".to_string()));
     }
 
     #[test]
     fn test_transform_evidence_item_missing_attester_type() {
         let evidence = rbs_api_types::RbcEvidenceItem {
-            attester_type: None,
-            evidence: Some(serde_json::json!({"quote": "abc123"})),
-            policy_ids: None,
+            attester_type: None, evidence: Some(serde_json::json!({"quote": "abc123"})),
+            policy_ids: None, ref_value_id: None,
         };
         let result = AttestationRestClient::transform_evidence_item(0, 2, &evidence);
         assert!(result.is_err());
@@ -561,9 +325,8 @@ mod tests {
     #[test]
     fn test_transform_evidence_item_missing_evidence() {
         let evidence = rbs_api_types::RbcEvidenceItem {
-            attester_type: Some("tpm_boot".to_string()),
-            evidence: None,
-            policy_ids: None,
+            attester_type: Some("tpm_boot".to_string()), evidence: None,
+            policy_ids: None, ref_value_id: None,
         };
         let result = AttestationRestClient::transform_evidence_item(1, 0, &evidence);
         assert!(result.is_err());
@@ -574,28 +337,24 @@ mod tests {
 
     #[test]
     fn test_transform_measurement_with_invalid_evidence_in_list() {
-        // Valid measurement with one valid and one invalid evidence
         let req = AttestRequest {
             as_provider: None,
             rbc_evidences: rbs_api_types::RbcEvidencesPayload {
                 agent_version: None,
                 measurements: vec![
                     rbs_api_types::RbcMeasurement {
-                        nonce: "nonce1".to_string(),
-                        node_id: None,
-                        nonce_type: None,
-                        token_fmt: None,
-                        attester_data: None,
+                        nonce: "nonce1".to_string(), node_id: None, nonce_type: None,
+                        token_fmt: None, attester_data: None,
                         evidences: Some(vec![
                             rbs_api_types::RbcEvidenceItem {
                                 attester_type: Some("tpm_boot".to_string()),
                                 evidence: Some(serde_json::json!({"quote": "valid"})),
-                                policy_ids: None,
+                                policy_ids: None, ref_value_id: None,
                             },
                             rbs_api_types::RbcEvidenceItem {
                                 attester_type: None,
                                 evidence: Some(serde_json::json!({"quote": "invalid"})),
-                                policy_ids: None,
+                                policy_ids: None, ref_value_id: None,
                             },
                         ]),
                     }
@@ -607,5 +366,35 @@ mod tests {
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("attester_type"));
     }
-}
 
+    #[test]
+    fn test_transform_evidence_item_with_ref_value_id() {
+        let evidence = rbs_api_types::RbcEvidenceItem {
+            attester_type: Some("tpm_boot".to_string()),
+            evidence: Some(serde_json::json!({"quote": "abc123"})),
+            policy_ids: Some(vec!["policy-1".to_string()]),
+            ref_value_id: Some("R1".to_string()),
+        };
+        let result = AttestationRestClient::transform_evidence_item(0, 0, &evidence).unwrap();
+        assert_eq!(result.attester_type, "tpm_boot");
+        assert_eq!(result.evidence, serde_json::json!({"quote": "abc123"}));
+        assert_eq!(result.policy_ids, Some(vec!["policy-1".to_string()]));
+        assert_eq!(result.ref_value_id, Some("R1".to_string()));
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(json.contains("ref_value_id"));
+        assert!(json.contains("R1"));
+    }
+
+    #[test]
+    fn test_transform_evidence_item_ref_value_id_none_not_serialized() {
+        let evidence = rbs_api_types::RbcEvidenceItem {
+            attester_type: Some("tpm_boot".to_string()),
+            evidence: Some(serde_json::json!({"quote": "abc123"})),
+            policy_ids: None, ref_value_id: None,
+        };
+        let result = AttestationRestClient::transform_evidence_item(0, 0, &evidence).unwrap();
+        assert_eq!(result.ref_value_id, None);
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(!json.contains("ref_value_id"));
+    }
+}

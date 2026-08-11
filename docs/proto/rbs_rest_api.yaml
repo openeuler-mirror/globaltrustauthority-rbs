@@ -38,20 +38,2183 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
-        '404':
-          description: Provider not found.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorBody'
         '500':
           description: Internal server error.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: Attestation provider unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
       security:
       - {}
+  /rbs/v0/attestation/cert:
+    get:
+      tags:
+      - Attestation
+      summary: List certificates (default provider)
+      operationId: listCertsDefault
+      parameters:
+      - name: ids
+        in: query
+        description: Comma-separated certificate IDs
+        required: false
+        schema:
+          type: string
+      - name: cert_type
+        in: query
+        description: Filter by certificate type
+        required: false
+        schema:
+          type: string
+      - name: limit
+        in: query
+        description: Page size (1-10, default 10)
+        required: false
+        schema:
+          type: integer
+          format: int64
+      - name: offset
+        in: query
+        description: Offset (0-100000, default 0)
+        required: false
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: Certificate list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertListResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Provider not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: GTA unreachable or 5xx
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+    put:
+      tags:
+      - Attestation
+      summary: Update a certificate (default provider)
+      operationId: updateCertDefault
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CertUpdateRequest'
+        required: true
+      responses:
+        '200':
+          description: Certificate updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertMutationResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: GTA unreachable or 5xx
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+    post:
+      tags:
+      - Attestation
+      summary: Create a certificate (default provider)
+      operationId: createCertDefault
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CertCreateRequest'
+        required: true
+      responses:
+        '201':
+          description: Certificate created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertMutationResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Provider not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: GTA unreachable or 5xx
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+    delete:
+      tags:
+      - Attestation
+      summary: Batch delete certificates (default provider)
+      operationId: deleteCertsDefault
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CertDeleteRequest'
+        required: true
+      responses:
+        '204':
+          description: Certificates deleted
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: GTA unreachable or 5xx
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+  /rbs/v0/attestation/cert/{id}:
+    get:
+      tags:
+      - Attestation
+      summary: Get a single certificate (default provider)
+      operationId: getCertDefault
+      parameters:
+      - name: id
+        in: path
+        description: Certificate or CRL ID
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Certificate detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertListResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: GTA unreachable or 5xx
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+    delete:
+      tags:
+      - Attestation
+      summary: Delete a single certificate (default provider)
+      operationId: deleteCertDefault
+      parameters:
+      - name: id
+        in: path
+        description: Certificate or CRL ID
+        required: true
+        schema:
+          type: string
+      responses:
+        '204':
+          description: Certificate deleted
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: GTA unreachable or 5xx
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+  /rbs/v0/attestation/policy:
+    get:
+      tags:
+      - Attestation
+      summary: List attestation policies (default provider)
+      operationId: listAttestationPoliciesDefault
+      parameters:
+      - name: ids
+        in: query
+        description: Comma-separated policy IDs
+        required: false
+        schema:
+          type: string
+      - name: attester_type
+        in: query
+        description: Filter by attester type
+        required: false
+        schema:
+          type: string
+      - name: limit
+        in: query
+        description: Page size (1-10, default 10)
+        required: false
+        schema:
+          type: integer
+          format: int64
+      - name: offset
+        in: query
+        description: Offset (0-100000, default 0)
+        required: false
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: Policy list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttestationPolicyListResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Provider not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: GTA unreachable or 5xx
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+    put:
+      tags:
+      - Attestation
+      summary: Update an attestation policy (default provider)
+      operationId: updateAttestationPolicyDefault
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicyUpdateRequest'
+        required: true
+      responses:
+        '200':
+          description: Policy updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyMutationResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: GTA unreachable or 5xx
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+    post:
+      tags:
+      - Attestation
+      summary: Create an attestation policy (default provider)
+      operationId: createAttestationPolicyDefault
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicyCreateRequest'
+        required: true
+      responses:
+        '201':
+          description: Policy created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyMutationResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Provider not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: GTA unreachable or 5xx
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+    delete:
+      tags:
+      - Attestation
+      summary: Batch delete attestation policies (default provider)
+      operationId: deleteAttestationPoliciesDefault
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicyDeleteRequest'
+        required: true
+      responses:
+        '204':
+          description: Policies deleted
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: GTA unreachable or 5xx
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+  /rbs/v0/attestation/policy/{id}:
+    get:
+      tags:
+      - Attestation
+      summary: Get a single attestation policy (default provider)
+      operationId: getAttestationPolicyDefault
+      parameters:
+      - name: id
+        in: path
+        description: Policy ID
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Policy detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttestationPolicyListResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: GTA unreachable or 5xx
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+    delete:
+      tags:
+      - Attestation
+      summary: Delete a single attestation policy (default provider)
+      operationId: deleteAttestationPolicyDefault
+      parameters:
+      - name: id
+        in: path
+        description: Policy ID
+        required: true
+        schema:
+          type: string
+      responses:
+        '204':
+          description: Policy deleted
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: GTA unreachable or 5xx
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+  /rbs/v0/attestation/ref_value:
+    get:
+      tags:
+      - Attestation
+      summary: List reference value baselines (default provider)
+      operationId: listRefValuesDefault
+      parameters:
+      - name: ids
+        in: query
+        description: Comma-separated ref_value IDs (1-10)
+        required: false
+        schema:
+          type: string
+      - name: attester_type
+        in: query
+        description: Filter by attester type
+        required: false
+        schema:
+          type: string
+      - name: limit
+        in: query
+        description: Page size (1-10, default 10)
+        required: false
+        schema:
+          type: integer
+          format: int64
+      - name: offset
+        in: query
+        description: Offset (0-100000, default 0)
+        required: false
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: Ref_value list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefValueListResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Provider not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: GTA unreachable or 5xx
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+    put:
+      tags:
+      - Attestation
+      summary: Update a reference value baseline (default provider)
+      operationId: updateRefValueDefault
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefValueUpdateRequest'
+        required: true
+      responses:
+        '200':
+          description: Ref_value updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefValueMutationResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: GTA unreachable or 5xx
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+    post:
+      tags:
+      - Attestation
+      summary: Create a reference value baseline (default provider)
+      operationId: createRefValueDefault
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefValueCreateRequest'
+        required: true
+      responses:
+        '201':
+          description: Ref_value created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefValueMutationResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Provider not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: GTA unreachable or 5xx
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+    delete:
+      tags:
+      - Attestation
+      summary: Batch delete reference value baselines (default provider)
+      operationId: deleteRefValuesDefault
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefValueDeleteRequest'
+        required: true
+      responses:
+        '204':
+          description: Ref_values deleted
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: GTA unreachable or 5xx
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+  /rbs/v0/attestation/ref_value/{id}:
+    get:
+      tags:
+      - Attestation
+      summary: Get a single reference value baseline (default provider)
+      operationId: getRefValueDefault
+      parameters:
+      - name: id
+        in: path
+        description: Ref_value ID
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Ref_value detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefValueListResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: GTA unreachable or 5xx
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+    delete:
+      tags:
+      - Attestation
+      summary: Delete a single reference value baseline (default provider)
+      operationId: deleteRefValueDefault
+      parameters:
+      - name: id
+        in: path
+        description: Ref_value ID
+        required: true
+        schema:
+          type: string
+      responses:
+        '204':
+          description: Ref_value deleted
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: GTA unreachable or 5xx
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+  /rbs/v0/attestation/{as_provider}/cert:
+    get:
+      tags:
+      - Attestation
+      summary: List certificates
+      operationId: listCerts
+      parameters:
+      - name: as_provider
+        in: path
+        description: Attestation provider name
+        required: true
+        schema:
+          type: string
+      - name: ids
+        in: query
+        description: Comma-separated certificate IDs
+        required: false
+        schema:
+          type: string
+      - name: cert_type
+        in: query
+        description: Filter by certificate type
+        required: false
+        schema:
+          type: string
+      - name: limit
+        in: query
+        description: Page size (1-10, default 10)
+        required: false
+        schema:
+          type: integer
+          format: int64
+      - name: offset
+        in: query
+        description: Offset (0-100000, default 0)
+        required: false
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: Certificate list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertListResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Provider not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: GTA unreachable or 5xx
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+    put:
+      tags:
+      - Attestation
+      summary: Update a certificate
+      operationId: updateCert
+      parameters:
+      - name: as_provider
+        in: path
+        description: Attestation provider name
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CertUpdateRequest'
+        required: true
+      responses:
+        '200':
+          description: Certificate updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertMutationResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: GTA unreachable or 5xx
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+    post:
+      tags:
+      - Attestation
+      summary: Create a certificate
+      operationId: createCert
+      parameters:
+      - name: as_provider
+        in: path
+        description: Attestation provider name
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CertCreateRequest'
+        required: true
+      responses:
+        '201':
+          description: Certificate created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertMutationResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Provider not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: GTA unreachable or 5xx
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+    delete:
+      tags:
+      - Attestation
+      summary: Batch delete certificates
+      operationId: deleteCerts
+      parameters:
+      - name: as_provider
+        in: path
+        description: Attestation provider name
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CertDeleteRequest'
+        required: true
+      responses:
+        '204':
+          description: Certificates deleted
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: GTA unreachable or 5xx
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+  /rbs/v0/attestation/{as_provider}/cert/{id}:
+    get:
+      tags:
+      - Attestation
+      summary: Get a single certificate
+      operationId: getCert
+      parameters:
+      - name: as_provider
+        in: path
+        description: Attestation provider name
+        required: true
+        schema:
+          type: string
+      - name: id
+        in: path
+        description: Certificate or CRL ID
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Certificate detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertListResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: GTA unreachable or 5xx
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+    delete:
+      tags:
+      - Attestation
+      summary: Delete a single certificate
+      operationId: deleteCert
+      parameters:
+      - name: as_provider
+        in: path
+        description: Attestation provider name
+        required: true
+        schema:
+          type: string
+      - name: id
+        in: path
+        description: Certificate or CRL ID
+        required: true
+        schema:
+          type: string
+      responses:
+        '204':
+          description: Certificate deleted
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: GTA unreachable or 5xx
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+  /rbs/v0/attestation/{as_provider}/policy:
+    get:
+      tags:
+      - Attestation
+      summary: List attestation policies
+      operationId: listAttestationPolicies
+      parameters:
+      - name: as_provider
+        in: path
+        description: Attestation provider name
+        required: true
+        schema:
+          type: string
+      - name: ids
+        in: query
+        description: Comma-separated policy IDs
+        required: false
+        schema:
+          type: string
+      - name: attester_type
+        in: query
+        description: Filter by attester type
+        required: false
+        schema:
+          type: string
+      - name: limit
+        in: query
+        description: Page size (1-10, default 10)
+        required: false
+        schema:
+          type: integer
+          format: int64
+      - name: offset
+        in: query
+        description: Offset (0-100000, default 0)
+        required: false
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: Policy list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttestationPolicyListResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Provider not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: GTA unreachable or 5xx
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+    put:
+      tags:
+      - Attestation
+      summary: Update an attestation policy
+      operationId: updateAttestationPolicy
+      parameters:
+      - name: as_provider
+        in: path
+        description: Attestation provider name
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicyUpdateRequest'
+        required: true
+      responses:
+        '200':
+          description: Policy updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyMutationResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: GTA unreachable or 5xx
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+    post:
+      tags:
+      - Attestation
+      summary: Create an attestation policy
+      operationId: createAttestationPolicy
+      parameters:
+      - name: as_provider
+        in: path
+        description: Attestation provider name
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicyCreateRequest'
+        required: true
+      responses:
+        '201':
+          description: Policy created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyMutationResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Provider not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: GTA unreachable or 5xx
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+    delete:
+      tags:
+      - Attestation
+      summary: Batch delete attestation policies
+      operationId: deleteAttestationPolicies
+      parameters:
+      - name: as_provider
+        in: path
+        description: Attestation provider name
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicyDeleteRequest'
+        required: true
+      responses:
+        '204':
+          description: Policies deleted
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: GTA unreachable or 5xx
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+  /rbs/v0/attestation/{as_provider}/policy/{id}:
+    get:
+      tags:
+      - Attestation
+      summary: Get a single attestation policy
+      operationId: getAttestationPolicy
+      parameters:
+      - name: as_provider
+        in: path
+        description: Attestation provider name
+        required: true
+        schema:
+          type: string
+      - name: id
+        in: path
+        description: Policy ID
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Policy detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttestationPolicyListResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: GTA unreachable or 5xx
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+    delete:
+      tags:
+      - Attestation
+      summary: Delete a single attestation policy
+      operationId: deleteAttestationPolicy
+      parameters:
+      - name: as_provider
+        in: path
+        description: Attestation provider name
+        required: true
+        schema:
+          type: string
+      - name: id
+        in: path
+        description: Policy ID
+        required: true
+        schema:
+          type: string
+      responses:
+        '204':
+          description: Policy deleted
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: GTA unreachable or 5xx
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+  /rbs/v0/attestation/{as_provider}/ref_value:
+    get:
+      tags:
+      - Attestation
+      summary: List reference value baselines
+      operationId: listRefValues
+      parameters:
+      - name: as_provider
+        in: path
+        description: Attestation provider name
+        required: true
+        schema:
+          type: string
+      - name: ids
+        in: query
+        description: Comma-separated ref_value IDs (1-10)
+        required: false
+        schema:
+          type: string
+      - name: attester_type
+        in: query
+        description: Filter by attester type
+        required: false
+        schema:
+          type: string
+      - name: limit
+        in: query
+        description: Page size (1-10, default 10)
+        required: false
+        schema:
+          type: integer
+          format: int64
+      - name: offset
+        in: query
+        description: Offset (0-100000, default 0)
+        required: false
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: Ref_value list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefValueListResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Provider not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: GTA unreachable or 5xx
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+    put:
+      tags:
+      - Attestation
+      summary: Update a reference value baseline
+      operationId: updateRefValue
+      parameters:
+      - name: as_provider
+        in: path
+        description: Attestation provider name
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefValueUpdateRequest'
+        required: true
+      responses:
+        '200':
+          description: Ref_value updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefValueMutationResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: GTA unreachable or 5xx
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+    post:
+      tags:
+      - Attestation
+      summary: Create a reference value baseline
+      operationId: createRefValue
+      parameters:
+      - name: as_provider
+        in: path
+        description: Attestation provider name
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefValueCreateRequest'
+        required: true
+      responses:
+        '201':
+          description: Ref_value created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefValueMutationResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Provider not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: GTA unreachable or 5xx
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+    delete:
+      tags:
+      - Attestation
+      summary: Batch delete reference value baselines
+      operationId: deleteRefValues
+      parameters:
+      - name: as_provider
+        in: path
+        description: Attestation provider name
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefValueDeleteRequest'
+        required: true
+      responses:
+        '204':
+          description: Ref_values deleted
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: GTA unreachable or 5xx
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+  /rbs/v0/attestation/{as_provider}/ref_value/{id}:
+    get:
+      tags:
+      - Attestation
+      summary: Get a single reference value baseline
+      operationId: getRefValue
+      parameters:
+      - name: as_provider
+        in: path
+        description: Attestation provider name
+        required: true
+        schema:
+          type: string
+      - name: id
+        in: path
+        description: Ref_value ID
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Ref_value detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefValueListResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: GTA unreachable or 5xx
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
+    delete:
+      tags:
+      - Attestation
+      summary: Delete a single reference value baseline
+      operationId: deleteRefValue
+      parameters:
+      - name: as_provider
+        in: path
+        description: Attestation provider name
+        required: true
+        schema:
+          type: string
+      - name: id
+        in: path
+        description: Ref_value ID
+        required: true
+        schema:
+          type: string
+      responses:
+        '204':
+          description: Ref_value deleted
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: GTA unreachable or 5xx
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
   /rbs/v0/challenge:
     get:
       tags:
@@ -1086,6 +3249,97 @@ components:
         token:
           type: string
           description: AttestToken or session JWT for subsequent Bearer resource access.
+    AttestationDeleteType:
+      type: string
+      description: |-
+        Delete mode for ref_value/cert DELETE operations.
+
+        GTA accepts `"id"`, `"all"`, `"type"` for ref_value and cert.
+      enum:
+      - id
+      - all
+      - type
+    AttestationPolicy:
+      type: object
+      description: |-
+        Attestation policy entity returned by GTA.
+
+        Named `AttestationPolicy` to distinguish from RBS local resource policy
+        (`Policy`/`PolicyResponse` in `t_res_policy`). `id`/`name`/`attester_type`
+        are always present in both GTA by_type/all (summary) and by_ids (full)
+        responses, so they are mandatory. Other fields appear only in by_ids.
+      required:
+      - id
+      - name
+      - attester_type
+      properties:
+        id:
+          type: string
+          description: Stable policy identifier.
+          example: P1
+        name:
+          type: string
+          description: Policy name.
+          example: policy1
+        description:
+          type:
+          - string
+          - 'null'
+          description: Optional description (by_ids path only).
+        content:
+          type:
+          - string
+          - 'null'
+          description: Policy content (JWT or text) (by_ids path only).
+        attester_type:
+          type: array
+          items:
+            type: string
+          description: Attester type list (array, unlike ref_value's scalar attester_type).
+          example: '["tpm","sgx"]'
+        is_default:
+          type:
+          - boolean
+          - 'null'
+          description: Whether this is the default policy (by_ids path only).
+        version:
+          type:
+          - integer
+          - 'null'
+          format: int32
+          description: Policy version (by_ids path only).
+          example: 1
+        update_time:
+          type:
+          - integer
+          - 'null'
+          format: int64
+          description: Last update timestamp (Unix epoch seconds).
+          example: 1700000000
+        valid_code:
+          type:
+          - integer
+          - 'null'
+          format: int32
+          description: 'Validity code: 0 = valid, 1 = invalid (by_ids path only).'
+          example: 0
+    AttestationPolicyListResponse:
+      type: object
+      description: Paginated response for GET attestation policy list.
+      required:
+      - policies
+      properties:
+        policies:
+          type: array
+          items:
+            $ref: '#/components/schemas/AttestationPolicy'
+          description: List of policies matching the query.
+        total_count:
+          type:
+          - integer
+          - 'null'
+          format: int64
+          description: Total matching count.
     AttesterData:
       type: object
       description: |-
@@ -1145,6 +3399,258 @@ components:
           type: string
           description: Build timestamp (UTC), typically RFC 3339, or empty when not embedded at build.
           example: ''
+    CertCreateRequest:
+      type: object
+      description: Request body for POST cert (create).
+      required:
+      - name
+      - type
+      properties:
+        name:
+          type: string
+          description: Certificate name (non-empty).
+          example: cert1
+        type:
+          type: array
+          items:
+            type: string
+          description: Certificate type list (JSON field name `type`).
+          example: '["tpm"]'
+        description:
+          type:
+          - string
+          - 'null'
+          description: Optional description.
+        content:
+          type:
+          - string
+          - 'null'
+          description: Certificate content; required when `cert_type` does not contain `crl`.
+        crl_content:
+          type:
+          - string
+          - 'null'
+          description: CRL content; required when `cert_type` contains `crl`.
+        is_default:
+          type:
+          - boolean
+          - 'null'
+          description: Whether to set as default certificate.
+    CertDeleteRequest:
+      type: object
+      description: |-
+        Request body for DELETE cert (batch delete).
+
+        GTA accepts `delete_type` = `"id"`/`"all"`/`"type"`, with
+        `cert_type` (JSON field name `type`) as the type filter.
+      required:
+      - delete_type
+      properties:
+        delete_type:
+          $ref: '#/components/schemas/AttestationDeleteType'
+          description: Delete mode.
+        ids:
+          type:
+          - array
+          - 'null'
+          items:
+            type: string
+          description: IDs to delete (required when `delete_type` is `Id`).
+        type:
+          type:
+          - string
+          - 'null'
+          description: Cert type filter (required when `delete_type` is `Type`; JSON field name `type`).
+          example: refvalue
+    CertListResponse:
+      type: object
+      description: Paginated response for GET cert list.
+      properties:
+        certs:
+          type: array
+          items:
+            $ref: '#/components/schemas/CertRecord'
+          description: List of certificates matching the query.
+        crls:
+          type: array
+          items:
+            $ref: '#/components/schemas/CrlRecord'
+          description: List of CRL records matching the query.
+        total_count:
+          type:
+          - integer
+          - 'null'
+          format: int64
+          description: Total matching count.
+    CertMutationResponse:
+      type: object
+      description: |-
+        Response for POST/PUT cert (create/update mutation).
+
+        GTA wraps the result in a `cert` or `crl` key; only one is present.
+        RBS is a stateless proxy and passes the wrapper through unchanged.
+      properties:
+        cert:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/CertMutationResult'
+            description: Present when a cert was created/updated.
+        crl:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/CrlMutationResult'
+            description: Present when a CRL was created/updated.
+    CertMutationResult:
+      type: object
+      description: |-
+        Inner mutation result for cert create/update.
+
+        GTA returns `{"cert": {"cert_id":"...", "cert_name":"...", "version": 1}}`.
+      properties:
+        cert_id:
+          type:
+          - string
+          - 'null'
+          description: Certificate ID.
+          example: C1
+        cert_name:
+          type:
+          - string
+          - 'null'
+          description: Certificate name.
+          example: cert1
+        version:
+          type:
+          - integer
+          - 'null'
+          format: int32
+          description: New version after mutation.
+          example: 2
+    CertRecord:
+      type: object
+      description: |-
+        Certificate record returned by GTA.
+
+        All fields are optional: GTA's `CertRespInfo` serializes every field
+        with `skip_serializing_if = "Option::is_none"`, so the present subset
+        depends on the query path and the underlying database row.
+      properties:
+        cert_id:
+          type:
+          - string
+          - 'null'
+          description: Stable certificate identifier.
+          example: C1
+        cert_name:
+          type:
+          - string
+          - 'null'
+          description: Certificate name.
+          example: cert1
+        description:
+          type:
+          - string
+          - 'null'
+          description: Optional description.
+        content:
+          type:
+          - string
+          - 'null'
+          description: Certificate content (PEM etc.).
+        cert_type:
+          type:
+          - array
+          - 'null'
+          items:
+            type: string
+          description: Certificate type list.
+        is_default:
+          type:
+          - boolean
+          - 'null'
+          description: Whether this is the default certificate.
+        version:
+          type:
+          - integer
+          - 'null'
+          format: int32
+          description: Certificate version.
+          example: 1
+        create_time:
+          type:
+          - integer
+          - 'null'
+          format: int64
+          description: Creation timestamp (Unix epoch seconds).
+          example: 1700000000
+        update_time:
+          type:
+          - integer
+          - 'null'
+          format: int64
+          description: Last update timestamp (Unix epoch seconds).
+          example: 1700000000
+        valid_code:
+          type:
+          - integer
+          - 'null'
+          format: int32
+          description: Validity code.
+          example: 0
+        cert_revoked_date:
+          type:
+          - integer
+          - 'null'
+          format: int64
+          description: Revocation date (Unix epoch seconds).
+          example: 1700000000
+        cert_revoked_reason:
+          type:
+          - string
+          - 'null'
+          description: Revocation reason.
+    CertUpdateRequest:
+      type: object
+      description: |-
+        Request body for PUT cert (update).
+
+        `id` is required (collection-level operation, id in body not path).
+        GTA rejects `content` on update — the field is passed through so GTA
+        can return the appropriate error.
+      required:
+      - id
+      properties:
+        id:
+          type: string
+          description: ID of the certificate to update.
+          example: C1
+        name:
+          type:
+          - string
+          - 'null'
+          description: New name.
+        description:
+          type:
+          - string
+          - 'null'
+          description: New description.
+        type:
+          type:
+          - array
+          - 'null'
+          items:
+            type: string
+          description: New certificate type list (JSON field name `type`). Must not contain `crl`.
+        content:
+          type:
+          - string
+          - 'null'
+          description: Certificate content — GTA rejects this on update.
+        is_default:
+          type:
+          - boolean
+          - 'null'
+          description: Whether to set as default certificate.
     ChallengeRequest:
       type: object
       description: Query parameter for GET /rbs/v0/challenge (challenge request).
@@ -1188,6 +3694,46 @@ components:
           type:
           - string
           - 'null'
+    CrlMutationResult:
+      type: object
+      description: |-
+        Inner mutation result for CRL create.
+
+        GTA returns `{"crl": {"crl_id":"...", "crl_name":"..."}}`.
+      properties:
+        crl_id:
+          type:
+          - string
+          - 'null'
+          description: CRL ID.
+          example: L1
+        crl_name:
+          type:
+          - string
+          - 'null'
+          description: CRL name.
+          example: crl1
+    CrlRecord:
+      type: object
+      description: CRL (Certificate Revocation List) record returned by GTA.
+      properties:
+        crl_id:
+          type:
+          - string
+          - 'null'
+          description: Stable CRL identifier.
+          example: L1
+        crl_name:
+          type:
+          - string
+          - 'null'
+          description: CRL name.
+          example: crl1
+        crl_content:
+          type:
+          - string
+          - 'null'
+          description: CRL content.
     ErrorBody:
       type: object
       description: Error payload for HTTP error responses (e.g. 500).
@@ -1199,6 +3745,79 @@ components:
           description: |-
             Error string for the caller: may be a stable code, a short machine-oriented label,
             or a concise human-readable message. Must not include stack traces or secrets.
+    PolicyCreateRequest:
+      type: object
+      description: Request body for POST attestation policy (create).
+      required:
+      - name
+      - attester_type
+      - content_type
+      - content
+      properties:
+        name:
+          type: string
+          description: Policy name (non-empty).
+          example: policy1
+        attester_type:
+          type: array
+          items:
+            type: string
+          description: Attester type list (non-empty array).
+          example: '["tpm"]'
+        content_type:
+          type: string
+          description: 'Content encoding (required): "jwt" or "text".'
+          example: jwt
+        content:
+          type: string
+          description: Policy content (non-empty).
+          example: eyJhbGciOiJSUzI1NiJ9...
+        is_default:
+          type:
+          - boolean
+          - 'null'
+          description: Whether to set as default policy.
+        description:
+          type:
+          - string
+          - 'null'
+          description: Optional description.
+    PolicyDeleteRequest:
+      type: object
+      description: |-
+        Request body for DELETE policy (batch delete).
+
+        GTA accepts `delete_type` = `"id"`/`"all"`/`"attester_type"`, with
+        `attester_type` as the type filter.
+      required:
+      - delete_type
+      properties:
+        delete_type:
+          $ref: '#/components/schemas/PolicyDeleteType'
+          description: Delete mode.
+        ids:
+          type:
+          - array
+          - 'null'
+          items:
+            type: string
+          description: IDs to delete (required when `delete_type` is `Id`).
+        attester_type:
+          type:
+          - string
+          - 'null'
+          description: Attester type filter (required when `delete_type` is `AttesterType`).
+          example: tpm
+    PolicyDeleteType:
+      type: string
+      description: |-
+        Delete mode for policy DELETE operations.
+
+        GTA accepts `"id"`, `"all"`, `"attester_type"` for policy.
+      enum:
+      - id
+      - all
+      - attester_type
     PolicyListResponse:
       type: object
       description: Policy list response.
@@ -1221,6 +3840,40 @@ components:
         offset:
           type: integer
           format: int64
+    PolicyMutation:
+      type: object
+      description: Inner mutation result for policy create/update.
+      required:
+      - id
+      - name
+      - version
+      properties:
+        id:
+          type: string
+          description: ID of the mutated policy.
+          example: P1
+        name:
+          type: string
+          description: Name of the mutated policy.
+          example: policy1
+        version:
+          type: integer
+          format: int32
+          description: New version after mutation.
+          example: 2
+    PolicyMutationResponse:
+      type: object
+      description: |-
+        Response for POST/PUT policy (create/update).
+
+        Mirrors GTA's `{"policy": {"id":"...", "name":"...", "version": 1}}`.
+        RBS is a stateless proxy — deserialized and passed through unchanged.
+      required:
+      - policy
+      properties:
+        policy:
+          $ref: '#/components/schemas/PolicyMutation'
+          description: Mutation result.
     PolicyResponse:
       type: object
       description: Policy response returned to callers.
@@ -1251,6 +3904,51 @@ components:
           - 'null'
           items:
             type: string
+    PolicyUpdateRequest:
+      type: object
+      description: |-
+        Request body for PUT attestation policy (update).
+
+        `id` is required (collection-level operation, id in body not path).
+      required:
+      - id
+      properties:
+        id:
+          type: string
+          description: ID of the policy to update.
+          example: P1
+        name:
+          type:
+          - string
+          - 'null'
+          description: New name.
+        description:
+          type:
+          - string
+          - 'null'
+          description: New description.
+        attester_type:
+          type:
+          - array
+          - 'null'
+          items:
+            type: string
+          description: New attester type list.
+        content_type:
+          type:
+          - string
+          - 'null'
+          description: New content encoding.
+        content:
+          type:
+          - string
+          - 'null'
+          description: New policy content.
+        is_default:
+          type:
+          - boolean
+          - 'null'
+          description: Whether to set as default policy.
     RbcEvidenceItem:
       type: object
       description: Single attestation artifact within a measurement (backend-specific detail).
@@ -1269,6 +3967,13 @@ components:
           items:
             type: string
           description: Policy identifiers evaluated for this evidence.
+        ref_value_id:
+          type:
+          - string
+          - 'null'
+          description: |-
+            Optional reference value ID for precise baseline matching.
+            When present, GTA matches baseline by id+uid; when absent, by attester_type+uid.
     RbcEvidencesPayload:
       type: object
       description: |-
@@ -1342,6 +4047,227 @@ components:
         build:
           $ref: '#/components/schemas/BuildMetadata'
           description: Build metadata (`version`, `git_hash`, `build_date`) for this binary; same shape as in the exported `OpenAPI` schema.
+    RefValue:
+      type: object
+      description: |-
+        Reference value (baseline) entity returned by GTA.
+
+        RBS acts as a stateless proxy. `id`/`name`/`attester_type` are always
+        present in both GTA by_type/all (summary) and by_ids (full) responses,
+        so they are mandatory. `uid`/`description`/`content`/`content_type`/
+        `version`/`valid_code` appear only in the by_ids full response and are
+        optional.
+      required:
+      - id
+      - name
+      - attester_type
+      properties:
+        id:
+          type: string
+          description: Stable ref_value identifier.
+          example: rv-001
+        uid:
+          type:
+          - string
+          - 'null'
+          description: User-scoped identifier (by_ids path only).
+          example: test_01
+        name:
+          type: string
+          description: Human-readable baseline name.
+          example: tpm-baseline
+        attester_type:
+          type: string
+          description: Attester type (e.g. tpm, tpm_ima, virt_cca).
+          example: tpm
+        description:
+          type:
+          - string
+          - 'null'
+          description: Optional description (by_ids path only).
+          example: TPM reference baseline
+        content:
+          type:
+          - string
+          - 'null'
+          description: Baseline content (JWT or base64-encoded payload) (by_ids path only).
+          example: eyJhbGciOiJSUzI1NiJ9...
+        content_type:
+          type:
+          - string
+          - 'null'
+          description: 'Content encoding: "jwt" (default) or "base64" (by_ids path only).'
+          example: jwt
+        version:
+          type:
+          - integer
+          - 'null'
+          format: int32
+          description: Baseline version (by_ids path only).
+          example: 1
+        valid_code:
+          type:
+          - integer
+          - 'null'
+          format: int32
+          description: 'Validity code: 0 = valid, 1 = invalid (by_ids path only).'
+          example: 0
+    RefValueCreateRequest:
+      type: object
+      description: Request body for POST ref_value (create).
+      required:
+      - name
+      - attester_type
+      - content
+      properties:
+        name:
+          type: string
+          description: Baseline name (non-empty).
+          example: tpm-baseline
+        attester_type:
+          type: string
+          description: Attester type (non-empty).
+          example: tpm
+        content:
+          type: string
+          description: Baseline content — JWT or base64-encoded payload (non-empty).
+          example: eyJhbGciOiJSUzI1NiJ9...
+        content_type:
+          type:
+          - string
+          - 'null'
+          description: 'Content encoding: "jwt" (default) or "base64". When absent, GTA defaults to jwt.'
+          example: jwt
+        description:
+          type:
+          - string
+          - 'null'
+          description: Optional description.
+          example: TPM reference baseline
+    RefValueDeleteRequest:
+      type: object
+      description: |-
+        Request body for DELETE ref_value (batch delete).
+
+        GTA accepts `delete_type` = `"id"`/`"all"`/`"type"`, with
+        `attester_type` as the type filter.
+      required:
+      - delete_type
+      properties:
+        delete_type:
+          $ref: '#/components/schemas/AttestationDeleteType'
+          description: Delete mode.
+        ids:
+          type:
+          - array
+          - 'null'
+          items:
+            type: string
+          description: IDs to delete (required when `delete_type` is `Id`).
+        attester_type:
+          type:
+          - string
+          - 'null'
+          description: Attester type filter (required when `delete_type` is `Type`).
+          example: tpm
+    RefValueListResponse:
+      type: object
+      description: |-
+        Paginated response for GET ref_value list.
+
+        `total_count`, `limit`, and `offset` are optional: present in by_type/all
+        paths, absent in by_ids paths.
+      required:
+      - ref_values
+      properties:
+        ref_values:
+          type: array
+          items:
+            $ref: '#/components/schemas/RefValue'
+          description: List of ref_values matching the query.
+        total_count:
+          type:
+          - integer
+          - 'null'
+          format: int64
+          description: Total matching count (present in by_type/all paths; absent in by_ids path).
+    RefValueMutation:
+      type: object
+      description: Inner mutation result for ref_value create/update.
+      required:
+      - id
+      - name
+      - version
+      properties:
+        id:
+          type: string
+          description: ID of the mutated ref_value.
+          example: rv-001
+        name:
+          type: string
+          description: Name of the mutated ref_value.
+          example: tpm-baseline
+        version:
+          type: integer
+          format: int32
+          description: New version after mutation.
+          example: 2
+    RefValueMutationResponse:
+      type: object
+      description: |-
+        Response for POST/PUT ref_value (create/update).
+
+        Mirrors GTA's `{"ref_value": {"id":"...", "name":"...", "version": 1}}`.
+        RBS is a stateless proxy — deserialized and passed through unchanged.
+      required:
+      - ref_value
+      properties:
+        ref_value:
+          $ref: '#/components/schemas/RefValueMutation'
+          description: Mutation result.
+    RefValueUpdateRequest:
+      type: object
+      description: |-
+        Request body for PUT ref_value (update).
+
+        `id` is required (collection-level operation, id in body not path).
+        All other fields are optional; at least one should be provided.
+      required:
+      - id
+      properties:
+        id:
+          type: string
+          description: ID of the ref_value to update.
+          example: rv-001
+        name:
+          type:
+          - string
+          - 'null'
+          description: New name.
+          example: updated-baseline
+        description:
+          type:
+          - string
+          - 'null'
+          description: New description.
+        attester_type:
+          type:
+          - string
+          - 'null'
+          description: New attester_type.
+          example: tpm
+        content:
+          type:
+          - string
+          - 'null'
+          description: New content.
+          example: eyJhbGciOiJSUzI1NiJ9...
+        content_type:
+          type:
+          - string
+          - 'null'
+          description: New content encoding.
+          example: base64
     ResourceContentResponse:
       type: object
       description: |-
@@ -1600,12 +4526,12 @@ components:
       type: http
       scheme: bearer
       bearerFormat: Attest
-      description: Attest Token. Obtain via POST /rbs/v0/attest.
+      description: 'Attest token. Send as `Authorization: Attest <token>`. Obtain via `POST /rbs/v0/attest`.'
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: JWT Bearer Token. Obtain via Admin API or attestation.
+      description: 'JWT Bearer token. Send as `Authorization: Bearer <token>`. Obtain via Admin API or attestation.'
 tags:
 - name: System
   description: '`RbsCore::system` — service identity and API/build version via `GET /rbs/version` (system metadata). Does not require authentication.'
@@ -1616,4 +4542,4 @@ tags:
 - name: Resource
   description: Resource CRUD — `GET/POST/PUT/DELETE /rbs/v0/{provider}/{repo}/{type}/{name}`. Supports AttestToken and BearerToken.
 - name: Attestation
-  description: Attestation challenge and token issuance via `GET /rbs/v0/challenge` and `POST /rbs/v0/attest`. No authentication required.
+  description: Attestation challenge/token issuance (`GET /rbs/v0/challenge`, `POST /rbs/v0/attest`, no auth) and attestation management CRUD for ref_value/cert/policy (`/rbs/v0/attestation/{as_provider}/{type}`, Bearer + admin only).

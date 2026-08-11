@@ -529,7 +529,7 @@ impl AdminManager {
     // ── AuthZ helpers ──
 
     /// Authorize with `AdminOnly`, check enabled, return `BearerContext`.
-    async fn require_enabled_admin<'a>(&self, auth_ctx: &'a AuthContext) -> Result<&'a crate::auth::BearerContext> {
+    pub async fn require_enabled_admin<'a>(&self, auth_ctx: &'a AuthContext) -> Result<&'a crate::auth::BearerContext> {
         log::info!("require_enabled_admin: starting authz check");
 
         let result = self.authz

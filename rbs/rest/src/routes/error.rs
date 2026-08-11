@@ -14,8 +14,8 @@
 //! Also includes `RequestDeserializeError` for logging request body/query
 //! deserialization failures (e.g. invalid enum values, malformed JSON).
 
-use actix_web::{HttpRequest, HttpResponse, ResponseError};
-use rbs_api_types::ErrorBody;
+use actix_web::{http::StatusCode, HttpRequest, HttpResponse, ResponseError};
+use rbs_api_types::{ErrorBody, RbsError};
 
 /// No matching route under `/rbs` or `/rbs/v0`.
 pub async fn not_found() -> HttpResponse {
@@ -69,6 +69,21 @@ pub fn query_error_handler(err: actix_web::error::QueryPayloadError, _req: &Http
     let msg = err.to_string();
     log::error!("Query parameter deserialization failed: {}", msg);
     RequestDeserializeError::new(msg).into()
+}
+
+/// Map an `RbsError` to an HTTP response.
+///
+/// Errors carrying a passthrough body (e.g. an upstream GTA error response)
+/// emit that raw body verbatim with their status code (503); all others are
+/// wrapped in `ErrorBody` using `external_message()`.
+pub(crate) fn rbs_error_response(e: &RbsError) -> HttpResponse {
+    let status = StatusCode::from_u16(e.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    if let Some(body) = e.passthrough_body() {
+        return HttpResponse::build(status)
+            .content_type("application/json")
+            .body(body.to_string());
+    }
+    HttpResponse::build(status).json(ErrorBody::new(e.external_message()))
 }
 
 #[cfg(test)]

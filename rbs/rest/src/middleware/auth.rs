@@ -87,6 +87,13 @@ fn is_resource_get_path(path: &str, method: &actix_web::http::Method) -> bool {
         return false;
     }
 
+    // Exclude attestation management routes (BearerToken only)
+    // Covers both forms: /rbs/v0/attestation/{type} and /rbs/v0/attestation/{as_provider}/{type}
+    // and their single-resource variants /rbs/v0/attestation/.../{id}
+    if relative == "attestation" || relative.starts_with("attestation/") {
+        return false;
+    }
+
     // All other GET requests are Resource Get endpoints
     // This includes:
     // - /rbs/v0/{uri} (matches any non-policy, non-user path)

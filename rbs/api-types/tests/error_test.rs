@@ -46,6 +46,10 @@ fn error_class_resource() {
     assert_eq!(RbsError::ResourceConflict.error_class(), ErrorClass::Resource);
     assert_eq!(RbsError::ResourceGone.error_class(), ErrorClass::Resource);
     assert_eq!(RbsError::ResourceQuotaExceeded.error_class(), ErrorClass::Resource);
+    assert_eq!(
+        RbsError::ManagementProviderNotFound("p".to_string()).error_class(),
+        ErrorClass::Resource
+    );
 }
 
 #[test]
@@ -55,6 +59,10 @@ fn error_class_provider() {
     assert_eq!(RbsError::ProviderTimeout.error_class(), ErrorClass::Provider);
     assert_eq!(RbsError::ProviderNotFound("p".to_string()).error_class(), ErrorClass::Provider);
     assert_eq!(RbsError::PolicyEvaluationError("e".to_string()).error_class(), ErrorClass::Provider);
+    assert_eq!(
+        RbsError::AttestationProviderError { body: "b".to_string() }.error_class(),
+        ErrorClass::Provider
+    );
 }
 
 #[test]
@@ -109,6 +117,10 @@ fn http_status_resource() {
     assert_eq!(RbsError::ResourceConflict.http_status(), 409);
     assert_eq!(RbsError::ResourceGone.http_status(), 404);
     assert_eq!(RbsError::ResourceQuotaExceeded.http_status(), 409);
+    assert_eq!(
+        RbsError::ManagementProviderNotFound("p".to_string()).http_status(),
+        404
+    );
 }
 
 #[test]
@@ -119,6 +131,10 @@ fn http_status_provider_and_dependency() {
     assert_eq!(RbsError::ProviderNotFound("p".to_string()).http_status(), 503);
     assert_eq!(RbsError::PolicyEvaluationError("e".to_string()).http_status(), 503);
     assert_eq!(RbsError::DependencyUnavailable { service: "db" }.http_status(), 503);
+    assert_eq!(
+        RbsError::AttestationProviderError { body: "b".to_string() }.http_status(),
+        503
+    );
 }
 
 #[test]
@@ -147,6 +163,10 @@ fn retryable_no() {
     assert_eq!(RbsError::ResourceConflict.retryable(), Retryable::No);
     assert_eq!(RbsError::AuthzInsufficientPermissions.retryable(), Retryable::No);
     assert_eq!(RbsError::ResourceQuotaExceeded.retryable(), Retryable::No);
+    assert_eq!(
+        RbsError::ManagementProviderNotFound("p".to_string()).retryable(),
+        Retryable::No
+    );
 }
 
 #[test]
@@ -165,6 +185,10 @@ fn retryable_idempotent() {
     assert_eq!(RbsError::ResourceProviderUnavailable.retryable(), Retryable::Idempotent);
     assert_eq!(RbsError::InternalError.retryable(), Retryable::Idempotent);
     assert_eq!(RbsError::InternalUnexpected { context: "c".to_string() }.retryable(), Retryable::Idempotent);
+    assert_eq!(
+        RbsError::AttestationProviderError { body: "b".to_string() }.retryable(),
+        Retryable::Idempotent
+    );
 }
 
 // ── external_message ──
@@ -194,6 +218,23 @@ fn external_message_all_variants() {
     assert_eq!(RbsError::RateLimitExceeded.external_message(), "rate limit exceeded");
     assert_eq!(RbsError::InternalError.external_message(), "internal server error");
     assert_eq!(RbsError::InternalUnexpected { context: "c".to_string() }.external_message(), "internal server error");
+    // ManagementProviderNotFound includes dynamic provider name
+    assert!(
+        RbsError::ManagementProviderNotFound("p".to_string())
+            .external_message()
+            .contains("management provider not found: p")
+    );
+    // AttestationProviderError passes the raw upstream body through verbatim
+    assert_eq!(
+        RbsError::AttestationProviderError { body: "{\"message\":\"rv not found\"}".to_string() }
+            .external_message(),
+        "{\"message\":\"rv not found\"}"
+    );
+    assert_eq!(
+        RbsError::AttestationProviderError { body: "b".to_string() }.passthrough_body(),
+        Some("b")
+    );
+    assert_eq!(RbsError::AttestationProviderUnavailable.passthrough_body(), None);
 }
 
 // ── serialization ──

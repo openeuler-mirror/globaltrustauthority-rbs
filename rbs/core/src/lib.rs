@@ -25,7 +25,10 @@ use std::sync::Arc;
 pub mod system;
 
 pub use admin::AdminManager;
-pub use attestation::{AttestationManager, AttestationProvider, BuiltinAttestationProvider, GtaRestProvider};
+pub use attestation::{
+    AttestationManager, AttestationProvider, BuiltinAttestationProvider,
+    CertProvider, GtaRestProvider, PolicyProvider, RefValueProvider,
+};
 pub use auth::{
     Action, Auth, AuthContext, Authenticator, AuthzChecker, AuthzCheckerImpl,
     AuthzError, AuthzFacade, AttestContext, BearerContext, LockoutTracker, RequiredRole,
@@ -115,7 +118,8 @@ impl RbsCoreBuilder {
                     Arc::new(BuiltinAttestationProvider::default()) as Arc<dyn AttestationProvider>
                 }
                 AttestationBackendMode::Rest => {
-                    Arc::new(GtaRestProvider::new(backend_config.rest.clone())) as Arc<dyn AttestationProvider>
+                    Arc::new(GtaRestProvider::new(backend_config.rest.clone()))
+                        as Arc<dyn AttestationProvider>
                 }
             };
             attestation.register(name, provider);

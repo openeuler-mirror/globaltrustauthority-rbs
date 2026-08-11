@@ -118,7 +118,7 @@ fn test_set_default_provider() {
 // ===========================================================================
 
 /// UT-AM-004: get_auth_challenge(None) uses default provider ("gta" by default).
-/// Since no provider is registered, it returns ProviderNotFound.
+/// Since no provider is registered, it returns ManagementProviderNotFound.
 #[tokio::test]
 async fn test_get_auth_challenge_default_not_found() {
     let manager = AttestationManager::new();
@@ -148,7 +148,7 @@ async fn test_get_auth_challenge_routes_to_named_provider() {
 // UT-AM-006: get_auth_challenge with unknown provider returns error
 // ===========================================================================
 
-/// UT-AM-006: get_auth_challenge for unregistered provider -> ProviderNotFound.
+/// UT-AM-006: get_auth_challenge for unregistered provider -> ManagementProviderNotFound.
 #[tokio::test]
 async fn test_get_auth_challenge_unknown_provider_fails() {
     let manager = AttestationManager::new();

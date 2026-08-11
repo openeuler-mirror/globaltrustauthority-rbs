@@ -18,7 +18,14 @@ use rbs_api_types::{
     PolicyListResponse, PolicyResponse, RbsVersion, ResourceContentResponse,
     ResourceInfoResponse, ResourceResponse, UpdatePolicyRequest, UpdateResourceRequest,
     UserCreateRequest, UserListResponse, UserResponse, UserUpdateRequest,
+    AttestationDeleteType, AttestationPolicy,
+    CertCreateRequest, CertDeleteRequest, CertListResponse,
+    CertMutationResponse, CertRecord, CertUpdateRequest, CrlRecord, PolicyCreateRequest,
+    PolicyDeleteRequest, PolicyDeleteType, PolicyMutationResponse, PolicyUpdateRequest,
+    RefValue, RefValueCreateRequest, RefValueDeleteRequest,
+    RefValueListResponse, RefValueMutationResponse, RefValueUpdateRequest,
 };
+use rbs_api_types::attestation_mgmt::AttestationPolicyListResponse;
 use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::{Modify, OpenApi};
 
@@ -74,7 +81,7 @@ impl Modify for SecurityAddon {
         (name = "Admin", description = "User management CRUD — `GET/POST/PUT/DELETE /rbs/v0/users` (admin or self). Requires BearerToken."),
         (name = "Policy", description = "Policy CRUD — `GET/POST/PUT/DELETE /rbs/v0/resource/policy`. Requires BearerToken."),
         (name = "Resource", description = "Resource CRUD — `GET/POST/PUT/DELETE /rbs/v0/{provider}/{repo}/{type}/{name}`. Supports AttestToken and BearerToken."),
-        (name = "Attestation", description = "Attestation challenge and token issuance via `GET /rbs/v0/challenge` and `POST /rbs/v0/attest`. No authentication required."),
+        (name = "Attestation", description = "Attestation challenge/token issuance (`GET /rbs/v0/challenge`, `POST /rbs/v0/attest`, no auth) and attestation management CRUD for ref_value/cert/policy (`/rbs/v0/attestation/{as_provider}/{type}`, Bearer + admin only)."),
     ),
     modifiers(&SecurityAddon),
     paths(
@@ -98,6 +105,45 @@ impl Modify for SecurityAddon {
         crate::routes::resource::delete_resource,
         crate::routes::resource::get_resource_info,
         crate::routes::resource::retrieve_resource,
+        // Attestation management — ref_value (AR-001)
+        crate::routes::attestation_mgmt::list_ref_values,
+        crate::routes::attestation_mgmt::list_ref_values_default,
+        crate::routes::attestation_mgmt::get_ref_value,
+        crate::routes::attestation_mgmt::get_ref_value_default,
+        crate::routes::attestation_mgmt::create_ref_value,
+        crate::routes::attestation_mgmt::create_ref_value_default,
+        crate::routes::attestation_mgmt::update_ref_value,
+        crate::routes::attestation_mgmt::update_ref_value_default,
+        crate::routes::attestation_mgmt::delete_ref_values,
+        crate::routes::attestation_mgmt::delete_ref_values_default,
+        crate::routes::attestation_mgmt::delete_ref_value,
+        crate::routes::attestation_mgmt::delete_ref_value_default,
+        // Attestation management — cert (AR-002)
+        crate::routes::attestation_mgmt::list_certs,
+        crate::routes::attestation_mgmt::list_certs_default,
+        crate::routes::attestation_mgmt::get_cert,
+        crate::routes::attestation_mgmt::get_cert_default,
+        crate::routes::attestation_mgmt::create_cert,
+        crate::routes::attestation_mgmt::create_cert_default,
+        crate::routes::attestation_mgmt::update_cert,
+        crate::routes::attestation_mgmt::update_cert_default,
+        crate::routes::attestation_mgmt::delete_certs,
+        crate::routes::attestation_mgmt::delete_certs_default,
+        crate::routes::attestation_mgmt::delete_cert,
+        crate::routes::attestation_mgmt::delete_cert_default,
+        // Attestation management — policy (AR-003)
+        crate::routes::attestation_mgmt::list_attestation_policies,
+        crate::routes::attestation_mgmt::list_attestation_policies_default,
+        crate::routes::attestation_mgmt::get_attestation_policy,
+        crate::routes::attestation_mgmt::get_attestation_policy_default,
+        crate::routes::attestation_mgmt::create_attestation_policy,
+        crate::routes::attestation_mgmt::create_attestation_policy_default,
+        crate::routes::attestation_mgmt::update_attestation_policy,
+        crate::routes::attestation_mgmt::update_attestation_policy_default,
+        crate::routes::attestation_mgmt::delete_attestation_policies,
+        crate::routes::attestation_mgmt::delete_attestation_policies_default,
+        crate::routes::attestation_mgmt::delete_attestation_policy,
+        crate::routes::attestation_mgmt::delete_attestation_policy_default,
     ),
     components(schemas(
         RbsVersion, BuildMetadata, ErrorBody,
@@ -106,6 +152,17 @@ impl Modify for SecurityAddon {
         CreateResourceRequest, UpdateResourceRequest, ResourceResponse,
         ResourceContentResponse, ResourceInfoResponse,
         AttestRequest, AttestResponse, AuthChallengeResponse, ChallengeRequest,
+        // Attestation management schemas
+        RefValue, RefValueListResponse,
+        RefValueCreateRequest, RefValueUpdateRequest,
+        RefValueMutationResponse,
+        AttestationDeleteType, AttestationPolicy,
+        CertRecord, CrlRecord, CertListResponse,
+        CertCreateRequest, CertDeleteRequest, CertUpdateRequest, CertMutationResponse,
+        AttestationPolicyListResponse,
+        PolicyCreateRequest, PolicyDeleteRequest, PolicyDeleteType, PolicyUpdateRequest,
+        PolicyMutationResponse,
+        RefValueDeleteRequest,
     ))
 )]
 pub struct ApiDoc;
