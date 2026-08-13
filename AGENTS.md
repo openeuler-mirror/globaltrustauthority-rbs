@@ -160,6 +160,7 @@ In CI (`CI=true`), the script will fail if documentation is out of sync.
 
 - Challenge: `GET /rbs/v0/challenge`
 - Attestation: `POST /rbs/v0/attest`
+- Attestation management (Bearer + admin): `/rbs/v0/attestation/{as_provider}/{type}` and `/rbs/v0/attestation/{type}` (default provider) — ref_value/cert/policy CRUD (6 ops each, with `/{id}` for single get/delete); RBS proxies to GTA with `User-Id` + `main_api_key`
 - Resource content (wildcard): `/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}` — GET/PUT/POST/DELETE for CRUD; `GET .../info` for metadata; `POST .../retrieve` for inline-evidence JWE retrieval
 - Policy admin (Bearer only): `/rbs/v0/resource/policy` (+ `/{policy_id}`); batch delete: `DELETE /rbs/v0/resource/policy?ids=...`
 - Admin users (Bearer only): `/rbs/v0/users` (+ `/{username}`)
@@ -176,7 +177,7 @@ See [`docs/design/architecture.md` §10](docs/design/architecture.md#10-security
 - **JWE boundary** — resource plaintext is JWE-encrypted before leaving RBS; `export_mode: plain` is rejected.
 - **Public middleware paths** — `/rbs/v0/challenge`, `/rbs/v0/attest`, `/rbs/version`, `POST .../retrieve` (handler-level inline attest; unauthenticated GTA fan-out — DoS/abuse surface; see architecture §10 rate limiting).
 - **Attest token replay** — reusable within `exp`; no `jti` tracking.
-- **Bearer vs Attest** — Bearer for admin/user/policy APIs and owner GET/GET info (`admin_policy.rego`); Attest for resource-bound Rego + TEE claims on GET/retrieve.
+- **Bearer vs Attest** — Bearer for admin/user/policy APIs, attestation management CRUD (inline `require_admin` checks `role == "admin"`), and owner GET/GET info (`admin_policy.rego`); Attest for resource-bound Rego + TEE claims on GET/retrieve.
 
 ## Code Conventions
 
@@ -184,7 +185,7 @@ See [`docs/design/architecture.md` §10](docs/design/architecture.md#10-security
 
 - `rbs/rest/src/lib.rs` exposes `routes`, `server`, and `middleware` for integration tests
 - `rbs/rest/src/server/mod.rs` exposes `http` and (when enabled) `rate_limit` only
-- Route modules: `admin`, `attestation`, `error`, `policy`, `resource`, `version` — auth lives in `middleware/auth.rs`, not `routes/`
+- Route modules: `admin`, `attestation`, `attestation_mgmt`, `error`, `policy`, `resource`, `version` — auth lives in `middleware/auth.rs`, not `routes/`
 
 ### Naming
 

@@ -12,10 +12,11 @@
 
 //! Attestation routes (`/rbs/v0/challenge`).
 
-use actix_web::{web, http::StatusCode, HttpResponse};
+use actix_web::{web, HttpResponse};
 use rbs_api_types::{AttestRequest, AttestResponse, AuthChallengeResponse, ChallengeRequest, ErrorBody};
 use rbs_core::RbsCore;
 use std::sync::Arc;
+use crate::routes::error::rbs_error_response;
 
 /// `GET /rbs/v0/challenge`: 200 with `AuthChallengeResponse` JSON (nonce).
 #[utoipa::path(
@@ -41,10 +42,7 @@ pub async fn get_challenge(
     let as_provider = query.as_provider.as_deref();
     match core.attestation().get_auth_challenge(as_provider).await {
         Ok(resp) => HttpResponse::Ok().json(resp),
-        Err(e) => HttpResponse::build(
-            StatusCode::from_u16(e.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
-        )
-        .json(ErrorBody::new(e.external_message())),
+        Err(e) => rbs_error_response(&e),
     }
 }
 
@@ -70,9 +68,6 @@ pub async fn attest(
 ) -> HttpResponse {
     match core.attestation().attest(body.into_inner()).await {
         Ok(resp) => HttpResponse::Ok().json(resp),
-        Err(e) => HttpResponse::build(
-            StatusCode::from_u16(e.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
-        )
-        .json(ErrorBody::new(e.external_message())),
+        Err(e) => rbs_error_response(&e),
     }
 }

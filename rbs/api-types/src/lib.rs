@@ -20,6 +20,7 @@
 //! # Modules
 //!
 //! - [`auth`] - Attestation-related types (challenge, evidence, token)
+//! - [`attestation_mgmt`] - Attestation management CRUD types (ref_value, delete, mutation)
 //! - [`constants`] - API constants (prefix, resource types)
 //! - [`error`] - Unified error types with stable error codes, plus [`ErrorBody`] HTTP payload
 //! - [`resource`] - Resource-related types (content, metadata, upsert)
@@ -39,6 +40,7 @@
 //! ```
 
 pub mod auth;
+pub mod attestation_mgmt;
 pub mod config;
 pub mod constants;
 pub mod error;
@@ -51,6 +53,19 @@ pub mod version;
 pub use auth::{
     AttestRequest, AttestResponse, AttesterData, AuthChallengeResponse, ChallengeRequest, RbcEvidenceItem,
     RbcEvidencesPayload, RbcMeasurement,
+};
+
+// Re-export types from attestation_mgmt module
+// Note: PolicyListQuery is NOT re-exported here to avoid conflict with the
+// `policy` module's type of the same name. It is accessible via
+// `rbs_api_types::attestation_mgmt::PolicyListQuery`.
+pub use attestation_mgmt::{
+    AttestationDeleteType, AttestationPolicy, CertCreateRequest, CertDeleteRequest,
+    CertListQuery, CertListResponse, CertMutationResponse, CertMutationResult, CertRecord,
+    CertUpdateRequest, CrlMutationResult, CrlRecord, PolicyCreateRequest, PolicyDeleteRequest,
+    PolicyDeleteType, PolicyMutation, PolicyMutationResponse, PolicyUpdateRequest, RefValue,
+    RefValueCreateRequest, RefValueDeleteRequest, RefValueListQuery, RefValueListResponse,
+    RefValueMutation, RefValueMutationResponse, RefValueUpdateRequest,
 };
 
 // Re-export types from config module

@@ -13,6 +13,7 @@
 //! GTA attestation providers.
 
 pub mod builtin;
+mod client;
 pub mod rest;
 
 pub use builtin::BuiltinAttestationProvider;

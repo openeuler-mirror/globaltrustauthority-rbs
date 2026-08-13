@@ -469,3 +469,215 @@ async fn resource_create_with_attest_denied() {
     let resp = test::call_service(&app, req).await;
     assert_route_wired!(resp);
 }
+
+// ===========================================================================
+// Attestation management routes — verify route wiring and auth middleware
+// ===========================================================================
+
+/// GET /attestation/gta/ref_value — no token → 401.
+#[actix_web::test]
+async fn attestation_mgmt_ref_value_list_no_token_returns_401() {
+    let app = app_ok().await;
+    let req = test::TestRequest::get()
+        .uri("/rbs/v0/attestation/gta/ref_value")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+/// GET /attestation/ref_value — no token, default provider → 401.
+#[actix_web::test]
+async fn attestation_mgmt_ref_value_list_default_no_token_returns_401() {
+    let app = app_ok().await;
+    let req = test::TestRequest::get()
+        .uri("/rbs/v0/attestation/ref_value")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+/// GET /attestation/gta/ref_value/{id} — no token → 401.
+#[actix_web::test]
+async fn attestation_mgmt_ref_value_get_no_token_returns_401() {
+    let app = app_ok().await;
+    let req = test::TestRequest::get()
+        .uri("/rbs/v0/attestation/gta/ref_value/test-id")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+/// GET /attestation/gta/ref_value — route wired (Bearer admin).
+#[actix_web::test]
+async fn attestation_mgmt_ref_value_list_wired() {
+    let app = app_ok().await;
+    let req = test::TestRequest::get()
+        .uri("/rbs/v0/attestation/gta/ref_value")
+        .insert_header(("Authorization", "Bearer valid-token"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_route_wired!(resp);
+}
+
+/// GET /attestation/ref_value — default provider route wired.
+#[actix_web::test]
+async fn attestation_mgmt_ref_value_list_default_wired() {
+    let app = app_ok().await;
+    let req = test::TestRequest::get()
+        .uri("/rbs/v0/attestation/ref_value")
+        .insert_header(("Authorization", "Bearer valid-token"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_route_wired!(resp);
+}
+
+/// GET /attestation/gta/ref_value/{id} — single route wired.
+#[actix_web::test]
+async fn attestation_mgmt_ref_value_get_wired() {
+    let app = app_ok().await;
+    let req = test::TestRequest::get()
+        .uri("/rbs/v0/attestation/gta/ref_value/test-id")
+        .insert_header(("Authorization", "Bearer valid-token"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_route_wired!(resp);
+}
+
+/// POST /attestation/gta/ref_value — create route wired.
+#[actix_web::test]
+async fn attestation_mgmt_ref_value_create_wired() {
+    let app = app_ok().await;
+    let req = test::TestRequest::post()
+        .uri("/rbs/v0/attestation/gta/ref_value")
+        .insert_header(("Authorization", "Bearer valid-token"))
+        .set_json(&serde_json::json!({
+            "name": "test-baseline",
+            "attester_type": "tpm",
+            "content": "eyJhbGciOiJSUzI1NiJ9..."
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_route_wired!(resp);
+}
+
+/// PUT /attestation/gta/ref_value — update route wired.
+#[actix_web::test]
+async fn attestation_mgmt_ref_value_update_wired() {
+    let app = app_ok().await;
+    let req = test::TestRequest::put()
+        .uri("/rbs/v0/attestation/gta/ref_value")
+        .insert_header(("Authorization", "Bearer valid-token"))
+        .set_json(&serde_json::json!({"id": "rv-001", "name": "updated"}))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_route_wired!(resp);
+}
+
+/// DELETE /attestation/gta/ref_value — batch delete route wired.
+#[actix_web::test]
+async fn attestation_mgmt_ref_value_batch_delete_wired() {
+    let app = app_ok().await;
+    let req = test::TestRequest::delete()
+        .uri("/rbs/v0/attestation/gta/ref_value")
+        .insert_header(("Authorization", "Bearer valid-token"))
+        .set_json(&serde_json::json!({"delete_type": "all"}))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_route_wired!(resp);
+}
+
+/// DELETE /attestation/gta/ref_value/{id} — single delete route wired.
+#[actix_web::test]
+async fn attestation_mgmt_ref_value_delete_wired() {
+    let app = app_ok().await;
+    let req = test::TestRequest::delete()
+        .uri("/rbs/v0/attestation/gta/ref_value/test-id")
+        .insert_header(("Authorization", "Bearer valid-token"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_route_wired!(resp);
+}
+
+/// GET /attestation/gta/ref_value — Attest token denied → 401.
+#[actix_web::test]
+async fn attestation_mgmt_ref_value_list_attest_denied() {
+    let app = app_ok().await;
+    let req = test::TestRequest::get()
+        .uri("/rbs/v0/attestation/gta/ref_value")
+        .insert_header(("Authorization", "Attest valid-attest-token"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+/// GET /attestation/gta/cert — route wired.
+#[actix_web::test]
+async fn attestation_mgmt_cert_list_wired() {
+    let app = app_ok().await;
+    let req = test::TestRequest::get()
+        .uri("/rbs/v0/attestation/gta/cert")
+        .insert_header(("Authorization", "Bearer valid-token"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_route_wired!(resp);
+}
+
+/// GET /attestation/cert — default provider route wired.
+#[actix_web::test]
+async fn attestation_mgmt_cert_list_default_wired() {
+    let app = app_ok().await;
+    let req = test::TestRequest::get()
+        .uri("/rbs/v0/attestation/cert")
+        .insert_header(("Authorization", "Bearer valid-token"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_route_wired!(resp);
+}
+
+/// GET /attestation/gta/cert/{id} — single route wired.
+#[actix_web::test]
+async fn attestation_mgmt_cert_get_wired() {
+    let app = app_ok().await;
+    let req = test::TestRequest::get()
+        .uri("/rbs/v0/attestation/gta/cert/test-id")
+        .insert_header(("Authorization", "Bearer valid-token"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_route_wired!(resp);
+}
+
+/// GET /attestation/gta/policy — route wired.
+#[actix_web::test]
+async fn attestation_mgmt_policy_list_wired() {
+    let app = app_ok().await;
+    let req = test::TestRequest::get()
+        .uri("/rbs/v0/attestation/gta/policy")
+        .insert_header(("Authorization", "Bearer valid-token"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_route_wired!(resp);
+}
+
+/// GET /attestation/policy — default provider route wired.
+#[actix_web::test]
+async fn attestation_mgmt_policy_list_default_wired() {
+    let app = app_ok().await;
+    let req = test::TestRequest::get()
+        .uri("/rbs/v0/attestation/policy")
+        .insert_header(("Authorization", "Bearer valid-token"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_route_wired!(resp);
+}
+
+/// GET /attestation/gta/policy/{id} — single route wired.
+#[actix_web::test]
+async fn attestation_mgmt_policy_get_wired() {
+    let app = app_ok().await;
+    let req = test::TestRequest::get()
+        .uri("/rbs/v0/attestation/gta/policy/test-id")
+        .insert_header(("Authorization", "Bearer valid-token"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_route_wired!(resp);
+}

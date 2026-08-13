@@ -48,6 +48,10 @@ pub struct RbcEvidenceItem {
     /// Policy identifiers evaluated for this evidence.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub policy_ids: Option<Vec<String>>,
+    /// Optional reference value ID for precise baseline matching.
+    /// When present, GTA matches baseline by id+uid; when absent, by attester_type+uid.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ref_value_id: Option<String>,
 
 }
 
