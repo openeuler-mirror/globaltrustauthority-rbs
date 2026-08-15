@@ -23,6 +23,7 @@ use std::sync::Arc;
 use validator::Validate;
 
 use crate::middleware::OptAuthContext;
+use crate::routes::error::rbs_error_response;
 
 fn require_auth(req: &HttpRequest) -> Result<rbs_core::AuthContext, HttpResponse> {
     req.extensions().get::<OptAuthContext>().and_then(|c| c.0.clone())
@@ -268,7 +269,8 @@ pub async fn get_resource_info(
     responses(
         (status = 200, description = "Resource content (base64-encoded JWE)", body = ResourceContentResponse),
         (status = 404, description = "Resource not found or access denied", body = ErrorBody),
-        (status = 502, description = "Attestation backend error", body = ErrorBody),
+        (status = 502, description = "Attestation backend returned a non-2xx; RBS forwards GTA's status code and wraps GTA's body in the error field.", body = ErrorBody),
+        (status = 503, description = "Attestation provider unreachable or timed out.", body = ErrorBody),
         (status = 500, description = "Internal error", body = ErrorBody),
     )
 )]
@@ -285,7 +287,7 @@ pub async fn retrieve_resource(
     // Step 1: call attestation backend with evidence to obtain an attest token.
     let attest_resp = match core.attestation().attest(body.into_inner()).await {
         Ok(resp) => resp,
-        Err(e) => return error_response(e.to_string(), 502),
+        Err(e) => return rbs_error_response(&e),
     };
 
     // Step 2: parse the attest token to extract claims (containing tee-pubkey etc.).

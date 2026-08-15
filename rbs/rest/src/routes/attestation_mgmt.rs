@@ -174,7 +174,7 @@ macro_rules! h_del_single {
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody), (status = 404, description = "Provider not found", body = ErrorBody),
         (status = 500, description = "Internal error", body = ErrorBody),
-        (status = 503, description = "GTA unreachable or 5xx", body = ErrorBody),
+        (status = 503, description = "GTA unreachable or timeout; other GTA statuses forwarded as-is", body = ErrorBody),
     )
 )]
 pub async fn list_ref_values(core: web::Data<Arc<RbsCore>>, req: HttpRequest, path: web::Path<String>, query: web::Query<RefValueListQuery>) -> HttpResponse {
@@ -194,7 +194,7 @@ pub async fn list_ref_values(core: web::Data<Arc<RbsCore>>, req: HttpRequest, pa
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody), (status = 404, description = "Provider not found", body = ErrorBody),
         (status = 500, description = "Internal error", body = ErrorBody),
-        (status = 503, description = "GTA unreachable or 5xx", body = ErrorBody),
+        (status = 503, description = "GTA unreachable or timeout; other GTA statuses forwarded as-is", body = ErrorBody),
     )
 )]
 pub async fn list_ref_values_default(core: web::Data<Arc<RbsCore>>, req: HttpRequest, query: web::Query<RefValueListQuery>) -> HttpResponse {
@@ -213,7 +213,7 @@ pub async fn list_ref_values_default(core: web::Data<Arc<RbsCore>>, req: HttpReq
         (status = 200, description = "Ref_value detail", body = RefValueListResponse),
         (status = 401, description = "Unauthorized", body = ErrorBody), (status = 403, description = "Forbidden", body = ErrorBody),
         (status = 404, description = "Not found", body = ErrorBody), (status = 500, description = "Internal error", body = ErrorBody),
-        (status = 503, description = "GTA unreachable or 5xx", body = ErrorBody),
+        (status = 503, description = "GTA unreachable or timeout; other GTA statuses forwarded as-is", body = ErrorBody),
     )
 )]
 pub async fn get_ref_value(core: web::Data<Arc<RbsCore>>, req: HttpRequest, path: web::Path<(String, String)>) -> HttpResponse {
@@ -230,7 +230,7 @@ pub async fn get_ref_value(core: web::Data<Arc<RbsCore>>, req: HttpRequest, path
         (status = 200, description = "Ref_value detail", body = RefValueListResponse),
         (status = 401, description = "Unauthorized", body = ErrorBody), (status = 403, description = "Forbidden", body = ErrorBody),
         (status = 404, description = "Not found", body = ErrorBody), (status = 500, description = "Internal error", body = ErrorBody),
-        (status = 503, description = "GTA unreachable or 5xx", body = ErrorBody),
+        (status = 503, description = "GTA unreachable or timeout; other GTA statuses forwarded as-is", body = ErrorBody),
     )
 )]
 pub async fn get_ref_value_default(core: web::Data<Arc<RbsCore>>, req: HttpRequest, path: web::Path<String>) -> HttpResponse {
@@ -248,7 +248,7 @@ pub async fn get_ref_value_default(core: web::Data<Arc<RbsCore>>, req: HttpReque
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody), (status = 404, description = "Provider not found", body = ErrorBody),
         (status = 500, description = "Internal error", body = ErrorBody),
-        (status = 503, description = "GTA unreachable or 5xx", body = ErrorBody),
+        (status = 503, description = "GTA unreachable or timeout; other GTA statuses forwarded as-is", body = ErrorBody),
     )
 )]
 pub async fn create_ref_value(core: web::Data<Arc<RbsCore>>, req: HttpRequest, path: web::Path<String>, body: web::Json<RefValueCreateRequest>) -> HttpResponse {
@@ -265,7 +265,7 @@ pub async fn create_ref_value(core: web::Data<Arc<RbsCore>>, req: HttpRequest, p
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody), (status = 404, description = "Provider not found", body = ErrorBody),
         (status = 500, description = "Internal error", body = ErrorBody),
-        (status = 503, description = "GTA unreachable or 5xx", body = ErrorBody),
+        (status = 503, description = "GTA unreachable or timeout; other GTA statuses forwarded as-is", body = ErrorBody),
     )
 )]
 pub async fn create_ref_value_default(core: web::Data<Arc<RbsCore>>, req: HttpRequest, body: web::Json<RefValueCreateRequest>) -> HttpResponse {
@@ -283,7 +283,7 @@ pub async fn create_ref_value_default(core: web::Data<Arc<RbsCore>>, req: HttpRe
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody), (status = 404, description = "Not found", body = ErrorBody),
         (status = 500, description = "Internal error", body = ErrorBody),
-        (status = 503, description = "GTA unreachable or 5xx", body = ErrorBody),
+        (status = 503, description = "GTA unreachable or timeout; other GTA statuses forwarded as-is", body = ErrorBody),
     )
 )]
 pub async fn update_ref_value(core: web::Data<Arc<RbsCore>>, req: HttpRequest, path: web::Path<String>, body: web::Json<RefValueUpdateRequest>) -> HttpResponse {
@@ -300,7 +300,7 @@ pub async fn update_ref_value(core: web::Data<Arc<RbsCore>>, req: HttpRequest, p
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody), (status = 404, description = "Not found", body = ErrorBody),
         (status = 500, description = "Internal error", body = ErrorBody),
-        (status = 503, description = "GTA unreachable or 5xx", body = ErrorBody),
+        (status = 503, description = "GTA unreachable or timeout; other GTA statuses forwarded as-is", body = ErrorBody),
     )
 )]
 pub async fn update_ref_value_default(core: web::Data<Arc<RbsCore>>, req: HttpRequest, body: web::Json<RefValueUpdateRequest>) -> HttpResponse {
@@ -318,7 +318,7 @@ pub async fn update_ref_value_default(core: web::Data<Arc<RbsCore>>, req: HttpRe
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody), (status = 404, description = "Not found", body = ErrorBody),
         (status = 500, description = "Internal error", body = ErrorBody),
-        (status = 503, description = "GTA unreachable or 5xx", body = ErrorBody),
+        (status = 503, description = "GTA unreachable or timeout; other GTA statuses forwarded as-is", body = ErrorBody),
     )
 )]
 pub async fn delete_ref_values(core: web::Data<Arc<RbsCore>>, req: HttpRequest, path: web::Path<String>, body: web::Json<RefValueDeleteRequest>) -> HttpResponse {
@@ -335,7 +335,7 @@ pub async fn delete_ref_values(core: web::Data<Arc<RbsCore>>, req: HttpRequest, 
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody), (status = 404, description = "Not found", body = ErrorBody),
         (status = 500, description = "Internal error", body = ErrorBody),
-        (status = 503, description = "GTA unreachable or 5xx", body = ErrorBody),
+        (status = 503, description = "GTA unreachable or timeout; other GTA statuses forwarded as-is", body = ErrorBody),
     )
 )]
 pub async fn delete_ref_values_default(core: web::Data<Arc<RbsCore>>, req: HttpRequest, body: web::Json<RefValueDeleteRequest>) -> HttpResponse {
@@ -354,7 +354,7 @@ pub async fn delete_ref_values_default(core: web::Data<Arc<RbsCore>>, req: HttpR
         (status = 204, description = "Ref_value deleted"),
         (status = 401, description = "Unauthorized", body = ErrorBody), (status = 403, description = "Forbidden", body = ErrorBody),
         (status = 404, description = "Not found", body = ErrorBody), (status = 500, description = "Internal error", body = ErrorBody),
-        (status = 503, description = "GTA unreachable or 5xx", body = ErrorBody),
+        (status = 503, description = "GTA unreachable or timeout; other GTA statuses forwarded as-is", body = ErrorBody),
     )
 )]
 pub async fn delete_ref_value(core: web::Data<Arc<RbsCore>>, req: HttpRequest, path: web::Path<(String, String)>) -> HttpResponse {
@@ -371,7 +371,7 @@ pub async fn delete_ref_value(core: web::Data<Arc<RbsCore>>, req: HttpRequest, p
         (status = 204, description = "Ref_value deleted"),
         (status = 401, description = "Unauthorized", body = ErrorBody), (status = 403, description = "Forbidden", body = ErrorBody),
         (status = 404, description = "Not found", body = ErrorBody), (status = 500, description = "Internal error", body = ErrorBody),
-        (status = 503, description = "GTA unreachable or 5xx", body = ErrorBody),
+        (status = 503, description = "GTA unreachable or timeout; other GTA statuses forwarded as-is", body = ErrorBody),
     )
 )]
 pub async fn delete_ref_value_default(core: web::Data<Arc<RbsCore>>, req: HttpRequest, path: web::Path<String>) -> HttpResponse {
@@ -396,7 +396,7 @@ pub async fn delete_ref_value_default(core: web::Data<Arc<RbsCore>>, req: HttpRe
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody), (status = 404, description = "Provider not found", body = ErrorBody),
         (status = 500, description = "Internal error", body = ErrorBody),
-        (status = 503, description = "GTA unreachable or 5xx", body = ErrorBody),
+        (status = 503, description = "GTA unreachable or timeout; other GTA statuses forwarded as-is", body = ErrorBody),
     )
 )]
 pub async fn list_certs(core: web::Data<Arc<RbsCore>>, req: HttpRequest, path: web::Path<String>, query: web::Query<CertListQuery>) -> HttpResponse {
@@ -416,7 +416,7 @@ pub async fn list_certs(core: web::Data<Arc<RbsCore>>, req: HttpRequest, path: w
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody), (status = 404, description = "Provider not found", body = ErrorBody),
         (status = 500, description = "Internal error", body = ErrorBody),
-        (status = 503, description = "GTA unreachable or 5xx", body = ErrorBody),
+        (status = 503, description = "GTA unreachable or timeout; other GTA statuses forwarded as-is", body = ErrorBody),
     )
 )]
 pub async fn list_certs_default(core: web::Data<Arc<RbsCore>>, req: HttpRequest, query: web::Query<CertListQuery>) -> HttpResponse {
@@ -435,7 +435,7 @@ pub async fn list_certs_default(core: web::Data<Arc<RbsCore>>, req: HttpRequest,
         (status = 200, description = "Certificate detail", body = CertListResponse),
         (status = 401, description = "Unauthorized", body = ErrorBody), (status = 403, description = "Forbidden", body = ErrorBody),
         (status = 404, description = "Not found", body = ErrorBody), (status = 500, description = "Internal error", body = ErrorBody),
-        (status = 503, description = "GTA unreachable or 5xx", body = ErrorBody),
+        (status = 503, description = "GTA unreachable or timeout; other GTA statuses forwarded as-is", body = ErrorBody),
     )
 )]
 pub async fn get_cert(core: web::Data<Arc<RbsCore>>, req: HttpRequest, path: web::Path<(String, String)>) -> HttpResponse {
@@ -452,7 +452,7 @@ pub async fn get_cert(core: web::Data<Arc<RbsCore>>, req: HttpRequest, path: web
         (status = 200, description = "Certificate detail", body = CertListResponse),
         (status = 401, description = "Unauthorized", body = ErrorBody), (status = 403, description = "Forbidden", body = ErrorBody),
         (status = 404, description = "Not found", body = ErrorBody), (status = 500, description = "Internal error", body = ErrorBody),
-        (status = 503, description = "GTA unreachable or 5xx", body = ErrorBody),
+        (status = 503, description = "GTA unreachable or timeout; other GTA statuses forwarded as-is", body = ErrorBody),
     )
 )]
 pub async fn get_cert_default(core: web::Data<Arc<RbsCore>>, req: HttpRequest, path: web::Path<String>) -> HttpResponse {
@@ -470,7 +470,7 @@ pub async fn get_cert_default(core: web::Data<Arc<RbsCore>>, req: HttpRequest, p
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody), (status = 404, description = "Provider not found", body = ErrorBody),
         (status = 500, description = "Internal error", body = ErrorBody),
-        (status = 503, description = "GTA unreachable or 5xx", body = ErrorBody),
+        (status = 503, description = "GTA unreachable or timeout; other GTA statuses forwarded as-is", body = ErrorBody),
     )
 )]
 pub async fn create_cert(core: web::Data<Arc<RbsCore>>, req: HttpRequest, path: web::Path<String>, body: web::Json<CertCreateRequest>) -> HttpResponse {
@@ -487,7 +487,7 @@ pub async fn create_cert(core: web::Data<Arc<RbsCore>>, req: HttpRequest, path: 
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody), (status = 404, description = "Provider not found", body = ErrorBody),
         (status = 500, description = "Internal error", body = ErrorBody),
-        (status = 503, description = "GTA unreachable or 5xx", body = ErrorBody),
+        (status = 503, description = "GTA unreachable or timeout; other GTA statuses forwarded as-is", body = ErrorBody),
     )
 )]
 pub async fn create_cert_default(core: web::Data<Arc<RbsCore>>, req: HttpRequest, body: web::Json<CertCreateRequest>) -> HttpResponse {
@@ -505,7 +505,7 @@ pub async fn create_cert_default(core: web::Data<Arc<RbsCore>>, req: HttpRequest
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody), (status = 404, description = "Not found", body = ErrorBody),
         (status = 500, description = "Internal error", body = ErrorBody),
-        (status = 503, description = "GTA unreachable or 5xx", body = ErrorBody),
+        (status = 503, description = "GTA unreachable or timeout; other GTA statuses forwarded as-is", body = ErrorBody),
     )
 )]
 pub async fn update_cert(core: web::Data<Arc<RbsCore>>, req: HttpRequest, path: web::Path<String>, body: web::Json<CertUpdateRequest>) -> HttpResponse {
@@ -522,7 +522,7 @@ pub async fn update_cert(core: web::Data<Arc<RbsCore>>, req: HttpRequest, path: 
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody), (status = 404, description = "Not found", body = ErrorBody),
         (status = 500, description = "Internal error", body = ErrorBody),
-        (status = 503, description = "GTA unreachable or 5xx", body = ErrorBody),
+        (status = 503, description = "GTA unreachable or timeout; other GTA statuses forwarded as-is", body = ErrorBody),
     )
 )]
 pub async fn update_cert_default(core: web::Data<Arc<RbsCore>>, req: HttpRequest, body: web::Json<CertUpdateRequest>) -> HttpResponse {
@@ -540,7 +540,7 @@ pub async fn update_cert_default(core: web::Data<Arc<RbsCore>>, req: HttpRequest
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody), (status = 404, description = "Not found", body = ErrorBody),
         (status = 500, description = "Internal error", body = ErrorBody),
-        (status = 503, description = "GTA unreachable or 5xx", body = ErrorBody),
+        (status = 503, description = "GTA unreachable or timeout; other GTA statuses forwarded as-is", body = ErrorBody),
     )
 )]
 pub async fn delete_certs(core: web::Data<Arc<RbsCore>>, req: HttpRequest, path: web::Path<String>, body: web::Json<CertDeleteRequest>) -> HttpResponse {
@@ -557,7 +557,7 @@ pub async fn delete_certs(core: web::Data<Arc<RbsCore>>, req: HttpRequest, path:
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody), (status = 404, description = "Not found", body = ErrorBody),
         (status = 500, description = "Internal error", body = ErrorBody),
-        (status = 503, description = "GTA unreachable or 5xx", body = ErrorBody),
+        (status = 503, description = "GTA unreachable or timeout; other GTA statuses forwarded as-is", body = ErrorBody),
     )
 )]
 pub async fn delete_certs_default(core: web::Data<Arc<RbsCore>>, req: HttpRequest, body: web::Json<CertDeleteRequest>) -> HttpResponse {
@@ -576,7 +576,7 @@ pub async fn delete_certs_default(core: web::Data<Arc<RbsCore>>, req: HttpReques
         (status = 204, description = "Certificate deleted"),
         (status = 401, description = "Unauthorized", body = ErrorBody), (status = 403, description = "Forbidden", body = ErrorBody),
         (status = 404, description = "Not found", body = ErrorBody), (status = 500, description = "Internal error", body = ErrorBody),
-        (status = 503, description = "GTA unreachable or 5xx", body = ErrorBody),
+        (status = 503, description = "GTA unreachable or timeout; other GTA statuses forwarded as-is", body = ErrorBody),
     )
 )]
 pub async fn delete_cert(core: web::Data<Arc<RbsCore>>, req: HttpRequest, path: web::Path<(String, String)>) -> HttpResponse {
@@ -593,7 +593,7 @@ pub async fn delete_cert(core: web::Data<Arc<RbsCore>>, req: HttpRequest, path: 
         (status = 204, description = "Certificate deleted"),
         (status = 401, description = "Unauthorized", body = ErrorBody), (status = 403, description = "Forbidden", body = ErrorBody),
         (status = 404, description = "Not found", body = ErrorBody), (status = 500, description = "Internal error", body = ErrorBody),
-        (status = 503, description = "GTA unreachable or 5xx", body = ErrorBody),
+        (status = 503, description = "GTA unreachable or timeout; other GTA statuses forwarded as-is", body = ErrorBody),
     )
 )]
 pub async fn delete_cert_default(core: web::Data<Arc<RbsCore>>, req: HttpRequest, path: web::Path<String>) -> HttpResponse {
@@ -618,7 +618,7 @@ pub async fn delete_cert_default(core: web::Data<Arc<RbsCore>>, req: HttpRequest
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody), (status = 404, description = "Provider not found", body = ErrorBody),
         (status = 500, description = "Internal error", body = ErrorBody),
-        (status = 503, description = "GTA unreachable or 5xx", body = ErrorBody),
+        (status = 503, description = "GTA unreachable or timeout; other GTA statuses forwarded as-is", body = ErrorBody),
     )
 )]
 pub async fn list_attestation_policies(core: web::Data<Arc<RbsCore>>, req: HttpRequest, path: web::Path<String>, query: web::Query<PolicyListQuery>) -> HttpResponse {
@@ -638,7 +638,7 @@ pub async fn list_attestation_policies(core: web::Data<Arc<RbsCore>>, req: HttpR
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody), (status = 404, description = "Provider not found", body = ErrorBody),
         (status = 500, description = "Internal error", body = ErrorBody),
-        (status = 503, description = "GTA unreachable or 5xx", body = ErrorBody),
+        (status = 503, description = "GTA unreachable or timeout; other GTA statuses forwarded as-is", body = ErrorBody),
     )
 )]
 pub async fn list_attestation_policies_default(core: web::Data<Arc<RbsCore>>, req: HttpRequest, query: web::Query<PolicyListQuery>) -> HttpResponse {
@@ -657,7 +657,7 @@ pub async fn list_attestation_policies_default(core: web::Data<Arc<RbsCore>>, re
         (status = 200, description = "Policy detail", body = AttestationPolicyListResponse),
         (status = 401, description = "Unauthorized", body = ErrorBody), (status = 403, description = "Forbidden", body = ErrorBody),
         (status = 404, description = "Not found", body = ErrorBody), (status = 500, description = "Internal error", body = ErrorBody),
-        (status = 503, description = "GTA unreachable or 5xx", body = ErrorBody),
+        (status = 503, description = "GTA unreachable or timeout; other GTA statuses forwarded as-is", body = ErrorBody),
     )
 )]
 pub async fn get_attestation_policy(core: web::Data<Arc<RbsCore>>, req: HttpRequest, path: web::Path<(String, String)>) -> HttpResponse {
@@ -674,7 +674,7 @@ pub async fn get_attestation_policy(core: web::Data<Arc<RbsCore>>, req: HttpRequ
         (status = 200, description = "Policy detail", body = AttestationPolicyListResponse),
         (status = 401, description = "Unauthorized", body = ErrorBody), (status = 403, description = "Forbidden", body = ErrorBody),
         (status = 404, description = "Not found", body = ErrorBody), (status = 500, description = "Internal error", body = ErrorBody),
-        (status = 503, description = "GTA unreachable or 5xx", body = ErrorBody),
+        (status = 503, description = "GTA unreachable or timeout; other GTA statuses forwarded as-is", body = ErrorBody),
     )
 )]
 pub async fn get_attestation_policy_default(core: web::Data<Arc<RbsCore>>, req: HttpRequest, path: web::Path<String>) -> HttpResponse {
@@ -692,7 +692,7 @@ pub async fn get_attestation_policy_default(core: web::Data<Arc<RbsCore>>, req: 
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody), (status = 404, description = "Provider not found", body = ErrorBody),
         (status = 500, description = "Internal error", body = ErrorBody),
-        (status = 503, description = "GTA unreachable or 5xx", body = ErrorBody),
+        (status = 503, description = "GTA unreachable or timeout; other GTA statuses forwarded as-is", body = ErrorBody),
     )
 )]
 pub async fn create_attestation_policy(core: web::Data<Arc<RbsCore>>, req: HttpRequest, path: web::Path<String>, body: web::Json<PolicyCreateRequest>) -> HttpResponse {
@@ -709,7 +709,7 @@ pub async fn create_attestation_policy(core: web::Data<Arc<RbsCore>>, req: HttpR
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody), (status = 404, description = "Provider not found", body = ErrorBody),
         (status = 500, description = "Internal error", body = ErrorBody),
-        (status = 503, description = "GTA unreachable or 5xx", body = ErrorBody),
+        (status = 503, description = "GTA unreachable or timeout; other GTA statuses forwarded as-is", body = ErrorBody),
     )
 )]
 pub async fn create_attestation_policy_default(core: web::Data<Arc<RbsCore>>, req: HttpRequest, body: web::Json<PolicyCreateRequest>) -> HttpResponse {
@@ -727,7 +727,7 @@ pub async fn create_attestation_policy_default(core: web::Data<Arc<RbsCore>>, re
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody), (status = 404, description = "Not found", body = ErrorBody),
         (status = 500, description = "Internal error", body = ErrorBody),
-        (status = 503, description = "GTA unreachable or 5xx", body = ErrorBody),
+        (status = 503, description = "GTA unreachable or timeout; other GTA statuses forwarded as-is", body = ErrorBody),
     )
 )]
 pub async fn update_attestation_policy(core: web::Data<Arc<RbsCore>>, req: HttpRequest, path: web::Path<String>, body: web::Json<PolicyUpdateRequest>) -> HttpResponse {
@@ -744,7 +744,7 @@ pub async fn update_attestation_policy(core: web::Data<Arc<RbsCore>>, req: HttpR
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody), (status = 404, description = "Not found", body = ErrorBody),
         (status = 500, description = "Internal error", body = ErrorBody),
-        (status = 503, description = "GTA unreachable or 5xx", body = ErrorBody),
+        (status = 503, description = "GTA unreachable or timeout; other GTA statuses forwarded as-is", body = ErrorBody),
     )
 )]
 pub async fn update_attestation_policy_default(core: web::Data<Arc<RbsCore>>, req: HttpRequest, body: web::Json<PolicyUpdateRequest>) -> HttpResponse {
@@ -762,7 +762,7 @@ pub async fn update_attestation_policy_default(core: web::Data<Arc<RbsCore>>, re
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody), (status = 404, description = "Not found", body = ErrorBody),
         (status = 500, description = "Internal error", body = ErrorBody),
-        (status = 503, description = "GTA unreachable or 5xx", body = ErrorBody),
+        (status = 503, description = "GTA unreachable or timeout; other GTA statuses forwarded as-is", body = ErrorBody),
     )
 )]
 pub async fn delete_attestation_policies(core: web::Data<Arc<RbsCore>>, req: HttpRequest, path: web::Path<String>, body: web::Json<PolicyDeleteRequest>) -> HttpResponse {
@@ -779,7 +779,7 @@ pub async fn delete_attestation_policies(core: web::Data<Arc<RbsCore>>, req: Htt
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody), (status = 404, description = "Not found", body = ErrorBody),
         (status = 500, description = "Internal error", body = ErrorBody),
-        (status = 503, description = "GTA unreachable or 5xx", body = ErrorBody),
+        (status = 503, description = "GTA unreachable or timeout; other GTA statuses forwarded as-is", body = ErrorBody),
     )
 )]
 pub async fn delete_attestation_policies_default(core: web::Data<Arc<RbsCore>>, req: HttpRequest, body: web::Json<PolicyDeleteRequest>) -> HttpResponse {
@@ -798,7 +798,7 @@ pub async fn delete_attestation_policies_default(core: web::Data<Arc<RbsCore>>, 
         (status = 204, description = "Policy deleted"),
         (status = 401, description = "Unauthorized", body = ErrorBody), (status = 403, description = "Forbidden", body = ErrorBody),
         (status = 404, description = "Not found", body = ErrorBody), (status = 500, description = "Internal error", body = ErrorBody),
-        (status = 503, description = "GTA unreachable or 5xx", body = ErrorBody),
+        (status = 503, description = "GTA unreachable or timeout; other GTA statuses forwarded as-is", body = ErrorBody),
     )
 )]
 pub async fn delete_attestation_policy(core: web::Data<Arc<RbsCore>>, req: HttpRequest, path: web::Path<(String, String)>) -> HttpResponse {
@@ -815,7 +815,7 @@ pub async fn delete_attestation_policy(core: web::Data<Arc<RbsCore>>, req: HttpR
         (status = 204, description = "Policy deleted"),
         (status = 401, description = "Unauthorized", body = ErrorBody), (status = 403, description = "Forbidden", body = ErrorBody),
         (status = 404, description = "Not found", body = ErrorBody), (status = 500, description = "Internal error", body = ErrorBody),
-        (status = 503, description = "GTA unreachable or 5xx", body = ErrorBody),
+        (status = 503, description = "GTA unreachable or timeout; other GTA statuses forwarded as-is", body = ErrorBody),
     )
 )]
 pub async fn delete_attestation_policy_default(core: web::Data<Arc<RbsCore>>, req: HttpRequest, path: web::Path<String>) -> HttpResponse {

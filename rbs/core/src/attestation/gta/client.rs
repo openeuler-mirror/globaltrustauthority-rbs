@@ -87,7 +87,7 @@ pub(super) struct GtaToken {
 pub(super) enum GtaError {
     NetworkError(String),
     TimeoutError(String),
-    ServerError(String),
+    ServerError { status: u16, body: String },
     ParseError(String),
     #[allow(dead_code)]
     ValidationError(String),
@@ -104,9 +104,9 @@ impl From<GtaError> for RbsError {
                 log::error!("Attestation provider timeout: {}", msg);
                 RbsError::ProviderTimeout
             }
-            GtaError::ServerError(body) => {
-                log::error!("Attestation provider server error: {}", body);
-                RbsError::AttestationProviderError { body }
+            GtaError::ServerError { status, body } => {
+                log::error!("Attestation provider server error ({}): {}", status, body);
+                RbsError::AttestationProviderError { status, body }
             }
             GtaError::ParseError(context) => {
                 log::error!("Attestation provider parse error: {}", context);
@@ -125,7 +125,7 @@ impl std::fmt::Display for GtaError {
         match self {
             GtaError::NetworkError(msg) => write!(f, "network error: {}", msg),
             GtaError::TimeoutError(msg) => write!(f, "timeout error: {}", msg),
-            GtaError::ServerError(msg) => write!(f, "server error: {}", msg),
+            GtaError::ServerError { status, body } => write!(f, "server error ({}): {}", status, body),
             GtaError::ParseError(msg) => write!(f, "parse error: {}", msg),
             GtaError::ValidationError(msg) => write!(f, "validation error: {}", msg),
         }
@@ -217,7 +217,7 @@ impl GtaRestClient {
                     } else {
                         let body = Self::extract_error_body(resp, status).await;
                         log::error!("GTA GET {} failed: HTTP {}", url, status);
-                        return Err(GtaError::ServerError(body));
+                        return Err(GtaError::ServerError { status: status.as_u16(), body });
                     }
                 }
                 Err(e) if attempt <= self.config.retries => {
@@ -264,7 +264,7 @@ impl GtaRestClient {
                     } else {
                         let body = Self::extract_error_body(resp, status).await;
                         log::error!("GTA POST {} failed: HTTP {}", url, status);
-                        return Err(GtaError::ServerError(body));
+                        return Err(GtaError::ServerError { status: status.as_u16(), body });
                     }
                 }
                 Err(e) if attempt <= self.config.retries => {
@@ -304,7 +304,7 @@ impl GtaRestClient {
                 } else {
                     let body = Self::extract_error_body(resp, status).await;
                     log::error!("GTA GET {} failed: HTTP {}", url, status);
-                    Err(GtaError::ServerError(body))
+                    Err(GtaError::ServerError { status: status.as_u16(), body })
                 }
             }
             Err(e) => {
@@ -342,7 +342,7 @@ impl GtaRestClient {
                 } else {
                     let body = Self::extract_error_body(resp, status).await;
                     log::error!("GTA {} {} failed: HTTP {}", method, url, status);
-                    Err(GtaError::ServerError(body))
+                    Err(GtaError::ServerError { status: status.as_u16(), body })
                 }
             }
             Err(e) => {
@@ -382,5 +382,54 @@ impl GtaRestClient {
     where B: serde::Serialize {
         self.send_write_mgmt(Method::DELETE, path, body).await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// GTA returning a non-2xx with a body maps to AttestationProviderError,
+    /// forwarding GTA's status code and the raw body verbatim.
+    #[test]
+    fn server_error_maps_to_forwarded_status_and_body() {
+        let err: RbsError = GtaError::ServerError {
+            status: 400,
+            body: "{\"message\":\"bad evidence\"}".to_string(),
+        }
+        .into();
+        match err {
+            RbsError::AttestationProviderError { status, ref body } => {
+                assert_eq!(status, 400);
+                assert_eq!(body, "{\"message\":\"bad evidence\"}");
+            }
+            other => panic!("expected AttestationProviderError, got {:?}", other),
+        }
+        // status forwarded verbatim, body wrapped in the error message
+        assert_eq!(err.http_status(), 400);
+        assert_eq!(
+            err.external_message(),
+            "attestation provider error: {\"message\":\"bad evidence\"}"
+        );
+    }
+
+    /// Network-layer failures (GTA unreachable) map to 503 + static message.
+    #[test]
+    fn network_error_maps_to_unavailable_503() {
+        let err: RbsError = GtaError::NetworkError("connection refused".to_string()).into();
+        assert_eq!(err.http_status(), 503);
+        assert_eq!(err.external_message(), "service temporarily unavailable");
+    }
+
+    /// Empty upstream body falls back to "HTTP {status}".
+    #[test]
+    fn server_error_empty_body_falls_back_to_http_status_label() {
+        let err: RbsError = GtaError::ServerError {
+            status: 500,
+            body: "HTTP 500".to_string(),
+        }
+        .into();
+        assert_eq!(err.http_status(), 500);
+        assert_eq!(err.external_message(), "attestation provider error: HTTP 500");
     }
 }

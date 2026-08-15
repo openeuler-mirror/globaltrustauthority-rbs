@@ -73,16 +73,13 @@ pub fn query_error_handler(err: actix_web::error::QueryPayloadError, _req: &Http
 
 /// Map an `RbsError` to an HTTP response.
 ///
-/// Errors carrying a passthrough body (e.g. an upstream GTA error response)
-/// emit that raw body verbatim with their status code (503); all others are
-/// wrapped in `ErrorBody` using `external_message()`.
+/// The HTTP status comes from `RbsError::http_status()` — for attestation
+/// backend errors this forwards GTA's status code verbatim, while unreachable
+/// providers map to 503. The body is always an `ErrorBody` whose single
+/// `error` field combines an outer RBS message with the upstream content
+/// (see `RbsError::external_message`).
 pub(crate) fn rbs_error_response(e: &RbsError) -> HttpResponse {
     let status = StatusCode::from_u16(e.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-    if let Some(body) = e.passthrough_body() {
-        return HttpResponse::build(status)
-            .content_type("application/json")
-            .body(body.to_string());
-    }
     HttpResponse::build(status).json(ErrorBody::new(e.external_message()))
 }
 
