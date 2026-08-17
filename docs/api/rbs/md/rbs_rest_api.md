@@ -3635,8 +3635,7 @@ const inputBody = '{
         ]
       }
     ]
-  },
-  "attester_data": {}
+  }
 }';
 const headers = {
   'Content-Type':'application/json',
@@ -3792,8 +3791,7 @@ func main() {
         ]
       }
     ]
-  },
-  "attester_data": {}
+  }
 }
 ```
 
@@ -11414,8 +11412,7 @@ None
         ]
       }
     ]
-  },
-  "attester_data": {}
+  }
 }
 
 ```
@@ -11428,19 +11425,6 @@ Request body for POST /rbs/v0/attest.
 |---|---|---|---|---|
 |as_provider|string,null|false|none|Optional attestation backend id (e.g. gta); default is deployment-specific.|
 |rbc_evidences|[RbcEvidencesPayload](#schemarbcevidencespayload)|false|none|Evidence bundle from RBC.|
-|attester_data|any|false|none|none|
-
-oneOf
-
-|Name|Type|Required|Restrictions|Description|
-|---|---|---|---|---|
-|» *anonymous*|null|false|none|none|
-
-xor
-
-|Name|Type|Required|Restrictions|Description|
-|---|---|---|---|---|
-|» *anonymous*|[AttesterData](#schemaattesterdata)|false|none|Top-level attester metadata; used if measurement-level attester_data is absent.|
 
 <h2 id="tocS_AttestResponse">AttestResponse</h2>
 <!-- backwards compatibility -->
@@ -11590,11 +11574,8 @@ Paginated response for GET attestation policy list.
 
 ```
 
-Optional attester-supplied metadata.
-
-Same structure for top-level `attester_data` on AttestRequest
-and for `measurements[].attester_data`. If a measurement defines `attester_data`,
-it wins for that measurement; otherwise the top-level `attester_data` applies.
+Optional attester-supplied metadata, carried per measurement under
+`rbc_evidences.measurements[].attester_data`.
 
 `runtime_data` must not duplicate the challenge nonce (nonce lives only under
 `rbc_evidences.measurements[].nonce`).

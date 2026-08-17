@@ -17,11 +17,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Map;
 
-/// Optional attester-supplied metadata.
-///
-/// Same structure for top-level `attester_data` on AttestRequest
-/// and for `measurements[].attester_data`. If a measurement defines `attester_data`,
-/// it wins for that measurement; otherwise the top-level `attester_data` applies.
+/// Optional attester-supplied metadata, carried per measurement under
+/// `rbc_evidences.measurements[].attester_data`.
 ///
 /// `runtime_data` must not duplicate the challenge nonce (nonce lives only under
 /// `rbc_evidences.measurements[].nonce`).
@@ -114,9 +111,6 @@ pub struct AttestRequest {
     /// Evidence bundle from RBC.
     #[serde(default)]
     pub rbc_evidences: RbcEvidencesPayload,
-    /// Top-level attester metadata; used if measurement-level attester_data is absent.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub attester_data: Option<AttesterData>,
 }
 
 /// Response for POST /rbs/v0/attest.

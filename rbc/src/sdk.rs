@@ -346,7 +346,7 @@ impl Session {
                 GetResourceRequest::ByEvidence { value } => {
                     let rbc_evidences: RbcEvidencesPayload = serde_json::from_value(value.clone())
                         .map_err(|e| RbcError::InvalidInput(format!("invalid evidence: {e}")))?;
-                    let attest_req = AttestRequest { as_provider: None, rbc_evidences, attester_data: None };
+                    let attest_req = AttestRequest { as_provider: None, rbc_evidences };
                     rest.get_resource_by_evidence(uri, &attest_req).await
                 },
             }
