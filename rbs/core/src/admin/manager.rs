@@ -686,22 +686,46 @@ impl crate::auth::UserKeyProvider for AdminManager {
     async fn get_public_key(&self, sub: &str) -> std::result::Result<String, crate::auth::AuthError> {
         let db = get_connection_from_pool().map_err(|e| {
             log::error!("Failed to get DB connection for public key lookup: {}", e);
-            crate::auth::AuthError::TokenInvalid { reason: "database error".to_string() }
+            crate::auth::AuthError::TokenInvalid { reason: "invalid token".to_string() }
         })?;
+        Self::lookup_public_key(&*db, sub).await
+    }
+}
 
+impl AdminManager {
+    /// Look up a user's public key for BearerToken verification.
+    ///
+    /// Rejects users that do not exist or are disabled. Extracted from the
+    /// `UserKeyProvider` impl so the existence/disabled logic can be tested
+    /// against an in-memory SQLite database without the global connection pool.
+    ///
+    /// All failure paths return a generic `"invalid token"` reason — the
+    /// distinguishing detail (not-found vs. disabled) lives only in server-side
+    /// logs, so callers and the HTTP layer cannot leak whether a given `sub`
+    /// exists or is disabled (user-enumeration defense).
+    async fn lookup_public_key(
+        db: &sea_orm::DatabaseConnection,
+        sub: &str,
+    ) -> std::result::Result<String, crate::auth::AuthError> {
         let model = UserEntity::find_by_id(sub)
-            .one(&*db)
+            .one(db)
             .await
             .map_err(|e| {
                 log::error!("Failed to query user '{}' for public key: {}", sub, e);
-                crate::auth::AuthError::TokenInvalid { reason: "database error".to_string() }
+                crate::auth::AuthError::TokenInvalid { reason: "invalid token".to_string() }
             })?
             .ok_or_else(|| {
                 log::error!("BearerToken verification failed: user '{}' not found", sub);
-                crate::auth::AuthError::TokenInvalid {
-                    reason: format!("user '{}' not found", sub),
-                }
+                crate::auth::AuthError::TokenInvalid { reason: "invalid token".to_string() }
             })?;
+
+        // Reject disabled users at the authentication stage so that NO downstream
+        // operation (resource/policy/attestation CRUD) can succeed for them.
+        // A disabled user holding a still-valid token must not authenticate.
+        if model.status == UserStatus::Disabled {
+            log::warn!("BearerToken verification rejected: user '{}' is disabled", sub);
+            return Err(crate::auth::AuthError::TokenInvalid { reason: "invalid token".to_string() });
+        }
 
         Ok(model.auth_value)
     }
@@ -1038,5 +1062,88 @@ mod tests {
         let params = UserListQuery { limit: None, offset: None, role: Some(Role::Admin), enabled: Some(false) };
         let users = run_filtered_query(&db, &params).await;
         assert!(users.is_empty());
+    }
+
+    // ── get_public_key / lookup_public_key: disabled-user rejection ──
+    //
+    // Fix regression: a disabled user holding a still-valid Bearer token could
+    // still authenticate (public key was returned regardless of status) and
+    // then create resources/policies/attestations. lookup_public_key must
+    // reject disabled users at the authentication stage.
+    //
+    // setup_test_users inserts: Bob(Enabled), Charlie(Disabled), Eve(Disabled),
+    // all with auth_value "test-key".
+
+    #[tokio::test]
+    async fn lookup_public_key_rejects_disabled_user() {
+        let db = sea_orm::Database::connect("sqlite::memory:").await.expect("connect");
+        crate::rdb::execute_sql_file_path(&db, "../rdb_sql/sqlite_rbs.sql").await.expect("migrate");
+        setup_test_users(&db).await;
+
+        // Charlie is Disabled — must NOT get a public key back.
+        let result = AdminManager::lookup_public_key(&db, "Charlie").await;
+        assert!(result.is_err(), "disabled user must not receive a public key");
+        match result.unwrap_err() {
+            crate::auth::AuthError::TokenInvalid { reason } => {
+                // Reason must be generic — never reveal "disabled" or the sub.
+                assert_eq!(
+                    reason, "invalid token",
+                    "disabled-user rejection must not leak status in the reason, got: {reason}"
+                );
+            }
+            other => panic!("expected TokenInvalid for disabled user, got: {:?}", other),
+        }
+
+        // Eve is also Disabled.
+        let result = AdminManager::lookup_public_key(&db, "Eve").await;
+        assert!(result.is_err(), "disabled user must not receive a public key");
+    }
+
+    #[tokio::test]
+    async fn lookup_public_key_returns_key_for_enabled_user() {
+        let db = sea_orm::Database::connect("sqlite::memory:").await.expect("connect");
+        crate::rdb::execute_sql_file_path(&db, "../rdb_sql/sqlite_rbs.sql").await.expect("migrate");
+        setup_test_users(&db).await;
+
+        // Bob is Enabled — must get the stored public key back.
+        let result = AdminManager::lookup_public_key(&db, "Bob").await;
+        assert!(result.is_ok(), "enabled user should receive a public key: {:?}", result.err());
+        assert_eq!(result.unwrap(), "test-key");
+    }
+
+    #[tokio::test]
+    async fn lookup_public_key_rejects_nonexistent_user() {
+        let db = sea_orm::Database::connect("sqlite::memory:").await.expect("connect");
+        crate::rdb::execute_sql_file_path(&db, "../rdb_sql/sqlite_rbs.sql").await.expect("migrate");
+        setup_test_users(&db).await;
+
+        let result = AdminManager::lookup_public_key(&db, "NoSuchUser").await;
+        assert!(result.is_err(), "nonexistent user must not receive a public key");
+        match result.unwrap_err() {
+            crate::auth::AuthError::TokenInvalid { reason } => {
+                assert_eq!(
+                    reason, "invalid token",
+                    "nonexistent-user rejection must not leak existence in the reason, got: {reason}"
+                );
+            }
+            other => panic!("expected TokenInvalid for nonexistent user, got: {:?}", other),
+        }
+    }
+
+    /// Disabled and nonexistent users must produce the identical error so that
+    /// an attacker cannot distinguish "user exists but disabled" from "user
+    /// does not exist" — the user-enumeration defense this fix relies on.
+    #[tokio::test]
+    async fn lookup_public_key_disabled_and_nonexistent_errors_are_identical() {
+        let db = sea_orm::Database::connect("sqlite::memory:").await.expect("connect");
+        crate::rdb::execute_sql_file_path(&db, "../rdb_sql/sqlite_rbs.sql").await.expect("migrate");
+        setup_test_users(&db).await;
+
+        let disabled_err = format!("{:?}", AdminManager::lookup_public_key(&db, "Charlie").await.unwrap_err());
+        let nonexistent_err = format!("{:?}", AdminManager::lookup_public_key(&db, "NoSuchUser").await.unwrap_err());
+        assert_eq!(
+            disabled_err, nonexistent_err,
+            "disabled-user and nonexistent-user errors must be indistinguishable"
+        );
     }
 }
