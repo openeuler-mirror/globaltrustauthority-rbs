@@ -27,6 +27,8 @@ CREATE TABLE IF NOT EXISTS t_res_policy (
 
 CREATE INDEX IF NOT EXISTS idx_res_policy_username ON t_res_policy(username);
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_res_policy_user_name ON t_res_policy(username, policy_name);
+
 CREATE TABLE IF NOT EXISTS t_res_info (
     username TEXT NOT NULL,
     provider_name TEXT NOT NULL,
