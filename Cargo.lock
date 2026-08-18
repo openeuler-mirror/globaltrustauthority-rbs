@@ -3240,6 +3240,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "base64 0.22.1",
+ "chrono",
  "clap",
  "josekit",
  "jsonwebtoken 10.4.0",

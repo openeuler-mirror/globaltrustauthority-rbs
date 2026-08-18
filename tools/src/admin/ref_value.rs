@@ -10,27 +10,37 @@
  * See the Mulan PSL v2 for more details.
  */
 
+use base64::engine::general_purpose;
+use base64::Engine;
 use clap::{Args, Subcommand};
 use rbs_admin_client::attestation::ref_value::{
     RefValueClient, RefValueCreateRequest, RefValueDeleteRequest, RefValueListParams, RefValueListResponse,
     RefValueMutationResponse, RefValueService, RefValueUpdateRequest,
 };
 use rbs_admin_client::AdminClient;
+use rbs_api_types::AttestationDeleteType;
 use serde::Serialize;
+use tabled::settings::Style;
+use tabled::Table;
 
 use crate::admin::GTA_ID_MAX_LEN;
-use crate::common::formatter::{Formatter, TextOutput};
+use crate::common::formatter::{format_indented_content, Formatter};
 use crate::common::utils::read_path_file;
-use crate::common::validate::{validate_file_size, validate_string_max_len};
+use crate::common::validate::{validate_file_size, validate_i64, validate_string_max_len};
 use crate::config::GlobalOptions;
 use crate::error::CliError;
 
 const SUPPORTED_ATTESTER_TYPES: [&str; 5] = ["tpm", "tpm_ima", "virt_cca", "ascend_npu", "cca"];
+const SUPPORTED_CONTENT_TYPES: [&str; 2] = ["jwt", "base64"];
 const DELETE_REF_VALUE_ID: &str = "id";
 const DELETE_REF_VALUE_TYPE: &str = "type";
 const DELETE_REF_VALUE_ALL: &str = "all";
 const DELETE_REF_VALUE_TYPES: [&str; 3] = [DELETE_REF_VALUE_ALL, DELETE_REF_VALUE_ID, DELETE_REF_VALUE_TYPE];
 const MAX_CONTENT_SIZE: u64 = 1024 * 1024 * 100;
+const LIST_MIN_LIMIT: i64 = 1;
+const LIST_MAX_LIMIT: i64 = 10;
+const LIST_MIN_OFFSET: i64 = 0;
+const LIST_MAX_OFFSET: i64 = 100_000;
 
 #[derive(Args, Debug, Clone)]
 #[command(about = "Manage attestation ref values")]
@@ -41,24 +51,23 @@ pub struct RefValueCli {
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum RefValueCommand {
-    #[command(
-        about = "List ref values",
-        long_about = "List current user's ref values.\n\nExamples:\n  rbs-cli ref-value list\n  rbs-cli ref-value list --attester-type tpm\n  rbs-cli ref-value list --ids rv_id_1,rv_id_2"
-    )]
+    #[command(about = "List ref values", long_about = "List current user's ref values.")]
     List(ListArgs),
+    #[command(about = "Get one ref value by ID")]
+    Get(GetArgs),
     #[command(
         about = "Create a ref value",
-        long_about = "Create a ref value.\nThe content must be a JWT string. Use @file to read content from a file.\n\nExample:\n  rbs-cli ref-value create --name rv_name_1 --attester-type tpm --content @ref.jwt"
+        long_about = "Create a ref value. Content may be a JWT or Base64 payload. Use @file to read content from a file."
     )]
     Create(CreateArgs),
     #[command(
         about = "Update a ref value",
-        long_about = "Update a ref value. At least one updatable field must be provided.\nIf content is set, it must still be a valid JWT string.\n\nExample:\n  rbs-cli ref-value update --id rv_id_1 --name rv_name_1_new --content @ref.jwt"
+        long_about = "Update a ref value. At least one updatable field must be provided. Content may be a JWT or Base64 payload."
     )]
     Update(UpdateArgs),
     #[command(
         about = "Delete ref values",
-        long_about = "Delete ref values by id, by attester type, or delete all ref values.\n\nExamples:\n  rbs-cli ref-value delete --delete-type id --ids rv_id_1,rv_id_2\n  rbs-cli ref-value delete --delete-type type --attester-type tpm\n  rbs-cli ref-value delete --delete-type all"
+        long_about = "Delete ref values by id, by attester type, or delete all ref values."
     )]
     Delete(DeleteArgs),
 }
@@ -80,6 +89,18 @@ pub struct ListArgs {
         help = "Attester type filter"
     )]
     pub attester_type: Option<String>,
+
+    #[arg(long, value_parser = |value: &str| validate_i64(value, LIST_MIN_LIMIT, LIST_MAX_LIMIT, "limit"), help = "Page size (1-10; RBS default is 10)")]
+    pub limit: Option<i64>,
+
+    #[arg(long, value_parser = |value: &str| validate_i64(value, LIST_MIN_OFFSET, LIST_MAX_OFFSET, "offset"), help = "Page offset (0-100000; RBS default is 0)")]
+    pub offset: Option<i64>,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct GetArgs {
+    #[arg(long, value_parser = |s: &str| validate_string_max_len(s, GTA_ID_MAX_LEN), help = "Ref value ID")]
+    pub id: String,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -100,10 +121,18 @@ pub struct CreateArgs {
 
     #[arg(
         long,
-        value_parser = |s: &str| validate_file_size(s, MAX_CONTENT_SIZE),
-        help = "JWT content or @file path; max size 100MB"
+        value_parser = validate_ref_value_content,
+        help = "JWT or Base64 content, or @file path; max size 100MB"
     )]
     pub content: String,
+
+    #[arg(
+        long,
+        value_parser = SUPPORTED_CONTENT_TYPES,
+        default_value = "jwt",
+        help = "Reference value content encoding: jwt or base64"
+    )]
+    pub content_type: String,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -125,8 +154,11 @@ pub struct UpdateArgs {
     )]
     pub attester_type: Option<String>,
 
-    #[arg(long, value_parser = validate_and_read_ref_value, help = "New JWT content or @file path; max size 100MB")]
+    #[arg(long, value_parser = validate_ref_value_content, help = "New JWT or Base64 content, or @file path; max size 100MB")]
     pub content: Option<String>,
+
+    #[arg(long, value_parser = SUPPORTED_CONTENT_TYPES, help = "New reference value content encoding: jwt or base64")]
+    pub content_type: Option<String>,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -172,17 +204,21 @@ async fn execute_ref_value_command(
                 .list_ref_values(&RefValueListParams {
                     ids: args.ids.clone(),
                     attester_type: args.attester_type.clone(),
+                    limit: args.limit,
+                    offset: args.offset,
                 })
                 .await?;
             Ok(Box::new(RefValueListOutput(resp)))
         },
+        RefValueCommand::Get(args) => get_ref_value_output(service.get_ref_value(&args.id).await?),
         RefValueCommand::Create(args) => {
             let resp = service
                 .create_ref_value(&RefValueCreateRequest {
                     name: args.name.clone(),
                     description: args.description.clone(),
                     attester_type: args.attester_type.clone(),
-                    content: read_path_file(&args.content)?,
+                    content: read_ref_value_content(&args.content, &args.content_type)?,
+                    content_type: Some(args.content_type.clone()),
                 })
                 .await?;
             Ok(Box::new(RefValueMutationOutput(resp)))
@@ -195,24 +231,34 @@ async fn execute_ref_value_command(
                     name: args.name.clone(),
                     description: args.description.clone(),
                     attester_type: args.attester_type.clone(),
-                    content: args.content.as_ref().map(|value| read_path_file(value)).transpose()?,
+                    content: args
+                        .content
+                        .as_ref()
+                        .map(|value| read_ref_value_content(value, args.content_type.as_deref().unwrap_or("jwt")))
+                        .transpose()?,
+                    content_type: args.content_type.clone(),
                 })
                 .await?;
             Ok(Box::new(RefValueMutationOutput(resp)))
         },
         RefValueCommand::Delete(args) => {
             let request = build_delete_request(args)?;
-            let message = delete_message(&request);
             service.delete_ref_values(&request).await?;
-            Ok(Box::new(TextOutput::new(message)))
+            Ok(Box::new(DeleteRefValueOutput { target: delete_message(&request) }))
         },
     }
 }
 
 fn validate_update_args(args: &UpdateArgs) -> Result<(), CliError> {
-    if args.name.is_none() && args.description.is_none() && args.attester_type.is_none() && args.content.is_none() {
+    if args.name.is_none()
+        && args.description.is_none()
+        && args.attester_type.is_none()
+        && args.content.is_none()
+        && args.content_type.is_none()
+    {
         return Err(CliError::InvalidArgument(
-            "at least one updatable field must be set: name, description, attester_type, content".to_string(),
+            "at least one updatable field must be set: name, description, attester_type, content, content_type"
+                .to_string(),
         ));
     }
     Ok(())
@@ -226,7 +272,7 @@ fn build_delete_request(args: &DeleteArgs) -> Result<RefValueDeleteRequest, CliE
             if ids.is_none() {
                 return Err(CliError::InvalidArgument("ids are required when delete_type is `id`".to_string()));
             }
-            Ok(RefValueDeleteRequest { delete_type: DELETE_REF_VALUE_ID.to_string(), ids, attester_type: None })
+            Ok(RefValueDeleteRequest { delete_type: AttestationDeleteType::Id, ids, attester_type: None })
         },
         DELETE_REF_VALUE_TYPE => {
             if args.attester_type.is_none() {
@@ -235,7 +281,7 @@ fn build_delete_request(args: &DeleteArgs) -> Result<RefValueDeleteRequest, CliE
                 ));
             }
             Ok(RefValueDeleteRequest {
-                delete_type: DELETE_REF_VALUE_TYPE.to_string(),
+                delete_type: AttestationDeleteType::Type,
                 ids: None,
                 attester_type: args.attester_type.clone(),
             })
@@ -246,22 +292,36 @@ fn build_delete_request(args: &DeleteArgs) -> Result<RefValueDeleteRequest, CliE
                     "ids and attester_type must not be set when delete_type is `all`".to_string(),
                 ));
             }
-            Ok(RefValueDeleteRequest { delete_type: DELETE_REF_VALUE_ALL.to_string(), ids: None, attester_type: None })
+            Ok(RefValueDeleteRequest { delete_type: AttestationDeleteType::All, ids: None, attester_type: None })
         },
         _ => unreachable!(),
     }
 }
 
 fn delete_message(request: &RefValueDeleteRequest) -> String {
-    match request.delete_type.as_str() {
-        DELETE_REF_VALUE_ID => {
+    match request.delete_type {
+        AttestationDeleteType::Id => {
             format!("deleted ref values: {}", request.ids.clone().unwrap_or_default().join(","))
         },
-        DELETE_REF_VALUE_TYPE => {
+        AttestationDeleteType::Type => {
             format!("deleted ref values by attester_type: {}", request.attester_type.clone().unwrap_or_default())
         },
-        DELETE_REF_VALUE_ALL => "deleted all ref values".to_string(),
-        _ => "deleted ref values".to_string(),
+        AttestationDeleteType::All => "deleted all ref values".to_string(),
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct DeleteRefValueOutput {
+    target: String,
+}
+
+impl Formatter for DeleteRefValueOutput {
+    fn render_text(&self) -> Result<String, CliError> {
+        Ok(format!("Delete succeeded: {}", self.target))
+    }
+
+    fn render_json(&self) -> Result<String, CliError> {
+        serde_json::to_string_pretty(self).map_err(|_| CliError::InternalFormat)
     }
 }
 
@@ -274,25 +334,52 @@ impl Formatter for RefValueListOutput {
         if self.0.ref_values.is_empty() {
             lines.push("  <empty>".to_string());
         } else {
-            for ref_value in &self.0.ref_values {
-                let mut parts = vec![
-                    format!("name={}", ref_value.name),
-                    format!("id={}", ref_value.id.as_deref().unwrap_or("-")),
-                    format!("attester_type={}", ref_value.attester_type),
-                ];
-                if let Some(version) = ref_value.version {
-                    parts.push(format!("version={version}"));
-                }
-                if let Some(description) = &ref_value.description {
-                    parts.push(format!("description={description}"));
-                }
-                if let Some(content) = &ref_value.content {
-                    parts.push(format!("content={}", content));
-                }
-                lines.push(format!("  - {}", parts.join(" ")));
-            }
+            lines.extend(
+                Table::new(self.0.ref_values.iter()).with(Style::markdown()).to_string().lines().map(str::to_string),
+            );
+        }
+        if let Some(total_count) = self.0.total_count {
+            lines.push(format!("total_count: {total_count}"));
+        }
+        if let Some(limit) = self.0.limit {
+            lines.push(format!("limit: {limit}"));
+        }
+        if let Some(offset) = self.0.offset {
+            lines.push(format!("offset: {offset}"));
         }
         Ok(lines.join("\n"))
+    }
+
+    fn render_json(&self) -> Result<String, CliError> {
+        serde_json::to_string_pretty(&self.0).map_err(|_| CliError::InternalFormat)
+    }
+}
+
+fn get_ref_value_output(response: RefValueListResponse) -> Result<Box<dyn Formatter>, CliError> {
+    match response.ref_values.as_slice() {
+        [ref_value] => Ok(Box::new(RefValueOutput(ref_value.clone()))),
+        _ => Err(CliError::Message("Reference value not found.".to_string())),
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct RefValueOutput(rbs_admin_client::attestation::ref_value::RefValue);
+
+impl Formatter for RefValueOutput {
+    fn render_text(&self) -> Result<String, CliError> {
+        let ref_value = &self.0;
+        Ok([
+            format!("{:<20}{}", "id:", ref_value.id),
+            format!("{:<20}{}", "uid:", ref_value.uid.as_deref().unwrap_or("-")),
+            format!("{:<20}{}", "name:", ref_value.name),
+            format!("{:<20}{}", "attester_type:", ref_value.attester_type),
+            format!("{:<20}{}", "description:", ref_value.description.as_deref().unwrap_or("-")),
+            format!("{:<20}{}", "content_type:", ref_value.content_type.as_deref().unwrap_or("-")),
+            format!("content:\n{}", format_indented_content(ref_value.content.as_deref())),
+            format!("{:<20}{}", "version:", ref_value.version.map_or("-".to_string(), |value| value.to_string())),
+            format!("{:<20}{}", "valid_code:", ref_value.valid_code.map_or("-".to_string(), |value| value.to_string())),
+        ]
+        .join("\n"))
     }
 
     fn render_json(&self) -> Result<String, CliError> {
@@ -306,12 +393,8 @@ struct RefValueMutationOutput(RefValueMutationResponse);
 impl Formatter for RefValueMutationOutput {
     fn render_text(&self) -> Result<String, CliError> {
         let mut lines = vec![format!("name: {}", self.0.ref_value.name)];
-        if let Some(id) = &self.0.ref_value.id {
-            lines.push(format!("id: {id}"));
-        }
-        if let Some(version) = self.0.ref_value.version {
-            lines.push(format!("version: {version}"));
-        }
+        lines.push(format!("id: {}", self.0.ref_value.id));
+        lines.push(format!("version: {}", self.0.ref_value.version));
         Ok(lines.join("\n"))
     }
 
@@ -320,9 +403,31 @@ impl Formatter for RefValueMutationOutput {
     }
 }
 
-fn validate_and_read_ref_value(path: &str) -> Result<String, CliError> {
-    validate_file_size(path, MAX_CONTENT_SIZE)?;
-    let content = std::fs::read_to_string(path)?;
+fn validate_ref_value_content(value: &str) -> Result<String, CliError> {
+    if let Some(path) = value.strip_prefix('@') {
+        validate_file_size(path, MAX_CONTENT_SIZE)?;
+    } else if value.len() > MAX_CONTENT_SIZE as usize {
+        return Err(CliError::InvalidArgument(format!(
+            "ref value content must not exceed {MAX_CONTENT_SIZE} bytes; got {} bytes",
+            value.len()
+        )));
+    }
+    Ok(value.to_string())
+}
+
+fn read_ref_value_content(value: &str, content_type: &str) -> Result<String, CliError> {
+    let content = read_path_file(value)?;
+    let is_json_file = value
+        .strip_prefix('@')
+        .and_then(|path| std::path::Path::new(path).extension())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("json"));
+
+    if content_type == "base64" && is_json_file {
+        serde_json::from_str::<serde_json::Value>(&content)
+            .map_err(|err| CliError::InvalidArgument(format!("invalid JSON reference value content: {err}")))?;
+        return Ok(general_purpose::STANDARD.encode(content.as_bytes()));
+    }
+
     Ok(content)
 }
 
@@ -338,6 +443,7 @@ mod tests {
             description: None,
             attester_type: None,
             content: None,
+            content_type: None,
         })
         .expect_err("empty update should fail");
         assert!(err.to_string().contains("at least one updatable field"));
@@ -351,7 +457,7 @@ mod tests {
             attester_type: None,
         })
         .expect("id delete");
-        assert_eq!(by_id.delete_type, "id");
+        assert_eq!(by_id.delete_type, AttestationDeleteType::Id);
 
         let by_type = build_delete_request(&DeleteArgs {
             delete_type: "type".to_string(),
@@ -361,20 +467,17 @@ mod tests {
         .expect("type delete");
         assert_eq!(by_type.attester_type.as_deref(), Some("tpm"));
 
-        let all = build_delete_request(&DeleteArgs {
-            delete_type: "all".to_string(),
-            ids: vec![],
-            attester_type: None,
-        })
-        .expect("all delete");
-        assert_eq!(all.delete_type, "all");
+        let all =
+            build_delete_request(&DeleteArgs { delete_type: "all".to_string(), ids: vec![], attester_type: None })
+                .expect("all delete");
+        assert_eq!(all.delete_type, AttestationDeleteType::All);
     }
 
     #[test]
     fn delete_message_matches_delete_mode() {
         assert_eq!(
             delete_message(&RefValueDeleteRequest {
-                delete_type: "id".to_string(),
+                delete_type: AttestationDeleteType::Id,
                 ids: Some(vec!["a".to_string()]),
                 attester_type: None,
             }),
@@ -382,7 +485,7 @@ mod tests {
         );
         assert_eq!(
             delete_message(&RefValueDeleteRequest {
-                delete_type: "type".to_string(),
+                delete_type: AttestationDeleteType::Type,
                 ids: None,
                 attester_type: Some("tpm".to_string()),
             }),
@@ -391,41 +494,105 @@ mod tests {
     }
 
     #[test]
-    fn validate_and_read_ref_value_reads_file_content() {
+    fn delete_ref_value_output_reports_success() {
+        assert_eq!(
+            DeleteRefValueOutput { target: "ref values removed: rv-1".to_string() }
+                .render_text()
+                .expect("render delete"),
+            "Delete succeeded: ref values removed: rv-1"
+        );
+    }
+
+    #[test]
+    fn validate_ref_value_content_accepts_at_prefixed_file() {
         let path = std::env::temp_dir().join(format!("ref-value-{}.jwt", std::process::id()));
         std::fs::write(&path, "jwt-content").expect("write file");
-        let content = validate_and_read_ref_value(path.to_str().expect("utf8 path")).expect("read content");
-        assert_eq!(content, "jwt-content");
+        let input = format!("@{}", path.display());
+        assert_eq!(validate_ref_value_content(&input).expect("validate file"), input);
+        assert_eq!(read_path_file(&input).expect("read file"), "jwt-content");
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn base64_content_type_encodes_json_files_only() {
+        let dir = std::env::temp_dir();
+        let json_path = dir.join(format!("ref-value-{}.json", std::process::id()));
+        let base64_path = dir.join(format!("ref-value-{}.base64", std::process::id()));
+        let json = r#"{"referenceValues":[]}"#;
+        let encoded = general_purpose::STANDARD.encode(json);
+        std::fs::write(&json_path, json).expect("write json file");
+        std::fs::write(&base64_path, &encoded).expect("write base64 file");
+
+        assert_eq!(
+            read_ref_value_content(&format!("@{}", json_path.display()), "base64").expect("encode JSON"),
+            encoded
+        );
+        assert_eq!(
+            read_ref_value_content(&format!("@{}", base64_path.display()), "base64").expect("preserve Base64"),
+            encoded
+        );
+
+        let _ = std::fs::remove_file(json_path);
+        let _ = std::fs::remove_file(base64_path);
     }
 
     #[test]
     fn ref_value_outputs_render_text() {
         let list = RefValueListOutput(RefValueListResponse {
             ref_values: vec![rbs_admin_client::attestation::ref_value::RefValue {
-                id: Some("rv-1".to_string()),
+                id: "rv-1".to_string(),
                 uid: None,
                 name: "demo-rv".to_string(),
                 description: Some("demo".to_string()),
                 attester_type: "tpm".to_string(),
                 content: Some("jwt".to_string()),
+                content_type: None,
                 version: Some(1),
                 valid_code: None,
             }],
+            total_count: Some(1),
+            limit: Some(10),
+            offset: Some(20),
         });
         let text = list.render_text().expect("render list");
         assert!(text.contains("demo-rv"));
-        assert!(text.contains("attester_type=tpm"));
+        assert!(text.contains("tpm"));
+        assert!(!text.contains("content"));
+        assert!(text.contains("total_count: 1"));
+        assert!(text.contains("limit: 10"));
+        assert!(text.contains("offset: 20"));
 
         let mutation = RefValueMutationOutput(RefValueMutationResponse {
             ref_value: rbs_admin_client::attestation::ref_value::RefValueMutation {
-                id: Some("rv-1".to_string()),
+                id: "rv-1".to_string(),
                 name: "demo-rv".to_string(),
-                version: Some(2),
+                version: 2,
             },
         });
         let text = mutation.render_text().expect("render mutation");
         assert!(text.contains("id: rv-1"));
         assert!(text.contains("version: 2"));
+    }
+
+    #[test]
+    fn ref_value_detail_output_renders_complete_indented_content() {
+        let text = RefValueOutput(rbs_admin_client::attestation::ref_value::RefValue {
+            id: "rv-1".to_string(),
+            uid: Some("user-1".to_string()),
+            name: "demo-rv".to_string(),
+            attester_type: "tpm".to_string(),
+            description: Some("demo".to_string()),
+            content: Some("line-one\nline-two".to_string()),
+            content_type: Some("base64".to_string()),
+            version: Some(2),
+            valid_code: Some(0),
+        })
+        .render_text()
+        .expect("render detail");
+
+        assert!(text.contains("id:                 rv-1"));
+        assert!(text.contains("content:\n    line-one\n    line-two"));
+        assert!(text.contains("content_type:       base64"));
+        assert!(text.contains("valid_code:         0"));
     }
 }

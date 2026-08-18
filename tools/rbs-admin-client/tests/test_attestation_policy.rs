@@ -11,9 +11,11 @@
  */
 
 use rbs_admin_client::attestation::policy::{
-    PolicyClient, AttestationPolicyCreateRequest, AttestationPolicyDeleteRequest, AttestationPolicyListParams, PolicyService, AttestationPolicyUpdateRequest,
+    AttestationPolicyCreateRequest, AttestationPolicyDeleteRequest, AttestationPolicyListParams,
+    AttestationPolicyUpdateRequest, PolicyClient, PolicyService,
 };
 use rbs_admin_client::AdminClient;
+use rbs_api_types::PolicyDeleteType;
 
 fn unusable_admin_client() -> AdminClient {
     AdminClient::new("data:text/plain,not-a-base-url", "test-token", &None)
@@ -40,11 +42,20 @@ async fn policy_operations_report_url_build_failure() {
         content: None,
         is_default: None,
     };
-    let delete = AttestationPolicyDeleteRequest { delete_type: "id".to_string(), ids: Some(vec!["policy-1".to_string()]), attester_type: None };
+    let delete = AttestationPolicyDeleteRequest {
+        delete_type: PolicyDeleteType::Id,
+        ids: Some(vec!["policy-1".to_string()]),
+        attester_type: None,
+    };
 
     assert_eq!(
         client
-            .list_policies(&AttestationPolicyListParams { ids: Some(vec!["policy-1".to_string()]), attester_type: Some("tpm".to_string()) })
+            .list_policies(&AttestationPolicyListParams {
+                ids: Some(vec!["policy-1".to_string()]),
+                attester_type: Some("tpm".to_string()),
+                limit: None,
+                offset: None,
+            })
             .await
             .expect_err("list should fail")
             .to_string(),
@@ -61,5 +72,9 @@ async fn policy_operations_report_url_build_failure() {
     assert_eq!(
         client.delete_policies(&delete).await.expect_err("delete should fail").to_string(),
         "base URL cannot be used to build policy path"
+    );
+    assert_eq!(
+        client.get_policy("policy-1").await.expect_err("get should fail").to_string(),
+        "base URL cannot be used to build policy item path"
     );
 }

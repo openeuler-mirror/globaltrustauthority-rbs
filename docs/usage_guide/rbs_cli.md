@@ -6,15 +6,16 @@
 
 ```text
 rbs-cli
+├── cert
 ├── client
+├── policy
+├── ref-value
 ├── res
 ├── res-policy
 ├── token
 ├── user
 └── version
 ```
-
-The current command tree does not expose `policy`, `cert`, or `ref-value` as runnable top-level commands, so they are intentionally omitted from this guide.
 
 ---
 
@@ -35,8 +36,49 @@ Global options accepted by `rbs-cli`:
 
 Notes:
 
-- Admin commands such as `user`, `res`, and `res-policy` require a bearer token. Pass it with `--token` or `RBS_TOKEN`.
+- Admin commands such as `user`, `res`, `res-policy`, `ref-value`, `cert`, and `policy` require a bearer token. Pass it with `--token` or `RBS_TOKEN`.
 - Client commands reuse the `rbc` command model and carry their own command-specific options such as `--agent-config`.
+
+---
+
+## GTA Attestation Management Commands
+
+`rbs-cli` proxies GTA attestation-management APIs through RBS. These commands
+operate on the default `gta` attestation provider and require an RBS bearer
+token with administrator privileges.
+
+| Command group | GTA entity | Available operations |
+|---|---|---|
+| `ref-value` | Reference-value baselines | `list`, `get`, `create`, `update`, `delete` |
+| `cert` | Certificates and CRLs | `list`, `get`, `create`, `update`, `delete` |
+| `policy` | Attestation policies | `list`, `get`, `create`, `update`, `delete` |
+
+Examples:
+
+```bash
+# Create a TPM baseline from a JWT file.
+rbs-cli -b https://rbs.example.com -t "$RBS_TOKEN" \
+  ref-value create --name tpm-baseline --attester-type tpm --content @baseline.jwt
+
+# Upload a TPM certificate.
+rbs-cli -b https://rbs.example.com -t "$RBS_TOKEN" \
+  cert create --name tpm-ak-cert --type tpm --content @ak-cert.pem
+
+# Page through certificates and fetch one certificate or CRL by ID.
+rbs-cli -b https://rbs.example.com -t "$RBS_TOKEN" cert list --limit 10 --offset 0
+rbs-cli -b https://rbs.example.com -t "$RBS_TOKEN" cert get --id C1
+rbs-cli -b https://rbs.example.com -t "$RBS_TOKEN" ref-value get --id RV1
+rbs-cli -b https://rbs.example.com -t "$RBS_TOKEN" policy get --id P1
+rbs-cli -b https://rbs.example.com -t "$RBS_TOKEN" ref-value list --limit 10 --offset 0
+rbs-cli -b https://rbs.example.com -t "$RBS_TOKEN" policy list --limit 10 --offset 0
+
+# Create a GTA attestation policy; text content is Base64 encoded.
+rbs-cli -b https://rbs.example.com -t "$RBS_TOKEN" \
+  policy create --name allow-tpm --attester-type tpm --content-type text --content @policy.b64
+```
+
+Use `rbs-cli <ref-value|cert|policy> <command> --help` for the complete,
+operation-specific option list.
 
 ---
 

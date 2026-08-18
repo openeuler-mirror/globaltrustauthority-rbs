@@ -11,6 +11,9 @@
  */
 
 use clap::Parser;
+use rbs_cli::admin::cert as cert_cmd;
+use rbs_cli::admin::policy as policy_cmd;
+use rbs_cli::admin::ref_value as ref_value_cmd;
 use rbs_cli::admin::res as res_cmd;
 use rbs_cli::admin::res_policy as res_policy_cmd;
 use rbs_cli::admin::user as user_cmd;
@@ -50,9 +53,21 @@ fn main() -> ExitCode {
     );
 
     let result = match &cli.command {
+        Command::Cert(cert_cli) => {
+            info!("dispatching cert command");
+            cert_cmd::run(cert_cli, &config)
+        },
         Command::Client(client_cli) => {
             info!("dispatching client command");
             client_cmd::run(client_cli, &config)
+        },
+        Command::Policy(policy_cli) => {
+            info!("dispatching policy command");
+            policy_cmd::run(policy_cli, &config)
+        },
+        Command::RefValue(ref_value_cli) => {
+            info!("dispatching ref-value command");
+            ref_value_cmd::run(ref_value_cli, &config)
         },
         Command::Res(res_cli) => {
             info!("dispatching res command");
@@ -93,7 +108,10 @@ fn main() -> ExitCode {
 
 fn command_name(command: &Command) -> &'static str {
     match command {
+        Command::Cert(_) => "cert",
         Command::Client(_) => "client",
+        Command::Policy(_) => "policy",
+        Command::RefValue(_) => "ref-value",
         Command::Res(_) => "res",
         Command::ResPolicy(_) => "res-policy",
         Command::Token(_) => "token",

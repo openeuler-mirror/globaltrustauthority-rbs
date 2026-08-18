@@ -103,6 +103,8 @@ impl RefValueProvider for MockFullProvider {
         Ok(RefValueListResponse {
             ref_values: vec![mock_ref_value("R1")],
             total_count: Some(1),
+            limit: Some(10),
+            offset: Some(0),
         })
     }
 
@@ -110,6 +112,8 @@ impl RefValueProvider for MockFullProvider {
         Ok(RefValueListResponse {
             ref_values: vec![mock_ref_value(&id)],
             total_count: None,
+            limit: None,
+            offset: None,
         })
     }
 
@@ -153,6 +157,8 @@ impl CertProvider for MockFullProvider {
             certs: vec![],
             crls: vec![],
             total_count: Some(0),
+            limit: Some(10),
+            offset: Some(0),
         })
     }
 
@@ -174,6 +180,8 @@ impl CertProvider for MockFullProvider {
             }],
             crls: vec![],
             total_count: None,
+            limit: None,
+            offset: None,
         })
     }
 
@@ -230,6 +238,8 @@ impl PolicyProvider for MockFullProvider {
         Ok(AttestationPolicyListResponse {
             policies: vec![],
             total_count: Some(0),
+            limit: Some(10),
+            offset: Some(0),
         })
     }
 
@@ -251,6 +261,8 @@ impl PolicyProvider for MockFullProvider {
                 valid_code: None,
             }],
             total_count: None,
+            limit: None,
+            offset: None,
         })
     }
 

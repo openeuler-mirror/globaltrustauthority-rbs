@@ -22,7 +22,25 @@
 //! (AR-003) management operations.
 
 use serde::{Deserialize, Serialize};
+use std::fmt::Display;
+use tabled::Tabled;
 use validator::Validate;
+
+fn display_option<T: Display>(value: &Option<T>) -> String {
+    value.as_ref().map(ToString::to_string).unwrap_or_else(|| "-".to_string())
+}
+
+fn display_cert_type(value: &Option<Vec<String>>) -> String {
+    value.as_ref().map(|types| types.join(",")).unwrap_or_else(|| "-".to_string())
+}
+
+fn display_string_list(value: &Vec<String>) -> String {
+    value.join(",")
+}
+
+fn display_optional_content(value: &Option<String>) -> String {
+    value.as_deref().unwrap_or("-").replace('\n', "\\n")
+}
 
 /// Reference value (baseline) entity returned by GTA.
 ///
@@ -31,7 +49,7 @@ use validator::Validate;
 /// so they are mandatory. `uid`/`description`/`content`/`content_type`/
 /// `version`/`valid_code` appear only in the by_ids full response and are
 /// optional.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema, Tabled)]
 #[serde(rename_all = "snake_case")]
 pub struct RefValue {
     /// Stable ref_value identifier.
@@ -39,6 +57,7 @@ pub struct RefValue {
     pub id: String,
     /// User-scoped identifier (by_ids path only).
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[tabled(skip)]
     #[schema(example = "test_01")]
     pub uid: Option<String>,
     /// Human-readable baseline name.
@@ -49,22 +68,27 @@ pub struct RefValue {
     pub attester_type: String,
     /// Optional description (by_ids path only).
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[tabled(skip)]
     #[schema(example = "TPM reference baseline")]
     pub description: Option<String>,
     /// Baseline content (JWT or base64-encoded payload) (by_ids path only).
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[tabled(skip)]
     #[schema(example = "eyJhbGciOiJSUzI1NiJ9...")]
     pub content: Option<String>,
     /// Content encoding: "jwt" (default) or "base64" (by_ids path only).
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[tabled(skip)]
     #[schema(example = "jwt")]
     pub content_type: Option<String>,
     /// Baseline version (by_ids path only).
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[tabled(skip)]
     #[schema(example = 1)]
     pub version: Option<i32>,
     /// Validity code: 0 = valid, 1 = invalid (by_ids path only).
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[tabled(skip)]
     #[schema(example = 0)]
     pub valid_code: Option<i32>,
 }
@@ -104,6 +128,12 @@ pub struct RefValueListResponse {
     /// Total matching count (present in by_type/all paths; absent in by_ids path).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_count: Option<i64>,
+    /// Effective page size returned by GTA.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+    /// Effective page offset returned by GTA.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offset: Option<i64>,
 }
 
 /// Request body for POST ref_value (create).
@@ -304,68 +334,83 @@ pub struct PolicyMutation {
 /// All fields are optional: GTA's `CertRespInfo` serializes every field
 /// with `skip_serializing_if = "Option::is_none"`, so the present subset
 /// depends on the query path and the underlying database row.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema, Tabled)]
 #[serde(rename_all = "snake_case")]
 pub struct CertRecord {
     /// Stable certificate identifier.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[tabled(display_with = "display_option")]
     #[schema(example = "C1")]
     pub cert_id: Option<String>,
     /// Certificate name.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[tabled(display_with = "display_option")]
     #[schema(example = "cert1")]
     pub cert_name: Option<String>,
     /// Optional description.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[tabled(display_with = "display_option")]
     pub description: Option<String>,
     /// Certificate content (PEM etc.).
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[tabled(display_with = "display_optional_content")]
     pub content: Option<String>,
     /// Certificate type list.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[tabled(display_with = "display_cert_type")]
     pub cert_type: Option<Vec<String>>,
     /// Whether this is the default certificate.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[tabled(display_with = "display_option")]
     pub is_default: Option<bool>,
     /// Certificate version.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[tabled(display_with = "display_option")]
     #[schema(example = 1)]
     pub version: Option<i32>,
-    /// Creation timestamp (Unix epoch seconds).
+    /// Creation timestamp as Unix epoch seconds or milliseconds, depending on the GTA response.
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[schema(example = 1700000000)]
+    #[tabled(display_with = "display_option")]
+    #[schema(example = 1700000000000_i64)]
     pub create_time: Option<i64>,
-    /// Last update timestamp (Unix epoch seconds).
+    /// Last update timestamp as Unix epoch seconds or milliseconds, depending on the GTA response.
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[schema(example = 1700000000)]
+    #[tabled(display_with = "display_option")]
+    #[schema(example = 1700000000000_i64)]
     pub update_time: Option<i64>,
     /// Validity code.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[tabled(display_with = "display_option")]
     #[schema(example = 0)]
     pub valid_code: Option<i32>,
     /// Revocation date (Unix epoch seconds).
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[tabled(display_with = "display_option")]
     #[schema(example = 1700000000)]
     pub cert_revoked_date: Option<i64>,
     /// Revocation reason.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[tabled(display_with = "display_option")]
     pub cert_revoked_reason: Option<String>,
 }
 
 /// CRL (Certificate Revocation List) record returned by GTA.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema, Tabled)]
 #[serde(rename_all = "snake_case")]
 pub struct CrlRecord {
     /// Stable CRL identifier.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[tabled(display_with = "display_option")]
     #[schema(example = "L1")]
     pub crl_id: Option<String>,
     /// CRL name.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[tabled(display_with = "display_option")]
     #[schema(example = "crl1")]
     pub crl_name: Option<String>,
     /// CRL content.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[tabled(display_with = "display_optional_content")]
     pub crl_content: Option<String>,
 }
 
@@ -402,6 +447,12 @@ pub struct CertListResponse {
     /// Total matching count.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_count: Option<i64>,
+    /// Effective page size returned by GTA.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+    /// Effective page offset returned by GTA.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offset: Option<i64>,
 }
 
 /// Request body for POST cert (create).
@@ -519,7 +570,7 @@ pub struct CertMutationResponse {
 /// (`Policy`/`PolicyResponse` in `t_res_policy`). `id`/`name`/`attester_type`
 /// are always present in both GTA by_type/all (summary) and by_ids (full)
 /// responses, so they are mandatory. Other fields appear only in by_ids.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema, Tabled)]
 #[serde(rename_all = "snake_case")]
 pub struct AttestationPolicy {
     /// Stable policy identifier.
@@ -530,26 +581,33 @@ pub struct AttestationPolicy {
     pub name: String,
     /// Optional description (by_ids path only).
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[tabled(skip)]
     pub description: Option<String>,
     /// Policy content (JWT or text) (by_ids path only).
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[tabled(skip)]
     pub content: Option<String>,
     /// Attester type list (array, unlike ref_value's scalar attester_type).
     #[schema(example = "[\"tpm\",\"sgx\"]")]
+    #[tabled(display_with = "display_string_list")]
     pub attester_type: Vec<String>,
     /// Whether this is the default policy (by_ids path only).
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[tabled(skip)]
     pub is_default: Option<bool>,
     /// Policy version (by_ids path only).
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[tabled(skip)]
     #[schema(example = 1)]
     pub version: Option<i32>,
-    /// Last update timestamp (Unix epoch seconds).
+    /// Last update timestamp as Unix epoch seconds or milliseconds, depending on the GTA response.
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[schema(example = 1700000000)]
+    #[tabled(skip)]
+    #[schema(example = 1700000000000_i64)]
     pub update_time: Option<i64>,
     /// Validity code: 0 = valid, 1 = invalid (by_ids path only).
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[tabled(skip)]
     #[schema(example = 0)]
     pub valid_code: Option<i32>,
 }
@@ -583,6 +641,12 @@ pub struct AttestationPolicyListResponse {
     /// Total matching count.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_count: Option<i64>,
+    /// Effective page size returned by GTA.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+    /// Effective page offset returned by GTA.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offset: Option<i64>,
 }
 
 /// Request body for POST attestation policy (create).

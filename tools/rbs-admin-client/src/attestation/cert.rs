@@ -14,76 +14,16 @@ use async_trait::async_trait;
 use reqwest::{Method, Url};
 use serde::{Deserialize, Serialize};
 
+pub use rbs_api_types::{
+    CertCreateRequest, CertDeleteRequest, CertListResponse, CertMutationResponse,
+    CertMutationResult as CertMutationCert, CertRecord, CertUpdateRequest, CrlMutationResult as CertMutationCrl,
+    CrlRecord,
+};
+
 use crate::attestation::{CERT_SEGMENT, DEFAULT_AS_PROVIDER};
 use crate::client::AdminClient;
 use crate::error::RbsAdminClientError;
-use crate::{send_empty, send_json};
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-pub struct CertRecord {
-    #[serde(default, rename = "cert_id")]
-    pub id: Option<String>,
-    #[serde(rename = "cert_name")]
-    pub name: String,
-    #[serde(default)]
-    pub description: Option<String>,
-    #[serde(default)]
-    pub content: Option<String>,
-    #[serde(default, rename = "cert_type")]
-    pub cert_type: Vec<String>,
-    #[serde(default)]
-    pub is_default: Option<bool>,
-    #[serde(default)]
-    pub version: Option<u64>,
-    #[serde(default)]
-    pub create_time: Option<u64>,
-    #[serde(default)]
-    pub update_time: Option<u64>,
-    #[serde(default)]
-    pub valid_code: Option<i32>,
-    #[serde(default)]
-    pub cert_revoked_date: Option<u64>,
-    #[serde(default)]
-    pub cert_revoked_reason: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-pub struct CrlRecord {
-    #[serde(default, rename = "crl_id")]
-    pub id: Option<String>,
-    #[serde(rename = "crl_name")]
-    pub name: String,
-    #[serde(default, rename = "crl_content")]
-    pub content: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct CertCreateRequest {
-    pub name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(rename = "type")]
-    pub cert_type: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "crl_content")]
-    pub crl_content: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub is_default: Option<bool>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct CertUpdateRequest {
-    pub id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "type")]
-    pub cert_type: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub is_default: Option<bool>,
-}
+use crate::{send_empty, send_json, validate_path_segment};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct CertListParams {
@@ -91,49 +31,10 @@ pub struct CertListParams {
     pub ids: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "cert_type")]
     pub cert_type: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct CertDeleteRequest {
-    pub delete_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ids: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "type")]
-    pub cert_type: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-pub struct CertListResponse {
-    #[serde(default)]
-    pub certs: Vec<CertRecord>,
-    #[serde(default)]
-    pub crls: Vec<CrlRecord>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-pub struct CertMutationCert {
-    #[serde(default, rename = "cert_id")]
-    pub id: Option<String>,
-    #[serde(rename = "cert_name")]
-    pub name: String,
-    #[serde(default)]
-    pub version: Option<u64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-pub struct CertMutationCrl {
-    #[serde(default, rename = "crl_id")]
-    pub id: Option<String>,
-    #[serde(rename = "crl_name")]
-    pub name: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-pub struct CertMutationResponse {
-    #[serde(default)]
-    pub cert: Option<CertMutationCert>,
-    #[serde(default)]
-    pub crl: Option<CertMutationCrl>,
+    pub limit: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offset: Option<i64>,
 }
 
 #[derive(Clone, Debug)]
@@ -154,11 +55,23 @@ impl CertClient {
             .join(format!("/rbs/v0/attestation/{}/{}", self.as_provider, CERT_SEGMENT).as_str())
             .map_err(|_| RbsAdminClientError::ClientError("base URL cannot be used to build cert path".to_string()))
     }
+
+    fn item_url(&self, id: &str) -> Result<Url, RbsAdminClientError> {
+        validate_path_segment(id, "certificate ID")?;
+        self.client
+            .base_url
+            .join(format!("/rbs/v0/attestation/{}/{}/{}", self.as_provider, CERT_SEGMENT, id).as_str())
+            .map_err(|_| {
+                RbsAdminClientError::ClientError("base URL cannot be used to build cert item path".to_string())
+            })
+    }
 }
 
 #[async_trait]
 pub trait CertService {
     async fn list_certs(&self, params: &CertListParams) -> Result<CertListResponse, RbsAdminClientError>;
+
+    async fn get_cert(&self, id: &str) -> Result<CertListResponse, RbsAdminClientError>;
 
     async fn create_cert(&self, request: &CertCreateRequest) -> Result<CertMutationResponse, RbsAdminClientError>;
 
@@ -183,7 +96,18 @@ impl CertService for CertClient {
                     query.append_pair("cert_type", cert_type);
                 }
             }
+            if let Some(limit) = params.limit {
+                query.append_pair("limit", &limit.to_string());
+            }
+            if let Some(offset) = params.offset {
+                query.append_pair("offset", &offset.to_string());
+            }
         }
+        send_json(&self.client, Method::GET, url, Option::<&()>::None).await
+    }
+
+    async fn get_cert(&self, id: &str) -> Result<CertListResponse, RbsAdminClientError> {
+        let url = self.item_url(id)?;
         send_json(&self.client, Method::GET, url, Option::<&()>::None).await
     }
 
