@@ -2373,7 +2373,7 @@ paths:
       parameters:
       - name: ids
         in: query
-        description: Comma-separated policy IDs
+        description: Comma-separated policy IDs (maximum 10 IDs)
         required: true
         schema:
           type: string

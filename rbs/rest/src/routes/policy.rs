@@ -15,7 +15,7 @@
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, http::StatusCode};
 use rbs_api_types::{
     BatchDeleteQuery, CreatePolicyRequest, ErrorBody, PolicyListQuery, PolicyListResponse,
-    PolicyResponse, UpdatePolicyRequest, validate_policy_id,
+    PolicyResponse, UpdatePolicyRequest, POLICY_BATCH_DELETE_MAX_IDS, validate_policy_id,
 };
 use rbs_core::policy::service::PolicyQuery;
 use rbs_core::RbsCore;
@@ -261,7 +261,7 @@ pub async fn delete_policy(
     tags = ["Policy"],
     security(("bearerAuth" = [])),
     params(
-        ("ids" = String, Query, description = "Comma-separated policy IDs"),
+        ("ids" = String, Query, description = "Comma-separated policy IDs (maximum 10 IDs)"),
     ),
     responses(
         (status = 204, description = "Policies deleted"),
@@ -279,6 +279,11 @@ pub async fn batch_delete_policies(
     let ctx = match require_auth(&req) { Ok(c) => c, Err(r) => return r };
     log::info!("Policy batch_delete HTTP request received: user='{}'", ctx.sub());
     let ids: Vec<String> = query.ids.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+    if ids.len() > POLICY_BATCH_DELETE_MAX_IDS {
+        let msg = format!("policy batch_delete denied: ids count {} exceeds maximum {}", ids.len(), POLICY_BATCH_DELETE_MAX_IDS);
+        log::error!("{}", msg);
+        return HttpResponse::BadRequest().json(ErrorBody::new(msg));
+    }
     for id in &ids {
         if let Err(msg) = validate_policy_id(id) {
             log::error!("Policy batch_delete validation error: {}", msg);

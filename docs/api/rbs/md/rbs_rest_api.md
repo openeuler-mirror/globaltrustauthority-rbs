@@ -1772,7 +1772,7 @@ func main() {
 
 |Name|In|Type|Required|Description|
 |---|---|---|---|---|
-|ids|query|string|true|Comma-separated policy IDs|
+|ids|query|string|true|Comma-separated policy IDs (maximum 10 IDs)|
 
 > Example responses
 
