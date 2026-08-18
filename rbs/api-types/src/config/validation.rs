@@ -193,6 +193,11 @@ const RESOURCE_MAX_CONNECTIONS_MAX: u32 = 10000;
 /// Maximum resource backend retry count.
 const RESOURCE_MAX_RETRIES_MAX: u32 = 100;
 
+/// Minimum/maximum backend response body size in bytes (default 1 MiB, cap 10 MiB).
+/// Bounds memory when reading Vault/OpenBao resource content.
+const RESOURCE_RESPONSE_BODY_BYTES_MIN: u64 = 1024;
+const RESOURCE_RESPONSE_BODY_BYTES_MAX: u64 = 10 * 1024 * 1024;
+
 pub fn parse_octal_str(s: &str) -> Result<u32, String> {
     let s = s.trim();
     if s.is_empty() {
@@ -727,6 +732,14 @@ impl ResourceProviderConfig {
             panic!(
                 "resource.backends['{}'].max_retries = {} exceeds maximum {}",
                 name, self.max_retries, RESOURCE_MAX_RETRIES_MAX
+            );
+        }
+        if self.max_response_body_bytes < RESOURCE_RESPONSE_BODY_BYTES_MIN
+            || self.max_response_body_bytes > RESOURCE_RESPONSE_BODY_BYTES_MAX
+        {
+            panic!(
+                "resource.backends['{}'].max_response_body_bytes = {} is out of range [{}, {}]",
+                name, self.max_response_body_bytes, RESOURCE_RESPONSE_BODY_BYTES_MIN, RESOURCE_RESPONSE_BODY_BYTES_MAX
             );
         }
     }
@@ -1335,12 +1348,35 @@ unknown_field: {}
             timeout: 30,
             max_connections: 100,
             max_retries: 2,
+            ..Default::default()
         }
     }
 
     #[test]
     fn resource_provider_valid_passes() {
         valid_resource_backend().validate("vault");
+    }
+
+    #[test]
+    #[should_panic(expected = "max_response_body_bytes")]
+    fn resource_provider_response_body_below_min_panics() {
+        let mut b = valid_resource_backend();
+        b.max_response_body_bytes = 100;
+        b.validate("vault");
+    }
+
+    #[test]
+    #[should_panic(expected = "max_response_body_bytes")]
+    fn resource_provider_response_body_above_max_panics() {
+        let mut b = valid_resource_backend();
+        b.max_response_body_bytes = 20 * 1024 * 1024;
+        b.validate("vault");
+    }
+
+    #[test]
+    fn resource_provider_response_body_default_is_1mib() {
+        let b = valid_resource_backend();
+        assert_eq!(b.max_response_body_bytes, 1 * 1024 * 1024);
     }
 
     #[test]

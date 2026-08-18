@@ -14,6 +14,7 @@ pub struct VaultBackend {
     pub mount_path: String,
     pub kv_version: String,
     max_retries: u32,
+    max_response_body_bytes: u64,
     client: reqwest::Client,
 }
 
@@ -25,12 +26,14 @@ impl std::fmt::Debug for VaultBackend {
             .field("mount_path", &self.mount_path)
             .field("kv_version", &self.kv_version)
             .field("max_retries", &self.max_retries)
+            .field("max_response_body_bytes", &self.max_response_body_bytes)
             .finish()
     }
 }
 
 impl VaultBackend {
     pub fn new(cfg: &ResourceProviderConfig) -> Self {
+        let max_response_body_bytes = cfg.max_response_body_bytes;
         let client = Self::build_client(cfg);
         Self {
             url: cfg.url.clone(),
@@ -38,6 +41,7 @@ impl VaultBackend {
             mount_path: cfg.mount_path.clone(),
             kv_version: cfg.kv_version.clone(),
             max_retries: cfg.max_retries,
+            max_response_body_bytes,
             client,
         }
     }
@@ -52,6 +56,53 @@ impl VaultBackend {
             builder = builder.danger_accept_invalid_certs(true);
         }
         builder.build().expect("Failed to build Vault HTTP client")
+    }
+
+    /// Read at most `limit` bytes from `resp` into a `Vec<u8>`.
+    ///
+    /// Reads chunk-by-chunk via `Response::chunk()` and aborts with
+    /// [`ResourceError::BackendError`] as soon as the accumulated size would
+    /// exceed `limit`, bounding memory so a misbehaving Vault cannot OOM RBS
+    /// by streaming an oversized response (the unbounded `resp.text()` /
+    /// `resp.json()` reads up to EOF). The buffer never exceeds `limit` bytes.
+    async fn read_capped(mut resp: reqwest::Response, limit: u64) -> Result<Vec<u8>, ResourceError> {
+        let mut buf: Vec<u8> = Vec::new();
+        loop {
+            match resp.chunk().await {
+                Ok(Some(chunk)) => {
+                    if buf.len() as u64 + chunk.len() as u64 > limit {
+                        log::warn!(
+                            "Vault response body exceeded {}-byte limit after {} bytes; rejecting",
+                            limit,
+                            buf.len()
+                        );
+                        return Err(ResourceError::BackendError {
+                            detail: format!("Vault response exceeded {}-byte limit", limit),
+                        });
+                    }
+                    buf.extend_from_slice(&chunk);
+                }
+                Ok(None) => return Ok(buf),
+                Err(e) => {
+                    return Err(ResourceError::BackendError {
+                        detail: format!("Vault response read error: {}", e),
+                    });
+                }
+            }
+        }
+    }
+
+    /// Capture Vault's raw error response body, capped to `limit` bytes.
+    ///
+    /// A body exceeding the limit is replaced with a generic marker (never
+    /// buffers unbounded). Returns `format!("HTTP {status}")` when empty or
+    /// unreadable — matching the previous fallback behaviour.
+    async fn extract_error_body_capped(resp: reqwest::Response, status: u16, limit: u64) -> String {
+        match Self::read_capped(resp, limit).await {
+            Ok(bytes) if !bytes.is_empty() => String::from_utf8_lossy(&bytes).into_owned(),
+            Ok(_) => format!("HTTP {}", status),
+            Err(_) => format!("HTTP {} (response body exceeded {}-byte limit)", status, limit),
+        }
     }
 
     /// Extract path segments from a resource URI:
@@ -115,7 +166,7 @@ impl VaultBackend {
                             tokio::time::sleep(RETRY_INTERVAL).await;
                             continue;
                         }
-                        let body = resp.text().await.unwrap_or_default();
+                        let body = Self::extract_error_body_capped(resp, status.as_u16(), self.max_response_body_bytes).await;
                         log::error!(
                             "Vault GET {} failed after {} retries: HTTP {} {}",
                             url,
@@ -170,7 +221,7 @@ impl ResourceBackend for VaultBackend {
             200 => Ok(true),
             404 => Ok(false),
             other => {
-                let body = resp.text().await.unwrap_or_default();
+                let body = Self::extract_error_body_capped(resp, other, self.max_response_body_bytes).await;
                 log::error!("Vault check_resource_exists returned HTTP {}: {}", other, body);
                 Err(ResourceError::BackendError {
                     detail: format!("Vault returned HTTP {}: {}", other, body),
@@ -188,20 +239,18 @@ impl ResourceBackend for VaultBackend {
 
         let status = resp.status().as_u16();
         if status != 200 {
-            let body = resp.text().await.unwrap_or_default();
+            let body = Self::extract_error_body_capped(resp, status, self.max_response_body_bytes).await;
             log::error!("Vault get_resource_content returned HTTP {}: {}", status, body);
             return Err(ResourceError::BackendError {
                 detail: format!("Vault returned HTTP {}: {}", status, body),
             });
         }
 
-        let json: serde_json::Value = resp
-            .json()
-            .await
-            .map_err(|e| {
-                log::error!("Vault get_resource_content response parse error: {}", e);
-                ResourceError::BackendError { detail: e.to_string() }
-            })?;
+        let bytes = Self::read_capped(resp, self.max_response_body_bytes).await?;
+        let json: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| {
+            log::error!("Vault get_resource_content response parse error: {}", e);
+            ResourceError::BackendError { detail: e.to_string() }
+        })?;
 
         // Extract data from Vault response
         // KV v2: { "data": { "data": { ... } } }
@@ -251,6 +300,7 @@ mod tests {
             timeout: 30,
             max_connections: 10,
             max_retries,
+            ..Default::default()
         }
     }
 
@@ -366,5 +416,72 @@ mod tests {
             elapsed.as_millis() >= 4_900,
             "expected one 5s retry sleep for non-timeout transport error, took {:?}", elapsed
         );
+    }
+
+    /// Build a backend whose response body cap is `limit` bytes.
+    fn cfg_with_limit(uri: &str, limit: u64) -> ResourceProviderConfig {
+        let mut c = cfg(uri, 0);
+        c.max_response_body_bytes = limit;
+        c
+    }
+
+    /// UT-VB-05: a 200 success body exceeding the cap is rejected (fail-closed),
+    /// never partially parsed / buffered unbounded.
+    #[tokio::test]
+    async fn ut_vb_05_oversized_success_body_rejected() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET")).and(path(DATA_PATH))
+            .respond_with(ResponseTemplate::new(200).set_body_string("0123456789abcdef0123456789abcdef"))
+            .mount(&server)
+            .await;
+
+        let backend = VaultBackend::new(&cfg_with_limit(&server.uri(), 8));
+        let result = backend.get_resource_content(URI).await;
+        match result {
+            Err(ResourceError::BackendError { detail }) => {
+                assert!(detail.contains("exceeded 8"), "detail should mention 8-byte limit, got: {}", detail);
+            }
+            other => panic!("expected BackendError for oversized body, got {:?}", other),
+        }
+    }
+
+    /// UT-VB-06: a 5xx error body exceeding the cap is NOT buffered in full —
+    /// it collapses to a generic marker mentioning the limit.
+    #[tokio::test]
+    async fn ut_vb_06_oversized_error_body_truncated() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET")).and(path(DATA_PATH))
+            .respond_with(ResponseTemplate::new(503).set_body_string("X".repeat(10_000)))
+            .mount(&server)
+            .await;
+
+        let backend = VaultBackend::new(&cfg_with_limit(&server.uri(), 8));
+        let result = backend.get_resource_content(URI).await;
+        match result {
+            Err(ResourceError::BackendError { detail }) => {
+                assert!(detail.contains("exceeded 8"), "error body should be generic marker, got: {}", detail);
+                assert!(!detail.contains("XXXX"), "error body must not contain raw oversized content");
+            }
+            other => panic!("expected BackendError with truncated body, got {:?}", other),
+        }
+    }
+
+    /// UT-VB-07: a within-limit 200 body parses normally.
+    #[tokio::test]
+    async fn ut_vb_07_within_limit_body_succeeds() {
+        let server = MockServer::start().await;
+        // KV v2 envelope: { "data": { "data": { ... } } }
+        Mock::given(method("GET")).and(path(DATA_PATH))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                serde_json::json!({ "data": { "data": { "secret": "value" } } }),
+            ))
+            .mount(&server)
+            .await;
+
+        let backend = VaultBackend::new(&cfg_with_limit(&server.uri(), 1024));
+        let result = backend.get_resource_content(URI).await;
+        assert!(result.is_ok(), "within-limit body should parse: {:?}", result.err());
+        let content = result.unwrap();
+        assert_eq!(&content[..], br#"{"secret":"value"}"#);
     }
 }
