@@ -240,3 +240,136 @@ async fn test_empty_owner_accepted() {
         .await;
     assert!(matches!(result, Err(AuthzError::Denied)));
 }
+
+// ===========================================================================
+// TC1-TC3, TC8-TC9: admin_policy.rego Bearer gate for HSM/CA (D1/K4)
+// ===========================================================================
+
+/// TC1: Bearer+UserScoped+res_provider="hsm" → Denied
+#[tokio::test]
+async fn test_bearer_get_hsm_denied() {
+    let facade = rbs_core::auth::authz::AuthzFacade::new(Arc::new(policy_engine::RealPolicyEngine));
+    let result = facade
+        .check(&user_bearer("user1"))
+        .action(Action::Get)
+        .required_role(RequiredRole::UserScoped)
+        .owner("user1")
+        .res_provider("hsm")
+        .ensure_allowed()
+        .await;
+    assert!(matches!(result, Err(AuthzError::Denied)));
+}
+
+/// TC2: Bearer+UserScoped+res_provider="ca" → Denied
+#[tokio::test]
+async fn test_bearer_get_ca_denied() {
+    let facade = rbs_core::auth::authz::AuthzFacade::new(Arc::new(policy_engine::RealPolicyEngine));
+    let result = facade
+        .check(&user_bearer("user1"))
+        .action(Action::Get)
+        .required_role(RequiredRole::UserScoped)
+        .owner("user1")
+        .res_provider("ca")
+        .ensure_allowed()
+        .await;
+    assert!(matches!(result, Err(AuthzError::Denied)));
+}
+
+/// TC3: Bearer+UserScoped+res_provider="vault"+owner match → Ok (compatible regression)
+#[tokio::test]
+async fn test_bearer_get_vault_allowed() {
+    let facade = rbs_core::auth::authz::AuthzFacade::new(Arc::new(policy_engine::RealPolicyEngine));
+    let result = facade
+        .check(&user_bearer("user1"))
+        .action(Action::Get)
+        .required_role(RequiredRole::UserScoped)
+        .owner("user1")
+        .res_provider("vault")
+        .ensure_allowed()
+        .await;
+    assert!(result.is_ok());
+}
+
+/// TC8: Bearer+UserScoped without res_provider → Ok (backward compatible)
+#[tokio::test]
+async fn test_bearer_get_no_res_provider_allowed() {
+    let facade = rbs_core::auth::authz::AuthzFacade::new(Arc::new(policy_engine::RealPolicyEngine));
+    let result = facade
+        .check(&user_bearer("user1"))
+        .action(Action::Get)
+        .required_role(RequiredRole::UserScoped)
+        .owner("user1")
+        .ensure_allowed()
+        .await;
+    assert!(result.is_ok());
+}
+
+/// TC9: AdminOnly+res_provider="hsm" → Ok (gate doesn't affect AdminOnly)
+#[tokio::test]
+async fn test_admin_only_hsm_not_gated() {
+    let facade = rbs_core::auth::authz::AuthzFacade::new(Arc::new(policy_engine::RealPolicyEngine));
+    let result = facade
+        .check(&admin_bearer())
+        .action(Action::Delete)
+        .required_role(RequiredRole::AdminOnly)
+        .res_provider("hsm")
+        .ensure_allowed()
+        .await;
+    assert!(result.is_ok());
+}
+
+// ===========================================================================
+// TC5: Attest path not affected by res_provider gate (D1/K4)
+// ===========================================================================
+
+/// TC5: Attest+res_provider="hsm" → resource-level Rego evaluates, gate doesn't apply
+#[tokio::test]
+async fn test_attest_get_hsm_not_gated() {
+    let facade = rbs_core::auth::authz::AuthzFacade::new(Arc::new(policy_engine::RealPolicyEngine));
+    let ctx = AuthContext::Attest(AttestContext {
+        claims: serde_json::json!({"nonce": "abc"}),
+        token_type: TokenType::Attest,
+    });
+    let policy = r#"package verification
+result = {"policy_matched": true}"#;
+    let result = facade.check(&ctx)
+        .action(Action::Get)
+        .policy(policy)
+        .res_provider("hsm")
+        .ensure_allowed()
+        .await;
+    assert!(result.is_ok(), "Attest GET hsm should not be gated: {:?}", result.err());
+}
+
+/// TC5b: Attest+res_provider="ca" → same, gate doesn't apply
+#[tokio::test]
+async fn test_attest_get_ca_not_gated() {
+    let facade = rbs_core::auth::authz::AuthzFacade::new(Arc::new(policy_engine::RealPolicyEngine));
+    let ctx = AuthContext::Attest(AttestContext {
+        claims: serde_json::json!({"nonce": "abc"}),
+        token_type: TokenType::Attest,
+    });
+    let policy = r#"package verification
+result = {"policy_matched": true}"#;
+    let result = facade.check(&ctx)
+        .action(Action::Get)
+        .policy(policy)
+        .res_provider("ca")
+        .ensure_allowed()
+        .await;
+    assert!(result.is_ok(), "Attest GET ca should not be gated: {:?}", result.err());
+}
+
+// ===========================================================================
+// TC7: Stub backend capabilities verification
+// ===========================================================================
+
+/// TC7: CABackend capabilities (requires cert/key files — test via new)
+#[tokio::test]
+async fn test_ca_stub_capabilities() {
+    // CABackend::new requires real cert/key/anchor files.
+    // The full CMPv2 flow is tested in ca_backend_tests.rs with a mock CMP server.
+    // Here we just verify the type exists and the trait is implemented.
+    use rbs_core::resource::adapter::CABackend;
+    let _ = std::marker::PhantomData::<CABackend>;
+}

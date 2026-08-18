@@ -35,6 +35,15 @@ pub enum ResourceError {
 
     #[error("JWE encryption failed: {reason}")]
     JweEncryptionFailed { reason: String },
+
+    #[error("backend operation unsupported")]
+    BackendOperationUnsupported,
+
+    #[error("csr required for this resource provider")]
+    CsrRequired,
+
+    #[error("ca request pending")]
+    CaRequestPending,
 }
 
 impl ResourceError {
@@ -47,9 +56,12 @@ impl ResourceError {
             | ResourceError::PolicyIdInvalid(_)
             | ResourceError::BackendNotFound
             | ResourceError::BackendUnsupported { .. }
-            | ResourceError::JweEncryptionFailed { .. } => 400,
+            | ResourceError::JweEncryptionFailed { .. }
+            | ResourceError::BackendOperationUnsupported
+            | ResourceError::CsrRequired => 400,
             ResourceError::NotFound => 404,
             ResourceError::BackendError { .. } => 502,
+            ResourceError::CaRequestPending => 202,
         }
     }
 

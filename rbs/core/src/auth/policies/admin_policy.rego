@@ -43,6 +43,8 @@ allow {
     input.required_role == "UserScoped"
     check_owner
     check_role_admin_consistency
+    not input.res_provider == "hsm"
+    not input.res_provider == "ca"
 }
 
 result = {"policy_matched": allow}

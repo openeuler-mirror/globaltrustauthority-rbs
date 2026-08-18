@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 /// Resource module configuration.
 #[derive(Debug, Clone)]
 pub struct ResourceConfig {
@@ -6,7 +8,7 @@ pub struct ResourceConfig {
     pub max_resource_name_len: usize,
     pub max_repo_name_len: usize,
     pub max_additional_info_len: usize,
-    pub allowed_resource_types: Vec<String>,
+    pub per_backend_allowed_types: HashMap<String, Vec<String>>,
     pub allowed_content_types: Vec<String>,
     pub allowed_export_modes: Vec<String>,
     pub configured_backends: Vec<String>,
@@ -19,7 +21,9 @@ impl Default for ResourceConfig {
             max_resource_name_len: 32,
             max_repo_name_len: 32,
             max_additional_info_len: 512,
-            allowed_resource_types: vec!["secret".to_string(), "cert".to_string()],
+            per_backend_allowed_types: HashMap::from([
+                ("vault".to_string(), vec!["secret".to_string(), "cert".to_string()]),
+            ]),
             allowed_content_types: vec![
                 "jwt".to_string(),
                 "json".to_string(),

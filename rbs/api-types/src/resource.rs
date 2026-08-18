@@ -42,6 +42,8 @@ pub struct CreateResourceRequest {
     pub export_mode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub additional_info: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
 }
 
 // ── Update ──────────────────────────────────────────────────────────────────
@@ -64,6 +66,8 @@ pub struct UpdateResourceRequest {
     pub export_mode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub additional_info: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
 }
 
 // ── Response (create / update) ──────────────────────────────────────────────
@@ -126,3 +130,22 @@ pub struct ResourceInfoResponse {
 
 /// Same shape as AttestRequest; binds evidence to the POST .../retrieve path.
 pub type ResourceRetrieveRequest = AttestRequest;
+
+// ── Backend addressing & transfer types ────────────────────────────────────
+
+/// Addressing descriptor for a resource in a backend.
+/// Derived from the URI path segments by the Service layer.
+#[derive(Debug, Clone)]
+pub struct ResourceDesc {
+    pub repository_name: String,
+    pub resource_type: String,
+    pub resource_name: String,
+}
+
+/// Options passed to `get_resource_content`.
+/// `csr_der` carries a PKCS#10 CSR (DER bytes, zeroized on drop) for CA backends.
+/// Vault/HSM backends ignore it.
+#[derive(Debug, Clone)]
+pub struct GetResourceOptions {
+    pub csr_der: Option<zeroize::Zeroizing<Vec<u8>>>,
+}

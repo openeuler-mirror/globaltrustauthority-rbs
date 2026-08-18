@@ -3734,6 +3734,10 @@ components:
           type:
           - string
           - 'null'
+        content:
+          type:
+          - string
+          - 'null'
     CrlMutationResult:
       type: object
       description: |-
@@ -4455,6 +4459,10 @@ components:
           - string
           - 'null'
         additional_info:
+          type:
+          - string
+          - 'null'
+        content:
           type:
           - string
           - 'null'

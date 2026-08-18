@@ -18,10 +18,11 @@ use async_trait::async_trait;
 use serde_json::json;
 use zeroize::Zeroizing;
 
+use rbs_api_types::{GetResourceOptions, ResourceDesc};
 use rbs_core::auth::authz::{Action, AuthzError, RequiredRole};
 use rbs_core::auth::authz_checker::AuthzChecker;
 use rbs_core::auth::context::{AuthContext, BearerContext, TokenType};
-use rbs_core::resource::adapter::{BackendProvider, PolicyClient, ResourceBackend};
+use rbs_core::resource::adapter::{BackendCapabilities, BackendProvider, PolicyClient, ResourceBackend};
 use rbs_core::resource::error::ResourceError;
 use rbs_core::resource::repository::{ResourceEntity, ResourceRepository};
 use rbs_core::resource::validator::ResourceValidator;
@@ -135,10 +136,17 @@ impl MockResourceBackend {
 
 #[async_trait]
 impl ResourceBackend for MockResourceBackend {
-    async fn check_resource_exists(&self, _uri: &str) -> MockResult<bool> {
+    fn capabilities(&self) -> BackendCapabilities {
+        BackendCapabilities::CHECK
+    }
+    async fn check_resource_exists(&self, _desc: &ResourceDesc) -> MockResult<bool> {
         self.check_exists.lock().unwrap().clone()
     }
-    async fn get_resource_content(&self, _uri: &str) -> MockResult<Zeroizing<Vec<u8>>> {
+    async fn get_resource_content(
+        &self,
+        _desc: &ResourceDesc,
+        _opts: GetResourceOptions,
+    ) -> MockResult<Zeroizing<Vec<u8>>> {
         self.get_content.lock().unwrap().clone()
     }
 }
@@ -174,7 +182,7 @@ impl AuthzChecker for MockAuthzChecker {
             },
         }
     }
-    async fn check_resource_get(&self, ctx: &AuthContext, _owner: &str, policy: &str) -> Result<(), AuthzError> {
+    async fn check_resource_get(&self, ctx: &AuthContext, _owner: &str, policy: &str, _res_provider: Option<&str>) -> Result<(), AuthzError> {
         if *self.deny_all.lock().unwrap() {
             return Err(AuthzError::Denied);
         }
@@ -216,6 +224,7 @@ pub(crate) fn create_req() -> CreateResourceRequest {
         content_type: Some("text".to_string()),
         export_mode: Some("jwe".to_string()),
         additional_info: None,
+        content: None,
     }
 }
 
@@ -225,6 +234,7 @@ pub(crate) fn update_req() -> UpdateResourceRequest {
         content_type: Some("text".to_string()),
         export_mode: Some("jwe".to_string()),
         additional_info: None,
+        content: None,
     }
 }
 

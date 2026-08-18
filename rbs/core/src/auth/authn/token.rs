@@ -508,11 +508,10 @@ fn encode_der_length(len: usize) -> Vec<u8> {
 mod tests {
     use super::*;
     use std::io::Write;
-    use std::sync::Once;
+    use std::sync::OnceLock;
 
-    static INIT: Once = Once::new();
-    static mut TEST_KEY_PATH: Option<String> = None;
-    static mut TEST_ED25519_KEY_PATH: Option<String> = None;
+    static TEST_KEY_PATH: OnceLock<String> = OnceLock::new();
+    static TEST_ED25519_KEY_PATH: OnceLock<String> = OnceLock::new();
 
     /// Generate a fresh RSA public key PEM for each test session.
     fn generate_test_rsa_public_key_pem() -> String {
@@ -524,9 +523,10 @@ mod tests {
     const MALFORMED_TOKEN: &str = "not.a.valid.token";
 
     fn setup_test_keys() -> (String, String) {
-        INIT.call_once(|| {
+        let temp_dir = std::env::temp_dir();
+
+        let rsa_key_path = TEST_KEY_PATH.get_or_init(|| {
             let pem = generate_test_rsa_public_key_pem();
-            let temp_dir = std::env::temp_dir();
 
             // RSA key
             let rsa_key_path = temp_dir.join("rbs_test_attest_rsa_pubkey.pem");
@@ -534,10 +534,10 @@ mod tests {
                 std::fs::File::create(&rsa_key_path).expect("Failed to create temp RSA key file");
             file.write_all(pem.as_bytes())
                 .expect("Failed to write RSA key");
-            unsafe {
-                TEST_KEY_PATH = Some(rsa_key_path.to_string_lossy().to_string());
-            }
+            rsa_key_path.to_string_lossy().to_string()
+        }).clone();
 
+        let ed_key_path = TEST_ED25519_KEY_PATH.get_or_init(|| {
             // Ed25519 key — generated fresh
             let ed_key_path = temp_dir.join("rbs_test_attest_ed_pubkey.pem");
             let ed_key = openssl::pkey::PKey::generate_ed25519().unwrap();
@@ -547,16 +547,10 @@ mod tests {
             file2
                 .write_all(&ed_pem)
                 .expect("Failed to write Ed key");
-            unsafe {
-                TEST_ED25519_KEY_PATH = Some(ed_key_path.to_string_lossy().to_string());
-            }
-        });
-        unsafe {
-            (
-                TEST_KEY_PATH.clone().unwrap(),
-                TEST_ED25519_KEY_PATH.clone().unwrap(),
-            )
-        }
+            ed_key_path.to_string_lossy().to_string()
+        }).clone();
+
+        (rsa_key_path, ed_key_path)
     }
 
     fn create_verifier() -> AttestTokenVerifier {

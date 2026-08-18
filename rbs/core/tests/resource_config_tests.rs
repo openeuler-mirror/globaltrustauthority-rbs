@@ -39,11 +39,13 @@ fn test_default_max_additional_info_len() {
 }
 
 #[test]
-fn test_default_allowed_resource_types() {
-    let types = ResourceConfig::default().allowed_resource_types;
-    assert_eq!(types.len(), 2);
-    assert!(types.contains(&"secret".to_string()));
-    assert!(types.contains(&"cert".to_string()));
+fn test_default_per_backend_allowed_types() {
+    let types = ResourceConfig::default().per_backend_allowed_types;
+    assert!(types.contains_key("vault"));
+    let vault_types = types.get("vault").unwrap();
+    assert_eq!(vault_types.len(), 2);
+    assert!(vault_types.contains(&"secret".to_string()));
+    assert!(vault_types.contains(&"cert".to_string()));
 }
 
 #[test]
@@ -78,5 +80,5 @@ fn test_clone() {
     let cfg = ResourceConfig::default();
     let cloned = cfg.clone();
     assert_eq!(cloned.max_resource_name_len, cfg.max_resource_name_len);
-    assert_eq!(cloned.allowed_resource_types, cfg.allowed_resource_types);
+    assert_eq!(cloned.per_backend_allowed_types, cfg.per_backend_allowed_types);
 }

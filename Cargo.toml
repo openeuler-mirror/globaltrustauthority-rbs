@@ -42,6 +42,10 @@ validator = { version = "0.20", features = ["derive"] }
 josekit = "0.10.3"
 jsonwebtoken = { version = "10.3.0", features = ["rust_crypto"] }
 chrono = "0.4.44"
+cryptoki = { version = "0.7", features = ["generate-bindings"] }
+cmpv2 = "0.2.0"
+der = "0.7"
+x509-cert = "0.2"
 dashmap = "6"
 wiremock = "0.6"
 cbindgen = "0.29.0"
@@ -54,3 +58,4 @@ actix-web = "4"
 actix-rt = "2"
 strum = "0.26"
 strum_macros = "0.26"
+bitflags = "2"

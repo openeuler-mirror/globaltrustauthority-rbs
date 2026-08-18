@@ -90,31 +90,90 @@ fn test_resource_name_length_1_accepted() {
 // resource_type  (UT-RV-006 .. 008)
 // ===========================================================================
 
-/// UT-RV-006: resource_type "key" (invalid) -> Err(ParamInvalid {field: "resource_type"})
+/// UT-RV-006: resource_type "key" (invalid for vault) -> Err(ParamInvalid {field: "resource_type"})
 #[test]
 fn test_resource_type_key_invalid_rejected() {
     let v = validator();
-    let result = v.validate_resource_type("key");
+    let result = v.validate_resource_type("vault", "key");
     assert!(matches!(
         result,
         Err(ResourceError::ParamInvalid { field: "resource_type" })
     ));
 }
 
-/// UT-RV-007: resource_type "secret" -> Ok(())
+/// UT-RV-007: resource_type "secret" (valid for vault) -> Ok(())
 #[test]
 fn test_resource_type_secret_accepted() {
     let v = validator();
-    let result = v.validate_resource_type("secret");
+    let result = v.validate_resource_type("vault", "secret");
     assert!(result.is_ok());
 }
 
-/// UT-RV-008: resource_type "cert" -> Ok(())
+/// UT-RV-008: resource_type "cert" (valid for vault) -> Ok(())
 #[test]
 fn test_resource_type_cert_accepted() {
     let v = validator();
-    let result = v.validate_resource_type("cert");
+    let result = v.validate_resource_type("vault", "cert");
     assert!(result.is_ok());
+}
+
+// ===========================================================================
+// TC-P1-03: validate_resource_type per-backend whitelist (D5/K9)
+// ===========================================================================
+
+use std::collections::HashMap;
+
+fn multi_backend_validator() -> ResourceValidator {
+    let config = ResourceConfig {
+        per_backend_allowed_types: HashMap::from([
+            ("vault".to_string(), vec!["secret".to_string(), "cert".to_string()]),
+            ("ca".to_string(), vec!["certificate".to_string(), "cert".to_string()]),
+            ("hsm".to_string(), vec!["key".to_string(), "secret".to_string()]),
+        ]),
+        ..ResourceConfig::default()
+    };
+    ResourceValidator::new(config)
+}
+
+/// UT-RV-101: ("vault", "secret") -> Ok
+#[test]
+fn test_rv_101_vault_secret() {
+    let v = multi_backend_validator();
+    assert!(v.validate_resource_type("vault", "secret").is_ok());
+}
+
+/// UT-RV-102: ("ca", "certificate") -> Ok
+#[test]
+fn test_rv_102_ca_certificate() {
+    let v = multi_backend_validator();
+    assert!(v.validate_resource_type("ca", "certificate").is_ok());
+}
+
+/// UT-RV-103: ("hsm", "key") -> Ok
+#[test]
+fn test_rv_103_hsm_key() {
+    let v = multi_backend_validator();
+    assert!(v.validate_resource_type("hsm", "key").is_ok());
+}
+
+/// UT-RV-104: ("vault", "key") -> ParamInvalid {field: "resource_type"}
+#[test]
+fn test_rv_104_vault_key_invalid() {
+    let v = multi_backend_validator();
+    match v.validate_resource_type("vault", "key") {
+        Err(ResourceError::ParamInvalid { field }) if field == "resource_type" => {}
+        other => panic!("Expected ParamInvalid{{resource_type}}, got {:?}", other),
+    }
+}
+
+/// UT-RV-105: ("unknown", "secret") -> ParamInvalid {field: "res_provider"}
+#[test]
+fn test_rv_105_unknown_provider() {
+    let v = multi_backend_validator();
+    match v.validate_resource_type("unknown", "secret") {
+        Err(ResourceError::ParamInvalid { field }) if field == "res_provider" => {}
+        other => panic!("Expected ParamInvalid{{res_provider}}, got {:?}", other),
+    }
 }
 
 // ===========================================================================

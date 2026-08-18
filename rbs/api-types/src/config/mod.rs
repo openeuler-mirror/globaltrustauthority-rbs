@@ -598,14 +598,29 @@ impl Default for PolicyLimitsConfig {
 // ── Resource backend configuration ──
 
 fn default_kv_version() -> String { "v2".to_string() }
+fn default_true() -> bool { true }
+fn default_timeout_u32() -> u32 { 30 }
+fn default_max_connections_config() -> u32 { 100 }
+fn default_max_retries() -> u32 { 2 }
+fn default_max_response_bytes() -> u32 { 1_048_576 }
+fn default_idempotency_max_entries() -> u32 { 1000 }
+fn default_idempotency_ttl_seconds() -> u32 { 300 }
+/// Default cap on a Vault/OpenBao backend's response body size (1 MiB).
+fn default_vault_response_body_bytes() -> u64 { 1 * 1024 * 1024 }
 
-/// Configuration for a single resource provider backend.
+/// Resource provider backend configuration as a tagged enum.
+/// The `type` field in YAML/JSON dispatches the variant.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct ResourceProviderConfig {
-    /// Backend type: "vault" for OpenBao / HashiCorp Vault.
-    #[serde(rename = "type")]
-    pub backend_type: String,
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum ResourceProviderConfig {
+    Vault(VaultConfig),
+    Ca(CaConfig),
+    Hsm(HsmConfig),
+}
+
+/// Vault (HashiCorp/OpenBao) backend configuration.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VaultConfig {
     /// Base URL of the backend (e.g. "http://localhost:8200").
     pub url: String,
     /// Authentication token for the backend (redacted in Debug output, zeroized on drop).
@@ -634,30 +649,108 @@ pub struct ResourceProviderConfig {
     /// response. Validated to [RESOURCE_RESPONSE_BODY_BYTES_MIN, MAX].
     #[serde(default = "default_vault_response_body_bytes")]
     pub max_response_body_bytes: u64,
+    /// Allowed resource types served by this backend (e.g. ["secret", "cert"]).
+    pub allowed_resource_types: Vec<String>,
 }
 
-fn default_true() -> bool { true }
-fn default_timeout_u32() -> u32 { 30 }
-fn default_max_connections_config() -> u32 { 100 }
-fn default_max_retries() -> u32 { 2 }
-/// Default cap on a Vault/OpenBao backend's response body size (1 MiB).
-fn default_vault_response_body_bytes() -> u64 { 1 * 1024 * 1024 }
+/// CA (CMPv2) backend configuration.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CaConfig {
+    /// Base URL of the CMPv2 endpoint.
+    pub url: String,
+    /// TLS settings for the CMPv2 HTTPS transport.
+    #[serde(default)]
+    pub https: HttpsConfig,
+    /// Path to the message-protection (signing) certificate file.
+    pub message_protection_cert_file: String,
+    /// Path to the message-protection (signing) private key file.
+    pub message_protection_key_file: String,
+    /// Path to the trust-anchors file used to verify CMP responses.
+    pub response_protection_trust_anchors_file: String,
+    /// Cert profile name sent to the CA in the CMP PKIHeader generalInfo
+    /// (id-it-certProfile, OID 1.3.6.1.5.5.7.4.21). Empty = omit (CA must
+    /// default a profile for p10cr requests).
+    #[serde(default)]
+    pub cert_profile: String,
+    /// Allowed resource types served by this backend (e.g. ["certificate", "cert"]).
+    pub allowed_resource_types: Vec<String>,
+    /// Maximum accepted response body size in bytes (default: 1 MiB).
+    #[serde(default = "default_max_response_bytes")]
+    pub max_response_bytes: u32,
+    /// Request timeout in seconds (default: 30).
+    #[serde(default = "default_timeout_u32")]
+    pub timeout: u32,
+    /// Idempotency LRU cache for issued certificates.
+    #[serde(default)]
+    pub idempotency: IdempotencyConfig,
+}
 
-impl Default for ResourceProviderConfig {
+/// TLS configuration for CA backend.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HttpsConfig {
+    /// Whether to verify the peer certificate (default: true).
+    pub verify: bool,
+    /// Path to the CA bundle file for peer verification.
+    pub ca_file: String,
+}
+
+impl Default for HttpsConfig {
+    fn default() -> Self {
+        Self { verify: true, ca_file: String::new() }
+    }
+}
+
+/// Idempotency LRU cache configuration for CA backend.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct IdempotencyConfig {
+    /// Maximum number of cached issued certificates (default: 1000).
+    pub max_entries: u32,
+    /// Time-to-live for a cache entry in seconds (default: 300).
+    pub ttl_seconds: u32,
+}
+
+impl Default for IdempotencyConfig {
     fn default() -> Self {
         Self {
-            backend_type: "vault".to_string(),
-            url: String::new(),
-            token: Sensitive::new(String::new()),
-            mount_path: "secret".to_string(),
-            kv_version: default_kv_version(),
-            verify_ssl: default_true(),
-            timeout: default_timeout_u32(),
-            max_connections: default_max_connections_config(),
-            max_retries: default_max_retries(),
-            max_response_body_bytes: default_vault_response_body_bytes(),
+            max_entries: default_idempotency_max_entries(),
+            ttl_seconds: default_idempotency_ttl_seconds(),
         }
     }
+}
+
+/// HSM (PKCS#11) backend configuration.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HsmConfig {
+    /// Filesystem path to the PKCS#11 module shared library.
+    pub module_path: String,
+    /// Token slot selection.
+    pub slot: SlotConfig,
+    /// Credential lookup for the PKCS#11 login PIN.
+    pub credentials: CredentialsConfig,
+    /// Allowed resource types served by this backend (e.g. ["key", "secret"]).
+    pub allowed_resource_types: Vec<String>,
+    /// Maximum accepted key material size in bytes (default: 1 MiB).
+    #[serde(default = "default_max_response_bytes")]
+    pub max_key_bytes: u32,
+    /// Request timeout in seconds (default: 30).
+    #[serde(default = "default_timeout_u32")]
+    pub timeout: u32,
+}
+
+/// PKCS#11 token slot configuration.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SlotConfig {
+    /// Slot label used to find the target token.
+    pub label: String,
+}
+
+/// PKCS#11 credentials configuration.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CredentialsConfig {
+    /// Name of the environment variable holding the PKCS#11 login PIN.
+    pub pin_env: String,
 }
 
 /// Resource providers configuration: backends indexed by provider name.

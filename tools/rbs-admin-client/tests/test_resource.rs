@@ -41,12 +41,14 @@ async fn resource_operations_report_url_build_failure() {
         additional_info: None,
         content_type: Some("text".to_string()),
         export_mode: Some("plain".to_string()),
+        content: None,
     };
     let update = UpdateResourceRequest {
         policy_id: Some("policy-2".to_string()),
         additional_info: Some("Zm9v".to_string()),
         content_type: Some("json".to_string()),
         export_mode: Some("jwe".to_string()),
+        content: None,
     };
     assert_eq!(
         client.get_resource_info(&path).await.expect_err("get info should fail").to_string(),

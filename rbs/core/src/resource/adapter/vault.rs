@@ -1,11 +1,17 @@
-use super::ResourceBackend;
+use super::{BackendCapabilities, ResourceBackend};
 use crate::resource::error::ResourceError;
-use rbs_api_types::config::ResourceProviderConfig;
+use rbs_api_types::{GetResourceOptions, ResourceDesc};
+use rbs_api_types::config::VaultConfig;
 use std::time::Duration;
 use zeroize::Zeroizing;
 
 /// Fixed delay between Vault backend retry attempts (mirrors GTA attestation adapter).
 const RETRY_INTERVAL: Duration = Duration::from_secs(5);
+
+/// Valid resource_type values for the Vault backend.
+/// `allowed_resource_types` in `VaultConfig` may only contain these; at least
+/// one is required (enforced by `validation.rs` at startup).
+const VAULT_ALLOWED_RESOURCE_TYPES: &[&str] = &["cert", "secret"];
 
 /// VaultBackend - adapter for OpenBao / HashiCorp Vault.
 pub struct VaultBackend {
@@ -32,30 +38,37 @@ impl std::fmt::Debug for VaultBackend {
 }
 
 impl VaultBackend {
-    pub fn new(cfg: &ResourceProviderConfig) -> Self {
-        let max_response_body_bytes = cfg.max_response_body_bytes;
-        let client = Self::build_client(cfg);
-        Self {
+    pub fn new(cfg: &VaultConfig) -> Result<Self, String> {
+        for t in &cfg.allowed_resource_types {
+            if !VAULT_ALLOWED_RESOURCE_TYPES.contains(&t.as_str()) {
+                return Err(format!(
+                    "VaultBackend: invalid resource_type '{}' in allowed_resource_types; valid: {:?}",
+                    t, VAULT_ALLOWED_RESOURCE_TYPES
+                ));
+            }
+        }
+        let client = Self::build_client(cfg)?;
+        Ok(Self {
             url: cfg.url.clone(),
             token: Zeroizing::new(cfg.token.get().clone()),
             mount_path: cfg.mount_path.clone(),
             kv_version: cfg.kv_version.clone(),
             max_retries: cfg.max_retries,
-            max_response_body_bytes,
+            max_response_body_bytes: cfg.max_response_body_bytes,
             client,
-        }
+        })
     }
 
     /// Build the HTTP client, honouring timeout / TLS verification / connection
     /// pool limits from the backend config (previously discarded by `Client::new()`).
-    fn build_client(cfg: &ResourceProviderConfig) -> reqwest::Client {
+    fn build_client(cfg: &VaultConfig) -> Result<reqwest::Client, String> {
         let mut builder = reqwest::Client::builder()
             .timeout(Duration::from_secs(cfg.timeout as u64))
             .pool_max_idle_per_host(cfg.max_connections as usize);
         if !cfg.verify_ssl {
             builder = builder.danger_accept_invalid_certs(true);
         }
-        builder.build().expect("Failed to build Vault HTTP client")
+        builder.build().map_err(|e| format!("Failed to build Vault HTTP client: {e}"))
     }
 
     /// Read at most `limit` bytes from `resp` into a `Vec<u8>`.
@@ -105,36 +118,34 @@ impl VaultBackend {
         }
     }
 
-    /// Extract path segments from a resource URI:
-    ///   /rbs/v0/{provider}/{repo}/{type}/{name}
-    /// Returns (repo_name, resource_type, resource_name).
-    fn parse_uri_path(uri: &str) -> Result<(&str, &str, &str), ResourceError> {
-        let path = uri.trim_start_matches("/rbs/v0/");
-        let segments: Vec<&str> = path.splitn(4, '/').collect();
-        if segments.len() < 4 {
-            return Err(ResourceError::ParamInvalid { field: "uri" });
-        }
-        Ok((segments[1], segments[2], segments[3]))
-    }
-
-    /// Build the Vault API path for the given resource URI.
-    fn build_vault_path(&self, uri: &str) -> Result<String, ResourceError> {
-        let (repo, res_type, res_name) = Self::parse_uri_path(uri)?;
+    /// Build the Vault API path for the given resource descriptor.
+    fn build_vault_path(&self, desc: &ResourceDesc) -> String {
         let mount = self.mount_path.trim_matches('/');
-        Ok(match self.kv_version.as_str() {
-            "v2" => format!("/v1/{}/data/{}/{}/{}", mount, repo, res_type, res_name),
-            _ => format!("/v1/{}/{}/{}/{}", mount, repo, res_type, res_name),
-        })
+        match self.kv_version.as_str() {
+            "v2" => format!(
+                "/v1/{}/data/{}/{}/{}",
+                mount, desc.repository_name, desc.resource_type, desc.resource_name
+            ),
+            _ => format!(
+                "/v1/{}/{}/{}/{}",
+                mount, desc.repository_name, desc.resource_type, desc.resource_name
+            ),
+        }
     }
 
     /// Build the Vault metadata check path.
-    fn build_check_path(&self, uri: &str) -> Result<String, ResourceError> {
-        let (repo, res_type, res_name) = Self::parse_uri_path(uri)?;
+    fn build_check_path(&self, desc: &ResourceDesc) -> String {
         let mount = self.mount_path.trim_matches('/');
-        Ok(match self.kv_version.as_str() {
-            "v2" => format!("/v1/{}/metadata/{}/{}/{}", mount, repo, res_type, res_name),
-            _ => format!("/v1/{}/{}/{}/{}", mount, repo, res_type, res_name),
-        })
+        match self.kv_version.as_str() {
+            "v2" => format!(
+                "/v1/{}/metadata/{}/{}/{}",
+                mount, desc.repository_name, desc.resource_type, desc.resource_name
+            ),
+            _ => format!(
+                "/v1/{}/{}/{}/{}",
+                mount, desc.repository_name, desc.resource_type, desc.resource_name
+            ),
+        }
     }
 
     /// Issue a GET with retry semantics mirroring the GTA attestation adapter:
@@ -210,8 +221,17 @@ impl VaultBackend {
 
 #[async_trait::async_trait]
 impl ResourceBackend for VaultBackend {
-    async fn check_resource_exists(&self, uri: &str) -> Result<bool, ResourceError> {
-        let check_path = self.build_check_path(uri)?;
+    /// Vault is a read + CHECK backend: it cannot write or delete secrets
+    /// (those are managed out-of-band), but it can verify a referenced secret
+    /// already exists before RBS registers metadata for it.
+    fn capabilities(&self) -> BackendCapabilities {
+        BackendCapabilities::CHECK
+    }
+
+    /// Verify the referenced Vault secret already exists. Returns `Ok(true)`
+    /// when the metadata path responds 200, `Ok(false)` on 404.
+    async fn check_resource_exists(&self, desc: &ResourceDesc) -> Result<bool, ResourceError> {
+        let check_path = self.build_check_path(desc);
         let url = format!("{}{}", self.url.trim_end_matches('/'), check_path);
 
         log::debug!("Vault check_resource_exists: GET {}", url);
@@ -230,8 +250,12 @@ impl ResourceBackend for VaultBackend {
         }
     }
 
-    async fn get_resource_content(&self, uri: &str) -> Result<Zeroizing<Vec<u8>>, ResourceError> {
-        let data_path = self.build_vault_path(uri)?;
+    async fn get_resource_content(
+        &self,
+        desc: &ResourceDesc,
+        _opts: GetResourceOptions,
+    ) -> Result<Zeroizing<Vec<u8>>, ResourceError> {
+        let data_path = self.build_vault_path(desc);
         let url = format!("{}{}", self.url.trim_end_matches('/'), data_path);
 
         log::debug!("Vault get_resource_content: GET {}", url);
@@ -263,7 +287,10 @@ impl ResourceBackend for VaultBackend {
         };
 
         let data = data.ok_or_else(|| {
-            log::error!("Vault get_resource_content failed: response missing 'data' field for uri '{}'", uri);
+            log::error!(
+                "Vault get_resource_content failed: response missing 'data' field for resource '{}/{}/{}'",
+                desc.repository_name, desc.resource_type, desc.resource_name
+            );
             ResourceError::BackendError {
                 detail: "Vault response missing 'data' field".to_string(),
             }
@@ -289,9 +316,8 @@ mod tests {
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    fn cfg(uri: &str, max_retries: u32) -> ResourceProviderConfig {
-        ResourceProviderConfig {
-            backend_type: "vault".to_string(),
+    fn cfg(uri: &str, max_retries: u32) -> VaultConfig {
+        VaultConfig {
             url: uri.to_string(),
             token: Sensitive::new("s.test".to_string()),
             mount_path: "secret".to_string(),
@@ -300,12 +326,21 @@ mod tests {
             timeout: 30,
             max_connections: 10,
             max_retries,
-            ..Default::default()
+            max_response_body_bytes: 1 * 1024 * 1024,
+            allowed_resource_types: vec!["secret".to_string(), "cert".to_string()],
         }
     }
 
-    const URI: &str = "/rbs/v0/vault/repo1/type1/name1";
     const DATA_PATH: &str = "/v1/secret/data/repo1/type1/name1";
+    const CHECK_PATH: &str = "/v1/secret/metadata/repo1/type1/name1";
+
+    fn desc() -> ResourceDesc {
+        ResourceDesc {
+            repository_name: "repo1".to_string(),
+            resource_type: "type1".to_string(),
+            resource_name: "name1".to_string(),
+        }
+    }
 
     /// UT-VB-01: max_retries=0 and Vault always returns 503 -> immediate failure,
     /// no retry, single HTTP call, no sleep.
@@ -318,9 +353,11 @@ mod tests {
             .mount(&server)
             .await;
 
-        let backend = VaultBackend::new(&cfg(&server.uri(), 0));
+        let backend = VaultBackend::new(&cfg(&server.uri(), 0)).expect("init");
         let start = Instant::now();
-        let result = backend.get_resource_content(URI).await;
+        let result = backend
+            .get_resource_content(&desc(), GetResourceOptions { csr_der: None })
+            .await;
         let elapsed = start.elapsed();
 
         assert!(matches!(result, Err(ResourceError::BackendError { .. })), "expected BackendError, got {:?}", result);
@@ -354,9 +391,11 @@ mod tests {
             .mount(&server)
             .await;
 
-        let backend = VaultBackend::new(&cfg(&server.uri(), 1));
+        let backend = VaultBackend::new(&cfg(&server.uri(), 1)).expect("init");
         let start = Instant::now();
-        let result = backend.get_resource_content(URI).await;
+        let result = backend
+            .get_resource_content(&desc(), GetResourceOptions { csr_der: None })
+            .await;
         let elapsed = start.elapsed();
 
         match &result {
@@ -367,23 +406,24 @@ mod tests {
         server.verify().await;
     }
 
-    /// UT-VB-03: 4xx (404) is not retried even with max_retries=2; check_resource_exists
-    /// returns Ok(false) and only a single HTTP call is made.
+    /// UT-VB-03: 4xx (404) is not retried even with max_retries=2;
+    /// `check_resource_exists` returns `Ok(false)` and only a single HTTP call
+    /// is made.
     #[tokio::test]
     async fn ut_vb_03_client_error_not_retried() {
         let server = MockServer::start().await;
-        Mock::given(method("GET")).and(path("/v1/secret/metadata/repo1/type1/name1"))
+        Mock::given(method("GET")).and(path(CHECK_PATH))
             .respond_with(ResponseTemplate::new(404))
             .expect(1)
             .mount(&server)
             .await;
 
-        let backend = VaultBackend::new(&cfg(&server.uri(), 2));
+        let backend = VaultBackend::new(&cfg(&server.uri(), 2)).expect("init");
         let start = Instant::now();
-        let result = backend.check_resource_exists(URI).await;
+        let result = backend.check_resource_exists(&desc()).await;
         let elapsed = start.elapsed();
 
-        assert_eq!(result.unwrap(), false, "expected Ok(false) for 404");
+        assert!(matches!(result, Ok(false)), "expected Ok(false), got {:?}", result);
         assert!(elapsed.as_millis() < 4_900, "expected no retry sleep for 404, took {:?}", elapsed);
         server.verify().await;
     }
@@ -403,9 +443,11 @@ mod tests {
         drop(listener);
 
         // max_retries=1 => 2 attempts with one 5s backoff sleep between them.
-        let backend = VaultBackend::new(&cfg(&format!("http://{}", addr), 1));
+        let backend = VaultBackend::new(&cfg(&format!("http://{}", addr), 1)).expect("init");
         let start = Instant::now();
-        let result = backend.get_resource_content(URI).await;
+        let result = backend
+            .get_resource_content(&desc(), GetResourceOptions { csr_der: None })
+            .await;
         let elapsed = start.elapsed();
 
         assert!(
@@ -419,7 +461,7 @@ mod tests {
     }
 
     /// Build a backend whose response body cap is `limit` bytes.
-    fn cfg_with_limit(uri: &str, limit: u64) -> ResourceProviderConfig {
+    fn cfg_with_limit(uri: &str, limit: u64) -> VaultConfig {
         let mut c = cfg(uri, 0);
         c.max_response_body_bytes = limit;
         c
@@ -435,8 +477,10 @@ mod tests {
             .mount(&server)
             .await;
 
-        let backend = VaultBackend::new(&cfg_with_limit(&server.uri(), 8));
-        let result = backend.get_resource_content(URI).await;
+        let backend = VaultBackend::new(&cfg_with_limit(&server.uri(), 8)).expect("init");
+        let result = backend
+            .get_resource_content(&desc(), GetResourceOptions { csr_der: None })
+            .await;
         match result {
             Err(ResourceError::BackendError { detail }) => {
                 assert!(detail.contains("exceeded 8"), "detail should mention 8-byte limit, got: {}", detail);
@@ -455,8 +499,10 @@ mod tests {
             .mount(&server)
             .await;
 
-        let backend = VaultBackend::new(&cfg_with_limit(&server.uri(), 8));
-        let result = backend.get_resource_content(URI).await;
+        let backend = VaultBackend::new(&cfg_with_limit(&server.uri(), 8)).expect("init");
+        let result = backend
+            .get_resource_content(&desc(), GetResourceOptions { csr_der: None })
+            .await;
         match result {
             Err(ResourceError::BackendError { detail }) => {
                 assert!(detail.contains("exceeded 8"), "error body should be generic marker, got: {}", detail);
@@ -478,8 +524,10 @@ mod tests {
             .mount(&server)
             .await;
 
-        let backend = VaultBackend::new(&cfg_with_limit(&server.uri(), 1024));
-        let result = backend.get_resource_content(URI).await;
+        let backend = VaultBackend::new(&cfg_with_limit(&server.uri(), 1024)).expect("init");
+        let result = backend
+            .get_resource_content(&desc(), GetResourceOptions { csr_der: None })
+            .await;
         assert!(result.is_ok(), "within-limit body should parse: {:?}", result.err());
         let content = result.unwrap();
         assert_eq!(&content[..], br#"{"secret":"value"}"#);

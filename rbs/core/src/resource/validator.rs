@@ -50,7 +50,7 @@ impl ResourceValidator {
         // Validate each segment
         self.validate_res_provider(&res_provider)?;
         self.validate_repository_name(&repository_name)?;
-        self.validate_resource_type(&resource_type)?;
+        self.validate_resource_type(&res_provider, &resource_type)?;
         self.validate_resource_name(&resource_name)?;
 
         Ok(ParsedUri { res_provider, repository_name, resource_type, resource_name })
@@ -84,9 +84,14 @@ impl ResourceValidator {
         Ok(())
     }
 
-    pub fn validate_resource_type(&self, res_type: &str) -> Result<(), ResourceError> {
-        if !self.config.allowed_resource_types.contains(&res_type.to_string()) {
-            log::error!("Resource validation failed: resource_type '{}' is not allowed", res_type);
+    pub fn validate_resource_type(&self, res_provider: &str, res_type: &str) -> Result<(), ResourceError> {
+        let allowed = self.config.per_backend_allowed_types.get(res_provider)
+            .ok_or_else(|| {
+                log::error!("Resource validation failed: res_provider '{}' not configured in per_backend_allowed_types", res_provider);
+                ResourceError::ParamInvalid { field: "res_provider" }
+            })?;
+        if !allowed.contains(&res_type.to_string()) {
+            log::error!("Resource validation failed: resource_type '{}' is not allowed for provider '{}'", res_type, res_provider);
             return Err(ResourceError::ParamInvalid { field: "resource_type" });
         }
         Ok(())
