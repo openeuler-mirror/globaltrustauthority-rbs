@@ -31,7 +31,8 @@ use crate::routes::error::rbs_error_response;
     ),
     responses(
         (status = 200, description = "Challenge payload with nonce (JSON).", body = AuthChallengeResponse),
-        (status = 503, description = "Attestation provider unavailable.", body = ErrorBody),
+        (status = 502, description = "Attestation backend returned a non-2xx; RBS forwards GTA's status code and wraps GTA's body in the error field.", body = ErrorBody),
+        (status = 503, description = "Attestation provider unreachable or timed out.", body = ErrorBody),
         (status = 500, description = "Internal server error.", body = ErrorBody),
     )
 )]
@@ -58,7 +59,8 @@ pub async fn get_challenge(
     responses(
         (status = 200, description = "Attestation token (JSON).", body = AttestResponse),
         (status = 400, description = "Invalid request.", body = ErrorBody),
-        (status = 503, description = "Attestation provider unavailable.", body = ErrorBody),
+        (status = 502, description = "Attestation backend returned a non-2xx; RBS forwards GTA's status code and wraps GTA's body in the error field.", body = ErrorBody),
+        (status = 503, description = "Attestation provider unreachable or timed out.", body = ErrorBody),
         (status = 500, description = "Internal server error.", body = ErrorBody),
     )
 )]

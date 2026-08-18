@@ -3577,7 +3577,8 @@ evaluation and JWE encryption of the resource content.
 |200|[OK](https://tools.ietf.org/html/rfc7231#section-6.3.1)|Resource content (base64-encoded JWE)|[ResourceContentResponse](#schemaresourcecontentresponse)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Resource not found or access denied|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
-|502|[Bad Gateway](https://tools.ietf.org/html/rfc7231#section-6.6.3)|Attestation backend error|[ErrorBody](#schemaerrorbody)|
+|502|[Bad Gateway](https://tools.ietf.org/html/rfc7231#section-6.6.3)|Attestation backend returned a non-2xx; RBS forwards GTA's status code and wraps GTA's body in the error field.|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|Attestation provider unreachable or timed out.|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -3634,8 +3635,7 @@ const inputBody = '{
         ]
       }
     ]
-  },
-  "attester_data": {}
+  }
 }';
 const headers = {
   'Content-Type':'application/json',
@@ -3791,8 +3791,7 @@ func main() {
         ]
       }
     ]
-  },
-  "attester_data": {}
+  }
 }
 ```
 
@@ -3819,7 +3818,8 @@ func main() {
 |200|[OK](https://tools.ietf.org/html/rfc7231#section-6.3.1)|Attestation token (JSON).|[AttestResponse](#schemaattestresponse)|
 |400|[Bad Request](https://tools.ietf.org/html/rfc7231#section-6.5.1)|Invalid request.|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal server error.|[ErrorBody](#schemaerrorbody)|
-|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|Attestation provider unavailable.|[ErrorBody](#schemaerrorbody)|
+|502|[Bad Gateway](https://tools.ietf.org/html/rfc7231#section-6.6.3)|Attestation backend returned a non-2xx; RBS forwards GTA's status code and wraps GTA's body in the error field.|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|Attestation provider unreachable or timed out.|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -4031,7 +4031,7 @@ func main() {
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Provider not found|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
-|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or 5xx|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or timeout; other GTA statuses forwarded as-is|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -4247,7 +4247,7 @@ func main() {
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Not found|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
-|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or 5xx|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or timeout; other GTA statuses forwarded as-is|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -4459,7 +4459,7 @@ func main() {
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Provider not found|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
-|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or 5xx|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or timeout; other GTA statuses forwarded as-is|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -4668,7 +4668,7 @@ func main() {
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Not found|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
-|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or 5xx|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or timeout; other GTA statuses forwarded as-is|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -4876,7 +4876,7 @@ func main() {
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Not found|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
-|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or 5xx|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or timeout; other GTA statuses forwarded as-is|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -5059,7 +5059,7 @@ func main() {
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Not found|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
-|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or 5xx|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or timeout; other GTA statuses forwarded as-is|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -5259,7 +5259,7 @@ func main() {
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Provider not found|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
-|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or 5xx|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or timeout; other GTA statuses forwarded as-is|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -5480,7 +5480,7 @@ func main() {
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Not found|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
-|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or 5xx|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or timeout; other GTA statuses forwarded as-is|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -5695,7 +5695,7 @@ func main() {
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Provider not found|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
-|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or 5xx|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or timeout; other GTA statuses forwarded as-is|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -5904,7 +5904,7 @@ func main() {
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Not found|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
-|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or 5xx|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or timeout; other GTA statuses forwarded as-is|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -6100,7 +6100,7 @@ func main() {
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Not found|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
-|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or 5xx|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or timeout; other GTA statuses forwarded as-is|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -6283,7 +6283,7 @@ func main() {
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Not found|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
-|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or 5xx|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or timeout; other GTA statuses forwarded as-is|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -6483,7 +6483,7 @@ func main() {
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Provider not found|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
-|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or 5xx|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or timeout; other GTA statuses forwarded as-is|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -6698,7 +6698,7 @@ func main() {
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Not found|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
-|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or 5xx|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or timeout; other GTA statuses forwarded as-is|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -6911,7 +6911,7 @@ func main() {
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Provider not found|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
-|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or 5xx|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or timeout; other GTA statuses forwarded as-is|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -7120,7 +7120,7 @@ func main() {
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Not found|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
-|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or 5xx|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or timeout; other GTA statuses forwarded as-is|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -7316,7 +7316,7 @@ func main() {
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Not found|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
-|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or 5xx|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or timeout; other GTA statuses forwarded as-is|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -7499,7 +7499,7 @@ func main() {
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Not found|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
-|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or 5xx|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or timeout; other GTA statuses forwarded as-is|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -7712,7 +7712,7 @@ func main() {
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Provider not found|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
-|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or 5xx|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or timeout; other GTA statuses forwarded as-is|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -7929,7 +7929,7 @@ func main() {
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Not found|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
-|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or 5xx|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or timeout; other GTA statuses forwarded as-is|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -8142,7 +8142,7 @@ func main() {
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Provider not found|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
-|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or 5xx|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or timeout; other GTA statuses forwarded as-is|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -8352,7 +8352,7 @@ func main() {
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Not found|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
-|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or 5xx|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or timeout; other GTA statuses forwarded as-is|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -8561,7 +8561,7 @@ func main() {
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Not found|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
-|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or 5xx|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or timeout; other GTA statuses forwarded as-is|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -8745,7 +8745,7 @@ func main() {
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Not found|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
-|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or 5xx|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or timeout; other GTA statuses forwarded as-is|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -8946,7 +8946,7 @@ func main() {
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Provider not found|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
-|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or 5xx|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or timeout; other GTA statuses forwarded as-is|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -9168,7 +9168,7 @@ func main() {
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Not found|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
-|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or 5xx|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or timeout; other GTA statuses forwarded as-is|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -9384,7 +9384,7 @@ func main() {
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Provider not found|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
-|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or 5xx|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or timeout; other GTA statuses forwarded as-is|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -9594,7 +9594,7 @@ func main() {
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Not found|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
-|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or 5xx|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or timeout; other GTA statuses forwarded as-is|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -9791,7 +9791,7 @@ func main() {
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Not found|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
-|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or 5xx|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or timeout; other GTA statuses forwarded as-is|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -9975,7 +9975,7 @@ func main() {
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Not found|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
-|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or 5xx|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or timeout; other GTA statuses forwarded as-is|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -10176,7 +10176,7 @@ func main() {
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Provider not found|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
-|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or 5xx|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or timeout; other GTA statuses forwarded as-is|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -10392,7 +10392,7 @@ func main() {
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Not found|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
-|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or 5xx|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or timeout; other GTA statuses forwarded as-is|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -10606,7 +10606,7 @@ func main() {
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Provider not found|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
-|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or 5xx|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or timeout; other GTA statuses forwarded as-is|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -10816,7 +10816,7 @@ func main() {
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Not found|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
-|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or 5xx|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or timeout; other GTA statuses forwarded as-is|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -11013,7 +11013,7 @@ func main() {
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Not found|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
-|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or 5xx|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or timeout; other GTA statuses forwarded as-is|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -11197,7 +11197,7 @@ func main() {
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Not found|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
-|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or 5xx|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|GTA unreachable or timeout; other GTA statuses forwarded as-is|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -11371,7 +11371,8 @@ func main() {
 |---|---|---|---|
 |200|[OK](https://tools.ietf.org/html/rfc7231#section-6.3.1)|Challenge payload with nonce (JSON).|[AuthChallengeResponse](#schemaauthchallengeresponse)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal server error.|[ErrorBody](#schemaerrorbody)|
-|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|Attestation provider unavailable.|[ErrorBody](#schemaerrorbody)|
+|502|[Bad Gateway](https://tools.ietf.org/html/rfc7231#section-6.6.3)|Attestation backend returned a non-2xx; RBS forwards GTA's status code and wraps GTA's body in the error field.|[ErrorBody](#schemaerrorbody)|
+|503|[Service Unavailable](https://tools.ietf.org/html/rfc7231#section-6.6.4)|Attestation provider unreachable or timed out.|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -11411,8 +11412,7 @@ None
         ]
       }
     ]
-  },
-  "attester_data": {}
+  }
 }
 
 ```
@@ -11425,19 +11425,6 @@ Request body for POST /rbs/v0/attest.
 |---|---|---|---|---|
 |as_provider|string,null|false|none|Optional attestation backend id (e.g. gta); default is deployment-specific.|
 |rbc_evidences|[RbcEvidencesPayload](#schemarbcevidencespayload)|false|none|Evidence bundle from RBC.|
-|attester_data|any|false|none|none|
-
-oneOf
-
-|Name|Type|Required|Restrictions|Description|
-|---|---|---|---|---|
-|» *anonymous*|null|false|none|none|
-
-xor
-
-|Name|Type|Required|Restrictions|Description|
-|---|---|---|---|---|
-|» *anonymous*|[AttesterData](#schemaattesterdata)|false|none|Top-level attester metadata; used if measurement-level attester_data is absent.|
 
 <h2 id="tocS_AttestResponse">AttestResponse</h2>
 <!-- backwards compatibility -->
@@ -11587,11 +11574,8 @@ Paginated response for GET attestation policy list.
 
 ```
 
-Optional attester-supplied metadata.
-
-Same structure for top-level `attester_data` on AttestRequest
-and for `measurements[].attester_data`. If a measurement defines `attester_data`,
-it wins for that measurement; otherwise the top-level `attester_data` applies.
+Optional attester-supplied metadata, carried per measurement under
+`rbc_evidences.measurements[].attester_data`.
 
 `runtime_data` must not duplicate the challenge nonce (nonce lives only under
 `rbc_evidences.measurements[].nonce`).

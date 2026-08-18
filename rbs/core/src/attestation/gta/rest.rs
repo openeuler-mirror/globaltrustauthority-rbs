@@ -266,7 +266,6 @@ mod tests {
                 agent_version: Some("1.0.0".to_string()),
                 measurements: vec![],
             },
-            attester_data: None,
         };
         let gta_req = AttestationRestClient::transform_to_gta_format(&req).unwrap();
         assert!(gta_req.measurements.is_empty());
@@ -296,7 +295,6 @@ mod tests {
                     }
                 ],
             },
-            attester_data: None,
         };
         let gta_req = AttestationRestClient::transform_to_gta_format(&req).unwrap();
         assert_eq!(gta_req.measurements.len(), 1);
@@ -360,7 +358,6 @@ mod tests {
                     }
                 ],
             },
-            attester_data: None,
         };
         let result = AttestationRestClient::transform_to_gta_format(&req);
         assert!(result.is_err());

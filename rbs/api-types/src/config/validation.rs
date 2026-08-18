@@ -40,6 +40,12 @@ const REST_BODY_LIMIT_MIN: u64 = 1024;
 /// Maximum HTTP request body size limit in bytes. Largest allowed is 100MB to prevent memory exhaustion.
 const REST_BODY_LIMIT_MAX: u64 = 104857600; // 100MB
 
+/// Minimum allowed request timeout in seconds. Must be at least 1 second.
+/// A value of 0 is rejected here rather than mapped to "no limit": actix-web
+/// computes the request deadline as `Instant::now() + client_request_timeout`,
+/// which overflows (panics the worker) when the duration is unbounded.
+const REST_REQUEST_TIMEOUT_MIN: u32 = 1;
+
 /// Maximum allowed request timeout in seconds. Requests cannot exceed 1 hour.
 const REST_REQUEST_TIMEOUT_MAX: u32 = 3600;
 
@@ -326,10 +332,10 @@ impl RestConfig {
         }
 
         // request_timeout_secs
-        if self.request_timeout_secs > REST_REQUEST_TIMEOUT_MAX {
+        if self.request_timeout_secs < REST_REQUEST_TIMEOUT_MIN || self.request_timeout_secs > REST_REQUEST_TIMEOUT_MAX {
             panic!(
-                "rest.request_timeout_secs = {} exceeds maximum {}",
-                self.request_timeout_secs, REST_REQUEST_TIMEOUT_MAX
+                "rest.request_timeout_secs = {} is out of range [{}, {}]",
+                self.request_timeout_secs, REST_REQUEST_TIMEOUT_MIN, REST_REQUEST_TIMEOUT_MAX
             );
         }
 
@@ -829,6 +835,17 @@ mod tests {
     fn rest_config_request_timeout_exceeds_max_panics() {
         let mut r = RestConfig::default();
         r.request_timeout_secs = 4000;
+        r.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "request_timeout_secs")]
+    fn rest_config_request_timeout_zero_panics() {
+        // 0 must be rejected at config validation, not deferred to actix,
+        // where `Instant::now() + Duration::MAX` would overflow-panic the
+        // worker on the first request.
+        let mut r = RestConfig::default();
+        r.request_timeout_secs = 0;
         r.validate();
     }
 

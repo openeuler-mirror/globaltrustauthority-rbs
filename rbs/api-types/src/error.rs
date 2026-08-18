@@ -235,7 +235,7 @@ pub enum RbsError {
     AttestationProviderUnavailable,
 
     #[error("attestation provider error: {body}")]
-    AttestationProviderError { body: String },
+    AttestationProviderError { status: u16, body: String },
 
     #[error("resource provider unavailable")]
     ResourceProviderUnavailable,
@@ -332,9 +332,18 @@ impl RbsError {
     }
 
     /// Returns the HTTP status code for this error.
+    ///
+    /// `AttestationProviderError` forwards GTA's HTTP status verbatim so the
+    /// caller sees the same status the attestation backend returned (e.g. 400,
+    /// 500). All other variants derive their status from the stable error code.
     pub fn http_status(&self) -> u16 {
-        let status: HttpStatus = self.stable_code().into();
-        status as u16
+        match self {
+            Self::AttestationProviderError { status, .. } => *status,
+            _ => {
+                let status: HttpStatus = self.stable_code().into();
+                status as u16
+            }
+        }
     }
 
     /// Returns whether the error is retryable.
@@ -364,7 +373,9 @@ impl RbsError {
             Self::UserHasDependents { .. } => "user has dependents".to_string(),
             Self::ResourceGone => "resource no longer available".to_string(),
             Self::ResourceQuotaExceeded => "resource quota exceeded".to_string(),
-            Self::AttestationProviderError { body } => body.clone(),
+            Self::AttestationProviderError { body, .. } => {
+                format!("attestation provider error: {}", body)
+            }
             Self::AttestationProviderUnavailable
             | Self::ResourceProviderUnavailable
             | Self::ProviderTimeout
@@ -376,16 +387,6 @@ impl RbsError {
             Self::ManagementProviderNotFound(name) => {
                 format!("management provider not found: {}", name)
             }
-        }
-    }
-
-    /// If this error carries a raw passthrough body (e.g. an upstream GTA error
-    /// response), return it so the HTTP layer can emit it verbatim. Returns
-    /// `None` for all other variants, which should be wrapped in `ErrorBody`.
-    pub fn passthrough_body(&self) -> Option<&str> {
-        match self {
-            Self::AttestationProviderError { body } => Some(body),
-            _ => None,
         }
     }
 }

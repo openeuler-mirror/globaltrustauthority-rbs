@@ -47,13 +47,15 @@ fn build_ssl_acceptor(cert_path: &str, key_path: &str) -> anyhow::Result<SslAcce
 /// Default maximum URI length (path + query) in bytes; used when not overridden by `app_data`.
 const DEFAULT_MAX_URI_LEN: usize = 2048;
 
-/// Maps config `request_timeout_secs` (0 = no limit) to `Duration` for actix.
+/// Maps config `request_timeout_secs` to `Duration` for actix.
+///
+/// `0` is NOT a valid value here: config validation rejects it with a clear
+/// range error, because actix-web computes the request deadline as
+/// `Instant::now() + client_request_timeout`, which overflows and panics the
+/// worker when the duration is unbounded (`Duration::MAX`). Callers must pass a
+/// value already validated to be `>= 1`.
 fn request_timeout_duration(secs: u32) -> Duration {
-    if secs == 0 {
-        Duration::MAX
-    } else {
-        Duration::from_secs(secs.into())
-    }
+    Duration::from_secs(secs.into())
 }
 
 /// HTTP server holding `Arc<RbsCore>` and its own REST config (passed from main).
@@ -272,11 +274,6 @@ where
 mod tests {
     use super::*;
     use std::time::Duration;
-
-    #[test]
-    fn request_timeout_zero_returns_max() {
-        assert_eq!(request_timeout_duration(0), Duration::MAX);
-    }
 
     #[test]
     fn request_timeout_nonzero_returns_secs() {

@@ -87,7 +87,7 @@ impl TokenProvider for RbsAttestTokenProvider {
         let rbc_evidences: RbcEvidencesPayload = serde_json::from_value(evidence_val.clone())
             .map_err(|e| RbcError::AttestError(format!("invalid evidence format: {e}")))?;
 
-        let req = AttestRequest { as_provider: None, rbc_evidences, attester_data: None };
+        let req = AttestRequest { as_provider: None, rbc_evidences };
 
         let mut headers = HashMap::new();
         headers.insert(HEADER_USER_ID, self.user_id.as_str());

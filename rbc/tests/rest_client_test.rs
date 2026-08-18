@@ -43,7 +43,6 @@ async fn test_post_attest_returns_token() {
     let req = AttestRequest {
         as_provider: None,
         rbc_evidences: RbcEvidencesPayload { agent_version: None, measurements: vec![] },
-        attester_data: None,
     };
     let resp = client.post_attest(&req, &HashMap::new()).await.unwrap();
     assert_eq!(resp.token, "jwt-token-abc");
@@ -168,7 +167,6 @@ async fn test_get_resource_by_evidence_returns_content() {
     let req = AttestRequest {
         as_provider: None,
         rbc_evidences: RbcEvidencesPayload { agent_version: None, measurements: vec![] },
-        attester_data: None,
     };
     let resp = client.get_resource_by_evidence(uri, &req).await.unwrap();
     assert_eq!(resp.uri, uri);
@@ -190,7 +188,6 @@ async fn test_get_resource_by_evidence_404_returns_resource_not_found() {
     let req = AttestRequest {
         as_provider: None,
         rbc_evidences: RbcEvidencesPayload { agent_version: None, measurements: vec![] },
-        attester_data: None,
     };
     let err = client.get_resource_by_evidence(uri, &req).await.unwrap_err();
     assert!(matches!(err, RbcError::ResourceNotFound(_)), "expected ResourceNotFound, got: {err:?}");

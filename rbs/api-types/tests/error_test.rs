@@ -60,7 +60,7 @@ fn error_class_provider() {
     assert_eq!(RbsError::ProviderNotFound("p".to_string()).error_class(), ErrorClass::Provider);
     assert_eq!(RbsError::PolicyEvaluationError("e".to_string()).error_class(), ErrorClass::Provider);
     assert_eq!(
-        RbsError::AttestationProviderError { body: "b".to_string() }.error_class(),
+        RbsError::AttestationProviderError { status: 400, body: "b".to_string() }.error_class(),
         ErrorClass::Provider
     );
 }
@@ -131,9 +131,14 @@ fn http_status_provider_and_dependency() {
     assert_eq!(RbsError::ProviderNotFound("p".to_string()).http_status(), 503);
     assert_eq!(RbsError::PolicyEvaluationError("e".to_string()).http_status(), 503);
     assert_eq!(RbsError::DependencyUnavailable { service: "db" }.http_status(), 503);
+    // AttestationProviderError forwards GTA's status code verbatim (not 503)
     assert_eq!(
-        RbsError::AttestationProviderError { body: "b".to_string() }.http_status(),
-        503
+        RbsError::AttestationProviderError { status: 400, body: "b".to_string() }.http_status(),
+        400
+    );
+    assert_eq!(
+        RbsError::AttestationProviderError { status: 500, body: "b".to_string() }.http_status(),
+        500
     );
 }
 
@@ -186,7 +191,7 @@ fn retryable_idempotent() {
     assert_eq!(RbsError::InternalError.retryable(), Retryable::Idempotent);
     assert_eq!(RbsError::InternalUnexpected { context: "c".to_string() }.retryable(), Retryable::Idempotent);
     assert_eq!(
-        RbsError::AttestationProviderError { body: "b".to_string() }.retryable(),
+        RbsError::AttestationProviderError { status: 400, body: "b".to_string() }.retryable(),
         Retryable::Idempotent
     );
 }
@@ -224,17 +229,24 @@ fn external_message_all_variants() {
             .external_message()
             .contains("management provider not found: p")
     );
-    // AttestationProviderError passes the raw upstream body through verbatim
+    // AttestationProviderError wraps GTA's body in a single error field:
+    // "attestation provider error: <gta body verbatim>"
     assert_eq!(
-        RbsError::AttestationProviderError { body: "{\"message\":\"rv not found\"}".to_string() }
+        RbsError::AttestationProviderError { status: 400, body: "{\"message\":\"rv not found\"}".to_string() }
             .external_message(),
-        "{\"message\":\"rv not found\"}"
+        "attestation provider error: {\"message\":\"rv not found\"}"
     );
+    // Empty upstream body falls back to "HTTP {status}" (see GtaRestClient::extract_error_body)
     assert_eq!(
-        RbsError::AttestationProviderError { body: "b".to_string() }.passthrough_body(),
-        Some("b")
+        RbsError::AttestationProviderError { status: 400, body: "HTTP 400".to_string() }
+            .external_message(),
+        "attestation provider error: HTTP 400"
     );
-    assert_eq!(RbsError::AttestationProviderUnavailable.passthrough_body(), None);
+    // Unreachable provider surfaces a static message and 503
+    assert_eq!(
+        RbsError::AttestationProviderUnavailable.external_message(),
+        "service temporarily unavailable"
+    );
 }
 
 // ── serialization ──

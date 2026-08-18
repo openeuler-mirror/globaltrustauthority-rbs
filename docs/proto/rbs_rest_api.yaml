@@ -44,8 +44,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
+        '502':
+          description: Attestation backend returned a non-2xx; RBS forwards GTA's status code and wraps GTA's body in the error field.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
         '503':
-          description: Attestation provider unavailable.
+          description: Attestation provider unreachable or timed out.
           content:
             application/json:
               schema:
@@ -123,7 +129,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '503':
-          description: GTA unreachable or 5xx
+          description: GTA unreachable or timeout; other GTA statuses forwarded as-is
           content:
             application/json:
               schema:
@@ -179,7 +185,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '503':
-          description: GTA unreachable or 5xx
+          description: GTA unreachable or timeout; other GTA statuses forwarded as-is
           content:
             application/json:
               schema:
@@ -235,7 +241,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '503':
-          description: GTA unreachable or 5xx
+          description: GTA unreachable or timeout; other GTA statuses forwarded as-is
           content:
             application/json:
               schema:
@@ -287,7 +293,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '503':
-          description: GTA unreachable or 5xx
+          description: GTA unreachable or timeout; other GTA statuses forwarded as-is
           content:
             application/json:
               schema:
@@ -339,7 +345,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '503':
-          description: GTA unreachable or 5xx
+          description: GTA unreachable or timeout; other GTA statuses forwarded as-is
           content:
             application/json:
               schema:
@@ -386,7 +392,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '503':
-          description: GTA unreachable or 5xx
+          description: GTA unreachable or timeout; other GTA statuses forwarded as-is
           content:
             application/json:
               schema:
@@ -464,7 +470,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '503':
-          description: GTA unreachable or 5xx
+          description: GTA unreachable or timeout; other GTA statuses forwarded as-is
           content:
             application/json:
               schema:
@@ -520,7 +526,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '503':
-          description: GTA unreachable or 5xx
+          description: GTA unreachable or timeout; other GTA statuses forwarded as-is
           content:
             application/json:
               schema:
@@ -576,7 +582,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '503':
-          description: GTA unreachable or 5xx
+          description: GTA unreachable or timeout; other GTA statuses forwarded as-is
           content:
             application/json:
               schema:
@@ -628,7 +634,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '503':
-          description: GTA unreachable or 5xx
+          description: GTA unreachable or timeout; other GTA statuses forwarded as-is
           content:
             application/json:
               schema:
@@ -680,7 +686,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '503':
-          description: GTA unreachable or 5xx
+          description: GTA unreachable or timeout; other GTA statuses forwarded as-is
           content:
             application/json:
               schema:
@@ -727,7 +733,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '503':
-          description: GTA unreachable or 5xx
+          description: GTA unreachable or timeout; other GTA statuses forwarded as-is
           content:
             application/json:
               schema:
@@ -805,7 +811,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '503':
-          description: GTA unreachable or 5xx
+          description: GTA unreachable or timeout; other GTA statuses forwarded as-is
           content:
             application/json:
               schema:
@@ -861,7 +867,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '503':
-          description: GTA unreachable or 5xx
+          description: GTA unreachable or timeout; other GTA statuses forwarded as-is
           content:
             application/json:
               schema:
@@ -917,7 +923,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '503':
-          description: GTA unreachable or 5xx
+          description: GTA unreachable or timeout; other GTA statuses forwarded as-is
           content:
             application/json:
               schema:
@@ -969,7 +975,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '503':
-          description: GTA unreachable or 5xx
+          description: GTA unreachable or timeout; other GTA statuses forwarded as-is
           content:
             application/json:
               schema:
@@ -1021,7 +1027,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '503':
-          description: GTA unreachable or 5xx
+          description: GTA unreachable or timeout; other GTA statuses forwarded as-is
           content:
             application/json:
               schema:
@@ -1068,7 +1074,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '503':
-          description: GTA unreachable or 5xx
+          description: GTA unreachable or timeout; other GTA statuses forwarded as-is
           content:
             application/json:
               schema:
@@ -1152,7 +1158,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '503':
-          description: GTA unreachable or 5xx
+          description: GTA unreachable or timeout; other GTA statuses forwarded as-is
           content:
             application/json:
               schema:
@@ -1215,7 +1221,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '503':
-          description: GTA unreachable or 5xx
+          description: GTA unreachable or timeout; other GTA statuses forwarded as-is
           content:
             application/json:
               schema:
@@ -1278,7 +1284,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '503':
-          description: GTA unreachable or 5xx
+          description: GTA unreachable or timeout; other GTA statuses forwarded as-is
           content:
             application/json:
               schema:
@@ -1337,7 +1343,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '503':
-          description: GTA unreachable or 5xx
+          description: GTA unreachable or timeout; other GTA statuses forwarded as-is
           content:
             application/json:
               schema:
@@ -1395,7 +1401,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '503':
-          description: GTA unreachable or 5xx
+          description: GTA unreachable or timeout; other GTA statuses forwarded as-is
           content:
             application/json:
               schema:
@@ -1448,7 +1454,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '503':
-          description: GTA unreachable or 5xx
+          description: GTA unreachable or timeout; other GTA statuses forwarded as-is
           content:
             application/json:
               schema:
@@ -1532,7 +1538,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '503':
-          description: GTA unreachable or 5xx
+          description: GTA unreachable or timeout; other GTA statuses forwarded as-is
           content:
             application/json:
               schema:
@@ -1595,7 +1601,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '503':
-          description: GTA unreachable or 5xx
+          description: GTA unreachable or timeout; other GTA statuses forwarded as-is
           content:
             application/json:
               schema:
@@ -1658,7 +1664,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '503':
-          description: GTA unreachable or 5xx
+          description: GTA unreachable or timeout; other GTA statuses forwarded as-is
           content:
             application/json:
               schema:
@@ -1717,7 +1723,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '503':
-          description: GTA unreachable or 5xx
+          description: GTA unreachable or timeout; other GTA statuses forwarded as-is
           content:
             application/json:
               schema:
@@ -1775,7 +1781,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '503':
-          description: GTA unreachable or 5xx
+          description: GTA unreachable or timeout; other GTA statuses forwarded as-is
           content:
             application/json:
               schema:
@@ -1828,7 +1834,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '503':
-          description: GTA unreachable or 5xx
+          description: GTA unreachable or timeout; other GTA statuses forwarded as-is
           content:
             application/json:
               schema:
@@ -1912,7 +1918,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '503':
-          description: GTA unreachable or 5xx
+          description: GTA unreachable or timeout; other GTA statuses forwarded as-is
           content:
             application/json:
               schema:
@@ -1975,7 +1981,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '503':
-          description: GTA unreachable or 5xx
+          description: GTA unreachable or timeout; other GTA statuses forwarded as-is
           content:
             application/json:
               schema:
@@ -2038,7 +2044,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '503':
-          description: GTA unreachable or 5xx
+          description: GTA unreachable or timeout; other GTA statuses forwarded as-is
           content:
             application/json:
               schema:
@@ -2097,7 +2103,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '503':
-          description: GTA unreachable or 5xx
+          description: GTA unreachable or timeout; other GTA statuses forwarded as-is
           content:
             application/json:
               schema:
@@ -2155,7 +2161,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '503':
-          description: GTA unreachable or 5xx
+          description: GTA unreachable or timeout; other GTA statuses forwarded as-is
           content:
             application/json:
               schema:
@@ -2208,7 +2214,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '503':
-          description: GTA unreachable or 5xx
+          description: GTA unreachable or timeout; other GTA statuses forwarded as-is
           content:
             application/json:
               schema:
@@ -2241,8 +2247,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
+        '502':
+          description: Attestation backend returned a non-2xx; RBS forwards GTA's status code and wraps GTA's body in the error field.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
         '503':
-          description: Attestation provider unavailable.
+          description: Attestation provider unreachable or timed out.
           content:
             application/json:
               schema:
@@ -3199,7 +3211,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '502':
-          description: Attestation backend error
+          description: Attestation backend returned a non-2xx; RBS forwards GTA's status code and wraps GTA's body in the error field.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: Attestation provider unreachable or timed out.
           content:
             application/json:
               schema:
@@ -3235,11 +3253,6 @@ components:
         rbc_evidences:
           $ref: '#/components/schemas/RbcEvidencesPayload'
           description: Evidence bundle from RBC.
-        attester_data:
-          oneOf:
-          - type: 'null'
-          - $ref: '#/components/schemas/AttesterData'
-            description: Top-level attester metadata; used if measurement-level attester_data is absent.
     AttestResponse:
       type: object
       description: Response for POST /rbs/v0/attest.
@@ -3343,11 +3356,8 @@ components:
     AttesterData:
       type: object
       description: |-
-        Optional attester-supplied metadata.
-
-        Same structure for top-level `attester_data` on AttestRequest
-        and for `measurements[].attester_data`. If a measurement defines `attester_data`,
-        it wins for that measurement; otherwise the top-level `attester_data` applies.
+        Optional attester-supplied metadata, carried per measurement under
+        `rbc_evidences.measurements[].attester_data`.
 
         `runtime_data` must not duplicate the challenge nonce (nonce lives only under
         `rbc_evidences.measurements[].nonce`).
