@@ -16,8 +16,8 @@ use super::{
     AdminConfig, AdminKeyConfig, AttestTokenVerificationConfig, AttestationBackendConfig,
     AttestationBackendMode, AttestationConfig, AttestationCredentials, AttestationRestConfig,
     AuthConfig, BearerTokenVerificationConfig, Database, LogRotationConfig, LoggingConfig,
-    PerIpRateLimitConfig, PolicyLimitsConfig, ResourceProviderConfig, ResourceProvidersConfig,
-    RbsConfig, RestConfig,
+    PerIpRateLimitConfig, PolicyLimitsConfig, ResourceProviderConfig,
+    ResourceProvidersConfig, RbsConfig, RestConfig,
 };
 
 /// Maximum allowed file mode (octal). Files cannot have permissions beyond 0o7777
@@ -747,6 +747,12 @@ impl ResourceProviderConfig {
 
 impl ResourceProvidersConfig {
     fn validate(&self) {
+        if self.max_per_user < 1 || self.max_per_user > 100 {
+            panic!(
+                "resource.max_per_user must be in [1, 100], got {}",
+                self.max_per_user
+            );
+        }
         if self.backends.is_empty() {
             panic!("resource.backends must have at least one backend when `resource:` section is present");
         }
@@ -1305,6 +1311,29 @@ unknown_field: {}
     }
 
     #[test]
+    fn resource_max_per_user_default_and_override() {
+        // Omitted `resource:` section → None (limit defaults to 10 in core build).
+        let y = "rest: {}\nlogging:\n  level: info\n";
+        let c: RbsConfig = serde_yaml::from_str(y).unwrap();
+        assert!(c.resource.is_none());
+
+        // Explicit override alongside backends.
+        let y = "rest: {}\nlogging:\n  level: info\n\
+resource:\n  max_per_user: 25\n  backends:\n    vault:\n      type: vault\n      url: http://localhost:8200\n      token: s.0123456789abcdef0123456789abcdef\n      mount_path: secret\n";
+        let c: RbsConfig = serde_yaml::from_str(y).unwrap();
+        assert_eq!(c.resource.as_ref().unwrap().max_per_user, 25);
+    }
+
+    #[test]
+    #[should_panic(expected = "resource.max_per_user")]
+    fn resource_max_per_user_out_of_range_panics() {
+        let y = "rest: {}\nlogging:\n  level: info\n\
+resource:\n  max_per_user: 101\n  backends:\n    vault:\n      type: vault\n      url: http://localhost:8200\n      token: s.0123456789abcdef0123456789abcdef\n      mount_path: secret\n";
+        let c: RbsConfig = serde_yaml::from_str(y).unwrap();
+        c.resource.as_ref().unwrap().validate();
+    }
+
+    #[test]
     #[should_panic(expected = "auth.bearer_token.issuer must not be empty")]
     fn bearer_token_rejects_empty_issuer() {
         let c = BearerTokenVerificationConfig { issuer: String::new(), audience: "aud".to_string() };
@@ -1414,7 +1443,7 @@ unknown_field: {}
     #[test]
     #[should_panic(expected = "resource.backends must have at least one backend")]
     fn resource_providers_empty_rejected() {
-        let rp = ResourceProvidersConfig { backends: std::collections::HashMap::new() };
+        let rp = ResourceProvidersConfig { max_per_user: 10, backends: std::collections::HashMap::new() };
         rp.validate();
     }
 
@@ -1422,7 +1451,7 @@ unknown_field: {}
     fn resource_providers_valid_passes() {
         let mut backends = std::collections::HashMap::new();
         backends.insert("vault".to_string(), valid_resource_backend());
-        ResourceProvidersConfig { backends }.validate();
+        ResourceProvidersConfig { max_per_user: 10, backends }.validate();
     }
 }
 

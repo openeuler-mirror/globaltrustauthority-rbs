@@ -2792,6 +2792,7 @@ func main() {
 |201|[Created](https://tools.ietf.org/html/rfc7231#section-6.3.2)|Resource created|[ResourceResponse](#schemaresourceresponse)|
 |401|[Unauthorized](https://tools.ietf.org/html/rfc7235#section-3.1)|Unauthorized|[ErrorBody](#schemaerrorbody)|
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
+|409|[Conflict](https://tools.ietf.org/html/rfc7231#section-6.5.8)|Conflict (version conflict / resource already exists / count exceeded)|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
@@ -3010,7 +3011,7 @@ func main() {
 |201|[Created](https://tools.ietf.org/html/rfc7231#section-6.3.2)|Resource created|[ResourceResponse](#schemaresourceresponse)|
 |401|[Unauthorized](https://tools.ietf.org/html/rfc7235#section-3.1)|Unauthorized|[ErrorBody](#schemaerrorbody)|
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
-|409|[Conflict](https://tools.ietf.org/html/rfc7231#section-6.5.8)|Resource already exists|[ErrorBody](#schemaerrorbody)|
+|409|[Conflict](https://tools.ietf.org/html/rfc7231#section-6.5.8)|Conflict (resource already exists / count exceeded)|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">

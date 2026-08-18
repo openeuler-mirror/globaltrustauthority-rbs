@@ -15,6 +15,9 @@ pub enum ResourceError {
     #[error("resource already exists: {uri}")]
     AlreadyExists { uri: String },
 
+    #[error("resource count exceeded: max {max}, current {current}")]
+    CountExceed { max: usize, current: usize },
+
     #[error("resource not found")]
     NotFound,
 
@@ -38,7 +41,8 @@ impl ResourceError {
     pub fn http_status(&self) -> u16 {
         match self {
             ResourceError::PermissionDenied => 403,
-            ResourceError::AlreadyExists { .. } | ResourceError::VersionConflict => 409,
+            ResourceError::AlreadyExists { .. } | ResourceError::VersionConflict
+            | ResourceError::CountExceed { .. } => 409,
             ResourceError::ParamInvalid { .. }
             | ResourceError::PolicyIdInvalid(_)
             | ResourceError::BackendNotFound

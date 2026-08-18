@@ -2954,6 +2954,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
+        '409':
+          description: Conflict (version conflict / resource already exists / count exceeded)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
         '500':
           description: Internal error
           content:
@@ -3018,7 +3024,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '409':
-          description: Resource already exists
+          description: Conflict (resource already exists / count exceeded)
           content:
             application/json:
               schema:

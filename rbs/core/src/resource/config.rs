@@ -1,6 +1,8 @@
 /// Resource module configuration.
 #[derive(Debug, Clone)]
 pub struct ResourceConfig {
+    /// Maximum number of resources per user.
+    pub max_per_user: usize,
     pub max_resource_name_len: usize,
     pub max_repo_name_len: usize,
     pub max_additional_info_len: usize,
@@ -13,6 +15,7 @@ pub struct ResourceConfig {
 impl Default for ResourceConfig {
     fn default() -> Self {
         Self {
+            max_per_user: 10,
             max_resource_name_len: 32,
             max_repo_name_len: 32,
             max_additional_info_len: 512,

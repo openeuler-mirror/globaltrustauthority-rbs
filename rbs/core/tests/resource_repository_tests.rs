@@ -97,6 +97,18 @@ async fn list_by_user_filters_by_user() {
 // ── SQL-12: find_by_policy_id ─────────────────────────────────────────
 
 #[tokio::test]
+async fn count_by_user_returns_count() {
+    let (repo, _db) = setup().await;
+    assert_eq!(repo.count_by_user("u1").await.unwrap(), 0);
+    repo.insert(&make_entity("/rbs/v0/vault/default/secret/a", "u1", "p1")).await.unwrap();
+    repo.insert(&make_entity("/rbs/v0/vault/default/secret/b", "u1", "p2")).await.unwrap();
+    repo.insert(&make_entity("/rbs/v0/vault/default/secret/c", "u2", "p3")).await.unwrap();
+    assert_eq!(repo.count_by_user("u1").await.unwrap(), 2);
+    assert_eq!(repo.count_by_user("u2").await.unwrap(), 1);
+    assert_eq!(repo.count_by_user("u3").await.unwrap(), 0);
+}
+
+#[tokio::test]
 async fn find_by_policy_id_returns_matching() {
     let (repo, _db) = setup().await;
     repo.insert(&make_entity("/rbs/v0/vault/default/secret/x", "u1", "pol-a")).await.unwrap();
@@ -150,4 +162,110 @@ async fn delete_resource_not_found() {
     let (repo, _db) = setup().await;
     let affected = repo.delete("/rbs/v0/vault/default/secret/nonexistent", "user1").await.unwrap();
     assert_eq!(affected, 0);
+}
+
+// ── concurrency: per-user limit precision ──────────────────────────────
+//
+// Verifies that `create_with_user_limit_check` holds an exclusive per-user lock
+// across the count+insert, so concurrent same-user creates cannot exceed the
+// limit (the TOCTOU race fixed by the transactional lock). Uses an in-memory
+// SQLite DB (the test sandbox cannot open file-backed DBs) with a multi-
+// connection pool and busy_timeout so contended writers wait rather than fail.
+
+async fn setup_concurrency() -> (SeaOrmResourceRepository, Arc<DatabaseConnection>) {
+    use sea_orm::{ConnectOptions, ConnectionTrait, Database as Db, Statement};
+
+    let mut opt = ConnectOptions::new("sqlite::memory:".to_string());
+    opt.max_connections(8)
+        .map_sqlx_sqlite_opts(|o| {
+            // WAL is unavailable for :memory: (silently ignored); busy_timeout
+            // is what matters — it makes a contended writer wait instead of
+            // returning SQLITE_BUSY immediately.
+            o.busy_timeout(std::time::Duration::from_secs(5))
+                .synchronous(sea_orm::sqlx::sqlite::SqliteSynchronous::Normal)
+        });
+    let db = Db::connect(opt).await.expect("sqlite connect");
+    execute_sql_file_path(&db, "../rdb_sql/sqlite_rbs.sql")
+        .await
+        .expect("migrate tables");
+
+    // The owning user must exist for the per-user row-lock UPDATE to match.
+    let backend = db.get_database_backend();
+    db.execute(Statement::from_sql_and_values(
+        backend,
+        "INSERT INTO t_user_info (user_id, username, role, auth_type, auth_value, auth_alg, status, created_at, updated_at) \
+         VALUES (?, ?, 'user', 'jwt', 'pubkey', 'EdDSA', 1, 1, 1)",
+        ["uid-concurrency".into(), "concurrent-user".into()],
+    ))
+    .await
+    .expect("insert user");
+
+    let db = Arc::new(db);
+    (SeaOrmResourceRepository::new(db.clone()), db)
+}
+
+/// SQL-CC-01: 20 concurrent creates for the same user with max_per_user=2 must
+/// result in exactly 2 successes and 18 CountExceed errors — never more than 2.
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn create_with_user_limit_check_concurrent_precision() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc as StdArc;
+
+    let (repo, _db) = setup_concurrency().await;
+    let repo = StdArc::new(repo);
+    let max_per_user: usize = 2;
+    let total: usize = 20;
+    let success = StdArc::new(AtomicUsize::new(0));
+    let rejected = StdArc::new(AtomicUsize::new(0));
+
+    let mut handles = Vec::new();
+    for i in 0..total {
+        let repo = repo.clone();
+        let success = success.clone();
+        let rejected = rejected.clone();
+        handles.push(tokio::spawn(async move {
+            let uri = format!("/rbs/v0/vault/repo1/secret/concurrent{}", i);
+            let entity = make_entity(&uri, "concurrent-user", "pol-1");
+            match repo.create_with_user_limit_check(&uri, &entity, max_per_user).await {
+                Ok(()) => { success.fetch_add(1, Ordering::SeqCst); }
+                Err(ResourceError::CountExceed { .. }) => { rejected.fetch_add(1, Ordering::SeqCst); }
+                Err(e) => panic!("unexpected error: {:?}", e),
+            }
+        }));
+    }
+    for h in handles {
+        h.await.unwrap();
+    }
+
+    let s = success.load(Ordering::SeqCst);
+    let r = rejected.load(Ordering::SeqCst);
+    assert_eq!(s, max_per_user, "expected exactly {} successes, got {}", max_per_user, s);
+    assert_eq!(r, total - max_per_user, "expected {} rejections, got {}", total - max_per_user, r);
+    // Final persisted count must equal the limit (no over-insert under concurrency).
+    assert_eq!(
+        repo.count_by_user("concurrent-user").await.unwrap(),
+        max_per_user,
+    );
+}
+
+/// SQL-CC-02: a single successful create under the limit (sanity for the txn path).
+#[tokio::test]
+async fn create_with_user_limit_check_single_success() {
+    let (repo, _db) = setup_concurrency().await;
+    let entity = make_entity("/rbs/v0/vault/repo1/secret/single", "concurrent-user", "pol-1");
+    repo.create_with_user_limit_check("/rbs/v0/vault/repo1/secret/single", &entity, 10)
+        .await
+        .expect("create under limit");
+    assert_eq!(repo.count_by_user("concurrent-user").await.unwrap(), 1);
+}
+
+/// SQL-CC-03: duplicate uri is rejected as AlreadyExists (dup-check inside txn).
+#[tokio::test]
+async fn create_with_user_limit_check_duplicate_rejected() {
+    let (repo, _db) = setup_concurrency().await;
+    let uri = "/rbs/v0/vault/repo1/secret/dup";
+    let entity = make_entity(uri, "concurrent-user", "pol-1");
+    repo.create_with_user_limit_check(uri, &entity, 10).await.unwrap();
+    let result = repo.create_with_user_limit_check(uri, &entity, 10).await;
+    assert!(matches!(result, Err(ResourceError::AlreadyExists { .. })), "got {:?}", result);
 }

@@ -49,6 +49,8 @@ struct MockResourceRepository {
     update_result: Mutex<MockResult<u64>>,
     delete_result: Mutex<MockResult<u64>>,
     list_by_user_result: Mutex<MockResult<Vec<ResourceEntity>>>,
+    count_by_user_result: Mutex<MockResult<usize>>,
+    create_with_limit_check_result: Mutex<MockResult<()>>,
     find_by_policy_id_result: Mutex<MockResult<Vec<ResourceEntity>>>,
 }
 
@@ -61,6 +63,8 @@ impl MockResourceRepository {
             update_result: Mutex::new(Ok(1)),
             delete_result: Mutex::new(Ok(1)),
             list_by_user_result: Mutex::new(Ok(vec![])),
+            count_by_user_result: Mutex::new(Ok(0)),
+            create_with_limit_check_result: Mutex::new(Ok(())),
             find_by_policy_id_result: Mutex::new(Ok(vec![])),
         }
     }
@@ -86,6 +90,16 @@ impl ResourceRepository for MockResourceRepository {
 
     async fn list_by_user(&self, _username: &str) -> MockResult<Vec<ResourceEntity>> {
         self.list_by_user_result.lock().unwrap().clone()
+    }
+
+    async fn count_by_user(&self, _username: &str) -> MockResult<usize> {
+        self.count_by_user_result.lock().unwrap().clone()
+    }
+
+    async fn create_with_user_limit_check(
+        &self, _uri: &str, _entity: &ResourceEntity, _max_per_user: usize,
+    ) -> MockResult<()> {
+        self.create_with_limit_check_result.lock().unwrap().clone()
     }
 
     async fn find_by_policy_id(&self, _policy_id: &str) -> MockResult<Vec<ResourceEntity>> {
@@ -471,13 +485,13 @@ async fn test_post_create_backend_not_found() {
     }
 }
 
-/// UT-RS-006: POST create already exists – repo.find_by_uri returns Some
+/// UT-RS-006: POST create already exists – atomic create returns AlreadyExists
 #[tokio::test]
 async fn test_post_create_already_exists() {
-    let entity = make_entity();
     let svc = make_service(
         |repo| {
-            *repo.find_by_uri_result.lock().unwrap() = Ok(Some(entity));
+            *repo.create_with_limit_check_result.lock().unwrap() =
+                Err(ResourceError::AlreadyExists { uri: TEST_URI.to_string() });
         },
         |_| {},
         |bp| {
@@ -576,6 +590,81 @@ async fn test_put_create_when_not_exists() {
     match &result {
         Ok(_) => {}
         Err(e) => panic!("Expected Ok(ResourceResponse), got Err({:?})", e),
+    }
+}
+
+/// UT-RS-007a: POST create count exceeded – atomic create returns CountExceed
+#[tokio::test]
+async fn test_post_create_count_exceeded() {
+    let svc = make_service(
+        |repo| {
+            *repo.create_with_limit_check_result.lock().unwrap() =
+                Err(ResourceError::CountExceed { max: 10, current: 10 });
+        },
+        |policy| {
+            *policy.validate_policy_result.lock().unwrap() = Ok(true);
+        },
+        |bp| {
+            bp.register("vault", Arc::new(MockResourceBackend::new()));
+        },
+    );
+
+    let result = svc.create(&admin_ctx(TEST_USER), TEST_URI, &create_req()).await;
+    match result {
+        Err(ResourceError::CountExceed { max, current }) => {
+            assert_eq!(max, 10);
+            assert_eq!(current, 10);
+        }
+        other => panic!("Expected CountExceed, got {:?}", other),
+    }
+}
+
+/// UT-RS-007b: POST create under limit – atomic create returns Ok -> Ok
+#[tokio::test]
+async fn test_post_create_count_below_limit_ok() {
+    let svc = make_service(
+        |repo| {
+            *repo.create_with_limit_check_result.lock().unwrap() = Ok(());
+        },
+        |policy| {
+            *policy.validate_policy_result.lock().unwrap() = Ok(true);
+        },
+        |bp| {
+            bp.register("vault", Arc::new(MockResourceBackend::new()));
+        },
+    );
+
+    let result = svc.create(&admin_ctx(TEST_USER), TEST_URI, &create_req()).await;
+    match result {
+        Ok(_) => {}
+        Err(e) => panic!("Expected Ok, got Err({:?})", e),
+    }
+}
+
+/// UT-RS-007c: PUT upsert-create count exceeded – atomic create returns CountExceed
+#[tokio::test]
+async fn test_put_create_count_exceeded() {
+    let svc = make_service(
+        |repo| {
+            *repo.find_by_uri_result.lock().unwrap() = Ok(None);
+            *repo.create_with_limit_check_result.lock().unwrap() =
+                Err(ResourceError::CountExceed { max: 10, current: 10 });
+        },
+        |policy| {
+            *policy.validate_policy_result.lock().unwrap() = Ok(true);
+        },
+        |bp| {
+            bp.register("vault", Arc::new(MockResourceBackend::new()));
+        },
+    );
+
+    let result = svc.update(&admin_ctx(TEST_USER), TEST_URI, &update_req()).await;
+    match result {
+        Err(ResourceError::CountExceed { max, current }) => {
+            assert_eq!(max, 10);
+            assert_eq!(current, 10);
+        }
+        other => panic!("Expected CountExceed, got {:?}", other),
     }
 }
 

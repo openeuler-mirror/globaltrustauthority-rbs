@@ -95,6 +95,7 @@ storage:
 # resource, health — do not use them as backend keys. Validated at startup: backends must be
 # non-empty and each entry must pass ResourceProviderConfig::validate (see field constraints).
 resource:
+  max_per_user: 10   # max resources per user; create rejected when count reaches this limit (1..=100)
   backends:
     vault:
       type: vault                 # whitelist ["vault"]; other values fail-fast at startup

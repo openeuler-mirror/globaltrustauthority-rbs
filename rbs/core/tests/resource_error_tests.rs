@@ -39,6 +39,15 @@ fn test_version_conflict_http_status() {
     assert_eq!(ResourceError::VersionConflict.http_status(), 409);
 }
 
+/// CountExceed -> 409
+#[test]
+fn test_count_exceed_http_status() {
+    assert_eq!(
+        ResourceError::CountExceed { max: 10, current: 10 }.http_status(),
+        409
+    );
+}
+
 /// ParamInvalid -> 400
 #[test]
 fn test_param_invalid_http_status() {

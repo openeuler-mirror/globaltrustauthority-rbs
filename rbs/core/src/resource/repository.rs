@@ -172,6 +172,126 @@ impl ResourceRepository for SeaOrmResourceRepository {
             content_type: m.content_type, export_mode: m.export_mode, policy_id: m.policy_id,
         }).collect())
     }
+
+    async fn count_by_user(&self, username: &str) -> Result<usize, ResourceError> {
+        use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+        let count = entity::Entity::find()
+            .filter(entity::Column::Username.eq(username))
+            .count(self.db.as_ref())
+            .await
+            .map_err(|e| {
+                log::error!("resource db count_by_user error: {e}");
+                ResourceError::BackendError { detail: e.to_string() }
+            })?;
+        Ok(count as usize)
+    }
+
+    /// Atomically create a resource under the per-user limit, holding an exclusive
+    /// lock on the owning user's `t_user_info` row for the whole transaction.
+    ///
+    /// The idempotent `UPDATE t_user_info SET updated_at = updated_at WHERE username = ?`
+    /// acquires the user-row X-lock *before* the COUNT read, so on both MySQL
+    /// (InnoDB REPEATABLE READ — read view established at the first consistent
+    /// read, which is the COUNT after the lock is held) and SQLite (WAL single
+    /// writer, busy_timeout) the COUNT sees the latest committed state and cannot
+    /// race with a concurrent same-user insert. Different users lock different
+    /// rows, so cross-user concurrency is unaffected.
+    async fn create_with_user_limit_check(
+        &self, uri: &str, entity: &ResourceEntity, max_per_user: usize,
+    ) -> Result<(), ResourceError> {
+        use sea_orm::{ConnectionTrait, ColumnTrait, EntityTrait, QueryFilter, TransactionTrait};
+
+        let backend = self.db.get_database_backend();
+        let txn = self.db.begin().await.map_err(|e| {
+            log::error!("resource db create txn begin error: {e}");
+            ResourceError::BackendError { detail: e.to_string() }
+        })?;
+
+        // 1. Acquire per-user exclusive lock (idempotent UPDATE).
+        let lock_stmt = sea_orm::Statement::from_sql_and_values(
+            backend,
+            "UPDATE t_user_info SET updated_at = updated_at WHERE username = ?",
+            [entity.username.clone().into()],
+        );
+        let lock_res = txn.execute(lock_stmt).await.map_err(|e| {
+            log::error!("resource db create user-lock error: {e}");
+            let _ = std::future::ready(()); // best-effort; rollback below
+            ResourceError::BackendError { detail: e.to_string() }
+        });
+        if let Err(e) = lock_res {
+            let _ = txn.rollback().await;
+            return Err(e);
+        }
+        if lock_res.as_ref().unwrap().rows_affected() == 0 {
+            let _ = txn.rollback().await;
+            log::error!("resource create denied: owning user '{}' not found", entity.username);
+            return Err(ResourceError::BackendError {
+                detail: format!("owning user '{}' not found", entity.username),
+            });
+        }
+
+        // 2. Duplicate check (same 4-column semantics as find_by_uri).
+        let (prov, repo, rtype, rname) = parse_uri(uri)?;
+        let dup = entity::Entity::find()
+            .filter(entity::Column::ProviderName.eq(prov))
+            .filter(entity::Column::RepoName.eq(repo))
+            .filter(entity::Column::ResType.eq(rtype))
+            .filter(entity::Column::ResName.eq(rname))
+            .one(&txn)
+            .await
+            .map_err(|e| {
+                log::error!("resource db create dup-check error: {e}");
+                ResourceError::BackendError { detail: e.to_string() }
+            })?;
+        if dup.is_some() {
+            let _ = txn.rollback().await;
+            log::error!("Resource create denied: uri '{}' already exists", uri);
+            return Err(ResourceError::AlreadyExists { uri: uri.to_string() });
+        }
+
+        // 3. Count check (lock already held → sees latest committed rows).
+        let count = entity::Entity::find()
+            .filter(entity::Column::Username.eq(entity.username.clone()))
+            .count(&txn)
+            .await
+            .map_err(|e| {
+                log::error!("resource db create count error: {e}");
+                ResourceError::BackendError { detail: e.to_string() }
+            })?;
+        if count as usize >= max_per_user {
+            let _ = txn.rollback().await;
+            log::error!(
+                "Resource create denied: count {} exceeds max {} for user '{}'",
+                count, max_per_user, entity.username
+            );
+            return Err(ResourceError::CountExceed { max: max_per_user, current: count as usize });
+        }
+
+        // 4. Insert (within the same transaction).
+        let model = entity::ActiveModel {
+            username: sea_orm::Set(entity.username.clone()),
+            provider_name: sea_orm::Set(entity.provider_name.clone()),
+            repo_name: sea_orm::Set(entity.repo_name.clone()),
+            res_type: sea_orm::Set(entity.res_type.clone()),
+            res_name: sea_orm::Set(entity.res_name.clone()),
+            res_info: sea_orm::Set(entity.res_info.clone()),
+            created_at: sea_orm::Set(entity.created_at),
+            updated_at: sea_orm::Set(entity.updated_at),
+            content_type: sea_orm::Set(entity.content_type.clone()),
+            export_mode: sea_orm::Set(entity.export_mode.clone()),
+            policy_id: sea_orm::Set(entity.policy_id.clone()),
+        };
+        sea_orm::ActiveModelTrait::insert(model, &txn).await.map_err(|e| {
+            log::error!("resource db create insert error: {e}");
+            ResourceError::BackendError { detail: e.to_string() }
+        })?;
+
+        txn.commit().await.map_err(|e| {
+            log::error!("resource db create txn commit error: {e}");
+            ResourceError::BackendError { detail: e.to_string() }
+        })?;
+        Ok(())
+    }
 }
 
 
@@ -183,6 +303,10 @@ pub trait ResourceRepository: Send + Sync {
     async fn update(&self, uri: &str, entity: &ResourceEntity, old_update_time: i64) -> Result<u64, ResourceError>;
     async fn delete(&self, uri: &str, username: &str) -> Result<u64, ResourceError>;
     async fn list_by_user(&self, username: &str) -> Result<Vec<ResourceEntity>, ResourceError>;
+    async fn count_by_user(&self, username: &str) -> Result<usize, ResourceError>;
+    async fn create_with_user_limit_check(
+        &self, uri: &str, entity: &ResourceEntity, max_per_user: usize,
+    ) -> Result<(), ResourceError>;
     async fn find_by_policy_id(&self, policy_id: &str) -> Result<Vec<ResourceEntity>, ResourceError>;
 }
 

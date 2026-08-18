@@ -144,6 +144,7 @@ impl RbsCoreBuilder {
         let mut backend_provider = BackendProvider::default();
         // Register resource backends from config
         if let Some(ref rp_config) = self.config.resource {
+            resource_config.max_per_user = rp_config.max_per_user;
             resource_config.configured_backends = rp_config.backends.keys().cloned().collect();
             for (name, backend_cfg) in &rp_config.backends {
                 if backend_cfg.backend_type == "vault" {
@@ -157,6 +158,7 @@ impl RbsCoreBuilder {
                 }
             }
         }
+        log::info!("Resource config: max_per_user={}", resource_config.max_per_user);
         let resource_validator = ResourceValidator::new(resource_config);
         let resource = ResourceService::new(
             resource_repo, authz, backend_provider, policy_client.clone(), resource_validator,

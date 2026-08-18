@@ -653,9 +653,24 @@ impl Default for ResourceProviderConfig {
 }
 
 /// Resource providers configuration: backends indexed by provider name.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ResourceProvidersConfig {
+    /// Maximum number of resources per user (1..=100). Sits alongside `backends`
+    /// so the whole resource configuration lives under one top-level `resource:` key.
+    #[serde(default = "default_resource_max_per_user")]
+    pub max_per_user: usize,
     /// Resource backends indexed by provider name (e.g. "vault").
     pub backends: HashMap<String, ResourceProviderConfig>,
+}
+
+fn default_resource_max_per_user() -> usize { 10 }
+
+impl Default for ResourceProvidersConfig {
+    fn default() -> Self {
+        Self {
+            max_per_user: default_resource_max_per_user(),
+            backends: HashMap::new(),
+        }
+    }
 }
