@@ -248,7 +248,7 @@ impl GtaRestClient {
             attempt += 1;
             let mut req = self.client.post(&url);
             if !user_id.is_empty() { req = req.header("User-Id", user_id); }
-            if !api_key.is_empty() { req = req.header("API-Key", api_key); }
+            if self.config.credentials.api_key_auth && !api_key.is_empty() { req = req.header("API-Key", api_key); }
             match req.json(body).send().await {
                 Ok(resp) => {
                     let status = resp.status();
@@ -292,7 +292,7 @@ impl GtaRestClient {
         let api_key = self.config.credentials.main_api_key.get();
         let mut req = self.client.get(&url).query(query);
         if !user_id.is_empty() { req = req.header("User-Id", user_id); }
-        if !api_key.is_empty() { req = req.header("API-Key", api_key); }
+        if self.config.credentials.api_key_auth && !api_key.is_empty() { req = req.header("API-Key", api_key); }
         match req.send().await {
             Ok(resp) => {
                 let status = resp.status();
@@ -333,7 +333,7 @@ impl GtaRestClient {
         let api_key = self.config.credentials.main_api_key.get();
         let mut req = self.client.request(method.clone(), &url);
         if !user_id.is_empty() { req = req.header("User-Id", user_id); }
-        if !api_key.is_empty() { req = req.header("API-Key", api_key); }
+        if self.config.credentials.api_key_auth && !api_key.is_empty() { req = req.header("API-Key", api_key); }
         match req.json(body).send().await {
             Ok(resp) => {
                 let status = resp.status();

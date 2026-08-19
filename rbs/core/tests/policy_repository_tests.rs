@@ -55,7 +55,9 @@ async fn insert_duplicate_primary_key_returns_error() {
 
     let result = repo.insert(&make_entity("dup", "user1", "second")).await;
     assert!(result.is_err());
-    assert!(matches!(result.unwrap_err(), PolicyError::BackendError { .. }));
+    // SQLite reports primary-key collisions as unique-constraint violations,
+    // which the repository maps onto `PolicyError::NameDuplicate`.
+    assert!(matches!(result.unwrap_err(), PolicyError::NameDuplicate { .. }));
 }
 
 // ── SQL-02: find_by_id ────────────────────────────────────────────────

@@ -507,10 +507,20 @@ impl AttestationCredentials {
             );
         }
 
-        // main_api_key validation (optional)
-        Self::validate_api_key_if_present("main_api_key", &self.main_api_key, ATTEST_API_KEY_PREFIX_MAIN);
-        // sub_api_key validation (optional)
-        Self::validate_api_key_if_present("sub_api_key", &self.sub_api_key, ATTEST_API_KEY_PREFIX_SUB);
+        // API key validation is gated on the explicit `api_key_auth` switch.
+        // When disabled (default), keys are ignored entirely — no format check,
+        // no header sent — so placeholders/empty/malformed values never panic.
+        if self.api_key_auth {
+            // When enabled, both keys are required and must pass format validation.
+            if self.main_api_key.get().is_empty() {
+                panic!("attestation backends rest.credentials.main_api_key must not be empty when api_key_auth is enabled");
+            }
+            if self.sub_api_key.get().is_empty() {
+                panic!("attestation backends rest.credentials.sub_api_key must not be empty when api_key_auth is enabled");
+            }
+            Self::validate_api_key_if_present("main_api_key", &self.main_api_key, ATTEST_API_KEY_PREFIX_MAIN);
+            Self::validate_api_key_if_present("sub_api_key", &self.sub_api_key, ATTEST_API_KEY_PREFIX_SUB);
+        }
     }
 
     fn validate_api_key_if_present(field: &str, key: &super::Sensitive<String>, expected_prefix: &str) {
@@ -1101,7 +1111,10 @@ mod tests {
     fn attestation_credentials_main_api_key_wrong_length_panics() {
         let mut c = AttestationCredentials::default();
         c.user_id = "test-user".to_string();
+        c.api_key_auth = true;
         c.main_api_key = super::super::Sensitive::new("m.short".to_string());
+        // sub must be valid so we reach main's format check rather than the non-empty guard.
+        c.sub_api_key = super::super::Sensitive::new("s.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string());
         c.validate();
     }
 
@@ -1110,8 +1123,41 @@ mod tests {
     fn attestation_credentials_main_api_key_wrong_prefix_panics() {
         let mut c = AttestationCredentials::default();
         c.user_id = "test-user".to_string();
+        c.api_key_auth = true;
         // Use exactly 34 chars but with wrong prefix "x." instead of "m."
         c.main_api_key = super::super::Sensitive::new("x.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string());
+        c.sub_api_key = super::super::Sensitive::new("s.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string());
+        c.validate();
+    }
+
+    #[test]
+    fn attestation_credentials_api_key_disabled_ignores_malformed() {
+        // api_key_auth defaults to false: a leftover placeholder/malformed key
+        // must NOT trigger validation or panic (root cause of the original bug).
+        let mut c = AttestationCredentials::default();
+        c.user_id = "test-user".to_string();
+        c.main_api_key = super::super::Sensitive::new("${MAIN_API_KEY}".to_string());
+        c.sub_api_key = super::super::Sensitive::new("${SUB_API_KEY}".to_string());
+        c.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "main_api_key must not be empty when api_key_auth is enabled")]
+    fn attestation_credentials_api_key_enabled_requires_nonempty() {
+        let mut c = AttestationCredentials::default();
+        c.user_id = "test-user".to_string();
+        c.api_key_auth = true;
+        // keys left empty while enabled
+        c.validate();
+    }
+
+    #[test]
+    fn attestation_credentials_api_key_enabled_valid_keys_ok() {
+        let mut c = AttestationCredentials::default();
+        c.user_id = "test-user".to_string();
+        c.api_key_auth = true;
+        c.main_api_key = super::super::Sensitive::new("m.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string());
+        c.sub_api_key = super::super::Sensitive::new("s.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string());
         c.validate();
     }
 

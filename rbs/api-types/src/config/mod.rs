@@ -323,6 +323,13 @@ pub struct AttestationBuiltinConfig {}
 pub struct AttestationCredentials {
     /// User identifier for attestation requests.
     pub user_id: String,
+    /// Whether API-Key authentication is enabled. When `false` (default),
+    /// `main_api_key`/`sub_api_key` are ignored: never validated, never sent
+    /// as `API-Key` headers — they may be empty, placeholders, or absent.
+    /// When `true`, both keys must be non-empty and pass format validation,
+    /// and are attached to the corresponding requests.
+    #[serde(default)]
+    pub api_key_auth: bool,
     /// Main API key for primary authentication.
     pub main_api_key: Sensitive<String>,
     /// Sub API key for secondary authentication (used in attest requests).
@@ -333,6 +340,7 @@ impl Default for AttestationCredentials {
     fn default() -> Self {
         Self {
             user_id: String::new(),
+            api_key_auth: false,
             main_api_key: Sensitive::new(String::new()),
             sub_api_key: Sensitive::new(String::new()),
         }
