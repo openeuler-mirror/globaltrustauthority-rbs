@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use sea_orm::*;
 use super::error::ResourceError;
+use crate::admin::entity as user_entity;
 
 /// Resource entity stored in t_res_info.
 #[derive(Debug, Clone)]
@@ -199,30 +200,27 @@ impl ResourceRepository for SeaOrmResourceRepository {
     async fn create_with_user_limit_check(
         &self, uri: &str, entity: &ResourceEntity, max_per_user: usize,
     ) -> Result<(), ResourceError> {
-        use sea_orm::{ConnectionTrait, ColumnTrait, EntityTrait, QueryFilter, TransactionTrait};
+        use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, sea_query::Expr};
 
-        let backend = self.db.get_database_backend();
         let txn = self.db.begin().await.map_err(|e| {
             log::error!("resource db create txn begin error: {e}");
             ResourceError::BackendError { detail: e.to_string() }
         })?;
 
         // 1. Acquire per-user exclusive lock (idempotent UPDATE).
-        let lock_stmt = sea_orm::Statement::from_sql_and_values(
-            backend,
-            "UPDATE t_user_info SET updated_at = updated_at WHERE username = ?",
-            [entity.username.clone().into()],
-        );
-        let lock_res = txn.execute(lock_stmt).await.map_err(|e| {
-            log::error!("resource db create user-lock error: {e}");
-            let _ = std::future::ready(()); // best-effort; rollback below
-            ResourceError::BackendError { detail: e.to_string() }
-        });
-        if let Err(e) = lock_res {
-            let _ = txn.rollback().await;
-            return Err(e);
-        }
-        if lock_res.as_ref().unwrap().rows_affected() == 0 {
+        let lock_res = user_entity::Entity::update_many()
+            .col_expr(
+                user_entity::Column::UpdatedAt,
+                Expr::col(user_entity::Column::UpdatedAt).into(),
+            )
+            .filter(user_entity::Column::Username.eq(entity.username.clone()))
+            .exec(&txn)
+            .await
+            .map_err(|e| {
+                log::error!("resource db create user-lock error: {e}");
+                ResourceError::BackendError { detail: e.to_string() }
+            })?;
+        if lock_res.rows_affected == 0 {
             let _ = txn.rollback().await;
             log::error!("resource create denied: owning user '{}' not found", entity.username);
             return Err(ResourceError::BackendError {

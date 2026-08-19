@@ -15,7 +15,7 @@
 //! `AdminManager` owns user lifecycle operations: list, create, get, update, delete,
 //! plus bootstrap of the pre-configured administrator on first start.
 
-mod entity;
+pub(crate) mod entity;
 mod key;
 mod manager;
 
