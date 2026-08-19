@@ -3333,8 +3333,8 @@ components:
           - integer
           - 'null'
           format: int64
-          description: Last update timestamp (Unix epoch seconds).
-          example: 1700000000
+          description: Last update timestamp as Unix epoch seconds or milliseconds, depending on the GTA response.
+          example: 1700000000000
         valid_code:
           type:
           - integer
@@ -3359,6 +3359,18 @@ components:
           - 'null'
           format: int64
           description: Total matching count.
+        limit:
+          type:
+          - integer
+          - 'null'
+          format: int64
+          description: Effective page size returned by GTA.
+        offset:
+          type:
+          - integer
+          - 'null'
+          format: int64
+          description: Effective page offset returned by GTA.
     AttesterData:
       type: object
       description: |-
@@ -3498,6 +3510,18 @@ components:
           - 'null'
           format: int64
           description: Total matching count.
+        limit:
+          type:
+          - integer
+          - 'null'
+          format: int64
+          description: Effective page size returned by GTA.
+        offset:
+          type:
+          - integer
+          - 'null'
+          format: int64
+          description: Effective page offset returned by GTA.
     CertMutationResponse:
       type: object
       description: |-
@@ -3597,15 +3621,15 @@ components:
           - integer
           - 'null'
           format: int64
-          description: Creation timestamp (Unix epoch seconds).
-          example: 1700000000
+          description: Creation timestamp as Unix epoch seconds or milliseconds, depending on the GTA response.
+          example: 1700000000000
         update_time:
           type:
           - integer
           - 'null'
           format: int64
-          description: Last update timestamp (Unix epoch seconds).
-          example: 1700000000
+          description: Last update timestamp as Unix epoch seconds or milliseconds, depending on the GTA response.
+          example: 1700000000000
         valid_code:
           type:
           - integer
@@ -4207,6 +4231,18 @@ components:
           - 'null'
           format: int64
           description: Total matching count (present in by_type/all paths; absent in by_ids path).
+        limit:
+          type:
+          - integer
+          - 'null'
+          format: int64
+          description: Effective page size returned by GTA.
+        offset:
+          type:
+          - integer
+          - 'null'
+          format: int64
+          description: Effective page offset returned by GTA.
     RefValueMutation:
       type: object
       description: Inner mutation result for ref_value create/update.

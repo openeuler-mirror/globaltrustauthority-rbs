@@ -14,49 +14,14 @@ use async_trait::async_trait;
 use reqwest::{Method, Url};
 use serde::{Deserialize, Serialize};
 
+pub use rbs_api_types::{
+    RefValue, RefValueCreateRequest, RefValueDeleteRequest, RefValueListResponse, RefValueMutation,
+    RefValueMutationResponse, RefValueUpdateRequest,
+};
+
 use crate::attestation::{DEFAULT_AS_PROVIDER, REF_VALUE_SEGMENT};
 use crate::error::RbsAdminClientError;
-use crate::{send_empty, send_json, AdminClient};
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-pub struct RefValue {
-    #[serde(default)]
-    pub id: Option<String>,
-    #[serde(default)]
-    pub uid: Option<String>,
-    pub name: String,
-    #[serde(default)]
-    pub description: Option<String>,
-    pub attester_type: String,
-    #[serde(default)]
-    pub content: Option<String>,
-    #[serde(default)]
-    pub version: Option<u64>,
-    #[serde(default)]
-    pub valid_code: Option<i32>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct RefValueCreateRequest {
-    pub name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    pub attester_type: String,
-    pub content: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct RefValueUpdateRequest {
-    pub id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub attester_type: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content: Option<String>,
-}
+use crate::{send_empty, send_json, validate_path_segment, AdminClient};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct RefValueListParams {
@@ -64,35 +29,10 @@ pub struct RefValueListParams {
     pub ids: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attester_type: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct RefValueDeleteRequest {
-    pub delete_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ids: Option<Vec<String>>,
+    pub limit: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub attester_type: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-pub struct RefValueListResponse {
-    #[serde(default)]
-    pub ref_values: Vec<RefValue>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-pub struct RefValueMutation {
-    #[serde(default)]
-    pub id: Option<String>,
-    pub name: String,
-    #[serde(default)]
-    pub version: Option<u64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-pub struct RefValueMutationResponse {
-    pub ref_value: RefValueMutation,
+    pub offset: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -115,11 +55,21 @@ impl RefValueClient {
                 RbsAdminClientError::ClientError("base URL cannot be used to build ref value path".to_string())
             })
     }
+
+    fn item_url(&self, id: &str) -> Result<Url, RbsAdminClientError> {
+        validate_path_segment(id, "reference value ID")?;
+        self.client
+            .base_url
+            .join(format!("/rbs/v0/attestation/{}/{}/{}", self.as_provider, REF_VALUE_SEGMENT, id).as_str())
+            .map_err(|_| RbsAdminClientError::ClientError("base URL cannot be used to build ref value item path".to_string()))
+    }
 }
 
 #[async_trait]
 pub trait RefValueService {
     async fn list_ref_values(&self, params: &RefValueListParams) -> Result<RefValueListResponse, RbsAdminClientError>;
+
+    async fn get_ref_value(&self, id: &str) -> Result<RefValueListResponse, RbsAdminClientError>;
 
     async fn create_ref_value(
         &self,
@@ -150,7 +100,18 @@ impl RefValueService for RefValueClient {
                     query.append_pair("attester_type", attester_type);
                 }
             }
+            if let Some(limit) = params.limit {
+                query.append_pair("limit", &limit.to_string());
+            }
+            if let Some(offset) = params.offset {
+                query.append_pair("offset", &offset.to_string());
+            }
         }
+        send_json(&self.client, Method::GET, url, Option::<&()>::None).await
+    }
+
+    async fn get_ref_value(&self, id: &str) -> Result<RefValueListResponse, RbsAdminClientError> {
+        let url = self.item_url(id)?;
         send_json(&self.client, Method::GET, url, Option::<&()>::None).await
     }
 

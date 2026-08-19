@@ -13,60 +13,17 @@ use async_trait::async_trait;
 use reqwest::{Method, Url};
 use serde::{Deserialize, Serialize};
 
+pub use rbs_api_types::attestation_mgmt::AttestationPolicyListResponse as PolicyListResponse;
+pub use rbs_api_types::{
+    AttestationPolicy, PolicyCreateRequest as AttestationPolicyCreateRequest,
+    PolicyDeleteRequest as AttestationPolicyDeleteRequest, PolicyMutation, PolicyMutationResponse,
+    PolicyUpdateRequest as AttestationPolicyUpdateRequest,
+};
+
 use crate::attestation::{DEFAULT_AS_PROVIDER, POLICY_SEGMENT};
 use crate::client::AdminClient;
 use crate::error::RbsAdminClientError;
-use crate::{send_empty, send_json};
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-pub struct AttestationPolicy {
-    #[serde(default)]
-    pub id: Option<String>,
-    pub name: String,
-    #[serde(default)]
-    pub description: Option<String>,
-    #[serde(default)]
-    pub content: Option<String>,
-    #[serde(default)]
-    pub attester_type: Vec<String>,
-    #[serde(default)]
-    pub is_default: Option<bool>,
-    #[serde(default)]
-    pub version: Option<u64>,
-    #[serde(default)]
-    pub update_time: Option<u64>,
-    #[serde(default)]
-    pub valid_code: Option<i32>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct AttestationPolicyCreateRequest {
-    pub name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    pub attester_type: Vec<String>,
-    pub content_type: String,
-    pub content: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub is_default: Option<bool>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct AttestationPolicyUpdateRequest {
-    pub id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub attester_type: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content_type: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub is_default: Option<bool>,
-}
+use crate::{send_empty, send_json, validate_path_segment};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct AttestationPolicyListParams {
@@ -74,35 +31,10 @@ pub struct AttestationPolicyListParams {
     pub ids: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attester_type: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct AttestationPolicyDeleteRequest {
-    pub delete_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ids: Option<Vec<String>>,
+    pub limit: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub attester_type: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-pub struct PolicyListResponse {
-    #[serde(default)]
-    pub policies: Vec<AttestationPolicy>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-pub struct PolicyMutation {
-    #[serde(default)]
-    pub id: Option<String>,
-    pub name: String,
-    #[serde(default)]
-    pub version: Option<u64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-pub struct PolicyMutationResponse {
-    pub policy: PolicyMutation,
+    pub offset: Option<i64>,
 }
 
 #[derive(Clone, Debug)]
@@ -123,6 +55,14 @@ impl PolicyClient {
             .join(format!("/rbs/v0/attestation/{}/{}", self.as_provider, POLICY_SEGMENT).as_str())
             .map_err(|_| RbsAdminClientError::ClientError("base URL cannot be used to build policy path".to_string()))
     }
+
+    fn item_url(&self, id: &str) -> Result<Url, RbsAdminClientError> {
+        validate_path_segment(id, "policy ID")?;
+        self.client
+            .base_url
+            .join(format!("/rbs/v0/attestation/{}/{}/{}", self.as_provider, POLICY_SEGMENT, id).as_str())
+            .map_err(|_| RbsAdminClientError::ClientError("base URL cannot be used to build policy item path".to_string()))
+    }
 }
 
 #[async_trait]
@@ -131,6 +71,8 @@ pub trait PolicyService {
         &self,
         params: &AttestationPolicyListParams,
     ) -> Result<PolicyListResponse, RbsAdminClientError>;
+
+    async fn get_policy(&self, id: &str) -> Result<PolicyListResponse, RbsAdminClientError>;
 
     async fn create_policy(
         &self,
@@ -164,7 +106,18 @@ impl PolicyService for PolicyClient {
                     query.append_pair("attester_type", attester_type);
                 }
             }
+            if let Some(limit) = params.limit {
+                query.append_pair("limit", &limit.to_string());
+            }
+            if let Some(offset) = params.offset {
+                query.append_pair("offset", &offset.to_string());
+            }
         }
+        send_json(&self.client, Method::GET, url, Option::<&()>::None).await
+    }
+
+    async fn get_policy(&self, id: &str) -> Result<PolicyListResponse, RbsAdminClientError> {
+        let url = self.item_url(id)?;
         send_json(&self.client, Method::GET, url, Option::<&()>::None).await
     }
 

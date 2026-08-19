@@ -15,6 +15,7 @@ use rbs_admin_client::attestation::ref_value::{
     RefValueUpdateRequest,
 };
 use rbs_admin_client::AdminClient;
+use rbs_api_types::AttestationDeleteType;
 
 fn unusable_admin_client() -> AdminClient {
     AdminClient::new("data:text/plain,not-a-base-url", "test-token", &None)
@@ -29,6 +30,7 @@ async fn ref_value_operations_report_url_build_failure() {
         description: Some("demo".to_string()),
         attester_type: "tpm".to_string(),
         content: "jwt".to_string(),
+        content_type: None,
     };
     let update = RefValueUpdateRequest {
         id: "rv-1".to_string(),
@@ -36,39 +38,41 @@ async fn ref_value_operations_report_url_build_failure() {
         description: None,
         attester_type: None,
         content: None,
+        content_type: None,
     };
-    let delete = RefValueDeleteRequest { delete_type: "id".to_string(), ids: Some(vec!["rv-1".to_string()]), attester_type: None };
+    let delete = RefValueDeleteRequest {
+        delete_type: AttestationDeleteType::Id,
+        ids: Some(vec!["rv-1".to_string()]),
+        attester_type: None,
+    };
 
     assert_eq!(
         client
-            .list_ref_values(&RefValueListParams { ids: Some(vec!["rv-1".to_string()]), attester_type: Some("tpm".to_string()) })
+            .list_ref_values(&RefValueListParams {
+                ids: Some(vec!["rv-1".to_string()]),
+                attester_type: Some("tpm".to_string()),
+                limit: None,
+                offset: None,
+            })
             .await
             .expect_err("list should fail")
             .to_string(),
         "base URL cannot be used to build ref value path"
     );
     assert_eq!(
-        client
-            .create_ref_value(&create)
-            .await
-            .expect_err("create should fail")
-            .to_string(),
+        client.create_ref_value(&create).await.expect_err("create should fail").to_string(),
         "base URL cannot be used to build ref value path"
     );
     assert_eq!(
-        client
-            .update_ref_value(&update)
-            .await
-            .expect_err("update should fail")
-            .to_string(),
+        client.update_ref_value(&update).await.expect_err("update should fail").to_string(),
         "base URL cannot be used to build ref value path"
     );
     assert_eq!(
-        client
-            .delete_ref_values(&delete)
-            .await
-            .expect_err("delete should fail")
-            .to_string(),
+        client.delete_ref_values(&delete).await.expect_err("delete should fail").to_string(),
         "base URL cannot be used to build ref value path"
+    );
+    assert_eq!(
+        client.get_ref_value("rv-1").await.expect_err("get should fail").to_string(),
+        "base URL cannot be used to build ref value item path"
     );
 }

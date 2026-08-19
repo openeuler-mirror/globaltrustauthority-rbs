@@ -109,9 +109,30 @@ where
     if status.is_success() {
         Ok(body)
     } else {
-        warn!(method = %method_name, url = %url_text, status = %status, body_len = body.len(), "admin request returned error");
+        warn!(
+            method = %method_name,
+            url = %url_text,
+            status = %status,
+            body_len = body.len(),
+            error_body = %flatten_error_body(&body),
+            "admin request returned error"
+        );
         Err(http_error(status, &body))
     }
+}
+
+fn flatten_error_body(body: &str) -> String {
+    let message = serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|value| {
+            ["message", "error", "detail"]
+                .iter()
+                .find_map(|key| value.get(*key).and_then(serde_json::Value::as_str))
+                .map(ToOwned::to_owned)
+        })
+        .unwrap_or_else(|| body.to_string());
+
+    message.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 pub(crate) fn http_error(status: StatusCode, body: &str) -> RbsAdminClientError {
@@ -149,6 +170,15 @@ mod tests {
             http_error(StatusCode::INTERNAL_SERVER_ERROR, "").to_string(),
             "The service is temporarily unavailable. Please try again later."
         );
+    }
+
+    #[test]
+    fn flatten_error_body_extracts_message_and_normalizes_whitespace() {
+        assert_eq!(
+            flatten_error_body(r#"{"message":"invalid\n reference value"}"#),
+            "invalid reference value"
+        );
+        assert_eq!(flatten_error_body(" upstream\n error "), "upstream error");
     }
 
     #[test]

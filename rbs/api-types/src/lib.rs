@@ -62,7 +62,8 @@ pub use auth::{
 pub use attestation_mgmt::{
     AttestationDeleteType, AttestationPolicy, CertCreateRequest, CertDeleteRequest,
     CertListQuery, CertListResponse, CertMutationResponse, CertMutationResult, CertRecord,
-    CertUpdateRequest, CrlMutationResult, CrlRecord, PolicyCreateRequest, PolicyDeleteRequest,
+    CertUpdateRequest, CrlMutationResult, CrlRecord,
+    PolicyCreateRequest, PolicyDeleteRequest,
     PolicyDeleteType, PolicyMutation, PolicyMutationResponse, PolicyUpdateRequest, RefValue,
     RefValueCreateRequest, RefValueDeleteRequest, RefValueListQuery, RefValueListResponse,
     RefValueMutation, RefValueMutationResponse, RefValueUpdateRequest,

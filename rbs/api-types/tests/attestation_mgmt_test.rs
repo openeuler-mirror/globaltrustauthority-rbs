@@ -320,6 +320,8 @@ fn tc16_crate_root_exports() {
     let _r: RefValueListResponse = RefValueListResponse {
         ref_values: vec![],
         total_count: None,
+        limit: None,
+        offset: None,
     };
     let _c: RefValueCreateRequest = RefValueCreateRequest {
         name: String::new(),
