@@ -11,9 +11,11 @@
  */
 
 use rbs_admin_client::attestation::policy::{
-    PolicyClient, AttestationPolicyCreateRequest, AttestationPolicyDeleteRequest, AttestationPolicyListParams, PolicyService, AttestationPolicyUpdateRequest,
+    AttestationPolicyCreateRequest, AttestationPolicyDeleteRequest, AttestationPolicyListParams,
+    AttestationPolicyUpdateRequest, PolicyClient, PolicyService,
 };
 use rbs_admin_client::AdminClient;
+use rbs_api_types::PolicyDeleteType;
 use serde_json::json;
 use wiremock::matchers::{body_json, header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -29,6 +31,22 @@ fn unusable_admin_client() -> AdminClient {
 
 fn policy_client(server: &MockServer) -> PolicyClient {
     PolicyClient::new(admin_client(&server.uri()), None)
+}
+
+#[tokio::test]
+async fn policy_client_uses_item_endpoint_for_get() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/rbs/v0/attestation/gta/policy/policy_id_1"))
+        .and(header("authorization", "Bearer test-token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "policies": [{"id": "policy_id_1", "name": "policy_name_1", "attester_type": ["tpm"]}]
+        })))
+        .mount(&server)
+        .await;
+
+    let response = policy_client(&server).get_policy("policy_id_1").await.expect("get policy should succeed");
+    assert_eq!(response.policies[0].id, "policy_id_1");
 }
 
 #[tokio::test]
@@ -52,7 +70,7 @@ async fn policy_client_uses_collection_endpoint_for_list_create_update_and_delet
         is_default: Some(true),
     };
     let delete = AttestationPolicyDeleteRequest {
-        delete_type: "id".to_string(),
+        delete_type: PolicyDeleteType::Id,
         ids: Some(vec!["policy_id_1".to_string(), "policy_id_2".to_string()]),
         attester_type: None,
     };
@@ -62,6 +80,8 @@ async fn policy_client_uses_collection_endpoint_for_list_create_update_and_delet
         .and(header("authorization", "Bearer test-token"))
         .and(query_param("ids", "policy_id_1,policy_id_2"))
         .and(query_param("attester_type", "tpm"))
+        .and(query_param("limit", "10"))
+        .and(query_param("offset", "20"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "policies": [{
                 "id": "policy_id_1",
@@ -73,7 +93,10 @@ async fn policy_client_uses_collection_endpoint_for_list_create_update_and_delet
                 "version": 1,
                 "update_time": 1710000000,
                 "valid_code": 0
-            }]
+            }],
+            "total_count": 21,
+            "limit": 10,
+            "offset": 20
         })))
         .mount(&server)
         .await;
@@ -116,17 +139,22 @@ async fn policy_client_uses_collection_endpoint_for_list_create_update_and_delet
         .list_policies(&AttestationPolicyListParams {
             ids: Some(vec!["policy_id_1".to_string(), "policy_id_2".to_string()]),
             attester_type: Some("tpm".to_string()),
+            limit: Some(10),
+            offset: Some(20),
         })
         .await
         .expect("list policies should succeed");
     assert_eq!(list.policies.len(), 1);
-    assert_eq!(list.policies[0].id.as_deref(), Some("policy_id_1"));
+    assert_eq!(list.policies[0].id, "policy_id_1");
+    assert_eq!(list.total_count, Some(21));
+    assert_eq!(list.limit, Some(10));
+    assert_eq!(list.offset, Some(20));
 
     let created = client.create_policy(&create).await.expect("create policy should succeed");
-    assert_eq!(created.policy.id.as_deref(), Some("policy_id_1"));
+    assert_eq!(created.policy.id, "policy_id_1");
 
     let updated = client.update_policy(&update).await.expect("update policy should succeed");
-    assert_eq!(updated.policy.version, Some(2));
+    assert_eq!(updated.policy.version, 2);
 
     client.delete_policies(&delete).await.expect("delete policies should succeed");
 }

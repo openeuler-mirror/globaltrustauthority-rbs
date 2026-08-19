@@ -4003,8 +4003,8 @@ func main() {
       ],
       "is_default": true,
       "version": 1,
-      "create_time": 1700000000,
-      "update_time": 1700000000,
+      "create_time": 1700000000000,
+      "update_time": 1700000000000,
       "valid_code": 0,
       "cert_revoked_date": 1700000000,
       "cert_revoked_reason": "string"
@@ -4017,7 +4017,9 @@ func main() {
       "crl_content": "string"
     }
   ],
-  "total_count": 0
+  "total_count": 0,
+  "limit": 0,
+  "offset": 0
 }
 ```
 
@@ -4849,8 +4851,8 @@ func main() {
       ],
       "is_default": true,
       "version": 1,
-      "create_time": 1700000000,
-      "update_time": 1700000000,
+      "create_time": 1700000000000,
+      "update_time": 1700000000000,
       "valid_code": 0,
       "cert_revoked_date": 1700000000,
       "cert_revoked_reason": "string"
@@ -4863,7 +4865,9 @@ func main() {
       "crl_content": "string"
     }
   ],
-  "total_count": 0
+  "total_count": 0,
+  "limit": 0,
+  "offset": 0
 }
 ```
 
@@ -5241,11 +5245,13 @@ func main() {
       "attester_type": "[\"tpm\",\"sgx\"]",
       "is_default": true,
       "version": 1,
-      "update_time": 1700000000,
+      "update_time": 1700000000000,
       "valid_code": 0
     }
   ],
-  "total_count": 0
+  "total_count": 0,
+  "limit": 0,
+  "offset": 0
 }
 ```
 
@@ -6083,11 +6089,13 @@ func main() {
       "attester_type": "[\"tpm\",\"sgx\"]",
       "is_default": true,
       "version": 1,
-      "update_time": 1700000000,
+      "update_time": 1700000000000,
       "valid_code": 0
     }
   ],
-  "total_count": 0
+  "total_count": 0,
+  "limit": 0,
+  "offset": 0
 }
 ```
 
@@ -6469,7 +6477,9 @@ func main() {
       "valid_code": 0
     }
   ],
-  "total_count": 0
+  "total_count": 0,
+  "limit": 0,
+  "offset": 0
 }
 ```
 
@@ -7303,7 +7313,9 @@ func main() {
       "valid_code": 0
     }
   ],
-  "total_count": 0
+  "total_count": 0,
+  "limit": 0,
+  "offset": 0
 }
 ```
 
@@ -7684,8 +7696,8 @@ func main() {
       ],
       "is_default": true,
       "version": 1,
-      "create_time": 1700000000,
-      "update_time": 1700000000,
+      "create_time": 1700000000000,
+      "update_time": 1700000000000,
       "valid_code": 0,
       "cert_revoked_date": 1700000000,
       "cert_revoked_reason": "string"
@@ -7698,7 +7710,9 @@ func main() {
       "crl_content": "string"
     }
   ],
-  "total_count": 0
+  "total_count": 0,
+  "limit": 0,
+  "offset": 0
 }
 ```
 
@@ -8534,8 +8548,8 @@ func main() {
       ],
       "is_default": true,
       "version": 1,
-      "create_time": 1700000000,
-      "update_time": 1700000000,
+      "create_time": 1700000000000,
+      "update_time": 1700000000000,
       "valid_code": 0,
       "cert_revoked_date": 1700000000,
       "cert_revoked_reason": "string"
@@ -8548,7 +8562,9 @@ func main() {
       "crl_content": "string"
     }
   ],
-  "total_count": 0
+  "total_count": 0,
+  "limit": 0,
+  "offset": 0
 }
 ```
 
@@ -8928,11 +8944,13 @@ func main() {
       "attester_type": "[\"tpm\",\"sgx\"]",
       "is_default": true,
       "version": 1,
-      "update_time": 1700000000,
+      "update_time": 1700000000000,
       "valid_code": 0
     }
   ],
-  "total_count": 0
+  "total_count": 0,
+  "limit": 0,
+  "offset": 0
 }
 ```
 
@@ -9774,11 +9792,13 @@ func main() {
       "attester_type": "[\"tpm\",\"sgx\"]",
       "is_default": true,
       "version": 1,
-      "update_time": 1700000000,
+      "update_time": 1700000000000,
       "valid_code": 0
     }
   ],
-  "total_count": 0
+  "total_count": 0,
+  "limit": 0,
+  "offset": 0
 }
 ```
 
@@ -10162,7 +10182,9 @@ func main() {
       "valid_code": 0
     }
   ],
-  "total_count": 0
+  "total_count": 0,
+  "limit": 0,
+  "offset": 0
 }
 ```
 
@@ -11000,7 +11022,9 @@ func main() {
       "valid_code": 0
     }
   ],
-  "total_count": 0
+  "total_count": 0,
+  "limit": 0,
+  "offset": 0
 }
 ```
 
@@ -11494,7 +11518,7 @@ GTA accepts `"id"`, `"all"`, `"type"` for ref_value and cert.
   "attester_type": "[\"tpm\",\"sgx\"]",
   "is_default": true,
   "version": 1,
-  "update_time": 1700000000,
+  "update_time": 1700000000000,
   "valid_code": 0
 }
 
@@ -11518,7 +11542,7 @@ responses, so they are mandatory. Other fields appear only in by_ids.
 |attester_type|[string]|true|none|Attester type list (array, unlike ref_value's scalar attester_type).|
 |is_default|boolean,null|false|none|Whether this is the default policy (by_ids path only).|
 |version|integer,null(int32)|false|none|Policy version (by_ids path only).|
-|update_time|integer,null(int64)|false|none|Last update timestamp (Unix epoch seconds).|
+|update_time|integer,null(int64)|false|none|Last update timestamp as Unix epoch seconds or milliseconds, depending on the GTA response.|
 |valid_code|integer,null(int32)|false|none|Validity code: 0 = valid, 1 = invalid (by_ids path only).|
 
 <h2 id="tocS_AttestationPolicyListResponse">AttestationPolicyListResponse</h2>
@@ -11539,11 +11563,13 @@ responses, so they are mandatory. Other fields appear only in by_ids.
       "attester_type": "[\"tpm\",\"sgx\"]",
       "is_default": true,
       "version": 1,
-      "update_time": 1700000000,
+      "update_time": 1700000000000,
       "valid_code": 0
     }
   ],
-  "total_count": 0
+  "total_count": 0,
+  "limit": 0,
+  "offset": 0
 }
 
 ```
@@ -11556,6 +11582,8 @@ Paginated response for GET attestation policy list.
 |---|---|---|---|---|
 |policies|[[AttestationPolicy](#schemaattestationpolicy)]|true|none|List of policies matching the query.|
 |total_count|integer,null(int64)|false|none|Total matching count.|
+|limit|integer,null(int64)|false|none|Effective page size returned by GTA.|
+|offset|integer,null(int64)|false|none|Effective page offset returned by GTA.|
 
 <h2 id="tocS_AttesterData">AttesterData</h2>
 <!-- backwards compatibility -->
@@ -11744,8 +11772,8 @@ GTA accepts `delete_type` = `"id"`/`"all"`/`"type"`, with
       ],
       "is_default": true,
       "version": 1,
-      "create_time": 1700000000,
-      "update_time": 1700000000,
+      "create_time": 1700000000000,
+      "update_time": 1700000000000,
       "valid_code": 0,
       "cert_revoked_date": 1700000000,
       "cert_revoked_reason": "string"
@@ -11758,7 +11786,9 @@ GTA accepts `delete_type` = `"id"`/`"all"`/`"type"`, with
       "crl_content": "string"
     }
   ],
-  "total_count": 0
+  "total_count": 0,
+  "limit": 0,
+  "offset": 0
 }
 
 ```
@@ -11772,6 +11802,8 @@ Paginated response for GET cert list.
 |certs|[[CertRecord](#schemacertrecord)]|false|none|List of certificates matching the query.|
 |crls|[[CrlRecord](#schemacrlrecord)]|false|none|List of CRL records matching the query.|
 |total_count|integer,null(int64)|false|none|Total matching count.|
+|limit|integer,null(int64)|false|none|Effective page size returned by GTA.|
+|offset|integer,null(int64)|false|none|Effective page offset returned by GTA.|
 
 <h2 id="tocS_CertMutationResponse">CertMutationResponse</h2>
 <!-- backwards compatibility -->
@@ -11875,8 +11907,8 @@ GTA returns `{"cert": {"cert_id":"...", "cert_name":"...", "version": 1}}`.
   ],
   "is_default": true,
   "version": 1,
-  "create_time": 1700000000,
-  "update_time": 1700000000,
+  "create_time": 1700000000000,
+  "update_time": 1700000000000,
   "valid_code": 0,
   "cert_revoked_date": 1700000000,
   "cert_revoked_reason": "string"
@@ -11901,8 +11933,8 @@ depends on the query path and the underlying database row.
 |cert_type|array,null|false|none|Certificate type list.|
 |is_default|boolean,null|false|none|Whether this is the default certificate.|
 |version|integer,null(int32)|false|none|Certificate version.|
-|create_time|integer,null(int64)|false|none|Creation timestamp (Unix epoch seconds).|
-|update_time|integer,null(int64)|false|none|Last update timestamp (Unix epoch seconds).|
+|create_time|integer,null(int64)|false|none|Creation timestamp as Unix epoch seconds or milliseconds, depending on the GTA response.|
+|update_time|integer,null(int64)|false|none|Last update timestamp as Unix epoch seconds or milliseconds, depending on the GTA response.|
 |valid_code|integer,null(int32)|false|none|Validity code.|
 |cert_revoked_date|integer,null(int64)|false|none|Revocation date (Unix epoch seconds).|
 |cert_revoked_reason|string,null|false|none|Revocation reason.|
@@ -12647,7 +12679,9 @@ GTA accepts `delete_type` = `"id"`/`"all"`/`"type"`, with
       "valid_code": 0
     }
   ],
-  "total_count": 0
+  "total_count": 0,
+  "limit": 0,
+  "offset": 0
 }
 
 ```
@@ -12663,6 +12697,8 @@ paths, absent in by_ids paths.
 |---|---|---|---|---|
 |ref_values|[[RefValue](#schemarefvalue)]|true|none|List of ref_values matching the query.|
 |total_count|integer,null(int64)|false|none|Total matching count (present in by_type/all paths; absent in by_ids path).|
+|limit|integer,null(int64)|false|none|Effective page size returned by GTA.|
+|offset|integer,null(int64)|false|none|Effective page offset returned by GTA.|
 
 <h2 id="tocS_RefValueMutation">RefValueMutation</h2>
 <!-- backwards compatibility -->

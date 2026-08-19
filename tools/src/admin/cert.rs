@@ -16,12 +16,15 @@ use rbs_admin_client::attestation::cert::{
     CertService,
 };
 use rbs_admin_client::AdminClient;
+use rbs_api_types::AttestationDeleteType;
 use serde::Serialize;
+use tabled::settings::Style;
+use tabled::Table;
 
 use crate::admin::GTA_ID_MAX_LEN;
-use crate::common::formatter::{Formatter, TextOutput};
+use crate::common::formatter::{format_epoch_timestamp, format_indented_content, Formatter};
 use crate::common::utils::read_path_file;
-use crate::common::validate::{validate_cert_file, validate_string_max_len};
+use crate::common::validate::{validate_cert_file, validate_i64, validate_string_max_len};
 use crate::config::GlobalOptions;
 use crate::error::CliError;
 
@@ -33,6 +36,10 @@ const DELETE_CERT_TYPE: &str = "type";
 const DELETE_CERT_ALL: &str = "all";
 
 const DELETE_CERT_TYPES: [&str; 3] = [DELETE_CERT_ID, DELETE_CERT_TYPE, DELETE_CERT_ALL];
+const CERT_LIST_MIN_LIMIT: i64 = 1;
+const CERT_LIST_MAX_LIMIT: i64 = 10;
+const CERT_LIST_MIN_OFFSET: i64 = 0;
+const CERT_LIST_MAX_OFFSET: i64 = 100_000;
 
 #[derive(Args, Debug, Clone)]
 #[command(about = "Manage attestation certs and CRLs")]
@@ -43,24 +50,20 @@ pub struct CertCli {
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum CertCommand {
-    #[command(
-        about = "List certs or CRLs",
-        long_about = "List current user's certs or CRLs.\n\nExamples:\n  rbs-cli cert list\n  rbs-cli cert list --ids abc123,def456\n  rbs-cli cert list --cert-type crl"
-    )]
+    #[command(about = "List certs or CRLs", long_about = "List current user's certs or CRLs.")]
     List(ListArgs),
-    #[command(
-        about = "Create a cert or CRL",
-        long_about = "Create a normal cert or a CRL.\n\nNormal cert:\n  rbs-cli cert create --name test-cert --type tpm --content @cert.pem\n\nCRL:\n  rbs-cli cert create --name test-crl --type crl --crl-content @test.crl"
-    )]
+    #[command(about = "Get one cert or CRL by ID")]
+    Get(GetArgs),
+    #[command(about = "Create a cert or CRL", long_about = "Create a normal cert or a CRL.")]
     Create(CreateArgs),
     #[command(
         about = "Update a cert",
-        long_about = "Update cert metadata. At least one updatable field must be provided.\n\nExample:\n  rbs-cli cert update --id abc123 --name new-name --type tpm --is-default true"
+        long_about = "Update cert metadata. At least one updatable field must be provided."
     )]
     Update(UpdateArgs),
     #[command(
         about = "Delete certs or CRLs",
-        long_about = "Delete certs by id, by type, or delete all certs. CRL deletion uses --type crl and optional --ids.\n\nExamples:\n  rbs-cli cert delete --delete-type id --ids abc123,def456\n  rbs-cli cert delete --delete-type type --type tpm\n  rbs-cli cert delete --delete-type all\n  rbs-cli cert delete --type crl --ids crl-1,crl-2"
+        long_about = "Delete certs by id, by type, or delete all certs. CRL deletion uses --type crl and optional --ids."
     )]
     Delete(DeleteArgs),
 }
@@ -82,6 +85,26 @@ pub struct ListArgs {
         help = "Filter by cert type; use `crl` to query CRLs"
     )]
     pub cert_type: Option<String>,
+
+    #[arg(
+        long,
+        value_parser = |limit: &str| validate_i64(limit, CERT_LIST_MIN_LIMIT, CERT_LIST_MAX_LIMIT, "limit"),
+        help = "Page size (1-10; RBS default is 10)"
+    )]
+    pub limit: Option<i64>,
+
+    #[arg(
+        long,
+        value_parser = |offset: &str| validate_i64(offset, CERT_LIST_MIN_OFFSET, CERT_LIST_MAX_OFFSET, "offset"),
+        help = "Page offset (0-100000; RBS default is 0)"
+    )]
+    pub offset: Option<i64>,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct GetArgs {
+    #[arg(short, long, value_parser = |s: &str| validate_string_max_len(s, GTA_ID_MAX_LEN), help = "Cert or CRL ID")]
+    pub id: String,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -186,10 +209,16 @@ async fn execute_cert_command(cli: &CertCli, service: &CertClient) -> Result<Box
     match &cli.command {
         CertCommand::List(args) => {
             let resp = service
-                .list_certs(&CertListParams { ids: args.ids.clone(), cert_type: args.cert_type.clone() })
+                .list_certs(&CertListParams {
+                    ids: args.ids.clone(),
+                    cert_type: args.cert_type.clone(),
+                    limit: args.limit,
+                    offset: args.offset,
+                })
                 .await?;
             Ok(Box::new(CertListOutput(resp)))
         },
+        CertCommand::Get(args) => get_cert_output(service.get_cert(&args.id).await?),
         CertCommand::Create(args) => {
             validate_create_args(args)?;
             let resp = service
@@ -213,15 +242,15 @@ async fn execute_cert_command(cli: &CertCli, service: &CertClient) -> Result<Box
                     description: args.description.clone(),
                     cert_type: args.cert_type.clone(),
                     is_default: args.is_default,
+                    content: None,
                 })
                 .await?;
             Ok(Box::new(CertMutationOutput(resp)))
         },
         CertCommand::Delete(args) => {
             let request = build_delete_request(args)?;
-            let message = delete_message(&request);
             service.delete_certs(&request).await?;
-            Ok(Box::new(TextOutput::new(message)))
+            Ok(Box::new(DeleteCertOutput { target: delete_message(&request) }))
         },
     }
 }
@@ -280,8 +309,8 @@ fn build_delete_request(args: &DeleteArgs) -> Result<CertDeleteRequest, CliError
         if args.delete_type.is_some() {
             return Err(CliError::InvalidArgument("delete_type must not be set when deleting CRLs".to_string()));
         }
-        let delete_type = if ids.is_some() { DELETE_CERT_ID } else { DELETE_CERT_TYPE };
-        return Ok(CertDeleteRequest { delete_type: delete_type.to_string(), ids, cert_type });
+        let delete_type = if ids.is_some() { AttestationDeleteType::Id } else { AttestationDeleteType::Type };
+        return Ok(CertDeleteRequest { delete_type, ids, cert_type });
     }
 
     match args.delete_type.as_deref() {
@@ -289,13 +318,13 @@ fn build_delete_request(args: &DeleteArgs) -> Result<CertDeleteRequest, CliError
             if ids.is_none() {
                 return Err(CliError::InvalidArgument("ids are required when delete_type is `id`".to_string()));
             }
-            Ok(CertDeleteRequest { delete_type: DELETE_CERT_ID.to_string(), ids, cert_type: None })
+            Ok(CertDeleteRequest { delete_type: AttestationDeleteType::Id, ids, cert_type: None })
         },
         Some(DELETE_CERT_TYPE) => {
             if cert_type.is_none() {
                 return Err(CliError::InvalidArgument("type is required when delete_type is `type`".to_string()));
             }
-            Ok(CertDeleteRequest { delete_type: DELETE_CERT_TYPE.to_string(), ids: None, cert_type })
+            Ok(CertDeleteRequest { delete_type: AttestationDeleteType::Type, ids: None, cert_type })
         },
         Some(DELETE_CERT_ALL) => {
             if ids.is_some() || cert_type.is_some() {
@@ -303,7 +332,7 @@ fn build_delete_request(args: &DeleteArgs) -> Result<CertDeleteRequest, CliError
                     "ids and type must not be set when delete_type is `all`".to_string(),
                 ));
             }
-            Ok(CertDeleteRequest { delete_type: DELETE_CERT_ALL.to_string(), ids: None, cert_type: None })
+            Ok(CertDeleteRequest { delete_type: AttestationDeleteType::All, ids: None, cert_type: None })
         },
         None => Err(CliError::InvalidArgument(
             "delete_type is required for normal cert deletion; use --type crl for CRL deletion".to_string(),
@@ -315,19 +344,35 @@ fn build_delete_request(args: &DeleteArgs) -> Result<CertDeleteRequest, CliError
 fn delete_message(request: &CertDeleteRequest) -> String {
     if matches!(request.cert_type.as_deref(), Some(CRL)) {
         if let Some(ids) = &request.ids {
-            format!("deleted crls: {}", ids.join(","))
+            format!("CRLs removed: {}", ids.join(","))
         } else {
-            "deleted all crls".to_string()
+            "all CRLs removed".to_string()
         }
     } else {
-        match request.delete_type.as_str() {
-            DELETE_CERT_ID => format!("deleted certs: {}", request.ids.clone().unwrap_or_default().join(",")),
-            DELETE_CERT_TYPE => {
-                format!("deleted certs by type: {}", request.cert_type.clone().unwrap_or_default())
+        match request.delete_type {
+            AttestationDeleteType::Id => {
+                format!("certs removed: {}", request.ids.clone().unwrap_or_default().join(","))
             },
-            DELETE_CERT_ALL => "deleted all certs".to_string(),
-            _ => "deleted certs".to_string(),
+            AttestationDeleteType::Type => {
+                format!("certs removed by type: {}", request.cert_type.clone().unwrap_or_default())
+            },
+            AttestationDeleteType::All => "all certs removed".to_string(),
         }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct DeleteCertOutput {
+    target: String,
+}
+
+impl Formatter for DeleteCertOutput {
+    fn render_text(&self) -> Result<String, CliError> {
+        Ok(format!("Delete succeeded: {}", self.target))
+    }
+
+    fn render_json(&self) -> Result<String, CliError> {
+        serde_json::to_string_pretty(self).map_err(|_| CliError::InternalFormat)
     }
 }
 
@@ -336,48 +381,96 @@ struct CertListOutput(CertListResponse);
 
 impl Formatter for CertListOutput {
     fn render_text(&self) -> Result<String, CliError> {
-        let mut lines = Vec::new();
+        let mut lines = vec!["certs:".to_string()];
 
-        if !self.0.certs.is_empty() {
-            lines.push("certs:".to_string());
-            for cert in &self.0.certs {
-                let mut parts =
-                    vec![format!("name={}", cert.name), format!("id={}", cert.id.as_deref().unwrap_or("-"))];
-                if !cert.cert_type.is_empty() {
-                    parts.push(format!("type={}", cert.cert_type.join(",")));
-                }
-                if let Some(version) = cert.version {
-                    parts.push(format!("version={version}"));
-                }
-                if let Some(description) = &cert.description {
-                    parts.push(format!("description={description}"));
-                }
-                if let Some(is_default) = cert.is_default {
-                    parts.push(format!("is_default={is_default}"));
-                }
-                if let Some(content) = &cert.content {
-                    parts.push(format!("content={}", content.replace('\n', "\\n")));
-                }
-                lines.push(format!("  - {}", parts.join(" ")));
-            }
+        if self.0.certs.is_empty() {
+            lines.push("  <empty>".to_string());
+        } else {
+            lines.extend(
+                Table::new(self.0.certs.iter()).with(Style::markdown()).to_string().lines().map(str::to_string),
+            );
         }
 
         if !self.0.crls.is_empty() {
             lines.push("crls:".to_string());
-            for crl in &self.0.crls {
-                let mut parts = vec![format!("name={}", crl.name), format!("id={}", crl.id.as_deref().unwrap_or("-"))];
-                if let Some(content) = &crl.content {
-                    parts.push(format!("content={}", content.replace('\n', "\\n")));
-                }
-                lines.push(format!("  - {}", parts.join(" ")));
-            }
+            lines
+                .extend(Table::new(self.0.crls.iter()).with(Style::markdown()).to_string().lines().map(str::to_string));
         }
 
-        if lines.is_empty() {
-            lines.push("certs: <empty>".to_string());
+        if let Some(total_count) = self.0.total_count {
+            lines.push(format!("total_count: {total_count}"));
+        }
+        if let Some(limit) = self.0.limit {
+            lines.push(format!("limit: {limit}"));
+        }
+        if let Some(offset) = self.0.offset {
+            lines.push(format!("offset: {offset}"));
         }
 
         Ok(lines.join("\n"))
+    }
+
+    fn render_json(&self) -> Result<String, CliError> {
+        serde_json::to_string_pretty(&self.0).map_err(|_| CliError::InternalFormat)
+    }
+}
+
+fn get_cert_output(response: CertListResponse) -> Result<Box<dyn Formatter>, CliError> {
+    match (response.certs.as_slice(), response.crls.as_slice()) {
+        ([cert], []) => Ok(Box::new(CertOutput(cert.clone()))),
+        ([], [crl]) => Ok(Box::new(CrlOutput(crl.clone()))),
+        _ => Err(CliError::Message("Certificate or CRL not found.".to_string())),
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct CertOutput(rbs_admin_client::attestation::cert::CertRecord);
+
+impl Formatter for CertOutput {
+    fn render_text(&self) -> Result<String, CliError> {
+        let cert = &self.0;
+        Ok([
+            format!("{:<20}{}", "cert_id:", cert.cert_id.as_deref().unwrap_or("-")),
+            format!("{:<20}{}", "cert_name:", cert.cert_name.as_deref().unwrap_or("-")),
+            format!("{:<20}{}", "description:", cert.description.as_deref().unwrap_or("-")),
+            format!("content:\n{}", format_indented_content(cert.content.as_deref())),
+            format!(
+                "{:<20}{}",
+                "cert_type:",
+                serde_json::to_string(&cert.cert_type).map_err(|err| CliError::Message(err.to_string()))?
+            ),
+            format!("{:<20}{}", "is_default:", cert.is_default.map_or("-".to_string(), |value| value.to_string())),
+            format!("{:<20}{}", "version:", cert.version.map_or("-".to_string(), |value| value.to_string())),
+            format!("{:<20}{}", "create_time:", format_epoch_timestamp(cert.create_time)),
+            format!("{:<20}{}", "update_time:", format_epoch_timestamp(cert.update_time)),
+            format!("{:<20}{}", "valid_code:", cert.valid_code.map_or("-".to_string(), |value| value.to_string())),
+            format!(
+                "{:<20}{}",
+                "cert_revoked_date:",
+                cert.cert_revoked_date.map_or("-".to_string(), |value| value.to_string())
+            ),
+            format!("{:<20}{}", "cert_revoked_reason:", cert.cert_revoked_reason.as_deref().unwrap_or("-")),
+        ]
+        .join("\n"))
+    }
+
+    fn render_json(&self) -> Result<String, CliError> {
+        serde_json::to_string_pretty(&self.0).map_err(|_| CliError::InternalFormat)
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct CrlOutput(rbs_admin_client::attestation::cert::CrlRecord);
+
+impl Formatter for CrlOutput {
+    fn render_text(&self) -> Result<String, CliError> {
+        let crl = &self.0;
+        Ok([
+            format!("{:<20}{}", "crl_id:", crl.crl_id.as_deref().unwrap_or("-")),
+            format!("{:<20}{}", "crl_name:", crl.crl_name.as_deref().unwrap_or("-")),
+            format!("{:<20}{}", "crl_content:", crl.crl_content.as_deref().unwrap_or("-")),
+        ]
+        .join("\n"))
     }
 
     fn render_json(&self) -> Result<String, CliError> {
@@ -391,22 +484,20 @@ struct CertMutationOutput(CertMutationResponse);
 impl Formatter for CertMutationOutput {
     fn render_text(&self) -> Result<String, CliError> {
         if let Some(cert) = &self.0.cert {
-            let mut lines = vec![format!("cert_name: {}", cert.name)];
-            if let Some(id) = &cert.id {
-                lines.push(format!("cert_id: {id}"));
-            }
-            if let Some(version) = cert.version {
-                lines.push(format!("version: {version}"));
-            }
-            return Ok(lines.join("\n"));
+            return Ok([
+                format!("{:<20}{}", "cert_id:", cert.cert_id.as_deref().unwrap_or("-")),
+                format!("{:<20}{}", "cert_name:", cert.cert_name.as_deref().unwrap_or("-")),
+                format!("{:<20}{}", "version:", cert.version.map_or("-".to_string(), |value| value.to_string())),
+            ]
+            .join("\n"));
         }
 
         if let Some(crl) = &self.0.crl {
-            let mut lines = vec![format!("crl_name: {}", crl.name)];
-            if let Some(id) = &crl.id {
-                lines.push(format!("crl_id: {id}"));
-            }
-            return Ok(lines.join("\n"));
+            return Ok([
+                format!("{:<20}{}", "crl_id:", crl.crl_id.as_deref().unwrap_or("-")),
+                format!("{:<20}{}", "crl_name:", crl.crl_name.as_deref().unwrap_or("-")),
+            ]
+            .join("\n"));
         }
 
         Ok("<empty>".to_string())
@@ -477,7 +568,7 @@ mod tests {
             cert_type: None,
         })
         .expect("id delete");
-        assert_eq!(by_id.delete_type, "id");
+        assert_eq!(by_id.delete_type, AttestationDeleteType::Id);
 
         let crl = build_delete_request(&DeleteArgs {
             delete_type: None,
@@ -492,63 +583,93 @@ mod tests {
     fn delete_message_describes_request() {
         assert_eq!(
             delete_message(&CertDeleteRequest {
-                delete_type: "id".to_string(),
+                delete_type: AttestationDeleteType::Id,
                 ids: Some(vec!["a".to_string(), "b".to_string()]),
                 cert_type: None,
             }),
-            "deleted certs: a,b"
+            "certs removed: a,b"
         );
         assert_eq!(
             delete_message(&CertDeleteRequest {
-                delete_type: "type".to_string(),
+                delete_type: AttestationDeleteType::Type,
                 ids: None,
                 cert_type: Some("tpm".to_string()),
             }),
-            "deleted certs by type: tpm"
+            "certs removed by type: tpm"
         );
         assert_eq!(
             delete_message(&CertDeleteRequest {
-                delete_type: "id".to_string(),
+                delete_type: AttestationDeleteType::Id,
                 ids: Some(vec!["crl-1".to_string()]),
                 cert_type: Some("crl".to_string()),
             }),
-            "deleted crls: crl-1"
+            "CRLs removed: crl-1"
         );
     }
 
     #[test]
-    fn cert_outputs_render_text_for_cert_and_crl_entries() {
-        let list = CertListOutput(CertListResponse {
-            certs: vec![rbs_admin_client::attestation::cert::CertRecord {
-                id: Some("cert-1".to_string()),
-                name: "demo-cert".to_string(),
-                description: Some("demo".to_string()),
-                content: Some("pem-data".to_string()),
-                cert_type: vec!["tpm".to_string()],
-                is_default: Some(true),
-                version: Some(2),
-                ..Default::default()
-            }],
-            crls: vec![rbs_admin_client::attestation::cert::CrlRecord {
-                id: Some("crl-1".to_string()),
-                name: "demo-crl".to_string(),
-                content: Some("crl-data".to_string()),
-            }],
-        });
-        let text = list.render_text().expect("render list");
-        assert!(text.contains("certs:"));
-        assert!(text.contains("demo-cert"));
-        assert!(text.contains("crls:"));
-        assert!(text.contains("demo-crl"));
+    fn delete_cert_output_reports_success() {
+        assert_eq!(
+            DeleteCertOutput { target: "certs removed: cert-1".to_string() }.render_text().expect("render delete"),
+            "Delete succeeded: certs removed: cert-1"
+        );
+    }
 
-        let mutation = CertMutationOutput(CertMutationResponse {
+    #[test]
+    fn cert_list_output_uses_standard_empty_list_shape() {
+        let text = CertListOutput(CertListResponse {
+            certs: vec![],
+            crls: vec![],
+            total_count: Some(0),
+            limit: Some(10),
+            offset: Some(0),
+        })
+        .render_text()
+        .expect("render empty list");
+
+        assert_eq!(text, "certs:\n  <empty>\ntotal_count: 0\nlimit: 10\noffset: 0");
+    }
+
+    #[test]
+    fn cert_detail_output_renders_aligned_fields() {
+        let text = CertOutput(rbs_admin_client::attestation::cert::CertRecord {
+            cert_id: Some("cert-1".to_string()),
+            cert_name: Some("demo-cert".to_string()),
+            description: None,
+            content: Some("pem-data".to_string()),
+            cert_type: Some(vec!["tpm".to_string()]),
+            is_default: Some(true),
+            version: Some(2),
+            create_time: Some(1_700_000_000),
+            update_time: Some(1_700_000_000_000),
+            valid_code: Some(0),
+            cert_revoked_date: None,
+            cert_revoked_reason: None,
+        })
+        .render_text()
+        .expect("render cert detail");
+
+        assert!(text.contains("cert_id:            cert-1"));
+        assert!(text.contains("cert_type:          [\"tpm\"]"));
+        assert!(text.contains("content:\n    pem-data"));
+        assert!(text.contains("is_default:         true"));
+        assert!(text.contains("create_time:        2023-11-14T22:13:20+00:00"));
+        assert!(text.contains("update_time:        2023-11-14T22:13:20+00:00"));
+    }
+
+    #[test]
+    fn cert_mutation_output_uses_detail_field_order_and_alignment() {
+        let text = CertMutationOutput(CertMutationResponse {
             cert: Some(rbs_admin_client::attestation::cert::CertMutationCert {
-                id: Some("cert-1".to_string()),
-                name: "demo-cert".to_string(),
+                cert_id: Some("cert-1".to_string()),
+                cert_name: Some("demo-cert".to_string()),
                 version: Some(2),
             }),
             crl: None,
-        });
-        assert!(mutation.render_text().expect("render mutation").contains("cert_id: cert-1"));
+        })
+        .render_text()
+        .expect("render mutation");
+
+        assert_eq!(text, "cert_id:            cert-1\ncert_name:          demo-cert\nversion:            2");
     }
 }

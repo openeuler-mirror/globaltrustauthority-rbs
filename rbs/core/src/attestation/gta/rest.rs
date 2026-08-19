@@ -28,7 +28,6 @@ use rbs_api_types::{
     RefValueDeleteRequest, RefValueListQuery, RefValueListResponse, RefValueMutationResponse,
     RefValueUpdateRequest, config::AttestationRestConfig, error::RbsError,
 };
-
 use crate::attestation::provider::{
     AttestationProvider, CertProvider, PolicyProvider, RefValueProvider,
 };

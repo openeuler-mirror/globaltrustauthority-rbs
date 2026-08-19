@@ -15,6 +15,7 @@ use rbs_admin_client::attestation::ref_value::{
     RefValueUpdateRequest,
 };
 use rbs_admin_client::AdminClient;
+use rbs_api_types::AttestationDeleteType;
 use serde_json::json;
 use wiremock::matchers::{body_json, header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -33,6 +34,22 @@ fn ref_value_client(server: &MockServer) -> RefValueClient {
 }
 
 #[tokio::test]
+async fn ref_value_client_uses_item_endpoint_for_get() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/rbs/v0/attestation/gta/ref_value/rv_id_1"))
+        .and(header("authorization", "Bearer test-token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "ref_values": [{"id": "rv_id_1", "name": "rv_name_1", "attester_type": "tpm"}]
+        })))
+        .mount(&server)
+        .await;
+
+    let response = ref_value_client(&server).get_ref_value("rv_id_1").await.expect("get ref value should succeed");
+    assert_eq!(response.ref_values[0].id, "rv_id_1");
+}
+
+#[tokio::test]
 async fn ref_value_client_uses_collection_endpoint_for_list_create_update_and_delete() {
     let server = MockServer::start().await;
     let create = RefValueCreateRequest {
@@ -40,6 +57,7 @@ async fn ref_value_client_uses_collection_endpoint_for_list_create_update_and_de
         description: Some("demo ref value".to_string()),
         attester_type: "tpm".to_string(),
         content: "jwt-content".to_string(),
+        content_type: None,
     };
     let update = RefValueUpdateRequest {
         id: "rv_id_1".to_string(),
@@ -47,9 +65,10 @@ async fn ref_value_client_uses_collection_endpoint_for_list_create_update_and_de
         description: Some("updated desc".to_string()),
         attester_type: Some("tpm".to_string()),
         content: Some("jwt-content-new".to_string()),
+        content_type: None,
     };
     let delete = RefValueDeleteRequest {
-        delete_type: "id".to_string(),
+        delete_type: AttestationDeleteType::Id,
         ids: Some(vec!["rv_id_1".to_string(), "rv_id_2".to_string()]),
         attester_type: None,
     };
@@ -59,6 +78,8 @@ async fn ref_value_client_uses_collection_endpoint_for_list_create_update_and_de
         .and(header("authorization", "Bearer test-token"))
         .and(query_param("ids", "rv_id_1,rv_id_2"))
         .and(query_param("attester_type", "tpm"))
+        .and(query_param("limit", "10"))
+        .and(query_param("offset", "20"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "ref_values": [{
                 "id": "rv_id_1",
@@ -69,7 +90,10 @@ async fn ref_value_client_uses_collection_endpoint_for_list_create_update_and_de
                 "content": "jwt-content",
                 "version": 1,
                 "valid_code": 0
-            }]
+            }],
+            "total_count": 21,
+            "limit": 10,
+            "offset": 20
         })))
         .mount(&server)
         .await;
@@ -112,17 +136,22 @@ async fn ref_value_client_uses_collection_endpoint_for_list_create_update_and_de
         .list_ref_values(&RefValueListParams {
             ids: Some(vec!["rv_id_1".to_string(), "rv_id_2".to_string()]),
             attester_type: Some("tpm".to_string()),
+            limit: Some(10),
+            offset: Some(20),
         })
         .await
         .expect("list ref values should succeed");
     assert_eq!(list.ref_values.len(), 1);
-    assert_eq!(list.ref_values[0].id.as_deref(), Some("rv_id_1"));
+    assert_eq!(list.ref_values[0].id, "rv_id_1");
+    assert_eq!(list.total_count, Some(21));
+    assert_eq!(list.limit, Some(10));
+    assert_eq!(list.offset, Some(20));
 
     let created = client.create_ref_value(&create).await.expect("create ref value should succeed");
-    assert_eq!(created.ref_value.id.as_deref(), Some("rv_id_1"));
+    assert_eq!(created.ref_value.id, "rv_id_1");
 
     let updated = client.update_ref_value(&update).await.expect("update ref value should succeed");
-    assert_eq!(updated.ref_value.version, Some(2));
+    assert_eq!(updated.ref_value.version, 2);
 
     client.delete_ref_values(&delete).await.expect("delete ref values should succeed");
 }
@@ -135,6 +164,7 @@ async fn ref_value_operations_report_url_build_failure() {
         description: None,
         attester_type: "tpm".to_string(),
         content: "jwt-content".to_string(),
+        content_type: None,
     };
 
     let err = client.create_ref_value(&request).await.expect_err("unusable ref value URL should fail");

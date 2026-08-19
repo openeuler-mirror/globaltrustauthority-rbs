@@ -11,6 +11,7 @@
  */
 use std::fs;
 
+use chrono::Timelike;
 use serde::Serialize;
 
 use crate::config::{GlobalOptions, OutputFormat};
@@ -19,6 +20,28 @@ use crate::error::CliError;
 pub trait Formatter {
     fn render_text(&self) -> Result<String, CliError>;
     fn render_json(&self) -> Result<String, CliError>;
+}
+
+/// Format a GTA Unix timestamp, accepting both seconds and milliseconds.
+pub fn format_epoch_timestamp(value: Option<i64>) -> String {
+    value
+        .and_then(|timestamp| {
+            if timestamp.unsigned_abs() >= 100_000_000_000 {
+                chrono::DateTime::from_timestamp_millis(timestamp)
+            } else {
+                chrono::DateTime::from_timestamp(timestamp, 0)
+            }
+        })
+        .and_then(|datetime| datetime.with_nanosecond(0))
+        .map(|datetime| datetime.to_rfc3339())
+        .unwrap_or_else(|| "-".to_string())
+}
+
+/// Render multiline content below a field label using a four-space indent.
+pub fn format_indented_content(value: Option<&str>) -> String {
+    value
+        .map(|content| content.lines().map(|line| format!("    {line}")).collect::<Vec<_>>().join("\n"))
+        .unwrap_or_else(|| "-".to_string())
 }
 
 #[derive(Debug, Serialize)]
@@ -92,6 +115,14 @@ mod tests {
         let output = TextOutput::new("hello");
         assert_eq!(output.render_text().expect("text"), "hello");
         assert_eq!(output.render_json().expect("json"), "{\n  \"message\": \"hello\"\n}");
+    }
+
+    #[test]
+    fn shared_attestation_formatters_handle_content_and_timestamp_units() {
+        assert_eq!(format_indented_content(Some("one\ntwo")), "    one\n    two");
+        assert_eq!(format_indented_content(None), "-");
+        assert_eq!(format_epoch_timestamp(Some(1_700_000_000)), "2023-11-14T22:13:20+00:00");
+        assert_eq!(format_epoch_timestamp(Some(1_700_000_000_000)), "2023-11-14T22:13:20+00:00");
     }
 
     #[test]

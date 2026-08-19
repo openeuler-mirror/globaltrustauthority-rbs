@@ -31,4 +31,5 @@ tabled.workspace = true
 regex.workspace = true
 josekit.workspace = true
 async-trait.workspace = true
+chrono.workspace = true
 jsonwebtoken = { workspace = true, features = ["rust_crypto"] }

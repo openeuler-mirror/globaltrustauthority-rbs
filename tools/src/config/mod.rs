@@ -10,6 +10,9 @@
  * See the Mulan PSL v2 for more details.
  */
 
+use crate::admin::cert::CertCli;
+use crate::admin::policy::PolicyCli;
+use crate::admin::ref_value::RefValueCli;
 use crate::admin::res::ResCli;
 use crate::admin::res_policy::ResPolicyCli;
 use crate::admin::user::UserCli;
@@ -77,7 +80,13 @@ pub struct GlobalCliArgs {
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum Command {
+    /// Manage GTA certificates and CRLs through RBS.
+    Cert(CertCli),
     Client(ClientCli),
+    /// Manage GTA attestation policies through RBS.
+    Policy(PolicyCli),
+    /// Manage GTA reference-value baselines through RBS.
+    RefValue(RefValueCli),
     Res(ResCli),
     ResPolicy(ResPolicyCli),
     Token(TokenCli),
@@ -177,5 +186,33 @@ mod tests {
     fn root_help_describes_client_command() {
         let help = Cli::command().render_help().to_string();
         assert!(help.contains("Run attestation and protected-resource client commands"));
+    }
+
+    #[test]
+    fn root_parses_gta_attestation_management_commands() {
+        assert!(matches!(
+            Cli::try_parse_from(["rbs-cli", "ref-value", "list"]),
+            Ok(Cli { command: Command::RefValue(_), .. })
+        ));
+        assert!(matches!(Cli::try_parse_from(["rbs-cli", "cert", "list"]), Ok(Cli { command: Command::Cert(_), .. })));
+        assert!(matches!(
+            Cli::try_parse_from(["rbs-cli", "cert", "get", "--id", "C1"]),
+            Ok(Cli { command: Command::Cert(_), .. })
+        ));
+        assert!(matches!(
+            Cli::try_parse_from(["rbs-cli", "ref-value", "get", "--id", "RV1"]),
+            Ok(Cli { command: Command::RefValue(_), .. })
+        ));
+        assert!(matches!(
+            Cli::try_parse_from(["rbs-cli", "policy", "get", "--id", "P1"]),
+            Ok(Cli { command: Command::Policy(_), .. })
+        ));
+        assert!(Cli::try_parse_from(["rbs-cli", "cert", "list", "--limit", "11"]).is_err());
+        assert!(Cli::try_parse_from(["rbs-cli", "ref-value", "list", "--limit", "11"]).is_err());
+        assert!(Cli::try_parse_from(["rbs-cli", "policy", "list", "--offset", "-1"]).is_err());
+        assert!(matches!(
+            Cli::try_parse_from(["rbs-cli", "policy", "list"]),
+            Ok(Cli { command: Command::Policy(_), .. })
+        ));
     }
 }
