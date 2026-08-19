@@ -99,12 +99,20 @@ impl UserCreateRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, Validate, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct UserUpdateRequest {
-    /// New role (admin users only).
-    #[validate(custom(function = "validate_update_role"))]
+    /// New role (admin only). The `admin` role is pre-configured and not
+    /// API-assignable: assigning it to a non-built-in target is rejected with
+    /// `admin role is pre-configured and not API-assignable` (403); the built-in
+    /// Administrator may only keep `role: "admin"` (a no-op, 200) — any other
+    /// role is rejected with `cannot modify 'role' of the built-in
+    /// administrator` (403). A non-admin self-update sending its current role
+    /// (`user`) is a no-op (200); any other role is rejected with `self-update
+    /// may not modify 'role'` (403).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub role: Option<Role>,
 
-    /// Whether the account can authenticate.
+    /// Whether the account can authenticate. A non-admin self-update may set
+    /// this to `true` (a no-op) but may **not** disable itself; `false` is
+    /// rejected with `self-update may not modify 'enabled'` (403).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
 
@@ -204,16 +212,6 @@ pub struct UserListResponse {
 // ── Validation helpers (used by #[validate]) ──
 
 fn validate_create_role(role: &Role) -> Result<(), validator::ValidationError> {
-    if *role == Role::Admin {
-        let mut err = validator::ValidationError::new("invalid_role");
-        err.message = Some("role must be 'user' (admin is pre-configured)".into());
-        Err(err)
-    } else {
-        Ok(())
-    }
-}
-
-fn validate_update_role(role: &Role) -> Result<(), validator::ValidationError> {
     if *role == Role::Admin {
         let mut err = validator::ValidationError::new("invalid_role");
         err.message = Some("role must be 'user' (admin is pre-configured)".into());

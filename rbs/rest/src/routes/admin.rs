@@ -182,7 +182,7 @@ pub async fn get_user(
         (status = 200, description = "User updated", body = UserResponse),
         (status = 400, description = "Invalid request", body = ErrorBody),
         (status = 401, description = "Unauthorized", body = ErrorBody),
-        (status = 403, description = "Forbidden", body = ErrorBody),
+        (status = 403, description = "Forbidden — caller is neither admin nor self; a non-admin self-update attempted to change `role`/`enabled`; an attempt to modify the built-in Administrator's `role`/`enabled`; or an attempt to assign the `admin` role (pre-configured, no-op on the built-in admin only)", body = ErrorBody),
         (status = 404, description = "User not found", body = ErrorBody),
         (status = 500, description = "Internal error", body = ErrorBody),
     )

@@ -29,6 +29,15 @@ fn error_class_authn() {
 fn error_class_authz() {
     assert_eq!(RbsError::AuthzDenied.error_class(), ErrorClass::Authz);
     assert_eq!(RbsError::AuthzInsufficientPermissions.error_class(), ErrorClass::Authz);
+    assert_eq!(
+        RbsError::SelfUpdateFieldRestricted { field: "role" }.error_class(),
+        ErrorClass::Authz
+    );
+    assert_eq!(
+        RbsError::BuiltInAdminProtected { field: "role" }.error_class(),
+        ErrorClass::Authz
+    );
+    assert_eq!(RbsError::AdminRoleNotAssignable.error_class(), ErrorClass::Authz);
 }
 
 #[test]
@@ -100,6 +109,15 @@ fn http_status_authn() {
 fn http_status_authz() {
     assert_eq!(RbsError::AuthzDenied.http_status(), 403);
     assert_eq!(RbsError::AuthzInsufficientPermissions.http_status(), 403);
+    assert_eq!(
+        RbsError::SelfUpdateFieldRestricted { field: "role" }.http_status(),
+        403
+    );
+    assert_eq!(
+        RbsError::BuiltInAdminProtected { field: "enabled" }.http_status(),
+        403
+    );
+    assert_eq!(RbsError::AdminRoleNotAssignable.http_status(), 403);
 }
 
 #[test]
@@ -167,6 +185,15 @@ fn retryable_no() {
     assert_eq!(RbsError::NotImplemented.retryable(), Retryable::No);
     assert_eq!(RbsError::ResourceConflict.retryable(), Retryable::No);
     assert_eq!(RbsError::AuthzInsufficientPermissions.retryable(), Retryable::No);
+    assert_eq!(
+        RbsError::SelfUpdateFieldRestricted { field: "enabled" }.retryable(),
+        Retryable::No
+    );
+    assert_eq!(
+        RbsError::BuiltInAdminProtected { field: "role" }.retryable(),
+        Retryable::No
+    );
+    assert_eq!(RbsError::AdminRoleNotAssignable.retryable(), Retryable::No);
     assert_eq!(RbsError::ResourceQuotaExceeded.retryable(), Retryable::No);
     assert_eq!(
         RbsError::ManagementProviderNotFound("p".to_string()).retryable(),
@@ -205,6 +232,28 @@ fn external_message_all_variants() {
     assert_eq!(RbsError::AuthnExpiredToken.external_message(), "authentication expired");
     assert_eq!(RbsError::AuthzDenied.external_message(), "access denied");
     assert_eq!(RbsError::AuthzInsufficientPermissions.external_message(), "insufficient permissions");
+    // SelfUpdateFieldRestricted surfaces the offending field name (the user is
+    // editing their own account, so naming the field leaks nothing sensitive).
+    assert_eq!(
+        RbsError::SelfUpdateFieldRestricted { field: "role" }.external_message(),
+        "self-update may not modify 'role'"
+    );
+    assert_eq!(
+        RbsError::SelfUpdateFieldRestricted { field: "enabled" }.external_message(),
+        "self-update may not modify 'enabled'"
+    );
+    assert_eq!(
+        RbsError::BuiltInAdminProtected { field: "role" }.external_message(),
+        "cannot modify 'role' of the built-in administrator"
+    );
+    assert_eq!(
+        RbsError::BuiltInAdminProtected { field: "enabled" }.external_message(),
+        "cannot modify 'enabled' of the built-in administrator"
+    );
+    assert_eq!(
+        RbsError::AdminRoleNotAssignable.external_message(),
+        "admin role is pre-configured and not API-assignable"
+    );
     assert_eq!(RbsError::ParamMissing { param: "x" }.external_message(), "missing required parameter");
     assert_eq!(RbsError::ParamInvalid { param: "y" }.external_message(), "invalid parameter");
     assert_eq!(RbsError::ParamMalformed.external_message(), "malformed request");
