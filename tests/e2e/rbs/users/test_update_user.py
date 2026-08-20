@@ -29,7 +29,8 @@ def test_update_user_rejects_invalid_field_combinations(rbs_api: Any, body: dict
         url = f"{rbs_api.base_url}/rbs/v0/users/{user['username']}"
         response = client.put(url, headers=rbs_api.admin_headers, json=body)
         client.delete(url, headers=rbs_api.admin_headers)
-    assert_error(response, 400)
+    expected_status = 403 if body == {"role": "admin"} else 400
+    assert_error(response, expected_status)
 
 
 def test_update_user_enforces_self_service_field_whitelist(rbs_api: Any) -> None:
@@ -50,4 +51,4 @@ def test_update_user_protects_builtin_administrator(rbs_api: Any, body: dict[str
     """Prevent disabling or changing the role of the built-in administrator."""
     with httpx.Client(trust_env=False) as client:
         response = client.put(f"{rbs_api.base_url}/rbs/v0/users/Administrator", headers=rbs_api.admin_headers, json=body)
-    assert_error(response, 400)
+    assert_error(response, 403, "built-in administrator")

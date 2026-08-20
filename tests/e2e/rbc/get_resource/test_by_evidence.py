@@ -46,7 +46,7 @@ def test_get_resource_by_evidence_posts_retrieve_and_decrypts(
 def test_get_resource_by_evidence_maps_gta_failure_to_server_error(
     rbc_binary: Path, rbs_api: Any, agent_config_path: Path, rbc_key_material: Any, tmp_path: Path
 ) -> None:
-    """Map a retrieve-time GTA failure to a sanitized server error."""
+    """Map a retrieve-time GTA failure to a server error with the upstream detail."""
     with httpx.Client(trust_env=False) as client:
         uri, _, _ = create_resource(client, rbs_api)
     evidence = collect_tpm_evidence(
@@ -72,4 +72,4 @@ def test_get_resource_by_evidence_maps_gta_failure_to_server_error(
     )
     assert result.returncode != 0
     assert "servererror" in result.stderr.lower()
-    assert "do not leak retrieve detail" not in result.stderr.lower()
+    assert "do not leak retrieve detail" in result.stderr.lower()

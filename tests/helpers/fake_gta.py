@@ -145,8 +145,8 @@ class FakeGta:
         """Make the next challenge call return one deterministic upstream failure."""
         self._set_next_response("challenge", status, {"message": message})
 
-    def fail_next_attest(self, *, status: int = 503, message: str = "GTA unavailable") -> None:
-        """Make the next attest call return one deterministic upstream failure."""
+    def fail_next_attest(self, *, status: int = 502, message: str = "GTA unavailable") -> None:
+        """Make the next attest call return one deterministic upstream gateway failure."""
         self._set_next_response("attest", status, {"message": message})
 
     def _set_next_response(self, operation: str, status: int, payload: dict[str, Any]) -> None:

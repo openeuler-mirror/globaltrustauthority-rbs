@@ -41,16 +41,37 @@ def test_resource_update_returns_updated_metadata(rbs_cli_binary: Path, rbs_api:
     assert_resource_metadata(payload, uri=uri, policy_id=updated_policy["policy_id"])
 
 
-def test_resource_update_requires_policy_id(rbs_cli_binary: Path) -> None:
-    """Reject an update without the required policy binding."""
+def test_resource_update_preserves_existing_policy_without_policy_id(rbs_cli_binary: Path, rbs_api: Any) -> None:
+    """Update existing resource metadata without rebinding its policy."""
+    with httpx.Client(trust_env=False) as client:
+        uri, metadata, _ = create_resource(client, rbs_api)
+
+    payload = json_output(
+        run_tools(
+            rbs_cli_binary,
+            rbs_api.base_url,
+            "res",
+            "update",
+            "--uri",
+            uri,
+            "--additional-info",
+            "updated-without-policy-rebind",
+            token=rbs_api.admin_token,
+        )
+    )
+    assert_resource_metadata(payload, uri=uri, policy_id=metadata["policy_id"])
+
+
+def test_resource_update_requires_policy_id_for_new_resource(rbs_cli_binary: Path, rbs_api: Any) -> None:
+    """Reject an upsert without a policy binding."""
     result = run_tools(
         rbs_cli_binary,
-        "http://127.0.0.1:1",
+        rbs_api.base_url,
         "res",
         "update",
         "--uri",
-        "vault/default/secret/demo",
-        token="token",
+        "vault/default/secret/new-resource",
+        token=rbs_api.admin_token,
         check=False,
     )
-    assert_cli_rejected(result, "required")
+    assert_cli_rejected(result, "policy_id")
