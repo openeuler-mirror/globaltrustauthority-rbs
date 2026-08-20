@@ -26,8 +26,7 @@ use crate::admin::GTA_ID_MAX_LEN;
 use crate::common::formatter::{format_epoch_timestamp, format_indented_content, Formatter};
 use crate::common::utils::read_path_file;
 use crate::common::validate::{
-    validate_file_size, validate_i64, validate_optional_text, validate_query_ids, validate_required_text,
-    validate_string_max_len,
+    validate_i64, validate_optional_text, validate_query_ids, validate_required_text, validate_string_max_len,
 };
 use crate::config::GlobalOptions;
 use crate::error::CliError;
@@ -126,7 +125,7 @@ pub struct CreateArgs {
     )]
     pub content_type: String,
 
-    #[arg(long, value_parser = validate_policy_content, help = "Policy content or @file path; text expects base64 policy text")]
+    #[arg(long, help = "Policy content or @file path; text expects base64 policy text")]
     pub content: String,
 
     #[arg(long, help = "Whether to mark this policy as default")]
@@ -156,7 +155,7 @@ pub struct UpdateArgs {
     #[arg(long, value_parser = SUPPORTED_CONTENT_TYPES, help = "New content type: text or jwt")]
     pub content_type: Option<String>,
 
-    #[arg(long, value_parser = validate_policy_content, help = "New policy content or @file path")]
+    #[arg(long, help = "New policy content or @file path")]
     pub content: Option<String>,
 
     #[arg(long, help = "Whether to mark this policy as default")]
@@ -212,7 +211,7 @@ async fn execute_policy_command(cli: &PolicyCli, service: &PolicyClient) -> Resu
         PolicyCommand::Get(args) => get_policy_output(service.get_policy(&args.id).await?),
         PolicyCommand::Create(args) => {
             validate_create_args(args)?;
-            let mut content = read_path_file(args.content.as_str())?;
+            let mut content = read_policy_content(args.content.as_str())?;
             match args.content_type.to_lowercase().as_str() {
                 "text" => {
                     content = general_purpose::STANDARD.encode(content.as_bytes());
@@ -235,7 +234,7 @@ async fn execute_policy_command(cli: &PolicyCli, service: &PolicyClient) -> Resu
             validate_update_args(args)?;
             let content = match (&args.content_type, &args.content) {
                 (Some(content_type), Some(content_input)) => {
-                    let mut content = read_path_file(content_input.as_str())?;
+                    let mut content = read_policy_content(content_input.as_str())?;
                     match content_type.to_lowercase().as_str() {
                         "text" => {
                             content = general_purpose::STANDARD.encode(content.as_bytes());
@@ -522,6 +521,43 @@ mod tests {
     }
 
     #[test]
+    fn read_policy_content_rejects_blank_input_and_reads_file() {
+        assert_eq!(
+            read_policy_content(" \n\t").expect_err("blank inline content").to_string(),
+            "policy content must not be empty"
+        );
+
+        let path = std::env::temp_dir().join(format!("policy-content-{}.rego", std::process::id()));
+        let input = format!("@{}", path.display());
+        std::fs::write(&path, "").expect("write empty policy file");
+        assert_eq!(
+            read_policy_content(&input).expect_err("empty policy file").to_string(),
+            "policy content must not be empty"
+        );
+
+        std::fs::write(&path, "package policy").expect("write policy content");
+        assert_eq!(read_policy_content(&input).expect("read policy file"), "package policy");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn read_policy_content_uses_one_size_error_for_inline_and_file_input() {
+        let oversized = "x".repeat(MAX_CONTENT_SIZE as usize + 1);
+        assert_eq!(
+            read_policy_content(&oversized).expect_err("oversized inline content").to_string(),
+            "policy content is too large; maximum size is 500 KiB"
+        );
+
+        let path = std::env::temp_dir().join(format!("policy-large-content-{}.rego", std::process::id()));
+        std::fs::write(&path, &oversized).expect("write oversized policy file");
+        assert_eq!(
+            read_policy_content(&format!("@{}", path.display())).expect_err("oversized policy file").to_string(),
+            "policy content is too large; maximum size is 500 KiB"
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
     fn build_delete_request_supports_all_modes() {
         let by_id = build_delete_request(&DeleteArgs {
             delete_type: "id".to_string(),
@@ -681,16 +717,27 @@ mod tests {
     }
 }
 
-fn validate_policy_content(path: &str) -> Result<String, CliError> {
-    if let Some(path) = path.strip_prefix('@') {
-        validate_file_size(path, MAX_CONTENT_SIZE)?;
+fn read_policy_content(content: &str) -> Result<String, CliError> {
+    if let Some(path) = content.strip_prefix('@') {
+        let metadata = std::fs::metadata(path).map_err(|_| {
+            CliError::FileReadError(
+                "unable to access policy content file. Please check that the file exists and is readable".to_string(),
+            )
+        })?;
+        if !metadata.is_file() {
+            return Err(CliError::InvalidArgument("policy content path must point to a file".to_string()));
+        }
+        if metadata.len() > MAX_CONTENT_SIZE {
+            return Err(CliError::InvalidArgument("policy content is too large; maximum size is 500 KiB".to_string()));
+        }
     } else {
-        if path.len() > MAX_CONTENT_SIZE as usize {
-            return Err(CliError::InvalidArgument(format!(
-                "policy content must not exceed {MAX_CONTENT_SIZE} bytes; got {} bytes",
-                path.len()
-            )));
+        if content.len() > MAX_CONTENT_SIZE as usize {
+            return Err(CliError::InvalidArgument("policy content is too large; maximum size is 500 KiB".to_string()));
         }
     }
-    Ok(path.to_string())
+    let content = read_path_file(content)?;
+    if content.trim().is_empty() {
+        return Err(CliError::InvalidArgument("policy content must not be empty".to_string()));
+    }
+    Ok(content)
 }

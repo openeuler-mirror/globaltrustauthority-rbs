@@ -24,9 +24,9 @@ use crate::admin::GTA_ID_MAX_LEN;
 use crate::common::formatter::{format_epoch_timestamp, format_indented_content, Formatter};
 use crate::common::utils::read_path_file;
 use crate::common::validate::{
-    validate_cert_file, validate_i64, validate_optional_text, validate_query_ids, validate_required_text,
-    validate_string_max_len,
+    validate_i64, validate_optional_text, validate_query_ids, validate_required_text, validate_string_max_len,
 };
+use crate::common::CERT_FILE_MAX_SIZE;
 use crate::config::GlobalOptions;
 use crate::error::CliError;
 
@@ -126,19 +126,10 @@ pub struct CreateArgs {
     )]
     pub cert_type: Vec<String>,
 
-    #[arg(
-        short,
-        long,
-        value_parser = validate_cert_file,
-        help = "Normal cert content or @file path; required for non-CRL certs"
-    )]
+    #[arg(short, long, help = "Normal cert content or @file path; required for non-CRL certs")]
     pub content: Option<String>,
 
-    #[arg(
-        long = "crl-content",
-        value_parser = validate_cert_file,
-        help = "CRL content or @file path; required when --type crl"
-    )]
+    #[arg(long = "crl-content", help = "CRL content or @file path; required when --type crl")]
     pub crl_content: Option<String>,
 
     #[arg(long, help = "Whether to mark this cert as default")]
@@ -269,27 +260,48 @@ fn validate_create_args(args: &CreateArgs) -> Result<(), CliError> {
     }
 
     let is_crl = args.cert_type.iter().any(|item| item == CRL);
-    if is_crl {
+    let (content, empty_error, size_error) = if is_crl {
         if args.cert_type.len() != 1 {
             return Err(CliError::InvalidArgument("type `crl` must not be combined with other cert types".to_string()));
         }
         if args.crl_content.is_none() {
-            return Err(CliError::InvalidArgument("crl_content is required when type is `crl`".to_string()));
+            return Err(CliError::InvalidArgument("--crl-content is required when type is `crl`".to_string()));
         }
-        if read_path_file(args.crl_content.as_deref().expect("required crl_content was checked"))
-            .map(|value| value.is_empty())?
-        {
-            return Err(CliError::InvalidArgument("crl_content must not be empty".to_string()));
-        }
+        (
+            args.crl_content.as_deref().expect("required crl_content was checked"),
+            "crl_content must not be empty",
+            "CRL content is too large; maximum size is 1 MiB",
+        )
     } else {
         if args.content.is_none() {
-            return Err(CliError::InvalidArgument("content is required for non-CRL certs".to_string()));
+            return Err(CliError::InvalidArgument("--content is required for non-CRL certs".to_string()));
         }
-        if read_path_file(args.content.as_deref().expect("required content was checked"))
-            .map(|value| value.is_empty())?
-        {
-            return Err(CliError::InvalidArgument("content must not be empty".to_string()));
+        (
+            args.content.as_deref().expect("required content was checked"),
+            "content must not be empty",
+            "certificate content is too large; maximum size is 1 MiB",
+        )
+    };
+
+    if let Some(path) = content.strip_prefix('@') {
+        let metadata = std::fs::metadata(path).map_err(|_| {
+            CliError::FileReadError(
+                "unable to access certificate content file. Please check that the file exists and is readable"
+                    .to_string(),
+            )
+        })?;
+        if !metadata.is_file() {
+            return Err(CliError::InvalidArgument("certificate content path must point to a file".to_string()));
         }
+        if metadata.len() > CERT_FILE_MAX_SIZE {
+            return Err(CliError::InvalidArgument(size_error.to_string()));
+        }
+    }
+    if content.len() > CERT_FILE_MAX_SIZE as usize {
+        return Err(CliError::InvalidArgument(size_error.to_string()));
+    }
+    if read_path_file(content)?.is_empty() {
+        return Err(CliError::InvalidArgument(empty_error.to_string()));
     }
 
     Ok(())
@@ -553,7 +565,7 @@ mod tests {
         args.cert_type = vec!["crl".to_string()];
         args.content = None;
         let err = validate_create_args(&args).expect_err("missing crl content should fail");
-        assert!(err.to_string().contains("crl_content is required"));
+        assert!(err.to_string().contains("--crl-content is required"));
 
         let mut args = base_create_args();
         args.cert_type = vec!["crl".to_string()];
@@ -585,6 +597,27 @@ mod tests {
             "crl_content must not be empty"
         );
         let _ = std::fs::remove_file(empty_path);
+    }
+
+    #[test]
+    fn validate_create_args_uses_one_size_error_for_inline_and_file_cert_content() {
+        let oversized = "x".repeat(CERT_FILE_MAX_SIZE as usize + 1);
+        let mut args = base_create_args();
+        args.content = Some(oversized.clone());
+        assert_eq!(
+            validate_create_args(&args).expect_err("oversized inline cert").to_string(),
+            "certificate content is too large; maximum size is 1 MiB"
+        );
+
+        let path = std::env::temp_dir().join(format!("large-cert-{}.pem", std::process::id()));
+        std::fs::write(&path, oversized).expect("write oversized cert");
+        let mut args = base_create_args();
+        args.content = Some(format!("@{}", path.display()));
+        assert_eq!(
+            validate_create_args(&args).expect_err("oversized cert file").to_string(),
+            "certificate content is too large; maximum size is 1 MiB"
+        );
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]
