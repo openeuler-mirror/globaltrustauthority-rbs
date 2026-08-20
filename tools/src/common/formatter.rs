@@ -102,7 +102,7 @@ pub fn emit_err(err: &CliError, global: &GlobalOptions) {
         return;
     }
 
-    eprintln!("{err}");
+    eprintln!("Error: {err}");
 }
 
 #[cfg(test)]
