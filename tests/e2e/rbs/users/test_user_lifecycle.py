@@ -23,7 +23,7 @@ def test_user_lifecycle(rbs_api: Any) -> None:
         disabled = client.put(url, headers=rbs_api.admin_headers, json={"enabled": False})
         assert_user(disabled.json(), username=username, role="user", enabled=False)
         denied = client.get(url, headers=rbs_api.bearer_headers(username))
-        assert_error(denied, 403, "permissions")
+        assert_error(denied, 401, "authentication failed")
         restored = client.put(url, headers=rbs_api.admin_headers, json={"enabled": True})
         assert restored.status_code == 200
         assert client.get(url, headers=rbs_api.bearer_headers(username)).status_code == 200

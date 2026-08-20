@@ -56,8 +56,8 @@ def test_retrieve_resource_maps_attestation_failure_to_bad_gateway(rbs_api: Any)
             f"{rbs_api.base_url}/rbs/v0/vault/default/secret/name/retrieve",
             json=_evidence(rbs_api),
         )
-    error = assert_error(response, 502)
-    assert "sensitive upstream detail" not in error
+    error = assert_error(response, 502, "sensitive upstream detail")
+    assert "attestation provider error" in error
 
 
 def test_retrieve_resource_returns_not_found_after_valid_attestation(rbs_api: Any) -> None:

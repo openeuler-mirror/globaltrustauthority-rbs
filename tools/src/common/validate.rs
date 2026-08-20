@@ -60,6 +60,41 @@ pub fn validate_string_max_len(value: &str, max: usize) -> Result<String, CliErr
     Ok(value.to_string())
 }
 
+/// Validate a required user-facing text field without including its value in diagnostics.
+pub fn validate_required_text(value: &str, max: usize, field_name: &str) -> Result<(), CliError> {
+    if value.trim().is_empty() {
+        return Err(CliError::InvalidArgument(format!("{field_name} must not be empty")));
+    }
+    validate_text_max_len(value, max, field_name)
+}
+
+/// Validate an optional user-facing text field without including its value in diagnostics.
+pub fn validate_optional_text(value: Option<&str>, max: usize, field_name: &str) -> Result<(), CliError> {
+    value.map_or(Ok(()), |value| validate_text_max_len(value, max, field_name))
+}
+
+/// Validate a comma-separated query ID list as a whole.
+pub fn validate_query_ids(ids: Option<&[String]>) -> Result<(), CliError> {
+    let Some(ids) = ids else {
+        return Ok(());
+    };
+    let joined = ids.join(",");
+    if joined.trim().is_empty() || joined.starts_with(',') || joined.ends_with(',') || joined.contains(",,") {
+        return Err(CliError::InvalidArgument("ids must not contain empty values".to_string()));
+    }
+    if ids.len() > 10 {
+        return Err(CliError::InvalidArgument("ids must contain at most 10 values".to_string()));
+    }
+    validate_text_max_len(&joined, 500, "ids")
+}
+
+fn validate_text_max_len(value: &str, max: usize, field_name: &str) -> Result<(), CliError> {
+    if value.chars().count() > max {
+        return Err(CliError::InvalidArgument(format!("{field_name} is too long; maximum length is {max} characters")));
+    }
+    Ok(())
+}
+
 pub fn validate_trimmed_string_max_len(value: &str, max: usize, field_name: &str) -> Result<String, CliError> {
     validate_max_len(value, max)?;
     if value.trim().is_empty() {
@@ -257,6 +292,33 @@ mod tests {
         assert!(validate_string_max_len(&"x".repeat(max + 1), max).is_err());
         assert!(validate_trimmed_string_max_len("normal", max, "name").is_ok());
         assert!(validate_trimmed_string_max_len("   ", max, "name").is_err());
+    }
+
+    #[test]
+    fn user_facing_text_validation_counts_characters_without_echoing_values() {
+        let supplied = "测".repeat(3);
+        let err = validate_required_text(&supplied, 2, "name").expect_err("name should be too long");
+        assert_eq!(err.to_string(), "name is too long; maximum length is 2 characters");
+        assert!(!err.to_string().contains(&supplied));
+        assert!(validate_required_text("  名称  ", 6, "name").is_ok());
+        assert!(validate_required_text(" \t", 4, "name").is_err());
+        assert!(validate_optional_text(Some(""), 4, "description").is_ok());
+    }
+
+    #[test]
+    fn query_ids_validation_limits_count_and_total_length() {
+        let ids = (0..10).map(|index| format!("id-{index}")).collect::<Vec<_>>();
+        assert!(validate_query_ids(Some(&ids)).is_ok());
+        assert_eq!(
+            validate_query_ids(Some(&(0..11).map(|index| format!("id-{index}")).collect::<Vec<_>>()))
+                .expect_err("too many IDs")
+                .to_string(),
+            "ids must contain at most 10 values"
+        );
+        assert_eq!(
+            validate_query_ids(Some(&vec!["x".repeat(501)])).expect_err("oversized query").to_string(),
+            "ids is too long; maximum length is 500 characters"
+        );
     }
 
     // Cover resource and policy URI segment boundaries and URL controls.

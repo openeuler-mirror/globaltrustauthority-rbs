@@ -16,7 +16,7 @@ def test_get_token_maps_gta_attest_failure_to_server_error(
     rbc_binary: Path, rbs_api: Any, agent_config_path: Path, rbc_key_material: Any
 ) -> None:
     """Convert a deterministic GTA attest failure to a CLI provider error."""
-    rbs_api.fake_gta.fail_next_attest()
+    rbs_api.fake_gta.fail_next_attest(status=503)
     result = run_rbc(
         rbc_binary,
         rbs_api.base_url,

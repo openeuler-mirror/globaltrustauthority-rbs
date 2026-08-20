@@ -12,7 +12,7 @@
 
 use rbs_admin_client::attestation::policy::{
     AttestationPolicyCreateRequest, AttestationPolicyDeleteRequest, AttestationPolicyListParams,
-    AttestationPolicyUpdateRequest, PolicyClient, PolicyService,
+    AttestationPolicyUpdateRequest, PolicyClient,
 };
 use rbs_admin_client::AdminClient;
 use rbs_api_types::PolicyDeleteType;

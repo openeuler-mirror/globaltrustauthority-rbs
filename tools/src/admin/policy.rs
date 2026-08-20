@@ -14,7 +14,7 @@ use base64::Engine;
 use clap::{Args, Subcommand};
 use rbs_admin_client::attestation::policy::{
     AttestationPolicyCreateRequest, AttestationPolicyDeleteRequest, AttestationPolicyListParams,
-    AttestationPolicyUpdateRequest, PolicyClient, PolicyListResponse, PolicyMutationResponse, PolicyService,
+    AttestationPolicyUpdateRequest, PolicyClient, PolicyListResponse, PolicyMutationResponse,
 };
 use rbs_admin_client::AdminClient;
 use rbs_api_types::PolicyDeleteType;
@@ -25,7 +25,10 @@ use tabled::Table;
 use crate::admin::GTA_ID_MAX_LEN;
 use crate::common::formatter::{format_epoch_timestamp, format_indented_content, Formatter};
 use crate::common::utils::read_path_file;
-use crate::common::validate::{validate_file_size, validate_i64, validate_string_max_len};
+use crate::common::validate::{
+    validate_file_size, validate_i64, validate_optional_text, validate_query_ids, validate_required_text,
+    validate_string_max_len,
+};
 use crate::config::GlobalOptions;
 use crate::error::CliError;
 const SUPPORTED_ATTESTER_TYPES: [&str; 9] =
@@ -73,12 +76,7 @@ pub enum PolicyCommand {
 
 #[derive(Args, Debug, Clone)]
 pub struct ListArgs {
-    #[arg(
-        long,
-        value_delimiter = ',',
-        value_parser = |s: &str| validate_string_max_len(s, GTA_ID_MAX_LEN),
-        help = "Comma-separated policy IDs"
-    )]
+    #[arg(long, value_delimiter = ',', help = "Comma-separated policy IDs; at most 10 IDs and 500 characters total")]
     pub ids: Option<Vec<String>>,
 
     #[arg(
@@ -104,10 +102,10 @@ pub struct GetArgs {
 
 #[derive(Args, Debug, Clone)]
 pub struct CreateArgs {
-    #[arg(long, value_parser = |s: &str| validate_string_max_len(s, 255), help = "Policy name")]
+    #[arg(long, help = "Policy name")]
     pub name: String,
 
-    #[arg(long, value_parser = |s: &str| validate_string_max_len(s, 512), help = "Optional description")]
+    #[arg(long, help = "Optional description")]
     pub description: Option<String>,
 
     #[arg(
@@ -140,10 +138,10 @@ pub struct UpdateArgs {
     #[arg(long, value_parser = |s: &str| validate_string_max_len(s, GTA_ID_MAX_LEN), help = "Policy ID")]
     pub id: String,
 
-    #[arg(long, value_parser = |s: &str| validate_string_max_len(s, 255), help = "New policy name")]
+    #[arg(long, help = "New policy name")]
     pub name: Option<String>,
 
-    #[arg(long, value_parser = |s: &str| validate_string_max_len(s, 512), help = "New description")]
+    #[arg(long, help = "New description")]
     pub description: Option<String>,
 
     #[arg(
@@ -173,8 +171,7 @@ pub struct DeleteArgs {
     #[arg(
         long,
         value_delimiter = ',',
-        value_parser = |s: &str| validate_string_max_len(s, GTA_ID_MAX_LEN),
-        help = "Comma-separated policy IDs; required when --delete-type id"
+        help = "Comma-separated policy IDs; at most 10 IDs and 500 characters total; required when --delete-type id"
     )]
     pub ids: Vec<String>,
 
@@ -201,6 +198,7 @@ pub fn run(cli: &PolicyCli, global: &GlobalOptions) -> Result<Box<dyn Formatter>
 async fn execute_policy_command(cli: &PolicyCli, service: &PolicyClient) -> Result<Box<dyn Formatter>, CliError> {
     match &cli.command {
         PolicyCommand::List(args) => {
+            validate_query_ids(args.ids.as_deref())?;
             let resp = service
                 .list_policies(&AttestationPolicyListParams {
                     ids: args.ids.clone(),
@@ -213,6 +211,7 @@ async fn execute_policy_command(cli: &PolicyCli, service: &PolicyClient) -> Resu
         },
         PolicyCommand::Get(args) => get_policy_output(service.get_policy(&args.id).await?),
         PolicyCommand::Create(args) => {
+            validate_create_args(args)?;
             let mut content = read_path_file(args.content.as_str())?;
             match args.content_type.to_lowercase().as_str() {
                 "text" => {
@@ -297,6 +296,11 @@ fn validate_update_args(args: &UpdateArgs) -> Result<(), CliError> {
         ));
     }
 
+    if let Some(name) = &args.name {
+        validate_required_text(name, 255, "name")?;
+    }
+    validate_optional_text(args.description.as_deref(), 512, "description")?;
+
     if args.content.is_some() && args.content_type.is_none() {
         return Err(CliError::InvalidArgument("content_type must be set when content is provided".to_string()));
     }
@@ -304,8 +308,14 @@ fn validate_update_args(args: &UpdateArgs) -> Result<(), CliError> {
     Ok(())
 }
 
+fn validate_create_args(args: &CreateArgs) -> Result<(), CliError> {
+    validate_required_text(&args.name, 255, "name")?;
+    validate_optional_text(args.description.as_deref(), 512, "description")
+}
+
 fn build_delete_request(args: &DeleteArgs) -> Result<AttestationPolicyDeleteRequest, CliError> {
     let ids = (!args.ids.is_empty()).then(|| args.ids.clone());
+    validate_query_ids(ids.as_deref())?;
 
     match args.delete_type.as_str() {
         DELETE_POLICY_ID => {
@@ -436,6 +446,31 @@ impl Formatter for PolicyMutationOutput {
 mod tests {
     use super::*;
 
+    fn base_create_args() -> CreateArgs {
+        CreateArgs {
+            name: "policy-1".to_string(),
+            description: None,
+            attester_type: vec!["tpm".to_string()],
+            content_type: "text".to_string(),
+            content: "package policy".to_string(),
+            is_default: None,
+        }
+    }
+
+    #[test]
+    fn validate_policy_text_fields_rejects_blank_and_oversized_values_without_echoing_them() {
+        let mut args = base_create_args();
+        args.name = " \t".to_string();
+        assert_eq!(validate_create_args(&args).expect_err("blank name").to_string(), "name must not be empty");
+
+        let supplied = "x".repeat(513);
+        let mut args = base_create_args();
+        args.description = Some(supplied.clone());
+        let err = validate_create_args(&args).expect_err("long description");
+        assert_eq!(err.to_string(), "description is too long; maximum length is 512 characters");
+        assert!(!err.to_string().contains(&supplied));
+    }
+
     fn base_update_args() -> UpdateArgs {
         UpdateArgs {
             id: "policy-1".to_string(),
@@ -460,6 +495,18 @@ mod tests {
         args.content = Some("payload".to_string());
         let err = validate_update_args(&args).expect_err("content without type should fail");
         assert!(err.to_string().contains("content_type must be set"));
+
+        let err = validate_update_args(&UpdateArgs {
+            id: "policy-1".to_string(),
+            name: None,
+            description: None,
+            attester_type: None,
+            content_type: None,
+            content: None,
+            is_default: None,
+        })
+        .expect_err("empty update");
+        assert!(err.to_string().contains("at least one updatable field"));
     }
 
     #[test]
@@ -496,6 +543,50 @@ mod tests {
             build_delete_request(&DeleteArgs { delete_type: "all".to_string(), ids: vec![], attester_type: None })
                 .expect("all delete");
         assert_eq!(all.delete_type, PolicyDeleteType::All);
+
+        let err = build_delete_request(&DeleteArgs {
+            delete_type: "id".to_string(),
+            ids: (0..11).map(|index| format!("id-{index}")).collect(),
+            attester_type: None,
+        })
+        .expect_err("too many IDs");
+        assert_eq!(err.to_string(), "ids must contain at most 10 values");
+
+        assert!(build_delete_request(&DeleteArgs { delete_type: "id".to_string(), ids: vec![], attester_type: None })
+            .is_err());
+        assert!(build_delete_request(&DeleteArgs {
+            delete_type: "attester_type".to_string(),
+            ids: vec![],
+            attester_type: None,
+        })
+        .is_err());
+        assert!(build_delete_request(&DeleteArgs {
+            delete_type: "all".to_string(),
+            ids: vec!["policy-1".to_string()],
+            attester_type: None,
+        })
+        .is_err());
+    }
+
+    #[test]
+    fn policy_lookup_and_empty_list_outputs_handle_non_success_shapes() {
+        assert!(get_policy_output(PolicyListResponse {
+            policies: vec![],
+            total_count: None,
+            limit: None,
+            offset: None,
+        })
+        .is_err());
+
+        let text = PolicyListOutput(PolicyListResponse {
+            policies: vec![],
+            total_count: Some(0),
+            limit: Some(10),
+            offset: Some(0),
+        })
+        .render_text()
+        .expect("empty list");
+        assert_eq!(text, "policies:\n  <empty>\ntotal_count: 0\nlimit: 10\noffset: 0");
     }
 
     #[test]

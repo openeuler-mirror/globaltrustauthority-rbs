@@ -9,7 +9,6 @@
  * PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
-use async_trait::async_trait;
 use reqwest::{Method, Url};
 use serde::{Deserialize, Serialize};
 
@@ -61,35 +60,14 @@ impl PolicyClient {
         self.client
             .base_url
             .join(format!("/rbs/v0/attestation/{}/{}/{}", self.as_provider, POLICY_SEGMENT, id).as_str())
-            .map_err(|_| RbsAdminClientError::ClientError("base URL cannot be used to build policy item path".to_string()))
+            .map_err(|_| {
+                RbsAdminClientError::ClientError("base URL cannot be used to build policy item path".to_string())
+            })
     }
 }
 
-#[async_trait]
-pub trait PolicyService {
-    async fn list_policies(
-        &self,
-        params: &AttestationPolicyListParams,
-    ) -> Result<PolicyListResponse, RbsAdminClientError>;
-
-    async fn get_policy(&self, id: &str) -> Result<PolicyListResponse, RbsAdminClientError>;
-
-    async fn create_policy(
-        &self,
-        request: &AttestationPolicyCreateRequest,
-    ) -> Result<PolicyMutationResponse, RbsAdminClientError>;
-
-    async fn update_policy(
-        &self,
-        request: &AttestationPolicyUpdateRequest,
-    ) -> Result<PolicyMutationResponse, RbsAdminClientError>;
-
-    async fn delete_policies(&self, request: &AttestationPolicyDeleteRequest) -> Result<(), RbsAdminClientError>;
-}
-
-#[async_trait]
-impl PolicyService for PolicyClient {
-    async fn list_policies(
+impl PolicyClient {
+    pub async fn list_policies(
         &self,
         params: &AttestationPolicyListParams,
     ) -> Result<PolicyListResponse, RbsAdminClientError> {
@@ -116,12 +94,12 @@ impl PolicyService for PolicyClient {
         send_json(&self.client, Method::GET, url, Option::<&()>::None).await
     }
 
-    async fn get_policy(&self, id: &str) -> Result<PolicyListResponse, RbsAdminClientError> {
+    pub async fn get_policy(&self, id: &str) -> Result<PolicyListResponse, RbsAdminClientError> {
         let url = self.item_url(id)?;
         send_json(&self.client, Method::GET, url, Option::<&()>::None).await
     }
 
-    async fn create_policy(
+    pub async fn create_policy(
         &self,
         request: &AttestationPolicyCreateRequest,
     ) -> Result<PolicyMutationResponse, RbsAdminClientError> {
@@ -129,7 +107,7 @@ impl PolicyService for PolicyClient {
         send_json(&self.client, Method::POST, url, Some(request)).await
     }
 
-    async fn update_policy(
+    pub async fn update_policy(
         &self,
         request: &AttestationPolicyUpdateRequest,
     ) -> Result<PolicyMutationResponse, RbsAdminClientError> {
@@ -137,7 +115,7 @@ impl PolicyService for PolicyClient {
         send_json(&self.client, Method::PUT, url, Some(request)).await
     }
 
-    async fn delete_policies(&self, request: &AttestationPolicyDeleteRequest) -> Result<(), RbsAdminClientError> {
+    pub async fn delete_policies(&self, request: &AttestationPolicyDeleteRequest) -> Result<(), RbsAdminClientError> {
         let url = self.box_url()?;
         send_empty(&self.client, Method::DELETE, url, Some(request)).await
     }

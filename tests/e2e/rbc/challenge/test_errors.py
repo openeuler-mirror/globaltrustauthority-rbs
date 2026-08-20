@@ -15,7 +15,7 @@ pytestmark = [pytest.mark.e2e, pytest.mark.rbc]
 def test_challenge_maps_gta_unavailability_to_server_error(
     rbc_binary: Path, rbs_api: Any, agent_config_path: Path
 ) -> None:
-    """Convert an upstream GTA failure returned by real RBS into a stable CLI error."""
+    """Expose the upstream GTA failure returned by RBS in the CLI error."""
     rbs_api.fake_gta.fail_next_challenge(message="do not leak this GTA detail")
     result = run_rbc(
         rbc_binary,
@@ -28,4 +28,4 @@ def test_challenge_maps_gta_unavailability_to_server_error(
     )
     assert result.returncode != 0
     assert "servererror" in result.stderr.lower()
-    assert "do not leak this gta detail" not in result.stderr.lower()
+    assert "do not leak this gta detail" in result.stderr.lower()

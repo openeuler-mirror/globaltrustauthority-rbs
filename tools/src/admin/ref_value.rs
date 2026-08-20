@@ -15,7 +15,7 @@ use base64::Engine;
 use clap::{Args, Subcommand};
 use rbs_admin_client::attestation::ref_value::{
     RefValueClient, RefValueCreateRequest, RefValueDeleteRequest, RefValueListParams, RefValueListResponse,
-    RefValueMutationResponse, RefValueService, RefValueUpdateRequest,
+    RefValueMutationResponse, RefValueUpdateRequest,
 };
 use rbs_admin_client::AdminClient;
 use rbs_api_types::AttestationDeleteType;
@@ -26,7 +26,9 @@ use tabled::Table;
 use crate::admin::GTA_ID_MAX_LEN;
 use crate::common::formatter::{format_indented_content, Formatter};
 use crate::common::utils::read_path_file;
-use crate::common::validate::{validate_file_size, validate_i64, validate_string_max_len};
+use crate::common::validate::{
+    validate_i64, validate_optional_text, validate_query_ids, validate_required_text, validate_string_max_len,
+};
 use crate::config::GlobalOptions;
 use crate::error::CliError;
 
@@ -36,7 +38,7 @@ const DELETE_REF_VALUE_ID: &str = "id";
 const DELETE_REF_VALUE_TYPE: &str = "type";
 const DELETE_REF_VALUE_ALL: &str = "all";
 const DELETE_REF_VALUE_TYPES: [&str; 3] = [DELETE_REF_VALUE_ALL, DELETE_REF_VALUE_ID, DELETE_REF_VALUE_TYPE];
-const MAX_CONTENT_SIZE: u64 = 1024 * 1024 * 100;
+const MAX_CONTENT_SIZE: usize = 10 * 1024 * 1024;
 const LIST_MIN_LIMIT: i64 = 1;
 const LIST_MAX_LIMIT: i64 = 10;
 const LIST_MIN_OFFSET: i64 = 0;
@@ -77,8 +79,7 @@ pub struct ListArgs {
     #[arg(
         long,
         value_delimiter = ',',
-        value_parser = |s: &str| validate_string_max_len(s, GTA_ID_MAX_LEN),
-        help = "Comma-separated ref value IDs"
+        help = "Comma-separated ref value IDs; at most 10 IDs and 500 characters total"
     )]
     pub ids: Option<Vec<String>>,
 
@@ -105,10 +106,10 @@ pub struct GetArgs {
 
 #[derive(Args, Debug, Clone)]
 pub struct CreateArgs {
-    #[arg(long, value_parser = |s: &str| validate_string_max_len(s, 255), help = "Ref value name")]
+    #[arg(long, help = "Ref value name")]
     pub name: String,
 
-    #[arg(long, value_parser = |s: &str| validate_string_max_len(s, 512), help = "Optional description")]
+    #[arg(long, help = "Optional description")]
     pub description: Option<String>,
 
     #[arg(
@@ -119,11 +120,7 @@ pub struct CreateArgs {
     )]
     pub attester_type: String,
 
-    #[arg(
-        long,
-        value_parser = validate_ref_value_content,
-        help = "JWT or Base64 content, or @file path; max size 100MB"
-    )]
+    #[arg(long, help = "JWT or Base64 content, or @file path; size must be between 1 byte and 10 MiB")]
     pub content: String,
 
     #[arg(
@@ -140,10 +137,10 @@ pub struct UpdateArgs {
     #[arg(long, value_parser = |s: &str| validate_string_max_len(s, GTA_ID_MAX_LEN), required = true, help = "Ref value ID")]
     pub id: String,
 
-    #[arg(long, value_parser = |s: &str| validate_string_max_len(s, 255), help = "New ref value name")]
+    #[arg(long, help = "New ref value name")]
     pub name: Option<String>,
 
-    #[arg(long, value_parser = |s: &str| validate_string_max_len(s, 512), help = "New description")]
+    #[arg(long, help = "New description")]
     pub description: Option<String>,
 
     #[arg(
@@ -154,7 +151,7 @@ pub struct UpdateArgs {
     )]
     pub attester_type: Option<String>,
 
-    #[arg(long, value_parser = validate_ref_value_content, help = "New JWT or Base64 content, or @file path; max size 100MB")]
+    #[arg(long, help = "New JWT or Base64 content, or @file path; size must be between 1 byte and 10 MiB")]
     pub content: Option<String>,
 
     #[arg(long, value_parser = SUPPORTED_CONTENT_TYPES, help = "New reference value content encoding: jwt or base64")]
@@ -169,8 +166,7 @@ pub struct DeleteArgs {
     #[arg(
         long,
         value_delimiter = ',',
-        value_parser = |s: &str| validate_string_max_len(s, GTA_ID_MAX_LEN),
-        help = "Comma-separated ref value IDs; required when --delete-type id"
+        help = "Comma-separated ref value IDs; at most 10 IDs and 500 characters total; required when --delete-type id"
     )]
     pub ids: Vec<String>,
 
@@ -200,6 +196,7 @@ async fn execute_ref_value_command(
 ) -> Result<Box<dyn Formatter>, CliError> {
     match &cli.command {
         RefValueCommand::List(args) => {
+            validate_query_ids(args.ids.as_deref())?;
             let resp = service
                 .list_ref_values(&RefValueListParams {
                     ids: args.ids.clone(),
@@ -212,6 +209,7 @@ async fn execute_ref_value_command(
         },
         RefValueCommand::Get(args) => get_ref_value_output(service.get_ref_value(&args.id).await?),
         RefValueCommand::Create(args) => {
+            validate_create_args(args)?;
             let resp = service
                 .create_ref_value(&RefValueCreateRequest {
                     name: args.name.clone(),
@@ -261,11 +259,22 @@ fn validate_update_args(args: &UpdateArgs) -> Result<(), CliError> {
                 .to_string(),
         ));
     }
+
+    if let Some(name) = &args.name {
+        validate_required_text(name, 255, "name")?;
+    }
+    validate_optional_text(args.description.as_deref(), 512, "description")?;
     Ok(())
+}
+
+fn validate_create_args(args: &CreateArgs) -> Result<(), CliError> {
+    validate_required_text(&args.name, 255, "name")?;
+    validate_optional_text(args.description.as_deref(), 512, "description")
 }
 
 fn build_delete_request(args: &DeleteArgs) -> Result<RefValueDeleteRequest, CliError> {
     let ids = (!args.ids.is_empty()).then(|| args.ids.clone());
+    validate_query_ids(ids.as_deref())?;
 
     match args.delete_type.as_str() {
         DELETE_REF_VALUE_ID => {
@@ -403,20 +412,10 @@ impl Formatter for RefValueMutationOutput {
     }
 }
 
-fn validate_ref_value_content(value: &str) -> Result<String, CliError> {
-    if let Some(path) = value.strip_prefix('@') {
-        validate_file_size(path, MAX_CONTENT_SIZE)?;
-    } else if value.len() > MAX_CONTENT_SIZE as usize {
-        return Err(CliError::InvalidArgument(format!(
-            "ref value content must not exceed {MAX_CONTENT_SIZE} bytes; got {} bytes",
-            value.len()
-        )));
-    }
-    Ok(value.to_string())
-}
-
 fn read_ref_value_content(value: &str, content_type: &str) -> Result<String, CliError> {
+    validate_ref_value_input_size(value)?;
     let content = read_path_file(value)?;
+    validate_ref_value_content_size(&content)?;
     let is_json_file = value
         .strip_prefix('@')
         .and_then(|path| std::path::Path::new(path).extension())
@@ -425,15 +424,74 @@ fn read_ref_value_content(value: &str, content_type: &str) -> Result<String, Cli
     if content_type == "base64" && is_json_file {
         serde_json::from_str::<serde_json::Value>(&content)
             .map_err(|err| CliError::InvalidArgument(format!("invalid JSON reference value content: {err}")))?;
-        return Ok(general_purpose::STANDARD.encode(content.as_bytes()));
+        let encoded = general_purpose::STANDARD.encode(content.as_bytes());
+        validate_ref_value_content_size(&encoded)?;
+        return Ok(encoded);
     }
 
     Ok(content)
 }
 
+fn validate_ref_value_input_size(value: &str) -> Result<(), CliError> {
+    if let Some(path) = value.strip_prefix('@') {
+        let metadata = std::fs::metadata(path).map_err(|_| {
+            CliError::FileReadError(
+                "unable to access ref value content file. Please check that the file exists and is readable"
+                    .to_string(),
+            )
+        })?;
+        if !metadata.is_file() {
+            return Err(CliError::InvalidArgument("ref value content path must point to a file".to_string()));
+        }
+        if metadata.len() == 0 {
+            return Err(CliError::InvalidArgument("ref value content must not be empty".to_string()));
+        }
+        if metadata.len() > MAX_CONTENT_SIZE as u64 {
+            return Err(CliError::InvalidArgument(
+                "ref value content is too large; maximum size is 10 MiB".to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_ref_value_content_size(content: &str) -> Result<(), CliError> {
+    if content.is_empty() {
+        return Err(CliError::InvalidArgument("ref value content must not be empty".to_string()));
+    }
+    if content.len() > MAX_CONTENT_SIZE {
+        return Err(CliError::InvalidArgument("ref value content is too large; maximum size is 10 MiB".to_string()));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn base_create_args() -> CreateArgs {
+        CreateArgs {
+            name: "ref-value-1".to_string(),
+            description: None,
+            attester_type: "tpm".to_string(),
+            content: "content".to_string(),
+            content_type: "jwt".to_string(),
+        }
+    }
+
+    #[test]
+    fn validate_ref_value_text_fields_rejects_blank_and_oversized_values_without_echoing_them() {
+        let mut args = base_create_args();
+        args.name = " \t".to_string();
+        assert_eq!(validate_create_args(&args).expect_err("blank name").to_string(), "name must not be empty");
+
+        let supplied = "x".repeat(513);
+        let mut args = base_create_args();
+        args.description = Some(supplied.clone());
+        let err = validate_create_args(&args).expect_err("long description");
+        assert_eq!(err.to_string(), "description is too long; maximum length is 512 characters");
+        assert!(!err.to_string().contains(&supplied));
+    }
 
     #[test]
     fn validate_update_args_requires_some_field() {
@@ -471,6 +529,14 @@ mod tests {
             build_delete_request(&DeleteArgs { delete_type: "all".to_string(), ids: vec![], attester_type: None })
                 .expect("all delete");
         assert_eq!(all.delete_type, AttestationDeleteType::All);
+
+        let err = build_delete_request(&DeleteArgs {
+            delete_type: "id".to_string(),
+            ids: (0..11).map(|index| format!("id-{index}")).collect(),
+            attester_type: None,
+        })
+        .expect_err("too many IDs");
+        assert_eq!(err.to_string(), "ids must contain at most 10 values");
     }
 
     #[test]
@@ -504,12 +570,59 @@ mod tests {
     }
 
     #[test]
-    fn validate_ref_value_content_accepts_at_prefixed_file() {
+    fn ref_value_content_rejects_empty_inline_and_empty_file() {
+        assert_eq!(
+            read_ref_value_content("", "jwt").expect_err("empty inline content").to_string(),
+            "ref value content must not be empty"
+        );
+
+        let path = std::env::temp_dir().join(format!("ref-value-empty-{}.jwt", std::process::id()));
+        std::fs::write(&path, "").expect("write empty file");
+        let input = format!("@{}", path.display());
+        assert_eq!(
+            read_ref_value_content(&input, "jwt").expect_err("empty file content").to_string(),
+            "ref value content must not be empty"
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn ref_value_content_accepts_at_prefixed_file() {
         let path = std::env::temp_dir().join(format!("ref-value-{}.jwt", std::process::id()));
         std::fs::write(&path, "jwt-content").expect("write file");
         let input = format!("@{}", path.display());
-        assert_eq!(validate_ref_value_content(&input).expect("validate file"), input);
-        assert_eq!(read_path_file(&input).expect("read file"), "jwt-content");
+        assert_eq!(read_ref_value_content(&input, "jwt").expect("read file"), "jwt-content");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn ref_value_content_enforces_raw_and_encoded_size_limits_without_echoing_content() {
+        let supplied = "x".repeat(MAX_CONTENT_SIZE + 1);
+        let err = validate_ref_value_content_size(&supplied).expect_err("oversized raw content");
+        assert_eq!(err.to_string(), "ref value content is too large; maximum size is 10 MiB");
+        assert!(!err.to_string().contains(&supplied));
+
+        let raw_path = std::env::temp_dir().join(format!("ref-value-raw-large-{}.jwt", std::process::id()));
+        std::fs::File::create(&raw_path)
+            .expect("create oversized file")
+            .set_len((MAX_CONTENT_SIZE + 1) as u64)
+            .expect("set oversized file length");
+        assert_eq!(
+            read_ref_value_content(&format!("@{}", raw_path.display()), "jwt")
+                .expect_err("oversized raw file")
+                .to_string(),
+            "ref value content is too large; maximum size is 10 MiB"
+        );
+        let _ = std::fs::remove_file(raw_path);
+
+        let path = std::env::temp_dir().join(format!("ref-value-large-{}.json", std::process::id()));
+        let json = format!(r#"{{"referenceValues":["{}"]}}"#, "x".repeat(8 * 1024 * 1024));
+        std::fs::write(&path, json).expect("write JSON file");
+        let input = format!("@{}", path.display());
+        assert_eq!(
+            read_ref_value_content(&input, "base64").expect_err("oversized encoded content").to_string(),
+            "ref value content is too large; maximum size is 10 MiB"
+        );
         let _ = std::fs::remove_file(path);
     }
 

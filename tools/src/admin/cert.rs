@@ -13,7 +13,6 @@
 use clap::{Args, Subcommand};
 use rbs_admin_client::attestation::cert::{
     CertClient, CertCreateRequest, CertDeleteRequest, CertListParams, CertListResponse, CertMutationResponse,
-    CertService,
 };
 use rbs_admin_client::AdminClient;
 use rbs_api_types::AttestationDeleteType;
@@ -24,7 +23,10 @@ use tabled::Table;
 use crate::admin::GTA_ID_MAX_LEN;
 use crate::common::formatter::{format_epoch_timestamp, format_indented_content, Formatter};
 use crate::common::utils::read_path_file;
-use crate::common::validate::{validate_cert_file, validate_i64, validate_string_max_len};
+use crate::common::validate::{
+    validate_cert_file, validate_i64, validate_optional_text, validate_query_ids, validate_required_text,
+    validate_string_max_len,
+};
 use crate::config::GlobalOptions;
 use crate::error::CliError;
 
@@ -73,8 +75,7 @@ pub struct ListArgs {
     #[arg(
         long,
         value_delimiter = ',',
-        value_parser = |s: &str| validate_string_max_len(s, GTA_ID_MAX_LEN),
-        help = "Comma-separated cert or CRL IDs"
+        help = "Comma-separated cert or CRL IDs; at most 10 IDs and 500 characters total"
     )]
     pub ids: Option<Vec<String>>,
 
@@ -109,10 +110,10 @@ pub struct GetArgs {
 
 #[derive(Args, Debug, Clone)]
 pub struct CreateArgs {
-    #[arg(short, long, value_parser = |s: &str| validate_string_max_len(s, 255), help = "Cert or CRL name")]
+    #[arg(short, long, help = "Cert or CRL name")]
     pub name: String,
 
-    #[arg(short, long, value_parser = |s: &str| validate_string_max_len(s, 512), help = "Optional description")]
+    #[arg(short, long, help = "Optional description")]
     pub description: Option<String>,
 
     #[arg(
@@ -149,10 +150,10 @@ pub struct UpdateArgs {
     #[arg(short, long, value_parser = |s: &str| validate_string_max_len(s, GTA_ID_MAX_LEN), help = "Cert ID")]
     pub id: String,
 
-    #[arg(short, long, value_parser = |s: &str| validate_string_max_len(s, 255), help = "New cert name")]
+    #[arg(short, long, help = "New cert name")]
     pub name: Option<String>,
 
-    #[arg(short, long, value_parser = |s: &str| validate_string_max_len(s, 512), help = "New description")]
+    #[arg(short, long, help = "New description")]
     pub description: Option<String>,
 
     #[arg(
@@ -180,8 +181,7 @@ pub struct DeleteArgs {
     #[arg(
         long,
         value_delimiter = ',',
-        value_parser = |s: &str| validate_string_max_len(s, GTA_ID_MAX_LEN),
-        help = "Comma-separated cert or CRL IDs"
+        help = "Comma-separated cert or CRL IDs; at most 10 IDs and 500 characters total"
     )]
     pub ids: Vec<String>,
 
@@ -208,6 +208,7 @@ pub fn run(cli: &CertCli, global: &GlobalOptions) -> Result<Box<dyn Formatter>, 
 async fn execute_cert_command(cli: &CertCli, service: &CertClient) -> Result<Box<dyn Formatter>, CliError> {
     match &cli.command {
         CertCommand::List(args) => {
+            validate_query_ids(args.ids.as_deref())?;
             let resp = service
                 .list_certs(&CertListParams {
                     ids: args.ids.clone(),
@@ -260,6 +261,9 @@ fn read_optional_path(value: &Option<String>) -> Result<Option<String>, CliError
 }
 
 fn validate_create_args(args: &CreateArgs) -> Result<(), CliError> {
+    validate_required_text(&args.name, 255, "name")?;
+    validate_optional_text(args.description.as_deref(), 512, "description")?;
+
     if args.cert_type.is_empty() {
         return Err(CliError::InvalidArgument("type must not be empty".to_string()));
     }
@@ -272,11 +276,20 @@ fn validate_create_args(args: &CreateArgs) -> Result<(), CliError> {
         if args.crl_content.is_none() {
             return Err(CliError::InvalidArgument("crl_content is required when type is `crl`".to_string()));
         }
-        if args.content.is_some() {
-            return Err(CliError::InvalidArgument("content must not be set when type is `crl`".to_string()));
+        if read_path_file(args.crl_content.as_deref().expect("required crl_content was checked"))
+            .map(|value| value.is_empty())?
+        {
+            return Err(CliError::InvalidArgument("crl_content must not be empty".to_string()));
         }
-    } else if args.content.is_none() {
-        return Err(CliError::InvalidArgument("content is required for non-CRL certs".to_string()));
+    } else {
+        if args.content.is_none() {
+            return Err(CliError::InvalidArgument("content is required for non-CRL certs".to_string()));
+        }
+        if read_path_file(args.content.as_deref().expect("required content was checked"))
+            .map(|value| value.is_empty())?
+        {
+            return Err(CliError::InvalidArgument("content must not be empty".to_string()));
+        }
     }
 
     Ok(())
@@ -288,6 +301,11 @@ fn validate_update_args(args: &UpdateArgs) -> Result<(), CliError> {
             "at least one updatable field must be set: name, description, type, is_default".to_string(),
         ));
     }
+
+    if let Some(name) = &args.name {
+        validate_required_text(name, 255, "name")?;
+    }
+    validate_optional_text(args.description.as_deref(), 512, "description")?;
 
     if let Some(cert_type) = &args.cert_type {
         if cert_type.is_empty() {
@@ -304,6 +322,7 @@ fn validate_update_args(args: &UpdateArgs) -> Result<(), CliError> {
 fn build_delete_request(args: &DeleteArgs) -> Result<CertDeleteRequest, CliError> {
     let ids = (!args.ids.is_empty()).then(|| args.ids.clone());
     let cert_type = args.cert_type.clone();
+    validate_query_ids(ids.as_deref())?;
 
     if matches!(cert_type.as_deref(), Some(CRL)) {
         if args.delete_type.is_some() {
@@ -535,6 +554,51 @@ mod tests {
         args.content = None;
         let err = validate_create_args(&args).expect_err("missing crl content should fail");
         assert!(err.to_string().contains("crl_content is required"));
+
+        let mut args = base_create_args();
+        args.cert_type = vec!["crl".to_string()];
+        args.crl_content = Some("crl-content".to_string());
+        assert!(validate_create_args(&args).is_ok());
+    }
+
+    #[test]
+    fn validate_create_args_rejects_empty_required_cert_and_crl_content() {
+        let mut args = base_create_args();
+        args.content = Some("".to_string());
+        assert_eq!(
+            validate_create_args(&args).expect_err("empty cert content").to_string(),
+            "content must not be empty"
+        );
+
+        let empty_path = std::env::temp_dir().join(format!("empty-crl-{}.pem", std::process::id()));
+        std::fs::write(&empty_path, "").expect("write empty CRL file");
+        let args = CreateArgs {
+            name: "crl-1".to_string(),
+            description: None,
+            cert_type: vec!["crl".to_string()],
+            content: None,
+            crl_content: Some(format!("@{}", empty_path.display())),
+            is_default: None,
+        };
+        assert_eq!(
+            validate_create_args(&args).expect_err("empty CRL content").to_string(),
+            "crl_content must not be empty"
+        );
+        let _ = std::fs::remove_file(empty_path);
+    }
+
+    #[test]
+    fn validate_cert_text_fields_rejects_blank_and_oversized_values_without_echoing_them() {
+        let mut args = base_create_args();
+        args.name = " \t".to_string();
+        assert_eq!(validate_create_args(&args).expect_err("blank name").to_string(), "name must not be empty");
+
+        let supplied = "x".repeat(513);
+        let mut args = base_create_args();
+        args.description = Some(supplied.clone());
+        let err = validate_create_args(&args).expect_err("long description");
+        assert_eq!(err.to_string(), "description is too long; maximum length is 512 characters");
+        assert!(!err.to_string().contains(&supplied));
     }
 
     #[test]
@@ -558,6 +622,16 @@ mod tests {
         })
         .expect_err("crl update should fail");
         assert!(err.to_string().contains("does not support cert type `crl`"));
+
+        let err = validate_update_args(&UpdateArgs {
+            id: "cert-1".to_string(),
+            name: None,
+            description: None,
+            cert_type: Some(vec![]),
+            is_default: None,
+        })
+        .expect_err("empty type should fail");
+        assert_eq!(err.to_string(), "type must not be empty");
     }
 
     #[test]
@@ -577,6 +651,83 @@ mod tests {
         })
         .expect("crl delete");
         assert_eq!(crl.cert_type.as_deref(), Some("crl"));
+
+        let err = build_delete_request(&DeleteArgs {
+            delete_type: Some("id".to_string()),
+            ids: (0..11).map(|index| format!("id-{index}")).collect(),
+            cert_type: None,
+        })
+        .expect_err("too many IDs");
+        assert_eq!(err.to_string(), "ids must contain at most 10 values");
+
+        assert!(build_delete_request(&DeleteArgs {
+            delete_type: Some("type".to_string()),
+            ids: vec![],
+            cert_type: None,
+        })
+        .is_err());
+        assert!(build_delete_request(&DeleteArgs {
+            delete_type: Some("all".to_string()),
+            ids: vec!["cert-1".to_string()],
+            cert_type: None,
+        })
+        .is_err());
+        assert!(build_delete_request(&DeleteArgs {
+            delete_type: Some("id".to_string()),
+            ids: vec![],
+            cert_type: Some("crl".to_string()),
+        })
+        .is_err());
+    }
+
+    #[test]
+    fn cert_crl_and_mutation_outputs_cover_alternate_response_shapes() {
+        let crl = rbs_admin_client::attestation::cert::CrlRecord {
+            crl_id: Some("crl-1".to_string()),
+            crl_name: Some("demo-crl".to_string()),
+            crl_content: Some("crl-data".to_string()),
+        };
+        let output = get_cert_output(CertListResponse {
+            certs: vec![],
+            crls: vec![crl.clone()],
+            total_count: None,
+            limit: None,
+            offset: None,
+        })
+        .expect("one CRL");
+        assert!(output.render_text().expect("CRL text").contains("crl_content:        crl-data"));
+        assert!(output.render_json().expect("CRL JSON").contains("crl-1"));
+        assert!(CertListOutput(CertListResponse {
+            certs: vec![],
+            crls: vec![crl.clone()],
+            total_count: None,
+            limit: None,
+            offset: None,
+        })
+        .render_text()
+        .expect("CRL list")
+        .contains("crls:"));
+        assert!(get_cert_output(CertListResponse {
+            certs: vec![],
+            crls: vec![],
+            total_count: None,
+            limit: None,
+            offset: None,
+        })
+        .is_err());
+
+        let crl_mutation = CertMutationOutput(CertMutationResponse {
+            cert: None,
+            crl: Some(rbs_admin_client::attestation::cert::CertMutationCrl {
+                crl_id: Some("crl-1".to_string()),
+                crl_name: Some("demo-crl".to_string()),
+            }),
+        });
+        assert!(crl_mutation.render_text().expect("CRL mutation").contains("crl_id:             crl-1"));
+        assert_eq!(
+            CertMutationOutput(CertMutationResponse { cert: None, crl: None }).render_text().expect("empty mutation"),
+            "<empty>"
+        );
     }
 
     #[test]

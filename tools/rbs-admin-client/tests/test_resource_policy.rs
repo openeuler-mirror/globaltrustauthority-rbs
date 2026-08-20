@@ -10,7 +10,7 @@
  * See the Mulan PSL v2 for more details.
  */
 
-use rbs_admin_client::res_policy::{ResourcePolicyClient, ResourcePolicyContentType, ResourcePolicyService};
+use rbs_admin_client::res_policy::{ResourcePolicyClient, ResourcePolicyContentType};
 use rbs_admin_client::AdminClient;
 use rbs_api_types::{CreatePolicyRequest, PolicyListQuery, UpdatePolicyRequest};
 

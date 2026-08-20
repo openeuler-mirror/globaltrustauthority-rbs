@@ -13,7 +13,6 @@
 use crate::client::AdminClient;
 use crate::error::RbsAdminClientError;
 use crate::{send_empty, send_json, validate_path_segment};
-use async_trait::async_trait;
 use rbs_api_types::{CreateResourceRequest, ResourceContentResponse, ResourceResponse, UpdateResourceRequest};
 use reqwest::{Method, Url};
 use serde::{Deserialize, Serialize};
@@ -88,40 +87,18 @@ fn validate_resource_path(path: &ResourcePath) -> Result<(), RbsAdminClientError
     Ok(())
 }
 
-#[async_trait]
-pub trait ResourceService {
-    async fn get_resource(&self, uri: &str) -> Result<ResourceContentResponse, RbsAdminClientError>;
-
-    async fn get_resource_info(&self, path: &ResourcePath) -> Result<ResourceResponse, RbsAdminClientError>;
-
-    async fn create_resource(
-        &self,
-        path: &ResourcePath,
-        request: &CreateResourceRequest,
-    ) -> Result<ResourceResponse, RbsAdminClientError>;
-
-    async fn update_resource(
-        &self,
-        path: &ResourcePath,
-        request: &UpdateResourceRequest,
-    ) -> Result<ResourceResponse, RbsAdminClientError>;
-
-    async fn delete_resource(&self, path: &ResourcePath) -> Result<(), RbsAdminClientError>;
-}
-
-#[async_trait]
-impl ResourceService for ResourceClient {
-    async fn get_resource(&self, uri: &str) -> Result<ResourceContentResponse, RbsAdminClientError> {
+impl ResourceClient {
+    pub async fn get_resource(&self, uri: &str) -> Result<ResourceContentResponse, RbsAdminClientError> {
         let url = self.resource_url(uri)?;
         send_json(&self.client, Method::GET, url, Option::<&()>::None).await
     }
 
-    async fn get_resource_info(&self, path: &ResourcePath) -> Result<ResourceResponse, RbsAdminClientError> {
+    pub async fn get_resource_info(&self, path: &ResourcePath) -> Result<ResourceResponse, RbsAdminClientError> {
         let url = self.resource_info_url(path)?;
         send_json(&self.client, Method::GET, url, Option::<&()>::None).await
     }
 
-    async fn create_resource(
+    pub async fn create_resource(
         &self,
         path: &ResourcePath,
         request: &CreateResourceRequest,
@@ -130,7 +107,7 @@ impl ResourceService for ResourceClient {
         send_json(&self.client, Method::POST, url, Some(request)).await
     }
 
-    async fn update_resource(
+    pub async fn update_resource(
         &self,
         path: &ResourcePath,
         request: &UpdateResourceRequest,
@@ -139,7 +116,7 @@ impl ResourceService for ResourceClient {
         send_json(&self.client, Method::PUT, url, Some(request)).await
     }
 
-    async fn delete_resource(&self, path: &ResourcePath) -> Result<(), RbsAdminClientError> {
+    pub async fn delete_resource(&self, path: &ResourcePath) -> Result<(), RbsAdminClientError> {
         let url = self.resource_path_url(path)?;
         send_empty::<()>(&self.client, Method::DELETE, url, None).await
     }

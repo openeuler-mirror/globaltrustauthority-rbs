@@ -11,7 +11,7 @@
  */
 
 use openssl::rsa::Rsa;
-use rbs_admin_client::{AdminClient, UserClient, UserService};
+use rbs_admin_client::{AdminClient, UserClient};
 use rbs_api_types::{AuthType, Role, UserCreateRequest, UserListQuery, UserUpdateRequest};
 use serde_json::json;
 use wiremock::matchers::{body_json, header, method, path, query_param};
