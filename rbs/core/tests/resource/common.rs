@@ -71,6 +71,17 @@ impl ResourceRepository for MockResourceRepository {
     async fn find_by_policy_id(&self, _policy_id: &str) -> MockResult<Vec<ResourceEntity>> {
         Ok(vec![])
     }
+    async fn count_by_user(&self, _username: &str) -> MockResult<usize> {
+        Ok(0)
+    }
+    async fn create_with_user_limit_check(
+        &self,
+        _uri: &str,
+        _entity: &ResourceEntity,
+        _max_per_user: usize,
+    ) -> MockResult<()> {
+        Ok(())
+    }
 }
 
 // ---------------------------------------------------------------------------

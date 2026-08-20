@@ -26,6 +26,7 @@ use std::sync::Arc;
 
 #[derive(Clone)]
 struct MockProvider {
+    #[allow(dead_code)]
     name: String,
     challenge_response: AuthChallengeResponse,
     attest_response: AttestResponse,

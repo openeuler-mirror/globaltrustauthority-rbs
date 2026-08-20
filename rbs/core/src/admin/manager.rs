@@ -247,6 +247,21 @@ impl AdminManager {
             return Err(RbsError::AuthzInsufficientPermissions);
         }
 
+        // Authorization before input validation: a non-admin self-update that
+        // attempts to change a protected field (`role`/`enabled`) must surface
+        // the dedicated `self-update may not modify '<field>'` (403) error,
+        // consistent across both fields.
+        if !is_admin {
+            AdminManager::enforce_whitelist(req, username, &bearer.role)?;
+        }
+
+        // Target-aware role policy (admin is pre-configured, not API-assignable).
+        // The built-in Administrator may keep `role: "admin"` (a no-op) but
+        // cannot be demoted; any other target cannot be promoted to admin.
+        // Non-admin self role changes are already blocked by `enforce_whitelist`
+        // above, so the cases reaching here are admin-initiated or self no-ops.
+        AdminManager::enforce_role_policy(req, username)?;
+
         validator::Validate::validate(req).map_err(|e| {
             log::error!("Admin update_user parameter validation failed: {}", e);
             RbsError::InvalidParameter(e.to_string())
@@ -256,23 +271,13 @@ impl AdminManager {
             e
         })?;
 
+        // The built-in Administrator cannot be disabled (self or by another
+        // admin), to prevent locking out the pre-configured admin account.
         if username == ADMIN_USERNAME {
-            if let Some(ref role) = req.role {
-                if *role != Role::Admin {
-                    log::error!("Update '{}' rejected: cannot change role of the built-in administrator", username);
-                    return Err(RbsError::InvalidParameter("Cannot change role of the built-in administrator".to_string()));
-                }
+            if let Some(false) = req.enabled {
+                log::error!("Update '{}' rejected: cannot disable the built-in administrator", username);
+                return Err(RbsError::BuiltInAdminProtected { field: "enabled" });
             }
-            if let Some(enabled) = req.enabled {
-                if !enabled {
-                    log::error!("Update '{}' rejected: cannot disable the built-in administrator", username);
-                    return Err(RbsError::InvalidParameter("Cannot disable the built-in administrator".to_string()));
-                }
-            }
-        }
-
-        if !is_admin {
-            AdminManager::enforce_whitelist(req, username)?;
         }
 
         let key_material = AdminManager::extract_update_key_material(req)?;
@@ -467,15 +472,79 @@ impl AdminManager {
 
     // ── Update helpers ──
 
-    /// Non-admin users may only update their own key material.
-    fn enforce_whitelist(req: &UserUpdateRequest, username: &str) -> Result<()> {
-        if req.role.is_some() {
-            log::error!("Self-update by '{}' rejected: attempted to change role", username);
-            return Err(RbsError::AuthzInsufficientPermissions);
+    /// Non-admin self-update field whitelist.
+    ///
+    /// Rejects only values that would *actually change* a protected field.
+    /// No-op values — `role` equal to the caller's current role, or
+    /// `enabled = true` (the caller is guaranteed `Enabled` by the auth
+    /// middleware, which rejects disabled users before the handler runs) —
+    /// are allowed so that clients which round-trip the current profile are
+    /// not falsely rejected.
+    ///
+    /// `caller_role` is the authenticated caller's role string (e.g.
+    /// `"user"`). Because `enforce_whitelist` is only called when `is_self`
+    /// and `!is_admin`, the caller *is* the target, so `caller_role` equals
+    /// the target's current role.
+    fn enforce_whitelist(req: &UserUpdateRequest, username: &str, caller_role: &str) -> Result<()> {
+        if let Some(role) = req.role {
+            if AdminManager::role_as_str(role) != caller_role {
+                log::error!(
+                    "Self-update by '{}' rejected: non-admin may not change role ({} -> {})",
+                    username, caller_role, AdminManager::role_as_str(role)
+                );
+                return Err(RbsError::SelfUpdateFieldRestricted { field: "role" });
+            }
         }
-        if req.enabled.is_some() {
-            log::error!("Self-update by '{}' rejected: attempted to change enabled", username);
-            return Err(RbsError::AuthzInsufficientPermissions);
+        if let Some(false) = req.enabled {
+            log::error!(
+                "Self-update by '{}' rejected: non-admin may not disable self",
+                username
+            );
+            return Err(RbsError::SelfUpdateFieldRestricted { field: "enabled" });
+        }
+        Ok(())
+    }
+
+    /// String form of a [`Role`] as carried in the bearer token (`"admin"` /
+    /// `"user"`). Kept in sync with the `snake_case` serde rename on `Role`.
+    fn role_as_str(role: Role) -> &'static str {
+        match role {
+            Role::Admin => "admin",
+            Role::User => "user",
+        }
+    }
+
+    /// Target-aware role policy for user updates.
+    ///
+    /// The `admin` role is pre-configured and not API-assignable via the API:
+    /// - built-in Administrator + `role: "admin"` → no-op, allowed;
+    /// - built-in Administrator + any other role → rejected (cannot demote);
+    /// - any other target + `role: "admin"` → rejected (cannot promote);
+    /// - any other target + `role: "user"` (or absent) → allowed.
+    ///
+    /// Non-admin self role changes are already blocked by [`Self::enforce_whitelist`]
+    /// before this runs, so the cases that reach here are admin-initiated or
+    /// self no-ops.
+    fn enforce_role_policy(req: &UserUpdateRequest, username: &str) -> Result<()> {
+        match req.role {
+            Some(Role::Admin) if username == ADMIN_USERNAME => {
+                // no-op: built-in administrator is already admin.
+            }
+            Some(Role::Admin) => {
+                log::error!(
+                    "Update '{}' rejected: admin role is pre-configured and not API-assignable",
+                    username
+                );
+                return Err(RbsError::AdminRoleNotAssignable);
+            }
+            Some(_) if username == ADMIN_USERNAME => {
+                log::error!(
+                    "Update '{}' rejected: cannot change role of the built-in administrator",
+                    username
+                );
+                return Err(RbsError::BuiltInAdminProtected { field: "role" });
+            }
+            _ => {}
         }
         Ok(())
     }
@@ -889,24 +958,25 @@ mod tests {
     }
 
     #[test]
-    fn enforce_whitelist_rejects_role_update_for_non_admin() {
+    fn enforce_whitelist_rejects_role_escalation_for_non_admin() {
+        // A non-admin (caller_role "user") trying to set role=Admin must be
+        // rejected with the dedicated field-restricted error.
         let req = UserUpdateRequest {
-            role: Some(Role::User),
+            role: Some(Role::Admin),
             enabled: None,
             auth_type: None,
             public_key: None,
             jwk: None,
         };
-        let result = AdminManager::enforce_whitelist(&req, "test_user");
-        assert!(result.is_err());
+        let result = AdminManager::enforce_whitelist(&req, "test_user", "user");
         match result {
-            Err(RbsError::AuthzInsufficientPermissions) => {}
-            _ => panic!("Expected AuthzInsufficientPermissions"),
+            Err(RbsError::SelfUpdateFieldRestricted { field: "role" }) => {}
+            other => panic!("Expected SelfUpdateFieldRestricted(field=role), got: {:?}", other),
         }
     }
 
     #[test]
-    fn enforce_whitelist_rejects_enabled_update_for_non_admin() {
+    fn enforce_whitelist_rejects_self_disable_for_non_admin() {
         let req = UserUpdateRequest {
             role: None,
             enabled: Some(false),
@@ -914,8 +984,41 @@ mod tests {
             public_key: None,
             jwk: None,
         };
-        let result = AdminManager::enforce_whitelist(&req, "test_user");
-        assert!(result.is_err());
+        let result = AdminManager::enforce_whitelist(&req, "test_user", "user");
+        match result {
+            Err(RbsError::SelfUpdateFieldRestricted { field: "enabled" }) => {}
+            other => panic!("Expected SelfUpdateFieldRestricted(field=enabled), got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn enforce_whitelist_allows_role_noop() {
+        // role equal to the caller's current role is a no-op and must pass,
+        // so round-tripping clients are not falsely rejected.
+        let req = UserUpdateRequest {
+            role: Some(Role::User),
+            enabled: None,
+            auth_type: None,
+            public_key: None,
+            jwk: None,
+        };
+        let result = AdminManager::enforce_whitelist(&req, "test_user", "user");
+        assert!(result.is_ok(), "no-op role should be allowed: {:?}", result);
+    }
+
+    #[test]
+    fn enforce_whitelist_allows_enabled_true_noop() {
+        // enabled=true is a no-op (caller is guaranteed Enabled by the auth
+        // middleware) and must pass.
+        let req = UserUpdateRequest {
+            role: None,
+            enabled: Some(true),
+            auth_type: None,
+            public_key: None,
+            jwk: None,
+        };
+        let result = AdminManager::enforce_whitelist(&req, "test_user", "user");
+        assert!(result.is_ok(), "no-op enabled=true should be allowed: {:?}", result);
     }
 
     #[test]
@@ -927,8 +1030,24 @@ mod tests {
             public_key: Some("dGVzdEtleQ==".to_string()),  // base64 of "testKey"
             jwk: None,
         };
-        let result = AdminManager::enforce_whitelist(&req, "test_user");
+        let result = AdminManager::enforce_whitelist(&req, "test_user", "user");
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn enforce_whitelist_allows_key_update_with_round_trip_fields() {
+        // Simulates a client that round-trips the current profile (role=user,
+        // enabled=true) while only intending to rotate its public key. The
+        // no-op protected fields must not cause a rejection.
+        let req = UserUpdateRequest {
+            role: Some(Role::User),
+            enabled: Some(true),
+            auth_type: Some(AuthType::Jwt),
+            public_key: Some("dGVzdEtleQ==".to_string()),  // base64 of "testKey"
+            jwk: None,
+        };
+        let result = AdminManager::enforce_whitelist(&req, "test_user", "user");
+        assert!(result.is_ok(), "round-trip no-op fields should be allowed: {:?}", result);
     }
 
     #[test]
@@ -940,8 +1059,85 @@ mod tests {
             public_key: None,
             jwk: None,
         };
-        let result = AdminManager::enforce_whitelist(&req, "test_user");
+        let result = AdminManager::enforce_whitelist(&req, "test_user", "user");
         assert!(result.is_ok());
+    }
+
+    // ── enforce_role_policy ──
+
+    #[test]
+    fn role_policy_allows_built_in_admin_role_noop() {
+        // Administrator keeping role=admin is a no-op and must pass.
+        let req = UserUpdateRequest {
+            role: Some(Role::Admin),
+            enabled: None,
+            auth_type: None,
+            public_key: None,
+            jwk: None,
+        };
+        let result = AdminManager::enforce_role_policy(&req, "Administrator");
+        assert!(result.is_ok(), "built-in admin role=admin no-op should be allowed: {:?}", result);
+    }
+
+    #[test]
+    fn role_policy_rejects_demoting_built_in_admin() {
+        // Administrator setting role=user (demote) must be rejected.
+        let req = UserUpdateRequest {
+            role: Some(Role::User),
+            enabled: None,
+            auth_type: None,
+            public_key: None,
+            jwk: None,
+        };
+        let result = AdminManager::enforce_role_policy(&req, "Administrator");
+        match result {
+            Err(RbsError::BuiltInAdminProtected { field: "role" }) => {}
+            other => panic!("expected BuiltInAdminProtected(field=role), got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn role_policy_rejects_promoting_non_admin_target() {
+        // Setting role=admin on a non-built-in user (promotion) must be
+        // rejected (admin is pre-configured, not API-assignable).
+        let req = UserUpdateRequest {
+            role: Some(Role::Admin),
+            enabled: None,
+            auth_type: None,
+            public_key: None,
+            jwk: None,
+        };
+        let result = AdminManager::enforce_role_policy(&req, "testuser");
+        match result {
+            Err(RbsError::AdminRoleNotAssignable) => {}
+            other => panic!("expected AdminRoleNotAssignable, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn role_policy_allows_user_role_on_non_admin_target() {
+        // role=user on a normal target is allowed.
+        let req = UserUpdateRequest {
+            role: Some(Role::User),
+            enabled: None,
+            auth_type: None,
+            public_key: None,
+            jwk: None,
+        };
+        let result = AdminManager::enforce_role_policy(&req, "testuser");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn role_policy_allows_absent_role() {
+        let req = UserUpdateRequest {
+            role: None,
+            enabled: None,
+            auth_type: None,
+            public_key: None,
+            jwk: None,
+        };
+        assert!(AdminManager::enforce_role_policy(&req, "anyone").is_ok());
     }
 
     // ── Filtered list_users integration tests (SQLite in-memory) ──

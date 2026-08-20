@@ -323,6 +323,13 @@ pub struct AttestationBuiltinConfig {}
 pub struct AttestationCredentials {
     /// User identifier for attestation requests.
     pub user_id: String,
+    /// Whether API-Key authentication is enabled. When `false` (default),
+    /// `main_api_key`/`sub_api_key` are ignored: never validated, never sent
+    /// as `API-Key` headers — they may be empty, placeholders, or absent.
+    /// When `true`, both keys must be non-empty and pass format validation,
+    /// and are attached to the corresponding requests.
+    #[serde(default)]
+    pub api_key_auth: bool,
     /// Main API key for primary authentication.
     pub main_api_key: Sensitive<String>,
     /// Sub API key for secondary authentication (used in attest requests).
@@ -333,6 +340,7 @@ impl Default for AttestationCredentials {
     fn default() -> Self {
         Self {
             user_id: String::new(),
+            api_key_auth: false,
             main_api_key: Sensitive::new(String::new()),
             sub_api_key: Sensitive::new(String::new()),
         }
@@ -620,12 +628,20 @@ pub struct ResourceProviderConfig {
     /// Maximum number of retries (default: 2).
     #[serde(default = "default_max_retries")]
     pub max_retries: u32,
+    /// Maximum response body size in bytes accepted from this backend (default: 1 MiB).
+    /// Bounds memory when reading resource content (e.g. a Vault KV response) so a
+    /// misbehaving/compromised backend cannot OOM RBS by streaming an oversized
+    /// response. Validated to [RESOURCE_RESPONSE_BODY_BYTES_MIN, MAX].
+    #[serde(default = "default_vault_response_body_bytes")]
+    pub max_response_body_bytes: u64,
 }
 
 fn default_true() -> bool { true }
 fn default_timeout_u32() -> u32 { 30 }
 fn default_max_connections_config() -> u32 { 100 }
 fn default_max_retries() -> u32 { 2 }
+/// Default cap on a Vault/OpenBao backend's response body size (1 MiB).
+fn default_vault_response_body_bytes() -> u64 { 1 * 1024 * 1024 }
 
 impl Default for ResourceProviderConfig {
     fn default() -> Self {
@@ -639,14 +655,30 @@ impl Default for ResourceProviderConfig {
             timeout: default_timeout_u32(),
             max_connections: default_max_connections_config(),
             max_retries: default_max_retries(),
+            max_response_body_bytes: default_vault_response_body_bytes(),
         }
     }
 }
 
 /// Resource providers configuration: backends indexed by provider name.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ResourceProvidersConfig {
+    /// Maximum number of resources per user (1..=100). Sits alongside `backends`
+    /// so the whole resource configuration lives under one top-level `resource:` key.
+    #[serde(default = "default_resource_max_per_user")]
+    pub max_per_user: usize,
     /// Resource backends indexed by provider name (e.g. "vault").
     pub backends: HashMap<String, ResourceProviderConfig>,
+}
+
+fn default_resource_max_per_user() -> usize { 10 }
+
+impl Default for ResourceProvidersConfig {
+    fn default() -> Self {
+        Self {
+            max_per_user: default_resource_max_per_user(),
+            backends: HashMap::new(),
+        }
+    }
 }

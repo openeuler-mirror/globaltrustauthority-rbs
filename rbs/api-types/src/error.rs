@@ -52,6 +52,9 @@ pub enum StableCode {
     // Authz errors
     AuthzDenied,
     AuthzInsufficientPermissions,
+    AuthzSelfUpdateFieldRestricted,
+    AuthzBuiltInAdminProtected,
+    AuthzAdminRoleNotAssignable,
     // Param errors
     ParamMissing,
     ParamInvalid,
@@ -98,7 +101,11 @@ impl From<StableCode> for HttpStatus {
             StableCode::AuthnMissingToken
             | StableCode::AuthnInvalidToken
             | StableCode::AuthnExpiredToken => HttpStatus::Unauthorized,
-            StableCode::AuthzDenied | StableCode::AuthzInsufficientPermissions => {
+            StableCode::AuthzDenied
+            | StableCode::AuthzInsufficientPermissions
+            | StableCode::AuthzSelfUpdateFieldRestricted
+            | StableCode::AuthzBuiltInAdminProtected
+            | StableCode::AuthzAdminRoleNotAssignable => {
                 HttpStatus::Forbidden
             }
             StableCode::ParamMissing | StableCode::ParamInvalid | StableCode::ParamMalformed
@@ -157,6 +164,9 @@ impl From<StableCode> for Retryable {
             | StableCode::NotImplemented
             | StableCode::ResourceConflict
             | StableCode::AuthzInsufficientPermissions
+            | StableCode::AuthzSelfUpdateFieldRestricted
+            | StableCode::AuthzBuiltInAdminProtected
+            | StableCode::AuthzAdminRoleNotAssignable
             | StableCode::ResourceQuotaExceeded
             | StableCode::ManagementProviderNotFound => Retryable::No,
             StableCode::RateLimitExceeded
@@ -194,6 +204,24 @@ pub enum RbsError {
 
     #[error("insufficient permissions")]
     AuthzInsufficientPermissions,
+
+    /// A non-admin self-update attempted to modify a protected field
+    /// (`role` or `enabled`). `field` identifies which field was rejected.
+    #[error("self-update may not modify '{field}'")]
+    SelfUpdateFieldRestricted { field: &'static str },
+
+    /// An update attempted to modify a protected field of the built-in
+    /// `Administrator` account (its `role` or `enabled`). `field` identifies
+    /// which field was rejected. Applies to all callers, including the
+    /// built-in admin itself, to prevent lock-out/demotion.
+    #[error("cannot modify '{field}' of the built-in administrator")]
+    BuiltInAdminProtected { field: &'static str },
+
+    /// An update attempted to assign the `admin` role to a non-built-in user.
+    /// The `admin` role is pre-configured and not API-assignable; only the
+    /// built-in Administrator holding `role: "admin"` (a no-op) is permitted.
+    #[error("admin role is pre-configured and not API-assignable")]
+    AdminRoleNotAssignable,
 
     // Parameter errors
     #[error("missing required parameter: {param}")]
@@ -273,7 +301,11 @@ impl RbsError {
             Self::AuthnMissingToken | Self::AuthnInvalidToken | Self::AuthnExpiredToken => {
                 ErrorClass::Authn
             }
-            Self::AuthzDenied | Self::AuthzInsufficientPermissions => ErrorClass::Authz,
+            Self::AuthzDenied
+            | Self::AuthzInsufficientPermissions
+            | Self::SelfUpdateFieldRestricted { .. }
+            | Self::BuiltInAdminProtected { .. }
+            | Self::AdminRoleNotAssignable => ErrorClass::Authz,
             Self::ParamMissing { .. }
             | Self::ParamInvalid { .. }
             | Self::ParamMalformed
@@ -307,6 +339,9 @@ impl RbsError {
             Self::AuthnExpiredToken => StableCode::AuthnExpiredToken,
             Self::AuthzDenied => StableCode::AuthzDenied,
             Self::AuthzInsufficientPermissions => StableCode::AuthzInsufficientPermissions,
+            Self::SelfUpdateFieldRestricted { .. } => StableCode::AuthzSelfUpdateFieldRestricted,
+            Self::BuiltInAdminProtected { .. } => StableCode::AuthzBuiltInAdminProtected,
+            Self::AdminRoleNotAssignable => StableCode::AuthzAdminRoleNotAssignable,
             Self::ParamMissing { .. } => StableCode::ParamMissing,
             Self::ParamInvalid { .. } => StableCode::ParamInvalid,
             Self::ParamMalformed => StableCode::ParamMalformed,
@@ -363,6 +398,15 @@ impl RbsError {
             Self::AuthnExpiredToken { .. } => "authentication expired".to_string(),
             Self::AuthzDenied => "access denied".to_string(),
             Self::AuthzInsufficientPermissions => "insufficient permissions".to_string(),
+            Self::SelfUpdateFieldRestricted { field } => {
+                format!("self-update may not modify '{field}'")
+            }
+            Self::BuiltInAdminProtected { field } => {
+                format!("cannot modify '{field}' of the built-in administrator")
+            }
+            Self::AdminRoleNotAssignable => {
+                "admin role is pre-configured and not API-assignable".to_string()
+            }
             Self::ParamMissing { .. } => "missing required parameter".to_string(),
             Self::ParamInvalid { .. } => "invalid parameter".to_string(),
             Self::ParamMalformed => "malformed request".to_string(),

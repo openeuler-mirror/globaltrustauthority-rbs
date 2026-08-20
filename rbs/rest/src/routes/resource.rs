@@ -62,7 +62,7 @@ fn build_uri(path: &str) -> String { format!("/rbs/v0/{}", path) }
         (status = 201, description = "Resource created", body = ResourceResponse),
         (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody),
-        (status = 409, description = "Resource already exists", body = ErrorBody),
+        (status = 409, description = "Conflict (resource already exists / count exceeded)", body = ErrorBody),
         (status = 500, description = "Internal error", body = ErrorBody),
     )
 )]
@@ -144,6 +144,7 @@ pub async fn get_resource(
         (status = 201, description = "Resource created", body = ResourceResponse),
         (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody),
+        (status = 409, description = "Conflict (version conflict / resource already exists / count exceeded)", body = ErrorBody),
         (status = 500, description = "Internal error", body = ErrorBody),
     )
 )]

@@ -41,6 +41,18 @@ def test_batch_delete_policies_requires_ids_query(rbs_api: Any) -> None:
     assert_error(response, 400)
 
 
+def test_batch_delete_policies_rejects_more_than_ten_ids(rbs_api: Any) -> None:
+    """Reject a batch delete request that carries more than the maximum 10 policy IDs."""
+    ids = ",".join(str(uuid4()) for _ in range(11))
+    with httpx.Client(trust_env=False) as client:
+        response = client.delete(
+            f"{rbs_api.base_url}/rbs/v0/resource/policy",
+            headers=rbs_api.admin_headers,
+            params={"ids": ids},
+        )
+    assert_error(response, 400, "maximum")
+
+
 def test_batch_delete_policies_is_atomic_when_one_policy_is_referenced(rbs_api: Any) -> None:
     """Keep every policy when one member of the batch is referenced by a resource."""
     with httpx.Client(trust_env=False) as client:

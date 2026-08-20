@@ -92,7 +92,7 @@ async fn test_policy_batch_delete_004_ids_all_empty_param_invalid() {
 
     let repo = MockPolicyRepository::new();
     let service = make_service(repo);
-    let ctx = bearer_ctx("user1", "admin");
+    let ctx = bearer_ctx("user1", "user");
 
     let result = service.delete(&ctx, &ids).await;
     assert!(

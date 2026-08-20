@@ -723,7 +723,7 @@ Full token matrix: [§10](#10-security-architecture). Summary:
 | `/challenge`, `/attest` | Public middleware | Forwards to attestation provider (GTA) |
 | `POST .../retrieve` | Public middleware; handler inline | Inline evidence validation and token parsing; ignores `Authorization` header |
 | Resource `GET` / `GET .../info` | **Attest** or **Bearer** | — |
-| Attestation management (`/attestation/...`) | **Bearer** + admin | Inline `require_admin` checks `role == "admin"`; 3 resources (ref_value/cert/policy) × 6 operations; RBS proxies to GTA with `User-Id` + `main_api_key` |
+| Attestation management (`/attestation/...`) | **Bearer** + admin | Inline `require_admin` checks `role == "admin"`; 3 resources (ref_value/cert/policy) × 6 operations; RBS proxies to GTA with `User-Id` (always, when non-empty) + `API-Key: main_api_key` (only when `attestation.backends.<provider>.rest.credentials.api_key_auth` is enabled; default `false`, in which case the key is neither validated nor sent) |
 | Resource POST/PUT/DELETE, users, policies | **Bearer** only | — |
 
 ### API version vs build version

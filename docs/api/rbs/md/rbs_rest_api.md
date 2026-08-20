@@ -1009,7 +1009,7 @@ func main() {
 |200|[OK](https://tools.ietf.org/html/rfc7231#section-6.3.1)|User updated|[UserResponse](#schemauserresponse)|
 |400|[Bad Request](https://tools.ietf.org/html/rfc7231#section-6.5.1)|Invalid request|[ErrorBody](#schemaerrorbody)|
 |401|[Unauthorized](https://tools.ietf.org/html/rfc7235#section-3.1)|Unauthorized|[ErrorBody](#schemaerrorbody)|
-|403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
+|403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden — caller is neither admin nor self; a non-admin self-update attempted to change `role`/`enabled`; an attempt to modify the built-in Administrator's `role`/`enabled`; or an attempt to assign the `admin` role (pre-configured, no-op on the built-in admin only)|[ErrorBody](#schemaerrorbody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|User not found|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
 
@@ -1772,7 +1772,7 @@ func main() {
 
 |Name|In|Type|Required|Description|
 |---|---|---|---|---|
-|ids|query|string|true|Comma-separated policy IDs|
+|ids|query|string|true|Comma-separated policy IDs (maximum 10 IDs)|
 
 > Example responses
 
@@ -2792,6 +2792,7 @@ func main() {
 |201|[Created](https://tools.ietf.org/html/rfc7231#section-6.3.2)|Resource created|[ResourceResponse](#schemaresourceresponse)|
 |401|[Unauthorized](https://tools.ietf.org/html/rfc7235#section-3.1)|Unauthorized|[ErrorBody](#schemaerrorbody)|
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
+|409|[Conflict](https://tools.ietf.org/html/rfc7231#section-6.5.8)|Conflict (version conflict / resource already exists / count exceeded)|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
@@ -3010,7 +3011,7 @@ func main() {
 |201|[Created](https://tools.ietf.org/html/rfc7231#section-6.3.2)|Resource created|[ResourceResponse](#schemaresourceresponse)|
 |401|[Unauthorized](https://tools.ietf.org/html/rfc7235#section-3.1)|Unauthorized|[ErrorBody](#schemaerrorbody)|
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Forbidden|[ErrorBody](#schemaerrorbody)|
-|409|[Conflict](https://tools.ietf.org/html/rfc7231#section-6.5.8)|Resource already exists|[ErrorBody](#schemaerrorbody)|
+|409|[Conflict](https://tools.ietf.org/html/rfc7231#section-6.5.8)|Conflict (resource already exists / count exceeded)|[ErrorBody](#schemaerrorbody)|
 |500|[Internal Server Error](https://tools.ietf.org/html/rfc7231#section-6.6.1)|Internal error|[ErrorBody](#schemaerrorbody)|
 
 <aside class="warning">
@@ -13139,13 +13140,13 @@ xor
 
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
-|» *anonymous*|[Role](#schemarole)|false|none|New role (admin users only).|
+|» *anonymous*|[Role](#schemarole)|false|none|New role (admin only). The `admin` role is pre-configured and not<br>API-assignable: assigning it to a non-built-in target is rejected with<br>`admin role is pre-configured and not API-assignable` (403); the built-in<br>Administrator may only keep `role: "admin"` (a no-op, 200) — any other<br>role is rejected with `cannot modify 'role' of the built-in<br>administrator` (403). A non-admin self-update sending its current role<br>(`user`) is a no-op (200); any other role is rejected with `self-update<br>may not modify 'role'` (403).|
 
 continued
 
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
-|enabled|boolean,null|false|none|Whether the account can authenticate.|
+|enabled|boolean,null|false|none|Whether the account can authenticate. A non-admin self-update may set<br>this to `true` (a no-op) but may **not** disable itself; `false` is<br>rejected with `self-update may not modify 'enabled'` (403).|
 |auth_type|any|false|none|none|
 
 oneOf

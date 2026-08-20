@@ -29,7 +29,7 @@ use super::common::*;
 async fn test_policy_update_006_name_blacklist_rejected() {
     let repo = MockPolicyRepository::new();
     let service = make_service(repo);
-    let ctx = bearer_ctx("user1", "admin");
+    let ctx = bearer_ctx("user1", "user");
     let req = UpdatePolicyRequest {
         name: "bad<name".into(),
         content_type: "base64".into(),
@@ -49,7 +49,7 @@ async fn test_policy_update_006_content_type_not_base64_rejected() {
         .with_find_by_id(Ok(Some(entity)));
 
     let service = make_service(repo);
-    let ctx = bearer_ctx("user1", "admin");
+    let ctx = bearer_ctx("user1", "user");
     let req = UpdatePolicyRequest {
         name: "my_policy".into(),
         content_type: "plain".into(),
@@ -69,7 +69,7 @@ async fn test_policy_update_006_content_too_large_rejected() {
         .with_find_by_id(Ok(Some(entity)));
 
     let service = make_service(repo);
-    let ctx = bearer_ctx("user1", "admin");
+    let ctx = bearer_ctx("user1", "user");
     let big = "x".repeat(129 * 1024);
     let encoded = base64::engine::general_purpose::STANDARD.encode(big.as_bytes());
     let req = UpdatePolicyRequest {
@@ -102,7 +102,7 @@ async fn test_policy_update_007_all_fields_same_version_increments() {
         .with_update_with_version(Ok(1));
 
     let service = make_service(repo);
-    let ctx = bearer_ctx("user1", "admin");
+    let ctx = bearer_ctx("user1", "user");
     let req = UpdatePolicyRequest {
         name: "my_policy".into(),
         content_type: "base64".into(),
@@ -130,7 +130,7 @@ async fn test_policy_delete_001_single_delete_success() {
     let client = MockPolicyClient::new().with_relation_res_ids(Ok(vec![]));
 
     let service = make_service_with_client(repo, client);
-    let ctx = bearer_ctx("user1", "admin");
+    let ctx = bearer_ctx("user1", "user");
     let ids = vec!["pol-1".to_string()];
 
     let result = service.delete(&ctx, &ids).await;

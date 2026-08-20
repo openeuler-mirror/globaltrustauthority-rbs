@@ -24,6 +24,11 @@ fn test_default_max_resource_name_len() {
 }
 
 #[test]
+fn test_default_max_per_user() {
+    assert_eq!(ResourceConfig::default().max_per_user, 10);
+}
+
+#[test]
 fn test_default_max_repo_name_len() {
     assert_eq!(ResourceConfig::default().max_repo_name_len, 32);
 }

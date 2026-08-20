@@ -163,7 +163,9 @@ fn test_user_create_002_both_keys_rejected() {
 // ===========================================================================
 
 /// test_point_id: RUST_GTA_RBS_TP_USER_Update_002
-/// role=Admin in update request is rejected by validation.
+/// role=Admin in an update request is no longer rejected by the validator;
+/// the assignment is enforced as a 403 at the target-aware service layer
+/// (see commit c8fce1f — `validate_update_role` was removed).
 #[test]
 fn test_user_update_002_role_admin_rejected() {
     let req = UserUpdateRequest {
@@ -173,7 +175,7 @@ fn test_user_update_002_role_admin_rejected() {
         public_key: None,
         jwk: None,
     };
-    assert!(Validate::validate(&req).is_err());
+    assert!(Validate::validate(&req).is_ok());
 }
 
 // ===========================================================================
@@ -251,7 +253,9 @@ fn test_user_sec_001_create_role_admin_rejected() {
 }
 
 /// test_point_id: RUST_GTA_RBS_TP_USER_Sec_001
-/// role=Admin in update request is rejected by validation.
+/// role=Admin in an update request is no longer rejected by the validator;
+/// the assignment is enforced as a 403 at the target-aware service layer
+/// (see commit c8fce1f — `validate_update_role` was removed).
 #[test]
 fn test_user_sec_001_update_role_admin_rejected() {
     let req = UserUpdateRequest {
@@ -261,7 +265,7 @@ fn test_user_sec_001_update_role_admin_rejected() {
         public_key: None,
         jwk: None,
     };
-    assert!(Validate::validate(&req).is_err());
+    assert!(Validate::validate(&req).is_ok());
 }
 
 // ===========================================================================

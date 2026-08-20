@@ -393,3 +393,14 @@ fn test_uri_empty_segment_double_slash_rejected() {
     let result = v.validate_uri("/rbs/v0/vault//secret/key");
     assert!(matches!(result, Err(ResourceError::ParamInvalid { .. })));
 }
+
+// ===========================================================================
+// max_per_user getter (UT-RV-033)
+// ===========================================================================
+
+/// UT-RV-033: validator exposes the per-user limit configured on ResourceConfig.
+#[test]
+fn test_max_per_user_getter() {
+    let v = ResourceValidator::new(ResourceConfig::default());
+    assert_eq!(v.max_per_user(), 10);
+}

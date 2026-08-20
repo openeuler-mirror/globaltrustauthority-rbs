@@ -78,8 +78,9 @@ attestation:
         ca_file: ""   # custom CA bundle path; empty = use system default
         credentials:
           user_id: "rbs-service"   # required
-          main_api_key: "${MAIN_API_KEY}"   # optional (reserved for future use)
-          sub_api_key: "${SUB_API_KEY}"   # optional
+          api_key_auth: false   # set true and fill keys below to enable API-Key auth
+          main_api_key: ""   # format: m. + 32 alphanumeric (34 chars); required when api_key_auth: true
+          sub_api_key: ""    # format: s. + 32 alphanumeric (34 chars); required when api_key_auth: true
 
 storage:
   db_type: sqlite
@@ -95,6 +96,7 @@ storage:
 # resource, health — do not use them as backend keys. Validated at startup: backends must be
 # non-empty and each entry must pass ResourceProviderConfig::validate (see field constraints).
 resource:
+  max_per_user: 10   # max resources per user; create rejected when count reaches this limit (1..=100)
   backends:
     vault:
       type: vault                 # whitelist ["vault"]; other values fail-fast at startup

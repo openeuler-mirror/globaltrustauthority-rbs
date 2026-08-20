@@ -16,8 +16,8 @@ use super::{
     AdminConfig, AdminKeyConfig, AttestTokenVerificationConfig, AttestationBackendConfig,
     AttestationBackendMode, AttestationConfig, AttestationCredentials, AttestationRestConfig,
     AuthConfig, BearerTokenVerificationConfig, Database, LogRotationConfig, LoggingConfig,
-    PerIpRateLimitConfig, PolicyLimitsConfig, ResourceProviderConfig, ResourceProvidersConfig,
-    RbsConfig, RestConfig,
+    PerIpRateLimitConfig, PolicyLimitsConfig, ResourceProviderConfig,
+    ResourceProvidersConfig, RbsConfig, RestConfig,
 };
 
 /// Maximum allowed file mode (octal). Files cannot have permissions beyond 0o7777
@@ -192,6 +192,11 @@ const RESOURCE_MAX_CONNECTIONS_MAX: u32 = 10000;
 
 /// Maximum resource backend retry count.
 const RESOURCE_MAX_RETRIES_MAX: u32 = 100;
+
+/// Minimum/maximum backend response body size in bytes (default 1 MiB, cap 10 MiB).
+/// Bounds memory when reading Vault/OpenBao resource content.
+const RESOURCE_RESPONSE_BODY_BYTES_MIN: u64 = 1024;
+const RESOURCE_RESPONSE_BODY_BYTES_MAX: u64 = 10 * 1024 * 1024;
 
 pub fn parse_octal_str(s: &str) -> Result<u32, String> {
     let s = s.trim();
@@ -502,10 +507,20 @@ impl AttestationCredentials {
             );
         }
 
-        // main_api_key validation (optional)
-        Self::validate_api_key_if_present("main_api_key", &self.main_api_key, ATTEST_API_KEY_PREFIX_MAIN);
-        // sub_api_key validation (optional)
-        Self::validate_api_key_if_present("sub_api_key", &self.sub_api_key, ATTEST_API_KEY_PREFIX_SUB);
+        // API key validation is gated on the explicit `api_key_auth` switch.
+        // When disabled (default), keys are ignored entirely — no format check,
+        // no header sent — so placeholders/empty/malformed values never panic.
+        if self.api_key_auth {
+            // When enabled, both keys are required and must pass format validation.
+            if self.main_api_key.get().is_empty() {
+                panic!("attestation backends rest.credentials.main_api_key must not be empty when api_key_auth is enabled");
+            }
+            if self.sub_api_key.get().is_empty() {
+                panic!("attestation backends rest.credentials.sub_api_key must not be empty when api_key_auth is enabled");
+            }
+            Self::validate_api_key_if_present("main_api_key", &self.main_api_key, ATTEST_API_KEY_PREFIX_MAIN);
+            Self::validate_api_key_if_present("sub_api_key", &self.sub_api_key, ATTEST_API_KEY_PREFIX_SUB);
+        }
     }
 
     fn validate_api_key_if_present(field: &str, key: &super::Sensitive<String>, expected_prefix: &str) {
@@ -729,11 +744,25 @@ impl ResourceProviderConfig {
                 name, self.max_retries, RESOURCE_MAX_RETRIES_MAX
             );
         }
+        if self.max_response_body_bytes < RESOURCE_RESPONSE_BODY_BYTES_MIN
+            || self.max_response_body_bytes > RESOURCE_RESPONSE_BODY_BYTES_MAX
+        {
+            panic!(
+                "resource.backends['{}'].max_response_body_bytes = {} is out of range [{}, {}]",
+                name, self.max_response_body_bytes, RESOURCE_RESPONSE_BODY_BYTES_MIN, RESOURCE_RESPONSE_BODY_BYTES_MAX
+            );
+        }
     }
 }
 
 impl ResourceProvidersConfig {
     fn validate(&self) {
+        if self.max_per_user < 1 || self.max_per_user > 100 {
+            panic!(
+                "resource.max_per_user must be in [1, 100], got {}",
+                self.max_per_user
+            );
+        }
         if self.backends.is_empty() {
             panic!("resource.backends must have at least one backend when `resource:` section is present");
         }
@@ -1082,7 +1111,10 @@ mod tests {
     fn attestation_credentials_main_api_key_wrong_length_panics() {
         let mut c = AttestationCredentials::default();
         c.user_id = "test-user".to_string();
+        c.api_key_auth = true;
         c.main_api_key = super::super::Sensitive::new("m.short".to_string());
+        // sub must be valid so we reach main's format check rather than the non-empty guard.
+        c.sub_api_key = super::super::Sensitive::new("s.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string());
         c.validate();
     }
 
@@ -1091,8 +1123,41 @@ mod tests {
     fn attestation_credentials_main_api_key_wrong_prefix_panics() {
         let mut c = AttestationCredentials::default();
         c.user_id = "test-user".to_string();
+        c.api_key_auth = true;
         // Use exactly 34 chars but with wrong prefix "x." instead of "m."
         c.main_api_key = super::super::Sensitive::new("x.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string());
+        c.sub_api_key = super::super::Sensitive::new("s.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string());
+        c.validate();
+    }
+
+    #[test]
+    fn attestation_credentials_api_key_disabled_ignores_malformed() {
+        // api_key_auth defaults to false: a leftover placeholder/malformed key
+        // must NOT trigger validation or panic (root cause of the original bug).
+        let mut c = AttestationCredentials::default();
+        c.user_id = "test-user".to_string();
+        c.main_api_key = super::super::Sensitive::new("${MAIN_API_KEY}".to_string());
+        c.sub_api_key = super::super::Sensitive::new("${SUB_API_KEY}".to_string());
+        c.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "main_api_key must not be empty when api_key_auth is enabled")]
+    fn attestation_credentials_api_key_enabled_requires_nonempty() {
+        let mut c = AttestationCredentials::default();
+        c.user_id = "test-user".to_string();
+        c.api_key_auth = true;
+        // keys left empty while enabled
+        c.validate();
+    }
+
+    #[test]
+    fn attestation_credentials_api_key_enabled_valid_keys_ok() {
+        let mut c = AttestationCredentials::default();
+        c.user_id = "test-user".to_string();
+        c.api_key_auth = true;
+        c.main_api_key = super::super::Sensitive::new("m.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string());
+        c.sub_api_key = super::super::Sensitive::new("s.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string());
         c.validate();
     }
 
@@ -1292,6 +1357,29 @@ unknown_field: {}
     }
 
     #[test]
+    fn resource_max_per_user_default_and_override() {
+        // Omitted `resource:` section → None (limit defaults to 10 in core build).
+        let y = "rest: {}\nlogging:\n  level: info\n";
+        let c: RbsConfig = serde_yaml::from_str(y).unwrap();
+        assert!(c.resource.is_none());
+
+        // Explicit override alongside backends.
+        let y = "rest: {}\nlogging:\n  level: info\n\
+resource:\n  max_per_user: 25\n  backends:\n    vault:\n      type: vault\n      url: http://localhost:8200\n      token: s.0123456789abcdef0123456789abcdef\n      mount_path: secret\n";
+        let c: RbsConfig = serde_yaml::from_str(y).unwrap();
+        assert_eq!(c.resource.as_ref().unwrap().max_per_user, 25);
+    }
+
+    #[test]
+    #[should_panic(expected = "resource.max_per_user")]
+    fn resource_max_per_user_out_of_range_panics() {
+        let y = "rest: {}\nlogging:\n  level: info\n\
+resource:\n  max_per_user: 101\n  backends:\n    vault:\n      type: vault\n      url: http://localhost:8200\n      token: s.0123456789abcdef0123456789abcdef\n      mount_path: secret\n";
+        let c: RbsConfig = serde_yaml::from_str(y).unwrap();
+        c.resource.as_ref().unwrap().validate();
+    }
+
+    #[test]
     #[should_panic(expected = "auth.bearer_token.issuer must not be empty")]
     fn bearer_token_rejects_empty_issuer() {
         let c = BearerTokenVerificationConfig { issuer: String::new(), audience: "aud".to_string() };
@@ -1335,12 +1423,35 @@ unknown_field: {}
             timeout: 30,
             max_connections: 100,
             max_retries: 2,
+            ..Default::default()
         }
     }
 
     #[test]
     fn resource_provider_valid_passes() {
         valid_resource_backend().validate("vault");
+    }
+
+    #[test]
+    #[should_panic(expected = "max_response_body_bytes")]
+    fn resource_provider_response_body_below_min_panics() {
+        let mut b = valid_resource_backend();
+        b.max_response_body_bytes = 100;
+        b.validate("vault");
+    }
+
+    #[test]
+    #[should_panic(expected = "max_response_body_bytes")]
+    fn resource_provider_response_body_above_max_panics() {
+        let mut b = valid_resource_backend();
+        b.max_response_body_bytes = 20 * 1024 * 1024;
+        b.validate("vault");
+    }
+
+    #[test]
+    fn resource_provider_response_body_default_is_1mib() {
+        let b = valid_resource_backend();
+        assert_eq!(b.max_response_body_bytes, 1 * 1024 * 1024);
     }
 
     #[test]
@@ -1378,7 +1489,7 @@ unknown_field: {}
     #[test]
     #[should_panic(expected = "resource.backends must have at least one backend")]
     fn resource_providers_empty_rejected() {
-        let rp = ResourceProvidersConfig { backends: std::collections::HashMap::new() };
+        let rp = ResourceProvidersConfig { max_per_user: 10, backends: std::collections::HashMap::new() };
         rp.validate();
     }
 
@@ -1386,7 +1497,7 @@ unknown_field: {}
     fn resource_providers_valid_passes() {
         let mut backends = std::collections::HashMap::new();
         backends.insert("vault".to_string(), valid_resource_backend());
-        ResourceProvidersConfig { backends }.validate();
+        ResourceProvidersConfig { max_per_user: 10, backends }.validate();
     }
 }
 

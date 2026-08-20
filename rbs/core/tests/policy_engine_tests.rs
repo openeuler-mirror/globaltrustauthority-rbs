@@ -285,3 +285,61 @@ async fn test_user_scoped_cross_user_sub_mismatch() {
          when using UserScoped -- add sub-ownership check to admin_policy.rego"
     );
 }
+
+// ===========================================================================
+// UT-PE-010: forged role=admin with non-Administrator sub on UserScoped -> Deny
+// ===========================================================================
+
+/// A bearer with a forged `role="admin"` but a non-Administrator `sub`. Because
+/// the per-user signing key is held by the subject, a normal user can mint such
+/// a token; the policy must not trust the `role` claim alone.
+fn forged_admin_bearer(sub: &str) -> AuthContext {
+    AuthContext::Bearer(BearerContext {
+        iss: "https://auth.example.com".to_string(),
+        sub: sub.to_string(),
+        role: "admin".to_string(),
+        claims: serde_json::Value::Null,
+        token_type: TokenType::Bearer,
+    })
+}
+
+/// UT-PE-010: UserScoped + forged role=admin + sub != Administrator -> Deny
+///
+/// `admin_policy.rego` enforces role/sub consistency on the UserScoped path:
+/// when `role == "admin"`, `sub` must equal `"Administrator"`. A forged admin
+/// role on a normal subject is rejected at the policy layer, so downstream
+/// Rust handlers that branch on `bearer.role == "admin"` cannot be bypassed.
+#[tokio::test]
+async fn test_user_scoped_forged_admin_role_denies() {
+    let facade = AuthzFacade::new(Arc::new(policy_engine::RealPolicyEngine));
+
+    let result = facade
+        .check(&forged_admin_bearer("user1"))
+        .action(Action::Get)
+        .required_role(RequiredRole::UserScoped)
+        .ensure_allowed()
+        .await;
+
+    assert!(
+        matches!(result, Err(AuthzError::Denied)),
+        "forged role=admin with sub='user1' must be denied on UserScoped"
+    );
+}
+
+/// UT-PE-011: UserScoped + legitimate Administrator (role=admin, sub=Administrator) -> Allow
+///
+/// The consistency check must not block the real bootstrap Administrator from
+/// reaching UserScoped handlers as an admin.
+#[tokio::test]
+async fn test_user_scoped_legitimate_admin_allows() {
+    let facade = AuthzFacade::new(Arc::new(policy_engine::RealPolicyEngine));
+
+    let result = facade
+        .check(&admin_bearer())
+        .action(Action::Get)
+        .required_role(RequiredRole::UserScoped)
+        .ensure_allowed()
+        .await;
+
+    assert_eq!(result, Ok(()));
+}

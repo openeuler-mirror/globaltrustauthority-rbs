@@ -83,11 +83,6 @@ impl ResourceService {
             return Err(ResourceError::BackendNotFound);
         }
 
-        if self.repo.find_by_uri(uri).await?.is_some() {
-            log::error!("Resource create denied: uri '{}' already exists", uri);
-            return Err(ResourceError::AlreadyExists { uri: uri.to_string() });
-        }
-
         let now = chrono::Utc::now().timestamp_millis();
         let entity = super::repository::ResourceEntity {
             username: username.to_string(), provider_name: parsed.res_provider,
@@ -97,7 +92,10 @@ impl ResourceService {
             export_mode: req.export_mode.clone().unwrap_or_else(|| "jwe".to_string()),
             policy_id: req.policy_id.clone(),
         };
-        self.repo.insert(&entity).await?;
+        // Atomic duplicate-check + per-user count-limit + insert under one
+        // transaction and a per-user row lock, so concurrent same-user creates
+        // cannot exceed max_per_user (precise on both MySQL and SQLite).
+        self.repo.create_with_user_limit_check(uri, &entity, self.validator.max_per_user()).await?;
         log::info!("Resource created: uri='{}', user='{}', policy_id='{}'", uri, username, req.policy_id);
         Ok(ResourceResponse {
             uri: uri.to_string(), provider_name: entity.provider_name,
@@ -201,7 +199,12 @@ impl ResourceService {
                 export_mode: req.export_mode.clone().unwrap_or_else(|| "jwe".to_string()),
                 policy_id: effective_policy_id.clone(),
             };
-            self.repo.insert(&entity).await?;
+            // Atomic dup-check + per-user limit + insert under a per-user lock,
+            // closing the race where a concurrent create inserts between the
+            // find_by_uri above and the insert here.
+            self.repo
+                .create_with_user_limit_check(uri, &entity, self.validator.max_per_user())
+                .await?;
             log::info!("Resource created via update: uri='{}', user='{}', policy_id='{}'", uri, username, effective_policy_id);
             Ok((ResourceResponse { uri: uri.to_string(), provider_name: entity.provider_name, repository_name: entity.repo_name, resource_type: entity.res_type, resource_name: entity.res_name, created_at: millis_to_rfc3339(entity.created_at), updated_at: millis_to_rfc3339(entity.updated_at), content_type: entity.content_type, export_mode: entity.export_mode, policy_id: entity.policy_id, additional_info: entity.res_info }, true))
         }

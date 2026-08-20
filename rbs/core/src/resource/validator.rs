@@ -22,6 +22,12 @@ impl ResourceValidator {
         Self { config, reserved_providers: vec!["admin", "attestation", "resource", "health"] }
     }
 
+    /// Expose the per-user resource limit so the service can pass it to the
+    /// atomic repository create (which enforces it inside the lock).
+    pub fn max_per_user(&self) -> usize {
+        self.config.max_per_user
+    }
+
     /// Validate complete resource URI.
     pub fn validate_uri(&self, uri: &str) -> Result<ParsedUri, ResourceError> {
         let path = uri.trim_start_matches("/rbs/v0/");

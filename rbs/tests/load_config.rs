@@ -125,6 +125,80 @@ logging:
 }
 
 #[test]
+fn load_config_reads_resource_max_per_user() {
+    let dir = tempdir().expect("temp dir");
+    let path = dir.path().join("rbs.yaml");
+    fs::write(
+        &path,
+        r#"
+rest:
+  listen_addr: "127.0.0.1:19999"
+logging:
+  level: info
+resource:
+  max_per_user: 25
+  backends:
+    vault:
+      type: vault
+      url: "http://localhost:8200"
+      token: "s.0123456789abcdef0123456789abcdef"
+      mount_path: "secret"
+"#,
+    )
+    .expect("write config");
+
+    let cfg = rbs::load_config(&path).expect("load_config must succeed");
+    assert_eq!(cfg.resource.as_ref().expect("resource section").max_per_user, 25);
+}
+
+#[test]
+fn load_config_defaults_resource_when_omitted() {
+    let dir = tempdir().expect("temp dir");
+    let path = dir.path().join("rbs.yaml");
+    fs::write(
+        &path,
+        r#"
+rest:
+  listen_addr: "127.0.0.1:19999"
+logging:
+  level: info
+"#,
+    )
+    .expect("write config");
+
+    let cfg = rbs::load_config(&path).expect("load_config must succeed");
+    // Omitted `resource:` section → None; the per-user limit then defaults to 10
+    // in RbsCoreBuilder::build (ResourceConfig::default()).
+    assert!(cfg.resource.is_none());
+}
+
+#[test]
+fn load_config_defaults_resource_max_per_user_when_unspecified() {
+    let dir = tempdir().expect("temp dir");
+    let path = dir.path().join("rbs.yaml");
+    fs::write(
+        &path,
+        r#"
+rest:
+  listen_addr: "127.0.0.1:19999"
+logging:
+  level: info
+resource:
+  backends:
+    vault:
+      type: vault
+      url: "http://localhost:8200"
+      token: "s.0123456789abcdef0123456789abcdef"
+      mount_path: "secret"
+"#,
+    )
+    .expect("write config");
+
+    let cfg = rbs::load_config(&path).expect("load_config must succeed");
+    assert_eq!(cfg.resource.as_ref().expect("resource section").max_per_user, 10);
+}
+
+#[test]
 fn load_config_validates_resource_and_bearer() {
     // Full config with legal resource backend + bearer_token + the sibling sections
     // (attestation, attest_token) that `validate()` checks earlier in the chain.

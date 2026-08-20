@@ -17,7 +17,7 @@
 use rbs_api_types::error::RbsError;
 use rbs_api_types::{
     AttestationDeleteType, ErrorBody,
-    PolicyMutation, PolicyMutationResponse, RefValue, RefValueCreateRequest,
+    PolicyMutationResponse, RefValue, RefValueCreateRequest,
     RefValueDeleteRequest, RefValueListQuery, RefValueListResponse, RefValueMutation,
     RefValueMutationResponse, RefValueUpdateRequest,
 };

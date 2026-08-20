@@ -152,6 +152,7 @@ pub(crate) fn make_valid_rbs_config() -> RbsConfig {
                 client_key_path: String::new(),
                 credentials: AttestationCredentials {
                     user_id: "valid-user-1".to_string(),
+                    api_key_auth: false,
                     main_api_key: Sensitive::new(String::new()),
                     sub_api_key: Sensitive::new(String::new()),
                 },

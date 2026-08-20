@@ -3,6 +3,19 @@ use std::sync::Arc;
 use sea_orm::*;
 use super::error::PolicyError;
 
+/// Detect whether a `sea_orm::DbErr` is a unique-constraint violation
+/// (SQLite UNIQUE, sqlx code 2067). INSERT path collisions arrive as
+/// `DbErr::Exec`; the `Query` branch is kept for safety.
+fn is_unique_violation(e: &sea_orm::DbErr) -> bool {
+    use sea_orm::RuntimeErr;
+    let db_err = match e {
+        sea_orm::DbErr::Exec(RuntimeErr::SqlxError(sea_orm::sqlx::Error::Database(db)))
+        | sea_orm::DbErr::Query(RuntimeErr::SqlxError(sea_orm::sqlx::Error::Database(db))) => db,
+        _ => return false,
+    };
+    db_err.is_unique_violation()
+}
+
 /// Policy entity as stored in the database.
 #[derive(Debug, Clone)]
 pub struct PolicyEntity {
@@ -64,6 +77,13 @@ impl PolicyRepository for SeaOrmPolicyRepository {
         };
         sea_orm::ActiveModelTrait::insert(model, self.db.as_ref()).await
             .map_err(|e| {
+            if is_unique_violation(&e) {
+                log::warn!(
+                    "policy name '{}' already exists for user '{}'",
+                    entity.policy_name, entity.username
+                );
+                return PolicyError::NameDuplicate { name: entity.policy_name.clone() };
+            }
             log::error!("policy db error: {e}");
             PolicyError::BackendError { detail: e.to_string() }
         })?;

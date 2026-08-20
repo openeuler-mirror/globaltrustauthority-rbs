@@ -98,8 +98,8 @@ pub use version::{BuildMetadata, RbsVersion};
 
 // Re-export types from policy module
 pub use policy::{
-    BatchDeleteQuery, CreatePolicyRequest, PolicyListQuery, PolicyListResponse, PolicyResponse,
-    UpdatePolicyRequest, validate_policy_id,
+    BatchDeleteQuery, CreatePolicyRequest, POLICY_BATCH_DELETE_MAX_IDS, PolicyListQuery,
+    PolicyListResponse, PolicyResponse, UpdatePolicyRequest, validate_policy_id,
 };
 
 // Re-export types from user module

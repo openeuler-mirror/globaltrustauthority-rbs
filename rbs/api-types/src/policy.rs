@@ -9,6 +9,9 @@ use tabled::Tabled;
 /// Maximum length of a policy ID (UUID v4: 36 chars).
 pub const POLICY_ID_MAX_LEN: u64 = 36;
 
+/// Maximum number of policy IDs accepted by `DELETE /rbs/v0/resource/policy?ids=...`.
+pub const POLICY_BATCH_DELETE_MAX_IDS: usize = 10;
+
 /// Maximum length of the comma-separated `ids` query parameter.
 pub const POLICY_IDS_QUERY_MAX_LEN: u64 = 4096;
 

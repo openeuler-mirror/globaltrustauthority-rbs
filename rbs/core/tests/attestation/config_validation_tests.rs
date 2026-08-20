@@ -138,6 +138,9 @@ fn test_config_059_user_id_invalid_chars_panics() {
 #[should_panic(expected = "main_api_key must start with 'm.'")]
 fn test_config_060_main_api_key_wrong_prefix_panics() {
     let mut config = make_valid_rbs_config();
+    gta_backend_mut(&mut config).credentials.api_key_auth = true;
+    gta_backend_mut(&mut config).credentials.sub_api_key =
+        Sensitive::new("s.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string());
     gta_backend_mut(&mut config).credentials.main_api_key =
         Sensitive::new("x.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string());
     config.validate();
@@ -149,6 +152,9 @@ fn test_config_060_main_api_key_wrong_prefix_panics() {
 #[should_panic(expected = "main_api_key length 10 != 34")]
 fn test_config_060_main_api_key_wrong_length_panics() {
     let mut config = make_valid_rbs_config();
+    gta_backend_mut(&mut config).credentials.api_key_auth = true;
+    gta_backend_mut(&mut config).credentials.sub_api_key =
+        Sensitive::new("s.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string());
     gta_backend_mut(&mut config).credentials.main_api_key =
         Sensitive::new("m.short123".to_string());
     config.validate();
@@ -160,6 +166,9 @@ fn test_config_060_main_api_key_wrong_length_panics() {
 #[should_panic(expected = "sub_api_key must start with 's.'")]
 fn test_config_060_sub_api_key_wrong_prefix_panics() {
     let mut config = make_valid_rbs_config();
+    gta_backend_mut(&mut config).credentials.api_key_auth = true;
+    gta_backend_mut(&mut config).credentials.main_api_key =
+        Sensitive::new("m.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string());
     gta_backend_mut(&mut config).credentials.sub_api_key =
         Sensitive::new("x.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string());
     config.validate();
@@ -171,6 +180,9 @@ fn test_config_060_sub_api_key_wrong_prefix_panics() {
 #[should_panic(expected = "sub_api_key length 10 != 34")]
 fn test_config_060_sub_api_key_wrong_length_panics() {
     let mut config = make_valid_rbs_config();
+    gta_backend_mut(&mut config).credentials.api_key_auth = true;
+    gta_backend_mut(&mut config).credentials.main_api_key =
+        Sensitive::new("m.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string());
     gta_backend_mut(&mut config).credentials.sub_api_key =
         Sensitive::new("s.short123".to_string());
     config.validate();
@@ -182,6 +194,9 @@ fn test_config_060_sub_api_key_wrong_length_panics() {
 #[should_panic(expected = "main_api_key suffix must be 32 alphanumeric")]
 fn test_config_060_main_api_key_non_alnum_suffix_panics() {
     let mut config = make_valid_rbs_config();
+    gta_backend_mut(&mut config).credentials.api_key_auth = true;
+    gta_backend_mut(&mut config).credentials.sub_api_key =
+        Sensitive::new("s.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string());
     gta_backend_mut(&mut config).credentials.main_api_key =
         Sensitive::new("m.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!".to_string());
     config.validate();

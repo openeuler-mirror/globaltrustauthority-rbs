@@ -15,11 +15,11 @@
 //! Each test constructs a `MockPolicyRepository` with the desired return values,
 //! creates a `PolicyService`, invokes the relevant method, and asserts the result.
 //!
-//! NOTE: The service methods currently contain `todo!()`, so tests that reach the
-//! service body will panic at runtime. Tests that fail a validation step before
-//! reaching the body (e.g. authz deny for an Attest token) will pass at runtime.
-//! Both outcomes are intentional — this file validates that the test structure
-//! compiles and is semantically correct for each scenario.
+//! NOTE: Bearer contexts use a non-admin role (e.g. "user") for regular
+//! users. The admin policy rejects a forged `role="admin"` claim whose
+//! `sub` is not the bootstrap Administrator on UserScoped operations, so
+//! tests that expect to reach the service body must use a legitimate
+//! non-admin role. Attest-token tests still expect an authz deny.
 
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -306,7 +306,7 @@ async fn test_create_success() {
         .with_count_by_user(Ok(5)); // below max_per_user (10)
 
     let service = make_service(repo);
-    let ctx = bearer_ctx("user123", "admin");
+    let ctx = bearer_ctx("user123", "user");
     let req = CreatePolicyRequest {
         name: "test-policy".into(),
         content_type: "base64".into(),
@@ -346,7 +346,7 @@ async fn test_create_name_duplicate() {
         .with_find_by_name_and_user(Ok(Some(existing)));
 
     let service = make_service(repo);
-    let ctx = bearer_ctx("user123", "admin");
+    let ctx = bearer_ctx("user123", "user");
     let req = CreatePolicyRequest {
         name: "test-policy".into(),
         content_type: "base64".into(),
@@ -367,7 +367,7 @@ async fn test_create_count_exceeded() {
         .with_count_by_user(Ok(10)); // max_per_user is 10 in default config
 
     let service = make_service(repo);
-    let ctx = bearer_ctx("user123", "admin");
+    let ctx = bearer_ctx("user123", "user");
     let req = CreatePolicyRequest {
         name: "test-policy".into(),
         content_type: "base64".into(),
@@ -389,7 +389,7 @@ async fn test_create_name_duplicate_beats_count_exceeded() {
         .with_count_by_user(Ok(10));
 
     let service = make_service(repo);
-    let ctx = bearer_ctx("user123", "admin");
+    let ctx = bearer_ctx("user123", "user");
     let req = CreatePolicyRequest {
         name: "test-policy".into(),
         content_type: "base64".into(),
@@ -411,7 +411,7 @@ async fn test_create_invalid_base64() {
         .with_count_by_user(Ok(0));
 
     let service = make_service(repo);
-    let ctx = bearer_ctx("user123", "admin");
+    let ctx = bearer_ctx("user123", "user");
     let req = CreatePolicyRequest {
         name: "test-policy".into(),
         content_type: "base64".into(),
@@ -439,7 +439,7 @@ async fn test_update_name_duplicate_rename_conflict() {
         .with_find_by_name_and_user(Ok(Some(conflict)));
 
     let service = make_service(repo);
-    let ctx = bearer_ctx("user123", "admin");
+    let ctx = bearer_ctx("user123", "user");
     let req = UpdatePolicyRequest {
         name: "new-name".into(),
         content_type: "base64".into(),
@@ -464,7 +464,7 @@ async fn test_update_name_same_as_self() {
         .with_update_with_version(Ok(1));
 
     let service = make_service(repo);
-    let ctx = bearer_ctx("user123", "admin");
+    let ctx = bearer_ctx("user123", "user");
     let req = UpdatePolicyRequest {
         name: "same-name".into(),
         content_type: "base64".into(),
@@ -500,7 +500,7 @@ async fn test_single_delete_policy_not_found() {
         .with_find_by_id(Ok(None));
 
     let service = make_service(repo);
-    let ctx = bearer_ctx("user123", "admin");
+    let ctx = bearer_ctx("user123", "user");
     let ids = vec!["policy-1".to_string()];
 
     let result = service.delete(&ctx, &ids).await;
@@ -517,7 +517,7 @@ async fn test_single_delete_permission_denied_cross_user() {
         .with_find_by_ids_and_user(Ok(vec![entity]));
 
     let service = make_service(repo);
-    let ctx = bearer_ctx("user123", "admin");
+    let ctx = bearer_ctx("user123", "user");
     let ids = vec!["policy-1".to_string()];
 
     let result = service.delete(&ctx, &ids).await;
@@ -557,7 +557,7 @@ async fn test_list_with_ids_filter() {
         .with_find_by_ids_and_user(Ok(entities));
 
     let service = make_service(repo);
-    let ctx = bearer_ctx("user123", "admin");
+    let ctx = bearer_ctx("user123", "user");
     let query = PolicyQuery {
         ids: Some(vec!["policy-1".into(), "policy-2".into()]),
         offset: 0,
@@ -594,7 +594,7 @@ async fn test_get_by_id_not_found() {
         .with_find_by_id(Ok(None));
 
     let service = make_service(repo);
-    let ctx = bearer_ctx("user123", "admin");
+    let ctx = bearer_ctx("user123", "user");
 
     let result = service.get_by_id(&ctx, "policy-1").await;
     assert!(result.is_err());
@@ -610,7 +610,7 @@ async fn test_get_by_id_cross_user() {
         .with_find_by_id(Ok(Some(entity)));
 
     let service = make_service(repo);
-    let ctx = bearer_ctx("user123", "admin");
+    let ctx = bearer_ctx("user123", "user");
 
     let result = service.get_by_id(&ctx, "policy-1").await;
     assert!(result.is_err());
@@ -627,7 +627,7 @@ async fn test_get_by_id_cross_user() {
 async fn test_batch_delete_empty_ids() {
     let repo = MockPolicyRepository::new();
     let service = make_service(repo);
-    let ctx = bearer_ctx("user123", "admin");
+    let ctx = bearer_ctx("user123", "user");
     let ids: Vec<String> = vec![];
 
     let result = service.delete(&ctx, &ids).await;
@@ -659,7 +659,7 @@ async fn test_update_success_with_optimistic_lock() {
         .with_update_with_version(Ok(1));
 
     let service = make_service(repo);
-    let ctx = bearer_ctx("user1", "admin");
+    let ctx = bearer_ctx("user1", "user");
     let req = UpdatePolicyRequest {
         name: "new_name".into(),
         content_type: "base64".into(),
@@ -680,7 +680,7 @@ async fn test_update_policy_not_found() {
         .with_find_by_id(Ok(None));
 
     let service = make_service(repo);
-    let ctx = bearer_ctx("admin", "admin");
+    let ctx = bearer_ctx("admin", "user");
     let req = UpdatePolicyRequest {
         name: "new_name".into(),
         content_type: "base64".into(),
@@ -705,7 +705,7 @@ async fn test_update_permission_denied_wrong_owner() {
         .with_find_by_id(Ok(Some(entity)));
 
     let service = make_service(repo);
-    let ctx = bearer_ctx("user1", "admin");
+    let ctx = bearer_ctx("user1", "user");
     let req = UpdatePolicyRequest {
         name: "new_name".into(),
         content_type: "base64".into(),
@@ -733,7 +733,7 @@ async fn test_update_version_conflict() {
         .with_update_with_version(Ok(0)); // 0 rows affected → version conflict
 
     let service = make_service(repo);
-    let ctx = bearer_ctx("user1", "admin");
+    let ctx = bearer_ctx("user1", "user");
     let req = UpdatePolicyRequest {
         name: "new_name".into(),
         content_type: "base64".into(),
@@ -774,7 +774,7 @@ async fn test_update_retry_after_conflict_succeeds() {
         .with_update_with_version(Ok(1));
 
     let service = make_service(repo);
-    let ctx = bearer_ctx("user1", "admin");
+    let ctx = bearer_ctx("user1", "user");
     let req = UpdatePolicyRequest {
         name: "new_name".into(),
         content_type: "base64".into(),
@@ -802,7 +802,7 @@ async fn test_single_delete_success() {
     let client = MockPolicyClient::new().with_relation_res_ids(Ok(vec![]));
 
     let service = make_service_with_client(repo, client);
-    let ctx = bearer_ctx("user1", "admin");
+    let ctx = bearer_ctx("user1", "user");
     let ids = vec!["pol-1".to_string()];
 
     let result = service.delete(&ctx, &ids).await;
@@ -824,7 +824,7 @@ async fn test_delete_policy_being_referenced() {
         .with_relation_res_ids(Ok(vec!["res-uri-1".into(), "res-uri-2".into()]));
 
     let service = make_service_with_client(repo, client);
-    let ctx = bearer_ctx("user1", "admin");
+    let ctx = bearer_ctx("user1", "user");
     let ids = vec!["pol-1".to_string()];
 
     let result = service.delete(&ctx, &ids).await;
@@ -856,7 +856,7 @@ async fn test_batch_delete_all_success() {
         .with_relation_res_ids(Ok(vec![]));
 
     let service = make_service_with_client(repo, client);
-    let ctx = bearer_ctx("user1", "admin");
+    let ctx = bearer_ctx("user1", "user");
     let ids = vec![
         "pol-1".to_string(),
         "pol-2".to_string(),
@@ -883,7 +883,7 @@ async fn test_batch_delete_partial_referenced() {
         .with_relation_res_ids(Ok(vec!["res-uri".into()]));
 
     let service = make_service_with_client(repo, client);
-    let ctx = bearer_ctx("user1", "admin");
+    let ctx = bearer_ctx("user1", "user");
     let ids = vec![
         "pol-1".to_string(),
         "pol-2".to_string(),
@@ -907,7 +907,7 @@ async fn test_batch_delete_partial_not_found() {
         .with_find_by_id(Ok(None));
 
     let service = make_service(repo);
-    let ctx = bearer_ctx("user1", "admin");
+    let ctx = bearer_ctx("user1", "user");
     let ids = vec![
         "pol-1".to_string(),
         "pol-404".to_string(),
@@ -932,7 +932,7 @@ async fn test_list_basic() {
         .with_list_by_user(Ok((vec![e1, e2], 2)));
 
     let service = make_service(repo);
-    let ctx = bearer_ctx("user1", "admin");
+    let ctx = bearer_ctx("user1", "user");
     let query = PolicyQuery {
         ids: None,
         offset: 0,
@@ -958,7 +958,7 @@ async fn test_list_with_pagination() {
         .with_list_by_user(Ok((items, 25)));
 
     let service = make_service(repo);
-    let ctx = bearer_ctx("user1", "admin");
+    let ctx = bearer_ctx("user1", "user");
     let query = PolicyQuery {
         ids: None,
         offset: 20,
@@ -982,7 +982,7 @@ async fn test_list_limit_zero() {
         .with_list_by_user(Ok((vec![], 25)));
 
     let service = make_service(repo);
-    let ctx = bearer_ctx("user1", "admin");
+    let ctx = bearer_ctx("user1", "user");
     let query = PolicyQuery {
         ids: None,
         offset: 0,
@@ -1006,7 +1006,7 @@ async fn test_list_limit_high() {
         .with_list_by_user(Ok((vec![], 0)));
 
     let service = make_service(repo);
-    let ctx = bearer_ctx("user1", "admin");
+    let ctx = bearer_ctx("user1", "user");
     let query = PolicyQuery {
         ids: None,
         offset: 0,
@@ -1034,7 +1034,7 @@ async fn test_get_detail_success() {
         .with_relation_res_ids(Ok(vec!["uri1".into(), "uri2".into()]));
 
     let service = make_service_with_client(repo, client);
-    let ctx = bearer_ctx("user1", "admin");
+    let ctx = bearer_ctx("user1", "user");
 
     let result = service.get_by_id(&ctx, "pol-1").await;
     assert!(result.is_ok());
@@ -1069,7 +1069,7 @@ async fn test_version_increment_on_update() {
         .with_update_with_version(Ok(1));
 
     let service = make_service(repo);
-    let ctx = bearer_ctx("user1", "admin");
+    let ctx = bearer_ctx("user1", "user");
     let req = UpdatePolicyRequest {
         name: "my_policy".into(),
         content_type: "base64".into(),
