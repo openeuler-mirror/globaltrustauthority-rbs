@@ -15,7 +15,7 @@ use base64::Engine;
 use clap::{Args, Subcommand};
 use rbs_admin_client::attestation::ref_value::{
     RefValueClient, RefValueCreateRequest, RefValueDeleteRequest, RefValueListParams, RefValueListResponse,
-    RefValueMutationResponse, RefValueService, RefValueUpdateRequest,
+    RefValueMutationResponse, RefValueUpdateRequest,
 };
 use rbs_admin_client::AdminClient;
 use rbs_api_types::AttestationDeleteType;

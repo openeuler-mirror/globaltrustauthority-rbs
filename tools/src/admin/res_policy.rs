@@ -19,7 +19,7 @@ use crate::error::CliError;
 use base64::engine::general_purpose;
 use base64::Engine;
 use clap::{ArgGroup, Args, Subcommand, ValueEnum};
-use rbs_admin_client::res_policy::{ResourcePolicyClient, ResourcePolicyContentType, ResourcePolicyService};
+use rbs_admin_client::res_policy::{ResourcePolicyClient, ResourcePolicyContentType};
 use rbs_admin_client::AdminClient;
 use rbs_api_types::{CreatePolicyRequest, PolicyListQuery, PolicyListResponse, PolicyResponse, UpdatePolicyRequest};
 use serde::Serialize;
@@ -388,7 +388,9 @@ mod tests {
         for length in [POLICY_NAME_MAX_LEN - 1, POLICY_NAME_MAX_LEN] {
             assert!(validate_trimmed_string_max_len(&"n".repeat(length), POLICY_NAME_MAX_LEN, "name").is_ok());
         }
-        assert!(validate_trimmed_string_max_len(&"n".repeat(POLICY_NAME_MAX_LEN + 1), POLICY_NAME_MAX_LEN, "name").is_err());
+        assert!(
+            validate_trimmed_string_max_len(&"n".repeat(POLICY_NAME_MAX_LEN + 1), POLICY_NAME_MAX_LEN, "name").is_err()
+        );
         for length in [POLICY_ID_MAX_LEN - 1, POLICY_ID_MAX_LEN] {
             assert!(validate_url_path_segment(&"i".repeat(length), POLICY_ID_MAX_LEN, "policy_id").is_ok());
         }

@@ -12,7 +12,6 @@
 use crate::client::AdminClient;
 use crate::error::RbsAdminClientError;
 use crate::{send_empty, send_json, validate_path_segment};
-use async_trait::async_trait;
 use rbs_api_types::{UserCreateRequest, UserListQuery, UserListResponse, UserResponse, UserUpdateRequest};
 use reqwest::Method;
 
@@ -22,22 +21,8 @@ pub struct UserClient {
     client: AdminClient,
 }
 
-#[async_trait]
-pub trait UserService {
-    async fn create(&self, request: &UserCreateRequest) -> Result<UserResponse, RbsAdminClientError>;
-
-    async fn delete(&self, username: &str) -> Result<(), RbsAdminClientError>;
-
-    async fn update(&self, username: &str, request: &UserUpdateRequest) -> Result<UserResponse, RbsAdminClientError>;
-
-    async fn list(&self, params: &UserListQuery) -> Result<UserListResponse, RbsAdminClientError>;
-
-    async fn get(&self, username: &str) -> Result<UserResponse, RbsAdminClientError>;
-}
-
-#[async_trait]
-impl UserService for UserClient {
-    async fn create(&self, request: &UserCreateRequest) -> Result<UserResponse, RbsAdminClientError> {
+impl UserClient {
+    pub async fn create(&self, request: &UserCreateRequest) -> Result<UserResponse, RbsAdminClientError> {
         let url = self
             .client
             .base_url
@@ -46,7 +31,7 @@ impl UserService for UserClient {
         send_json(&self.client, Method::POST, url, Some(request)).await
     }
 
-    async fn delete(&self, username: &str) -> Result<(), RbsAdminClientError> {
+    pub async fn delete(&self, username: &str) -> Result<(), RbsAdminClientError> {
         if username.trim().is_empty() {
             return Err(RbsAdminClientError::ClientError("username must not be empty".to_string()));
         }
@@ -54,7 +39,11 @@ impl UserService for UserClient {
         send_empty::<()>(&self.client, Method::DELETE, url, None).await
     }
 
-    async fn update(&self, username: &str, request: &UserUpdateRequest) -> Result<UserResponse, RbsAdminClientError> {
+    pub async fn update(
+        &self,
+        username: &str,
+        request: &UserUpdateRequest,
+    ) -> Result<UserResponse, RbsAdminClientError> {
         if username.trim().is_empty() {
             return Err(RbsAdminClientError::ClientError("username must not be empty".to_string()));
         }
@@ -62,7 +51,7 @@ impl UserService for UserClient {
         send_json(&self.client, Method::PUT, url, Some(request)).await
     }
 
-    async fn list(&self, params: &UserListQuery) -> Result<UserListResponse, RbsAdminClientError> {
+    pub async fn list(&self, params: &UserListQuery) -> Result<UserListResponse, RbsAdminClientError> {
         let mut url = self
             .client
             .base_url
@@ -82,7 +71,7 @@ impl UserService for UserClient {
         send_json(&self.client, Method::GET, url, Option::<&()>::None).await
     }
 
-    async fn get(&self, username: &str) -> Result<UserResponse, RbsAdminClientError> {
+    pub async fn get(&self, username: &str) -> Result<UserResponse, RbsAdminClientError> {
         if username.trim().is_empty() {
             return Err(RbsAdminClientError::ClientError("username must not be empty".to_string()));
         }

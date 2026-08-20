@@ -13,7 +13,6 @@
 use crate::client::AdminClient;
 use crate::error::RbsAdminClientError;
 use crate::{send_empty, send_json, validate_path_segment};
-use async_trait::async_trait;
 use rbs_api_types::{CreatePolicyRequest, PolicyListQuery, PolicyListResponse, PolicyResponse, UpdatePolicyRequest};
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
@@ -41,28 +40,8 @@ impl Display for ResourcePolicyContentType {
     }
 }
 
-#[async_trait]
-pub trait ResourcePolicyService {
-    async fn list_policies(&self, params: &PolicyListQuery) -> Result<PolicyListResponse, RbsAdminClientError>;
-
-    async fn get_policy(&self, policy_id: &str) -> Result<PolicyResponse, RbsAdminClientError>;
-
-    async fn create_policy(&self, request: &CreatePolicyRequest) -> Result<PolicyResponse, RbsAdminClientError>;
-
-    async fn update_policy(
-        &self,
-        policy_id: &str,
-        request: &UpdatePolicyRequest,
-    ) -> Result<PolicyResponse, RbsAdminClientError>;
-
-    async fn delete_policy(&self, policy_id: &str) -> Result<(), RbsAdminClientError>;
-
-    async fn delete_policies(&self, ids: &[String]) -> Result<(), RbsAdminClientError>;
-}
-
-#[async_trait]
-impl ResourcePolicyService for ResourcePolicyClient {
-    async fn list_policies(&self, params: &PolicyListQuery) -> Result<PolicyListResponse, RbsAdminClientError> {
+impl ResourcePolicyClient {
+    pub async fn list_policies(&self, params: &PolicyListQuery) -> Result<PolicyListResponse, RbsAdminClientError> {
         let mut url = self.collection_url()?;
         {
             let mut query = url.query_pairs_mut();
@@ -79,7 +58,7 @@ impl ResourcePolicyService for ResourcePolicyClient {
         send_json(&self.client, Method::GET, url, Option::<&()>::None).await
     }
 
-    async fn get_policy(&self, policy_id: &str) -> Result<PolicyResponse, RbsAdminClientError> {
+    pub async fn get_policy(&self, policy_id: &str) -> Result<PolicyResponse, RbsAdminClientError> {
         if policy_id.trim().is_empty() {
             return Err(RbsAdminClientError::ClientError("policy_id must not be empty".to_string()));
         }
@@ -87,12 +66,12 @@ impl ResourcePolicyService for ResourcePolicyClient {
         send_json(&self.client, Method::GET, url, Option::<&()>::None).await
     }
 
-    async fn create_policy(&self, request: &CreatePolicyRequest) -> Result<PolicyResponse, RbsAdminClientError> {
+    pub async fn create_policy(&self, request: &CreatePolicyRequest) -> Result<PolicyResponse, RbsAdminClientError> {
         let url = self.collection_url()?;
         send_json(&self.client, Method::POST, url, Some(request)).await
     }
 
-    async fn update_policy(
+    pub async fn update_policy(
         &self,
         policy_id: &str,
         request: &UpdatePolicyRequest,
@@ -104,7 +83,7 @@ impl ResourcePolicyService for ResourcePolicyClient {
         send_json(&self.client, Method::PUT, url, Some(request)).await
     }
 
-    async fn delete_policy(&self, policy_id: &str) -> Result<(), RbsAdminClientError> {
+    pub async fn delete_policy(&self, policy_id: &str) -> Result<(), RbsAdminClientError> {
         if policy_id.trim().is_empty() {
             return Err(RbsAdminClientError::ClientError("policy_id must not be empty".to_string()));
         }
@@ -112,7 +91,7 @@ impl ResourcePolicyService for ResourcePolicyClient {
         send_empty::<()>(&self.client, Method::DELETE, url, None).await
     }
 
-    async fn delete_policies(&self, ids: &[String]) -> Result<(), RbsAdminClientError> {
+    pub async fn delete_policies(&self, ids: &[String]) -> Result<(), RbsAdminClientError> {
         if ids.is_empty() {
             return Err(RbsAdminClientError::ClientError("ids must not be empty".to_string()));
         }

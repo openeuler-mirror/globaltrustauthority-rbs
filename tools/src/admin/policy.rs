@@ -14,7 +14,7 @@ use base64::Engine;
 use clap::{Args, Subcommand};
 use rbs_admin_client::attestation::policy::{
     AttestationPolicyCreateRequest, AttestationPolicyDeleteRequest, AttestationPolicyListParams,
-    AttestationPolicyUpdateRequest, PolicyClient, PolicyListResponse, PolicyMutationResponse, PolicyService,
+    AttestationPolicyUpdateRequest, PolicyClient, PolicyListResponse, PolicyMutationResponse,
 };
 use rbs_admin_client::AdminClient;
 use rbs_api_types::PolicyDeleteType;

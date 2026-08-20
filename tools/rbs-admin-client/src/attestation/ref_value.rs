@@ -10,7 +10,6 @@
  * See the Mulan PSL v2 for more details.
  */
 
-use async_trait::async_trait;
 use reqwest::{Method, Url};
 use serde::{Deserialize, Serialize};
 
@@ -61,32 +60,17 @@ impl RefValueClient {
         self.client
             .base_url
             .join(format!("/rbs/v0/attestation/{}/{}/{}", self.as_provider, REF_VALUE_SEGMENT, id).as_str())
-            .map_err(|_| RbsAdminClientError::ClientError("base URL cannot be used to build ref value item path".to_string()))
+            .map_err(|_| {
+                RbsAdminClientError::ClientError("base URL cannot be used to build ref value item path".to_string())
+            })
     }
 }
 
-#[async_trait]
-pub trait RefValueService {
-    async fn list_ref_values(&self, params: &RefValueListParams) -> Result<RefValueListResponse, RbsAdminClientError>;
-
-    async fn get_ref_value(&self, id: &str) -> Result<RefValueListResponse, RbsAdminClientError>;
-
-    async fn create_ref_value(
+impl RefValueClient {
+    pub async fn list_ref_values(
         &self,
-        request: &RefValueCreateRequest,
-    ) -> Result<RefValueMutationResponse, RbsAdminClientError>;
-
-    async fn update_ref_value(
-        &self,
-        request: &RefValueUpdateRequest,
-    ) -> Result<RefValueMutationResponse, RbsAdminClientError>;
-
-    async fn delete_ref_values(&self, request: &RefValueDeleteRequest) -> Result<(), RbsAdminClientError>;
-}
-
-#[async_trait]
-impl RefValueService for RefValueClient {
-    async fn list_ref_values(&self, params: &RefValueListParams) -> Result<RefValueListResponse, RbsAdminClientError> {
+        params: &RefValueListParams,
+    ) -> Result<RefValueListResponse, RbsAdminClientError> {
         let mut url = self.box_url()?;
         {
             let mut query = url.query_pairs_mut();
@@ -110,12 +94,12 @@ impl RefValueService for RefValueClient {
         send_json(&self.client, Method::GET, url, Option::<&()>::None).await
     }
 
-    async fn get_ref_value(&self, id: &str) -> Result<RefValueListResponse, RbsAdminClientError> {
+    pub async fn get_ref_value(&self, id: &str) -> Result<RefValueListResponse, RbsAdminClientError> {
         let url = self.item_url(id)?;
         send_json(&self.client, Method::GET, url, Option::<&()>::None).await
     }
 
-    async fn create_ref_value(
+    pub async fn create_ref_value(
         &self,
         request: &RefValueCreateRequest,
     ) -> Result<RefValueMutationResponse, RbsAdminClientError> {
@@ -123,7 +107,7 @@ impl RefValueService for RefValueClient {
         send_json(&self.client, Method::POST, url, Some(request)).await
     }
 
-    async fn update_ref_value(
+    pub async fn update_ref_value(
         &self,
         request: &RefValueUpdateRequest,
     ) -> Result<RefValueMutationResponse, RbsAdminClientError> {
@@ -131,7 +115,7 @@ impl RefValueService for RefValueClient {
         send_json(&self.client, Method::PUT, url, Some(request)).await
     }
 
-    async fn delete_ref_values(&self, request: &RefValueDeleteRequest) -> Result<(), RbsAdminClientError> {
+    pub async fn delete_ref_values(&self, request: &RefValueDeleteRequest) -> Result<(), RbsAdminClientError> {
         let url = self.box_url()?;
         send_empty(&self.client, Method::DELETE, url, Some(request)).await
     }

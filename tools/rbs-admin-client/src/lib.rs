@@ -23,7 +23,7 @@ use tracing::{info, warn};
 
 pub use client::AdminClient;
 pub use error::RbsAdminClientError;
-pub use user::{UserClient, UserService};
+pub use user::UserClient;
 
 /// Reject input that would change URL path semantics when appended as one path segment.
 pub(crate) fn validate_path_segment(value: &str, field_name: &str) -> Result<(), RbsAdminClientError> {
@@ -174,10 +174,7 @@ mod tests {
 
     #[test]
     fn flatten_error_body_extracts_message_and_normalizes_whitespace() {
-        assert_eq!(
-            flatten_error_body(r#"{"message":"invalid\n reference value"}"#),
-            "invalid reference value"
-        );
+        assert_eq!(flatten_error_body(r#"{"message":"invalid\n reference value"}"#), "invalid reference value");
         assert_eq!(flatten_error_body(" upstream\n error "), "upstream error");
     }
 

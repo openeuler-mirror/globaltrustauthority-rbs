@@ -10,7 +10,7 @@
  * See the Mulan PSL v2 for more details.
  */
 
-use rbs_admin_client::resource::{ResourceClient, ResourcePath, ResourceService};
+use rbs_admin_client::resource::{ResourceClient, ResourcePath};
 use rbs_admin_client::AdminClient;
 use rbs_api_types::{CreateResourceRequest, UpdateResourceRequest};
 

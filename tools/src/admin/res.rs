@@ -17,7 +17,7 @@ use base64::Engine as _;
 use clap::{Args, Subcommand};
 use rbc::cli::utils::load_private_key_pem;
 use rbc::tools::tee_key::TeeKeyPair;
-use rbs_admin_client::resource::{ResourceClient, ResourcePath, ResourceService};
+use rbs_admin_client::resource::{ResourceClient, ResourcePath};
 use rbs_admin_client::AdminClient;
 use rbs_api_types::constants::RESOURCE_TYPES;
 use rbs_api_types::{CreateResourceRequest, ResourceContentResponse, ResourceResponse, UpdateResourceRequest};
@@ -399,7 +399,10 @@ mod tests {
         let matches = command
             .try_get_matches_from(["update", "--uri", "vault/default/secret/demo", "--export-mode", "jwe"])
             .expect("update should succeed without --policy-id");
-        assert!(matches.get_one::<String>("policy_id").is_none(), "policy_id should be absent when --policy-id is omitted");
+        assert!(
+            matches.get_one::<String>("policy_id").is_none(),
+            "policy_id should be absent when --policy-id is omitted"
+        );
     }
 
     #[test]
@@ -433,9 +436,15 @@ mod tests {
     #[test]
     fn validate_resource_option_length_matrix() {
         for length in [ADDITIONAL_INFO_MAX_LEN - 1, ADDITIONAL_INFO_MAX_LEN] {
-            assert!(validate_trimmed_string_max_len(&"a".repeat(length), ADDITIONAL_INFO_MAX_LEN, "additional-info").is_ok());
+            assert!(validate_trimmed_string_max_len(&"a".repeat(length), ADDITIONAL_INFO_MAX_LEN, "additional-info")
+                .is_ok());
         }
-        assert!(validate_trimmed_string_max_len(&"a".repeat(ADDITIONAL_INFO_MAX_LEN + 1), ADDITIONAL_INFO_MAX_LEN, "additional-info").is_err());
+        assert!(validate_trimmed_string_max_len(
+            &"a".repeat(ADDITIONAL_INFO_MAX_LEN + 1),
+            ADDITIONAL_INFO_MAX_LEN,
+            "additional-info"
+        )
+        .is_err());
         assert!(validate_passphrase_len(&"p".repeat(PASSPHRASE_MAX_LEN - 1)).is_ok());
         assert!(validate_passphrase_len(&"p".repeat(PASSPHRASE_MAX_LEN)).is_ok());
         assert!(validate_passphrase_len(&"p".repeat(PASSPHRASE_MAX_LEN + 1)).is_err());

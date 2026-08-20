@@ -23,10 +23,10 @@ use base64::engine::general_purpose;
 use base64::Engine;
 use clap::ArgGroup;
 use clap::{Args, Subcommand};
-use rbs_admin_client::{
-    AdminClient, RbsAdminClientError, UserClient, UserService,
+use rbs_admin_client::{AdminClient, RbsAdminClientError, UserClient};
+use rbs_api_types::{
+    AuthType, Role, UserCreateRequest, UserListQuery, UserListResponse, UserResponse, UserUpdateRequest,
 };
-use rbs_api_types::{AuthType, Role, UserCreateRequest, UserListQuery, UserListResponse, UserResponse, UserUpdateRequest};
 use regex::Regex;
 use serde::Serialize;
 use serde_json::Value;
@@ -139,12 +139,14 @@ pub fn run(cli: &UserCli, global: &GlobalOptions) -> Result<Box<dyn Formatter>, 
 async fn execute_user_command(cli: &UserCli, service: &UserClient) -> Result<Box<dyn Formatter>, CliError> {
     match &cli.command {
         UserCommand::List(args) => {
-            let resp = service.list(&UserListQuery {
-                limit: Some(args.page.limit),
-                offset: Some(args.page.offset),
-                role: None,
-                enabled: None
-            }).await?;
+            let resp = service
+                .list(&UserListQuery {
+                    limit: Some(args.page.limit),
+                    offset: Some(args.page.offset),
+                    role: None,
+                    enabled: None,
+                })
+                .await?;
             Ok(Box::new(UserListOutput(resp)))
         },
         UserCommand::Get(args) => {
@@ -157,7 +159,9 @@ async fn execute_user_command(cli: &UserCli, service: &UserClient) -> Result<Box
             let resp = service
                 .create(&UserCreateRequest {
                     username: args.username.clone(),
-                    role: args.role.as_deref()
+                    role: args
+                        .role
+                        .as_deref()
                         .map(|s| s.parse::<Role>().map_err(|err| CliError::Message(err.to_string())))
                         .transpose()?,
                     enabled: args.enabled,
@@ -176,7 +180,9 @@ async fn execute_user_command(cli: &UserCli, service: &UserClient) -> Result<Box
                 .update(
                     &args.username,
                     &UserUpdateRequest {
-                        role: args.role.as_deref()
+                        role: args
+                            .role
+                            .as_deref()
                             .map(|s| s.parse::<Role>().map_err(|err| CliError::Message(err.to_string())))
                             .transpose()?,
                         enabled: args.enabled,
@@ -235,7 +241,11 @@ impl Formatter for UserOutput {
         Ok([
             format!("{:<20}{}", "id:", user.id),
             format!("{:<20}{}", "username:", user.username),
-            format!("{:<20}{}", "role:", serde_json::to_string(&user.role).map_err(|err| CliError::Message(format!("{}", err)))?),
+            format!(
+                "{:<20}{}",
+                "role:",
+                serde_json::to_string(&user.role).map_err(|err| CliError::Message(format!("{}", err)))?
+            ),
             format!("{:<20}{}", "enabled", user.enabled),
             format!("{:<20}{}", "created_at", user.created_at),
             format!("{:<20}{}", "updated_at", user.updated_at),
@@ -254,10 +264,7 @@ struct UserListOutput(UserListResponse);
 impl Formatter for UserListOutput {
     fn render_text(&self) -> Result<String, CliError> {
         let resp = &self.0;
-        let mut lines = vec![
-
-            "users:".to_string(),
-        ];
+        let mut lines = vec!["users:".to_string()];
 
         if !resp.users.is_empty() {
             let table = Table::new(resp.users.iter()).with(Style::markdown()).to_string();
@@ -342,11 +349,9 @@ mod tests {
         std::fs::write(&pub_path, "PUBLIC-KEY").expect("write pubkey");
         std::fs::write(&jwk_path, r#"{"kty":"EC","crv":"P-256","x":"x","y":"y"}"#).expect("write jwk");
 
-        let (public_key, jwk) = read_pubkey_and_jwk(
-            &Some(format!("@{}", pub_path.display())),
-            &Some(format!("@{}", jwk_path.display())),
-        )
-        .expect("read inputs");
+        let (public_key, jwk) =
+            read_pubkey_and_jwk(&Some(format!("@{}", pub_path.display())), &Some(format!("@{}", jwk_path.display())))
+                .expect("read inputs");
 
         assert_eq!(public_key.as_deref(), Some("PUBLIC-KEY"));
         assert_eq!(jwk.expect("jwk")["kty"], "EC");

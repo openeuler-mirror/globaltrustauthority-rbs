@@ -10,7 +10,6 @@
  * See the Mulan PSL v2 for more details.
  */
 
-use async_trait::async_trait;
 use reqwest::{Method, Url};
 use serde::{Deserialize, Serialize};
 
@@ -67,22 +66,8 @@ impl CertClient {
     }
 }
 
-#[async_trait]
-pub trait CertService {
-    async fn list_certs(&self, params: &CertListParams) -> Result<CertListResponse, RbsAdminClientError>;
-
-    async fn get_cert(&self, id: &str) -> Result<CertListResponse, RbsAdminClientError>;
-
-    async fn create_cert(&self, request: &CertCreateRequest) -> Result<CertMutationResponse, RbsAdminClientError>;
-
-    async fn update_cert(&self, request: &CertUpdateRequest) -> Result<CertMutationResponse, RbsAdminClientError>;
-
-    async fn delete_certs(&self, request: &CertDeleteRequest) -> Result<(), RbsAdminClientError>;
-}
-
-#[async_trait]
-impl CertService for CertClient {
-    async fn list_certs(&self, params: &CertListParams) -> Result<CertListResponse, RbsAdminClientError> {
+impl CertClient {
+    pub async fn list_certs(&self, params: &CertListParams) -> Result<CertListResponse, RbsAdminClientError> {
         let mut url = self.box_url()?;
         {
             let mut query = url.query_pairs_mut();
@@ -106,22 +91,22 @@ impl CertService for CertClient {
         send_json(&self.client, Method::GET, url, Option::<&()>::None).await
     }
 
-    async fn get_cert(&self, id: &str) -> Result<CertListResponse, RbsAdminClientError> {
+    pub async fn get_cert(&self, id: &str) -> Result<CertListResponse, RbsAdminClientError> {
         let url = self.item_url(id)?;
         send_json(&self.client, Method::GET, url, Option::<&()>::None).await
     }
 
-    async fn create_cert(&self, request: &CertCreateRequest) -> Result<CertMutationResponse, RbsAdminClientError> {
+    pub async fn create_cert(&self, request: &CertCreateRequest) -> Result<CertMutationResponse, RbsAdminClientError> {
         let url = self.box_url()?;
         send_json(&self.client, Method::POST, url, Some(request)).await
     }
 
-    async fn update_cert(&self, request: &CertUpdateRequest) -> Result<CertMutationResponse, RbsAdminClientError> {
+    pub async fn update_cert(&self, request: &CertUpdateRequest) -> Result<CertMutationResponse, RbsAdminClientError> {
         let url = self.box_url()?;
         send_json(&self.client, Method::PUT, url, Some(request)).await
     }
 
-    async fn delete_certs(&self, request: &CertDeleteRequest) -> Result<(), RbsAdminClientError> {
+    pub async fn delete_certs(&self, request: &CertDeleteRequest) -> Result<(), RbsAdminClientError> {
         let url = self.box_url()?;
         send_empty(&self.client, Method::DELETE, url, Some(request)).await
     }

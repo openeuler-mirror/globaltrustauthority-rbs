@@ -13,7 +13,6 @@
 use clap::{Args, Subcommand};
 use rbs_admin_client::attestation::cert::{
     CertClient, CertCreateRequest, CertDeleteRequest, CertListParams, CertListResponse, CertMutationResponse,
-    CertService,
 };
 use rbs_admin_client::AdminClient;
 use rbs_api_types::AttestationDeleteType;

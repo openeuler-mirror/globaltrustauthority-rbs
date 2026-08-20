@@ -11,7 +11,7 @@
  */
 
 use rbs_admin_client::attestation::cert::{
-    CertClient, CertCreateRequest, CertDeleteRequest, CertListParams, CertService, CertUpdateRequest,
+    CertClient, CertCreateRequest, CertDeleteRequest, CertListParams, CertUpdateRequest,
 };
 use rbs_admin_client::AdminClient;
 use rbs_api_types::AttestationDeleteType;

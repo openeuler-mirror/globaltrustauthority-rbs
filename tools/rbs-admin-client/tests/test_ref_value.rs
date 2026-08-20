@@ -11,8 +11,7 @@
  */
 
 use rbs_admin_client::attestation::ref_value::{
-    RefValueClient, RefValueCreateRequest, RefValueDeleteRequest, RefValueListParams, RefValueService,
-    RefValueUpdateRequest,
+    RefValueClient, RefValueCreateRequest, RefValueDeleteRequest, RefValueListParams, RefValueUpdateRequest,
 };
 use rbs_admin_client::AdminClient;
 use rbs_api_types::AttestationDeleteType;

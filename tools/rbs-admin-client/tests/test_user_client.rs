@@ -10,7 +10,7 @@
  * See the Mulan PSL v2 for more details.
  */
 
-use rbs_admin_client::{AdminClient, UserClient, UserService};
+use rbs_admin_client::{AdminClient, UserClient};
 use rbs_api_types::{AuthType, Role, UserCreateRequest, UserListQuery, UserUpdateRequest};
 
 fn unusable_admin_client() -> AdminClient {
@@ -50,13 +50,12 @@ async fn user_client_reports_argument_and_url_failures() {
         "failed to build users collection URL"
     );
     assert_eq!(client.get(" ").await.expect_err("blank get should fail").to_string(), "username must not be empty");
-    assert_eq!(client.delete("").await.expect_err("blank delete should fail").to_string(), "username must not be empty");
     assert_eq!(
-        client
-            .update("ops", &update)
-            .await
-            .expect_err("update should fail")
-            .to_string(),
+        client.delete("").await.expect_err("blank delete should fail").to_string(),
+        "username must not be empty"
+    );
+    assert_eq!(
+        client.update("ops", &update).await.expect_err("update should fail").to_string(),
         "base URL cannot be used to build user item path"
     );
 }
