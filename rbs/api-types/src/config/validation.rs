@@ -15,9 +15,9 @@
 use super::{
     AdminConfig, AdminKeyConfig, AttestTokenVerificationConfig, AttestationBackendConfig,
     AttestationBackendMode, AttestationConfig, AttestationCredentials, AttestationRestConfig,
-    AuthConfig, BearerTokenVerificationConfig, Database, LogRotationConfig, LoggingConfig,
-    PerIpRateLimitConfig, PolicyLimitsConfig, ResourceProviderConfig,
-    ResourceProvidersConfig, RbsConfig, RestConfig,
+    AuthConfig, BearerTokenVerificationConfig, CaConfig, Database, HsmConfig,
+    LogRotationConfig, LoggingConfig, PerIpRateLimitConfig, PolicyLimitsConfig,
+    ResourceProviderConfig, ResourceProvidersConfig, RbsConfig, RestConfig, VaultConfig,
 };
 
 /// Maximum allowed file mode (octal). Files cannot have permissions beyond 0o7777
@@ -165,9 +165,6 @@ const BEARER_CLAIM_MAX_LEN: usize = 256;
 // =============================================================================
 // ResourceProviderConfig limits
 // =============================================================================
-
-/// Valid resource backend types. Only "vault" is implemented.
-const RESOURCE_BACKEND_TYPES_VALID: [&str; 1] = ["vault"];
 
 /// Valid Vault KV engine versions.
 const RESOURCE_KV_VERSIONS_VALID: [&str; 2] = ["v1", "v2"];
@@ -691,12 +688,16 @@ impl PolicyLimitsConfig {
 
 impl ResourceProviderConfig {
     fn validate(&self, name: &str) {
-        if !RESOURCE_BACKEND_TYPES_VALID.contains(&self.backend_type.as_str()) {
-            panic!(
-                "resource.backends['{}'].type = '{}' is invalid; must be one of {:?}",
-                name, self.backend_type, RESOURCE_BACKEND_TYPES_VALID
-            );
+        match self {
+            ResourceProviderConfig::Vault(cfg) => cfg.validate(name),
+            ResourceProviderConfig::Ca(cfg) => cfg.validate(name),
+            ResourceProviderConfig::Hsm(cfg) => cfg.validate(name),
         }
+    }
+}
+
+impl VaultConfig {
+    fn validate(&self, name: &str) {
         if self.url.is_empty() {
             panic!("resource.backends['{}'].url must not be empty", name);
         }
@@ -750,6 +751,115 @@ impl ResourceProviderConfig {
             panic!(
                 "resource.backends['{}'].max_response_body_bytes = {} is out of range [{}, {}]",
                 name, self.max_response_body_bytes, RESOURCE_RESPONSE_BODY_BYTES_MIN, RESOURCE_RESPONSE_BODY_BYTES_MAX
+            );
+        }
+        if self.allowed_resource_types.is_empty() {
+            panic!(
+                "resource.backends['{}'].allowed_resource_types must not be empty",
+                name
+            );
+        }
+    }
+}
+
+impl CaConfig {
+    fn validate(&self, name: &str) {
+        if self.url.is_empty() {
+            panic!("resource.backends['{}'].url must not be empty", name);
+        }
+        if !self.url.starts_with("http://") && !self.url.starts_with("https://") {
+            panic!(
+                "resource.backends['{}'].url must start with http:// or https://, got '{}'",
+                name, self.url
+            );
+        }
+        if self.message_protection_cert_file.is_empty() {
+            panic!(
+                "resource.backends['{}'].message_protection_cert_file must not be empty",
+                name
+            );
+        }
+        if self.message_protection_key_file.is_empty() {
+            panic!(
+                "resource.backends['{}'].message_protection_key_file must not be empty",
+                name
+            );
+        }
+        if self.response_protection_trust_anchors_file.is_empty() {
+            panic!(
+                "resource.backends['{}'].response_protection_trust_anchors_file must not be empty",
+                name
+            );
+        }
+        if self.allowed_resource_types.is_empty() {
+            panic!(
+                "resource.backends['{}'].allowed_resource_types must not be empty",
+                name
+            );
+        }
+        if self.max_response_bytes == 0 {
+            panic!(
+                "resource.backends['{}'].max_response_bytes must be > 0",
+                name
+            );
+        }
+        if self.timeout < RESOURCE_TIMEOUT_SECS_MIN || self.timeout > RESOURCE_TIMEOUT_SECS_MAX {
+            panic!(
+                "resource.backends['{}'].timeout = {} is out of range [{}, {}]",
+                name, self.timeout, RESOURCE_TIMEOUT_SECS_MIN, RESOURCE_TIMEOUT_SECS_MAX
+            );
+        }
+        if self.idempotency.max_entries == 0 {
+            panic!(
+                "resource.backends['{}'].idempotency.max_entries must be > 0",
+                name
+            );
+        }
+        if self.idempotency.ttl_seconds == 0 {
+            panic!(
+                "resource.backends['{}'].idempotency.ttl_seconds must be > 0",
+                name
+            );
+        }
+    }
+}
+
+impl HsmConfig {
+    fn validate(&self, name: &str) {
+        if self.module_path.is_empty() {
+            panic!(
+                "resource.backends['{}'].module_path must not be empty",
+                name
+            );
+        }
+        if self.slot.label.is_empty() {
+            panic!(
+                "resource.backends['{}'].slot.label must not be empty",
+                name
+            );
+        }
+        if self.credentials.pin_env.is_empty() {
+            panic!(
+                "resource.backends['{}'].credentials.pin_env must not be empty",
+                name
+            );
+        }
+        if self.allowed_resource_types.is_empty() {
+            panic!(
+                "resource.backends['{}'].allowed_resource_types must not be empty",
+                name
+            );
+        }
+        if self.max_key_bytes == 0 {
+            panic!(
+                "resource.backends['{}'].max_key_bytes must be > 0",
+                name
+            );
+        }
+        if self.timeout < RESOURCE_TIMEOUT_SECS_MIN || self.timeout > RESOURCE_TIMEOUT_SECS_MAX {
+            panic!(
+                "resource.backends['{}'].timeout = {} is out of range [{}, {}]",
+                name, self.timeout, RESOURCE_TIMEOUT_SECS_MIN, RESOURCE_TIMEOUT_SECS_MAX
             );
         }
     }
@@ -1365,7 +1475,7 @@ unknown_field: {}
 
         // Explicit override alongside backends.
         let y = "rest: {}\nlogging:\n  level: info\n\
-resource:\n  max_per_user: 25\n  backends:\n    vault:\n      type: vault\n      url: http://localhost:8200\n      token: s.0123456789abcdef0123456789abcdef\n      mount_path: secret\n";
+resource:\n  max_per_user: 25\n  backends:\n    vault:\n      type: vault\n      url: http://localhost:8200\n      token: s.0123456789abcdef0123456789abcdef\n      mount_path: secret\n      allowed_resource_types: [secret]\n";
         let c: RbsConfig = serde_yaml::from_str(y).unwrap();
         assert_eq!(c.resource.as_ref().unwrap().max_per_user, 25);
     }
@@ -1374,7 +1484,7 @@ resource:\n  max_per_user: 25\n  backends:\n    vault:\n      type: vault\n     
     #[should_panic(expected = "resource.max_per_user")]
     fn resource_max_per_user_out_of_range_panics() {
         let y = "rest: {}\nlogging:\n  level: info\n\
-resource:\n  max_per_user: 101\n  backends:\n    vault:\n      type: vault\n      url: http://localhost:8200\n      token: s.0123456789abcdef0123456789abcdef\n      mount_path: secret\n";
+resource:\n  max_per_user: 101\n  backends:\n    vault:\n      type: vault\n      url: http://localhost:8200\n      token: s.0123456789abcdef0123456789abcdef\n      mount_path: secret\n      allowed_resource_types: [secret]\n";
         let c: RbsConfig = serde_yaml::from_str(y).unwrap();
         c.resource.as_ref().unwrap().validate();
     }
@@ -1412,9 +1522,8 @@ resource:\n  max_per_user: 101\n  backends:\n    vault:\n      type: vault\n    
         c.validate(); // must not panic
     }
 
-    fn valid_resource_backend() -> ResourceProviderConfig {
-        ResourceProviderConfig {
-            backend_type: "vault".to_string(),
+    fn valid_vault_config() -> VaultConfig {
+        VaultConfig {
             url: "https://vault:8200".to_string(),
             token: super::super::Sensitive::new(String::new()),
             mount_path: "secret".to_string(),
@@ -1423,8 +1532,13 @@ resource:\n  max_per_user: 101\n  backends:\n    vault:\n      type: vault\n    
             timeout: 30,
             max_connections: 100,
             max_retries: 2,
-            ..Default::default()
+            max_response_body_bytes: 1 * 1024 * 1024,
+            allowed_resource_types: vec!["secret".to_string(), "cert".to_string()],
         }
+    }
+
+    fn valid_resource_backend() -> ResourceProviderConfig {
+        ResourceProviderConfig::Vault(valid_vault_config())
     }
 
     #[test]
@@ -1435,55 +1549,55 @@ resource:\n  max_per_user: 101\n  backends:\n    vault:\n      type: vault\n    
     #[test]
     #[should_panic(expected = "max_response_body_bytes")]
     fn resource_provider_response_body_below_min_panics() {
-        let mut b = valid_resource_backend();
-        b.max_response_body_bytes = 100;
-        b.validate("vault");
+        let mut cfg = valid_vault_config();
+        cfg.max_response_body_bytes = 100;
+        ResourceProviderConfig::Vault(cfg).validate("vault");
     }
 
     #[test]
     #[should_panic(expected = "max_response_body_bytes")]
     fn resource_provider_response_body_above_max_panics() {
-        let mut b = valid_resource_backend();
-        b.max_response_body_bytes = 20 * 1024 * 1024;
-        b.validate("vault");
+        let mut cfg = valid_vault_config();
+        cfg.max_response_body_bytes = 20 * 1024 * 1024;
+        ResourceProviderConfig::Vault(cfg).validate("vault");
     }
 
     #[test]
     fn resource_provider_response_body_default_is_1mib() {
-        let b = valid_resource_backend();
-        assert_eq!(b.max_response_body_bytes, 1 * 1024 * 1024);
-    }
-
-    #[test]
-    #[should_panic(expected = ".type = 'etcd' is invalid")]
-    fn resource_provider_rejects_bad_type() {
-        let mut b = valid_resource_backend();
-        b.backend_type = "etcd".to_string();
-        b.validate("vault");
+        let cfg = valid_vault_config();
+        assert_eq!(cfg.max_response_body_bytes, 1 * 1024 * 1024);
     }
 
     #[test]
     #[should_panic(expected = ".url must start with http")]
     fn resource_provider_rejects_bad_url_scheme() {
-        let mut b = valid_resource_backend();
-        b.url = "ftp://vault:8200".to_string();
-        b.validate("vault");
+        let mut cfg = valid_vault_config();
+        cfg.url = "ftp://vault:8200".to_string();
+        ResourceProviderConfig::Vault(cfg).validate("vault");
     }
 
     #[test]
     #[should_panic(expected = ".kv_version = 'v9' is invalid")]
     fn resource_provider_rejects_bad_kv_version() {
-        let mut b = valid_resource_backend();
-        b.kv_version = "v9".to_string();
-        b.validate("vault");
+        let mut cfg = valid_vault_config();
+        cfg.kv_version = "v9".to_string();
+        ResourceProviderConfig::Vault(cfg).validate("vault");
     }
 
     #[test]
     #[should_panic(expected = ".timeout = 0 is out of range")]
     fn resource_provider_rejects_timeout_out_of_range() {
-        let mut b = valid_resource_backend();
-        b.timeout = 0;
-        b.validate("vault");
+        let mut cfg = valid_vault_config();
+        cfg.timeout = 0;
+        ResourceProviderConfig::Vault(cfg).validate("vault");
+    }
+
+    #[test]
+    #[should_panic(expected = "allowed_resource_types must not be empty")]
+    fn resource_provider_rejects_empty_allowed_types() {
+        let mut cfg = valid_vault_config();
+        cfg.allowed_resource_types = vec![];
+        ResourceProviderConfig::Vault(cfg).validate("vault");
     }
 
     #[test]

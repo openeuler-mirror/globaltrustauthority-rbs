@@ -58,6 +58,7 @@ async fn test_res_create_003_only_required_fields() {
         content_type: None,
         export_mode: None,
         additional_info: None,
+        content: None,
     };
 
     let result = svc.create(&ctx, TEST_URI, &req).await;
@@ -207,6 +208,7 @@ async fn test_res_update_003_optional_fields_take_existing() {
         content_type: None,
         export_mode: None,
         additional_info: None,
+        content: None,
     };
 
     let result = svc.update(&ctx, TEST_URI, &req).await;

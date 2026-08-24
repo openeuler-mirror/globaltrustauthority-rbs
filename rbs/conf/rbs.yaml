@@ -99,7 +99,7 @@ resource:
   max_per_user: 10   # max resources per user; create rejected when count reaches this limit (1..=100)
   backends:
     vault:
-      type: vault                 # whitelist ["vault"]; other values fail-fast at startup
+      type: vault                 # whitelist ["vault","ca","hsm"]; other values fail-fast at startup
       url: "https://127.0.0.1:8200"  # must start with http:// or https://, length ≤ 2048
       token: "${VAULT_TOKEN}"     # Vault access token; Sensitive (redacted in logs, zeroized on drop)
       mount_path: "secret"        # secrets engine mount path; non-empty, length ≤ 128
@@ -108,4 +108,35 @@ resource:
       timeout: 30                 # request timeout in seconds; range [1, 3600]
       max_connections: 100        # connection count; range [1, 10000]
       max_retries: 2              # retry count on failure; ≤ 100
+      allowed_resource_types: ["secret", "cert"]  # resource type whitelist for this backend
+
+    # HSM (PKCS#11) backend — stores key material as opaque blobs in an HSM token.
+    hsm:
+      type: hsm                                          # backend type; must be in ["vault","ca","hsm"]
+      module_path: "/usr/lib/softhsm/libsofthsm2.so"    # PKCS#11 .so path; loaded via C_Initialize at startup
+      slot:
+        label: "rbs_slot"                                # slot label; matched via C_GetSlotList
+      credentials:
+        pin_env: "RBS_HSM_PIN"                           # PIN read from env var, not inlined in config
+      allowed_resource_types: ["key", "secret"]          # resource type whitelist for this backend
+      max_key_bytes: 65536                               # max content size in bytes
+      timeout: 30                                         # session pool wait and single PKCS#11 call timeout (seconds)
+
+    # CA (CMPv2) backend — issues X.509 certificates via CMP protocol.
+    ca:
+      type: ca                                                # backend type; must be in ["vault","ca","hsm"]
+      url: "https://ca:8443/cmp"                              # CMP endpoint URL; HTTP POST
+      https:
+        verify: true                                          # TLS verification; production must be true
+        ca_file: "/etc/rbs/ca-server.pem"                     # custom CA bundle; empty = use system default
+      message_protection_cert_file: "/etc/rbs/cmp-client.crt" # CMP PKI Protection signing certificate
+      message_protection_key_file: "/etc/rbs/cmp-client.key"  # CMP PKI Protection signing private key
+      response_protection_trust_anchors_file: "/etc/rbs/ca-anchors.pem"  # CMP response verification trust anchors
+      cert_profile: "smime"                               # cert profile name in PKIHeader generalInfo (id-it-certProfile); empty = omit, CA must default
+      allowed_resource_types: ["cert"]                  # resource type whitelist for this backend
+      max_response_bytes: 1048576                             # max CMP response size; default 1 MiB
+      timeout: 30                                             # HTTP POST timeout in seconds
+      idempotency:
+        max_entries: 1000                                     # idempotency LRU cache capacity
+        ttl_seconds: 300                                      # idempotency TTL in seconds
 

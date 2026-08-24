@@ -21,6 +21,7 @@ pub mod policy_engine;
 pub mod resource;
 
 use std::sync::Arc;
+use rbs_api_types::config::ResourceProviderConfig;
 
 pub mod system;
 
@@ -147,14 +148,29 @@ impl RbsCoreBuilder {
             resource_config.max_per_user = rp_config.max_per_user;
             resource_config.configured_backends = rp_config.backends.keys().cloned().collect();
             for (name, backend_cfg) in &rp_config.backends {
-                if backend_cfg.backend_type == "vault" {
-                    let vault = resource::adapter::VaultBackend::new(backend_cfg);
-                    backend_provider.register(name, Arc::new(vault));
-                    log::info!("Registered resource backend '{}' (type=vault, url={})",
-                        name, backend_cfg.url);
-                } else {
-                    log::warn!("Unknown resource backend type '{}' for backend '{}'",
-                        backend_cfg.backend_type, name);
+                match backend_cfg {
+                    ResourceProviderConfig::Vault(vault_cfg) => {
+                        let vault = resource::adapter::VaultBackend::new(vault_cfg)
+                            .unwrap_or_else(|e| panic!("Failed to initialize Vault backend '{name}': {e}"));
+                        resource_config.per_backend_allowed_types.insert(name.clone(), vault_cfg.allowed_resource_types.clone());
+                        backend_provider.register(name, Arc::new(vault));
+                        log::info!("Registered resource backend '{}' (type=vault, url={})",
+                            name, vault_cfg.url);
+                    }
+                    ResourceProviderConfig::Ca(ca_cfg) => {
+                        let ca = resource::adapter::CABackend::new(ca_cfg)
+                            .unwrap_or_else(|e| panic!("Failed to initialize CA backend '{name}': {e}"));
+                        resource_config.per_backend_allowed_types.insert(name.clone(), ca_cfg.allowed_resource_types.clone());
+                        backend_provider.register(name, Arc::new(ca));
+                        log::info!("Registered resource backend '{}' (type=ca)", name);
+                    }
+                    ResourceProviderConfig::Hsm(hsm_cfg) => {
+                        let hsm = resource::adapter::HsmBackend::new(hsm_cfg)
+                            .unwrap_or_else(|e| panic!("Failed to initialize HSM backend '{name}': {e}"));
+                        resource_config.per_backend_allowed_types.insert(name.clone(), hsm_cfg.allowed_resource_types.clone());
+                        backend_provider.register(name, Arc::new(hsm));
+                        log::info!("Registered resource backend '{}' (type=hsm)", name);
+                    }
                 }
             }
         }

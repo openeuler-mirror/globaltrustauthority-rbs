@@ -7,14 +7,41 @@ use crate::auth::authz::{Action, RequiredRole};
 use crate::auth::authz_checker::AuthzChecker;
 use crate::auth::context::{AttestContext, AuthContext};
 
-use super::adapter::{BackendProvider, PolicyClient};
+use super::adapter::{BackendCapabilities, BackendProvider, PolicyClient};
 use super::error::ResourceError;
 use super::repository::ResourceRepository;
-use super::validator::ResourceValidator;
+use super::validator::{ParsedUri, ResourceValidator};
 use super::{
     CreateResourceRequest, ResourceContentResponse, ResourceResponse,
     UpdateResourceRequest, ATTEST_TEE_PUBKEY_KEY, BEARER_ENC_PUBKEY_KEY,
 };
+
+/// Build a ResourceDesc (addressing) from parsed URI segments.
+fn build_resource_desc(parsed: &ParsedUri) -> rbs_api_types::ResourceDesc {
+    rbs_api_types::ResourceDesc {
+        repository_name: parsed.repository_name.clone(),
+        resource_type: parsed.resource_type.clone(),
+        resource_name: parsed.resource_name.clone(),
+    }
+}
+
+/// Build GetResourceOptions: extract CSR from Attest claims if present (data-driven).
+/// CSR path: `attester_data.runtime_data.csr` (DER Base64), mirroring the TEE-pubkey
+/// extraction path used for JWE encryption (SR-001 §4.2).
+fn build_get_options(ctx: &AuthContext) -> rbs_api_types::GetResourceOptions {
+    let csr_der = match ctx {
+        AuthContext::Attest(attest_ctx) => {
+            attest_ctx.claims.get("attester_data")
+                .and_then(|ad| ad.get("runtime_data"))
+                .and_then(|rd| rd.get("csr"))
+                .and_then(|v| v.as_str())
+                .and_then(|s| base64::engine::general_purpose::STANDARD.decode(s).ok())
+                .map(zeroize::Zeroizing::new)
+        }
+        _ => None,
+    };
+    rbs_api_types::GetResourceOptions { csr_der }
+}
 
 /// ResourceService - single struct holding all dependencies.
 pub struct ResourceService {
@@ -78,11 +105,19 @@ impl ResourceService {
                 log::error!("Resource create failed: backend '{}' not found", parsed.res_provider);
                 ResourceError::BackendUnsupported { provider: parsed.res_provider.clone() }
             })?;
-        if !backend.check_resource_exists(uri).await? {
-            log::error!("Resource create denied: resource '{}' not found in backend", uri);
-            return Err(ResourceError::BackendNotFound);
-        }
 
+        // Decode content if present; backend decides what to do with it.
+        let mut content_bytes: Option<Vec<u8>> = match req.content.as_ref() {
+            Some(s) => Some(base64::engine::general_purpose::STANDARD.decode(s).map_err(|e| {
+                log::error!("Resource create denied: content base64 decode failed: {}", e);
+                ResourceError::ParamInvalid { field: "content" }
+            })?),
+            None => None,
+        };
+
+        // Build the backend addressing descriptor BEFORE constructing the
+        // entity (entity moves `parsed.resource_name`).
+        let desc = build_resource_desc(&parsed);
         let now = chrono::Utc::now().timestamp_millis();
         let entity = super::repository::ResourceEntity {
             username: username.to_string(), provider_name: parsed.res_provider,
@@ -92,10 +127,61 @@ impl ResourceService {
             export_mode: req.export_mode.clone().unwrap_or_else(|| "jwe".to_string()),
             policy_id: req.policy_id.clone(),
         };
-        // Atomic duplicate-check + per-user count-limit + insert under one
-        // transaction and a per-user row lock, so concurrent same-user creates
-        // cannot exceed max_per_user (precise on both MySQL and SQLite).
-        self.repo.create_with_user_limit_check(uri, &entity, self.validator.max_per_user()).await?;
+
+        // DB-first reservation (module_interfaces.md §3.2, "失败可补偿 delete DB row"):
+        // the atomic duplicate-check + per-user count + insert runs BEFORE any
+        // backend mutation. A concurrent create for the same URI fails here
+        // with AlreadyExists *without* touching the backend, so the loser can
+        // neither orphan nor clobber the winner's backend object — closing the
+        // TOCTOU window of the old "put-then-insert-then-delete-object" flow.
+        if let Err(e) = self.repo
+            .create_with_user_limit_check(uri, &entity, self.validator.max_per_user())
+            .await
+        {
+            log::error!("Resource create failed: db insert error for uri '{}': {}", uri, e);
+            if let Some(c) = content_bytes.as_mut() { c.zeroize(); }
+            return Err(e);
+        }
+
+        let caps = backend.capabilities();
+        // Backend dispatch AFTER the DB row is committed (DB is the single
+        // source of truth). Failure rolls back the reserved DB row, never the
+        // backend object — which may be externally managed (Vault/CHECK) or, for
+        // PUT backends, is rebuilt on retry rather than blindly destroyed.
+        let backend_result: Result<(), ResourceError> = async {
+            // Capability-gated backend dispatch (module_interfaces.md §3.2):
+            //   PUT    → put_resource_content (replace)
+            //   CHECK  → must already exist
+            //   neither → metadata-only (e.g. CA get-only)
+            if caps.contains(BackendCapabilities::PUT) {
+                if let Some(ref content) = content_bytes {
+                    backend.put_resource_content(&desc, content).await.map_err(|e| {
+                        log::error!("Resource create failed: backend put error for uri '{}': {}", uri, e);
+                        e
+                    })?;
+                }
+            } else if caps.contains(BackendCapabilities::CHECK) {
+                let exists = backend.check_resource_exists(&desc).await?;
+                if !exists {
+                    log::error!("Resource create denied: backend object '{}' not found", uri);
+                    return Err(ResourceError::BackendNotFound);
+                }
+            }
+            Ok(())
+        }.await;
+        if let Err(e) = backend_result {
+            // Compensate: remove the reserved DB row (NOT the backend object).
+            let _ = self.repo.delete(uri, &entity.username).await;
+            log::error!(
+                "Resource create rolled back DB row for uri '{}': backend error {}",
+                uri, e
+            );
+            if let Some(c) = content_bytes.as_mut() { c.zeroize(); }
+            return Err(e);
+        }
+        // D7: zeroize content after backend call regardless of success/failure
+        if let Some(c) = content_bytes.as_mut() { c.zeroize(); }
+
         log::info!("Resource created: uri='{}', user='{}', policy_id='{}'", uri, username, req.policy_id);
         Ok(ResourceResponse {
             uri: uri.to_string(), provider_name: entity.provider_name,
@@ -107,6 +193,8 @@ impl ResourceService {
             additional_info: entity.res_info,
         })
     }
+
+    /// Backend dispatch for the create flow, run AFTER the DB row is reserved.
 
     // ── PUT - update ──────────────────────────────────────────────────
 
@@ -160,18 +248,48 @@ impl ResourceService {
                 log::error!("Resource update failed: backend '{}' not found", parsed.res_provider);
                 ResourceError::BackendUnsupported { provider: parsed.res_provider.clone() }
             })?;
-        if !backend.check_resource_exists(uri).await? {
-            log::error!("Resource update denied: resource '{}' not found in backend", uri);
-            return Err(ResourceError::BackendNotFound);
+
+        // Decode content if present; backend decides what to do (CA rejects, HSM puts, Vault ignores).
+        let mut content_bytes: Option<Vec<u8>> = match req.content.as_ref() {
+            Some(s) => Some(base64::engine::general_purpose::STANDARD.decode(s).map_err(|e| {
+                log::error!("Resource update denied: content base64 decode failed: {}", e);
+                ResourceError::ParamInvalid { field: "content" }
+            })?),
+            None => None,
+        };
+        let desc = build_resource_desc(&parsed);
+        // Ownership check MUST precede any backend write: otherwise an
+        // attacker with a valid policy could overwrite another user's HSM
+        // object before the 403 is returned.
+        if let Some(ref existing_entity) = existing {
+            if existing_entity.username != username {
+                log::error!(
+                    "Resource update denied: user '{}' cannot update resource '{}' owned by '{}'",
+                    username, uri, existing_entity.username
+                );
+                return Err(ResourceError::PermissionDenied);
+            }
+        }
+
+        let caps = backend.capabilities();
+        // Parameter pre-check: content present but backend cannot store it →
+        // reject before any DB or backend mutation (no reservation to roll back).
+        if content_bytes.is_some() && !caps.contains(BackendCapabilities::PUT) {
+            log::error!(
+                "Resource update denied: backend '{}' cannot store content for uri '{}'",
+                parsed.res_provider, uri
+            );
+            if let Some(c) = content_bytes.as_mut() { c.zeroize(); }
+            return Err(ResourceError::BackendOperationUnsupported);
         }
 
         let now = chrono::Utc::now().timestamp_millis();
 
         if let Some(existing_entity) = existing {
-            if existing_entity.username != username {
-                log::error!("Resource update denied: user '{}' cannot update resource '{}' owned by '{}'", username, uri, existing_entity.username);
-                return Err(ResourceError::PermissionDenied);
-            }
+            // Snapshot the pre-update state so the DB update can be rolled
+            // back if the backend put fails (DB is the single source of
+            // truth: commit the version first, mutate the backend second).
+            let existing_snapshot = existing_entity.clone();
             let updated = super::repository::ResourceEntity {
                 username: existing_entity.username, provider_name: existing_entity.provider_name,
                 repo_name: existing_entity.repo_name, res_type: existing_entity.res_type,
@@ -182,15 +300,55 @@ impl ResourceService {
                 export_mode: req.export_mode.clone().unwrap_or(existing_entity.export_mode),
                 policy_id: effective_policy_id.clone(),
             };
-            let old_update_time = existing_entity.updated_at;
+            // DB-first: claim the version via optimistic lock. A concurrent
+            // update for the same URI fails here (affected==0) WITHOUT
+            // touching the backend, so the loser can neither clobber the
+            // winner's object nor leave the DB ahead of the backend.
+            let old_update_time = existing_snapshot.updated_at;
             let affected = self.repo.update(uri, &updated, old_update_time).await?;
             if affected == 0 {
                 log::error!("Resource update conflict: uri='{}', expected version mismatch", uri);
+                if let Some(c) = content_bytes.as_mut() { c.zeroize(); }
                 return Err(ResourceError::VersionConflict);
             }
+            // Backend put AFTER the version is claimed. Failure rolls back the
+            // DB row to the pre-update state (NOT the backend object, which is
+            // still the old one because the put never succeeded).
+            if let Some(ref content) = content_bytes {
+                if let Err(e) = backend.put_resource_content(&desc, content).await {
+                    // Roll back: restore the prior row, using `now` (the
+                    // updated_at we just wrote) as the optimistic-lock baseline.
+                    let rollback = super::repository::ResourceEntity {
+                        username: existing_snapshot.username,
+                        provider_name: existing_snapshot.provider_name,
+                        repo_name: existing_snapshot.repo_name,
+                        res_type: existing_snapshot.res_type,
+                        res_name: existing_snapshot.res_name,
+                        res_info: existing_snapshot.res_info,
+                        created_at: existing_snapshot.created_at,
+                        updated_at: existing_snapshot.updated_at,
+                        content_type: existing_snapshot.content_type,
+                        export_mode: existing_snapshot.export_mode,
+                        policy_id: existing_snapshot.policy_id,
+                    };
+                    let _ = self.repo.update(uri, &rollback, now).await;
+                    log::error!(
+                        "Resource update rolled back DB row for uri '{}': backend error {}",
+                        uri, e
+                    );
+                    if let Some(c) = content_bytes.as_mut() { c.zeroize(); }
+                    return Err(e);
+                }
+            }
+            // D7: zeroize content after backend call regardless of success/failure
+            if let Some(c) = content_bytes.as_mut() { c.zeroize(); }
             log::info!("Resource updated: uri='{}', user='{}'", uri, username);
             Ok((ResourceResponse { uri: uri.to_string(), provider_name: updated.provider_name, repository_name: updated.repo_name, resource_type: updated.res_type, resource_name: updated.res_name, created_at: millis_to_rfc3339(updated.created_at), updated_at: millis_to_rfc3339(updated.updated_at), content_type: updated.content_type, export_mode: updated.export_mode, policy_id: updated.policy_id, additional_info: updated.res_info }, false))
         } else {
+            // create-path: DB-first reservation, then backend put (mirrors
+            // `create`). A concurrent upsert for the same URI fails the atomic
+            // insert with AlreadyExists BEFORE touching the backend, so it can
+            // neither orphan nor clobber the winner's object.
             let entity = super::repository::ResourceEntity {
                 username: username.to_string(), provider_name: parsed.res_provider,
                 repo_name: parsed.repository_name, res_type: parsed.resource_type,
@@ -199,12 +357,29 @@ impl ResourceService {
                 export_mode: req.export_mode.clone().unwrap_or_else(|| "jwe".to_string()),
                 policy_id: effective_policy_id.clone(),
             };
-            // Atomic dup-check + per-user limit + insert under a per-user lock,
-            // closing the race where a concurrent create inserts between the
-            // find_by_uri above and the insert here.
-            self.repo
+            if let Err(e) = self.repo
                 .create_with_user_limit_check(uri, &entity, self.validator.max_per_user())
-                .await?;
+                .await
+            {
+                log::error!("Resource update (create path) failed: db insert error for uri '{}': {}", uri, e);
+                if let Some(c) = content_bytes.as_mut() { c.zeroize(); }
+                return Err(e);
+            }
+            // Backend put AFTER the DB row is committed. Failure rolls back
+            // the reserved DB row (NOT the backend object).
+            if let Some(ref content) = content_bytes {
+                if let Err(e) = backend.put_resource_content(&desc, content).await {
+                    let _ = self.repo.delete(uri, &entity.username).await;
+                    log::error!(
+                        "Resource update (create path) rolled back DB row for uri '{}': backend error {}",
+                        uri, e
+                    );
+                    if let Some(c) = content_bytes.as_mut() { c.zeroize(); }
+                    return Err(e);
+                }
+            }
+            // D7: zeroize content after backend call regardless of success/failure
+            if let Some(c) = content_bytes.as_mut() { c.zeroize(); }
             log::info!("Resource created via update: uri='{}', user='{}', policy_id='{}'", uri, username, effective_policy_id);
             Ok((ResourceResponse { uri: uri.to_string(), provider_name: entity.provider_name, repository_name: entity.repo_name, resource_type: entity.res_type, resource_name: entity.res_name, created_at: millis_to_rfc3339(entity.created_at), updated_at: millis_to_rfc3339(entity.updated_at), content_type: entity.content_type, export_mode: entity.export_mode, policy_id: entity.policy_id, additional_info: entity.res_info }, true))
         }
@@ -219,7 +394,7 @@ impl ResourceService {
             log::error!("Resource delete denied: permission denied for user '{}'", ctx.sub());
             ResourceError::PermissionDenied
         })?;
-        let _parsed = self.validator.validate_uri(uri).map_err(|e| {
+        let parsed = self.validator.validate_uri(uri).map_err(|e| {
             log::error!("Resource delete denied: URI validation failed: {}", e);
             e
         })?;
@@ -231,6 +406,22 @@ impl ResourceService {
             log::error!("Resource delete denied: user '{}' cannot delete resource '{}' owned by '{}'", ctx.sub(), uri, entity.username);
             return Err(ResourceError::PermissionDenied);
         }
+
+        // Capability-gated backend dispatch (module_interfaces.md §3.2):
+        // DELETE → backend.delete_resource then DB delete; otherwise DB only.
+        let backend = self.backend_provider.get_backend(&parsed.res_provider)
+            .ok_or_else(|| {
+                log::error!("Resource delete failed: backend '{}' not found", parsed.res_provider);
+                ResourceError::BackendUnsupported { provider: parsed.res_provider.clone() }
+            })?;
+        let desc = build_resource_desc(&parsed);
+        if backend.capabilities().contains(BackendCapabilities::DELETE) {
+            backend.delete_resource(&desc).await.map_err(|e| {
+                log::error!("Resource delete failed: backend delete error for uri '{}': {}", uri, e);
+                e
+            })?;
+        }
+
         self.repo.delete(uri, &entity.username).await?;
         log::info!("Resource deleted: uri='{}', user='{}'", uri, entity.username);
         Ok(())
@@ -259,7 +450,8 @@ impl ResourceService {
         let rego = self.policy_client.get_policy_content(&entity.policy_id).await?;
 
         // step 4: authorisation (AuthzFacade branches on token type internally)
-        self.authz.check_resource_get(ctx, &entity.username, &rego).await
+        // res_provider=Some: admin_policy.rego applies Bearer-deny for hsm/ca content GET
+        self.authz.check_resource_get(ctx, &entity.username, &rego, Some(&parsed.res_provider)).await
             .map_err(|_| {
                 log::error!("Resource get_content denied: user '{}' not authorized for uri '{}'", ctx.sub(), uri);
                 ResourceError::NotFound
@@ -271,7 +463,9 @@ impl ResourceService {
                 log::error!("Resource get_content failed: backend '{}' not found", parsed.res_provider);
                 ResourceError::BackendUnsupported { provider: parsed.res_provider.clone() }
             })?;
-        let mut raw_content = backend.get_resource_content(uri).await?;
+        let desc = build_resource_desc(&parsed);
+        let opts = build_get_options(ctx);
+        let mut raw_content = backend.get_resource_content(&desc, opts).await?;
         let content_type = entity.content_type.clone();
 
         // step 6: JWE encrypt + base64 encode
@@ -309,7 +503,8 @@ impl ResourceService {
     ) -> Result<ResourceResponse, ResourceError> {
         log::info!("Resource get_info requested: uri={}, user={}", uri, ctx.sub());
 
-        // step 1: parameter validation
+        // step 1: parameter validation (URI format checked; parsed segments not
+        // needed for authz since res_provider=None — info returns metadata only)
         let _parsed = self.validator.validate_uri(uri).map_err(|e| {
             log::error!("Resource get_info denied: URI validation failed: {}", e);
             e
@@ -325,7 +520,9 @@ impl ResourceService {
         let rego = self.policy_client.get_policy_content(&entity.policy_id).await?;
 
         // step 4: authorisation
-        self.authz.check_resource_get(ctx, &entity.username, &rego).await
+        // res_provider=None: get_info returns metadata only (no secret content),
+        // so admin_policy.rego Bearer-deny for hsm/ca must NOT apply (SR-001 §4.5).
+        self.authz.check_resource_get(ctx, &entity.username, &rego, None).await
             .map_err(|_| {
                 log::error!("Resource get_info denied: user '{}' not authorized for uri '{}'", ctx.sub(), uri);
                 ResourceError::NotFound
@@ -368,7 +565,7 @@ impl ResourceService {
 
         // step 4: authorisation — unified via AuthzChecker (Attest path evaluates rego)
         let auth_ctx = AuthContext::Attest(attest_ctx.clone());
-        self.authz.check_resource_get(&auth_ctx, &entity.username, &rego).await
+        self.authz.check_resource_get(&auth_ctx, &entity.username, &rego, Some(&parsed.res_provider)).await
             .map_err(|_| {
                 log::error!("Resource retrieve denied: attestation token not authorized for uri '{}'", uri);
                 ResourceError::NotFound
@@ -380,7 +577,9 @@ impl ResourceService {
                 log::error!("Resource retrieve failed: backend '{}' not found", parsed.res_provider);
                 ResourceError::BackendUnsupported { provider: parsed.res_provider.clone() }
             })?;
-        let mut raw_content = backend.get_resource_content(uri).await?;
+        let desc = build_resource_desc(&parsed);
+        let opts = build_get_options(&auth_ctx);
+        let mut raw_content = backend.get_resource_content(&desc, opts).await?;
         let content_type = entity.content_type.clone();
 
         // step 6: JWE encrypt + base64 encode

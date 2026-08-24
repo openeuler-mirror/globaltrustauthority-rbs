@@ -143,6 +143,7 @@ resource:
       url: "http://localhost:8200"
       token: "s.0123456789abcdef0123456789abcdef"
       mount_path: "secret"
+      allowed_resource_types: ["secret", "cert"]
 "#,
     )
     .expect("write config");
@@ -190,6 +191,7 @@ resource:
       url: "http://localhost:8200"
       token: "s.0123456789abcdef0123456789abcdef"
       mount_path: "secret"
+      allowed_resource_types: ["secret", "cert"]
 "#,
     )
     .expect("write config");
@@ -243,6 +245,7 @@ resource:
       timeout: 30
       max_connections: 100
       max_retries: 2
+      allowed_resource_types: ["secret", "cert"]
 "#,
     )
     .expect("write config");
@@ -294,6 +297,7 @@ resource:
       token: "s.x"
       mount_path: secret
       kv_version: v9
+      allowed_resource_types: ["secret", "cert"]
 "#,
     )
     .expect("write config");

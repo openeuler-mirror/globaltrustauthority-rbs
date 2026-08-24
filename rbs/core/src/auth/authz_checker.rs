@@ -31,7 +31,11 @@ pub trait AuthzChecker: Send + Sync {
     /// Check a resource GET operation.
     /// Bearer token → `owner` is used for ownership verification.
     /// Attest token → `policy` (Rego content) is evaluated against `ctx.claims`.
-    async fn check_resource_get(&self, ctx: &AuthContext, owner: &str, policy: &str) -> Result<(), AuthzError>;
+    /// `res_provider`: when `Some`, passed to the policy engine for backend-specific
+    /// gate rules (e.g. Bearer-deny for hsm/ca content GET). `None` disables the
+    /// backend gate (used by `get_info`, which returns metadata only — no secret
+    /// content is exposed, so the Bearer-deny rule must not apply).
+    async fn check_resource_get(&self, ctx: &AuthContext, owner: &str, policy: &str, res_provider: Option<&str>) -> Result<(), AuthzError>;
 }
 
 // ── Production implementation (delegates to AuthzFacade) ──────────────
@@ -53,7 +57,13 @@ impl AuthzChecker for AuthzCheckerImpl {
         self.facade.check(ctx).action(action).required_role(role).ensure_allowed().await
     }
 
-    async fn check_resource_get(&self, ctx: &AuthContext, owner: &str, policy: &str) -> Result<(), AuthzError> {
-        self.facade.check(ctx).action(Action::Get).required_role(RequiredRole::UserScoped).owner(owner).policy(policy).ensure_allowed().await
+    async fn check_resource_get(&self, ctx: &AuthContext, owner: &str, policy: &str, res_provider: Option<&str>) -> Result<(), AuthzError> {
+        let mut builder = self.facade.check(ctx)
+            .action(Action::Get)
+            .required_role(RequiredRole::UserScoped)
+            .owner(owner)
+            .policy(policy);
+        if let Some(rp) = res_provider { builder = builder.res_provider(rp); }
+        builder.ensure_allowed().await
     }
 }

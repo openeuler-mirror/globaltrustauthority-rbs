@@ -106,6 +106,28 @@ fn test_backend_error_http_status() {
 }
 
 // ===========================================================================
+// TC-E-01: New error variant http_status mappings (K8)
+// ===========================================================================
+
+/// UT-RE-101: BackendOperationUnsupported -> 400
+#[test]
+fn test_backend_operation_unsupported_http_status() {
+    assert_eq!(ResourceError::BackendOperationUnsupported.http_status(), 400);
+}
+
+/// UT-RE-102: CsrRequired -> 400
+#[test]
+fn test_csr_required_http_status() {
+    assert_eq!(ResourceError::CsrRequired.http_status(), 400);
+}
+
+/// UT-RE-103: CaRequestPending -> 202
+#[test]
+fn test_ca_request_pending_http_status() {
+    assert_eq!(ResourceError::CaRequestPending.http_status(), 202);
+}
+
+// ===========================================================================
 // external_message tests
 // ===========================================================================
 

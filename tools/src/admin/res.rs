@@ -164,6 +164,7 @@ async fn execute_res_command(cli: &ResCli, service: &ResourceClient) -> Result<B
                         additional_info: args.additional_info.clone(),
                         content_type: args.content_type.clone(),
                         export_mode: args.export_mode.clone(),
+                        content: None,
                     },
                 )
                 .await?;
@@ -178,6 +179,7 @@ async fn execute_res_command(cli: &ResCli, service: &ResourceClient) -> Result<B
                         additional_info: args.additional_info.clone(),
                         content_type: args.content_type.clone(),
                         export_mode: args.export_mode.clone(),
+                        content: None,
                     },
                 )
                 .await?;

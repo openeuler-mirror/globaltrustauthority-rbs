@@ -99,16 +99,16 @@ fn test_update_resource_request_policy_id_length_bounds() {
 
     // `policy_id` is optional on update, but when present the length bounds
     // (1..=36, mirroring the UUID-v4 policy id) must still be enforced.
-    let ok = UpdateResourceRequest { policy_id: None, content_type: None, export_mode: None, additional_info: None };
+    let ok = UpdateResourceRequest { policy_id: None, content_type: None, export_mode: None, additional_info: None, content: None };
     assert!(ok.validate().is_ok(), "None policy_id should pass");
 
-    let empty = UpdateResourceRequest { policy_id: Some(String::new()), content_type: None, export_mode: None, additional_info: None };
+    let empty = UpdateResourceRequest { policy_id: Some(String::new()), content_type: None, export_mode: None, additional_info: None, content: None };
     assert!(empty.validate().is_err(), "empty policy_id should fail min=1");
 
-    let too_long = UpdateResourceRequest { policy_id: Some("x".repeat(37)), content_type: None, export_mode: None, additional_info: None };
+    let too_long = UpdateResourceRequest { policy_id: Some("x".repeat(37)), content_type: None, export_mode: None, additional_info: None, content: None };
     assert!(too_long.validate().is_err(), "37-char policy_id should fail max=36");
 
-    let max = UpdateResourceRequest { policy_id: Some("x".repeat(36)), content_type: None, export_mode: None, additional_info: None };
+    let max = UpdateResourceRequest { policy_id: Some("x".repeat(36)), content_type: None, export_mode: None, additional_info: None, content: None };
     assert!(max.validate().is_ok(), "36-char policy_id should pass");
 }
 
@@ -131,4 +131,109 @@ fn test_resource_response() {
     assert_eq!(resp.repository_name, "repo1");
     assert_eq!(resp.export_mode, "jwe");
     assert_eq!(resp.policy_id, "pol-001");
+}
+
+// ── T6: tagged enum serde round-trip & defaults ──
+
+#[test]
+fn tc001_vault_variant_serde_roundtrip() {
+    use rbs_api_types::config::ResourceProviderConfig;
+    let json = serde_json::json!({
+        "type": "vault",
+        "url": "https://v:8200",
+        "token": "x",
+        "mount_path": "secret",
+        "allowed_resource_types": ["secret", "cert"]
+    });
+    let cfg: ResourceProviderConfig = serde_json::from_value(json).unwrap();
+    assert!(matches!(cfg, ResourceProviderConfig::Vault(_)));
+    let back = serde_json::to_value(&cfg).unwrap();
+    assert_eq!(back["type"], "vault");
+}
+
+#[test]
+fn tc002_ca_variant_serde_roundtrip() {
+    use rbs_api_types::config::ResourceProviderConfig;
+    let json = serde_json::json!({
+        "type": "ca",
+        "url": "https://ca:8080",
+        "message_protection_cert_file": "/c.crt",
+        "message_protection_key_file": "/c.key",
+        "response_protection_trust_anchors_file": "/a.pem",
+        "allowed_resource_types": ["cert"]
+    });
+    let cfg: ResourceProviderConfig = serde_json::from_value(json).unwrap();
+    assert!(matches!(cfg, ResourceProviderConfig::Ca(_)));
+    let back = serde_json::to_value(&cfg).unwrap();
+    assert_eq!(back["type"], "ca");
+}
+
+#[test]
+fn tc003_hsm_variant_serde_roundtrip() {
+    use rbs_api_types::config::ResourceProviderConfig;
+    let json = serde_json::json!({
+        "type": "hsm",
+        "module_path": "/softhsm.so",
+        "slot": {"label": "rbs"},
+        "credentials": {"pin_env": "RBS_HSM_PIN"},
+        "allowed_resource_types": ["key", "secret"]
+    });
+    let cfg: ResourceProviderConfig = serde_json::from_value(json).unwrap();
+    assert!(matches!(cfg, ResourceProviderConfig::Hsm(_)));
+    let back = serde_json::to_value(&cfg).unwrap();
+    assert_eq!(back["type"], "hsm");
+}
+
+#[test]
+fn tc025_caconfig_defaults() {
+    use rbs_api_types::config::{CaConfig, ResourceProviderConfig};
+    let json = serde_json::json!({
+        "type": "ca",
+        "url": "https://ca:8080",
+        "message_protection_cert_file": "/c.crt",
+        "message_protection_key_file": "/c.key",
+        "response_protection_trust_anchors_file": "/a.pem",
+        "allowed_resource_types": ["cert"]
+    });
+    let cfg: ResourceProviderConfig = serde_json::from_value(json).unwrap();
+    if let ResourceProviderConfig::Ca(ca) = cfg {
+        assert_eq!(ca.max_response_bytes, 1_048_576);
+        assert_eq!(ca.idempotency.max_entries, 1000);
+        assert_eq!(ca.idempotency.ttl_seconds, 300);
+        assert_eq!(ca.timeout, 30);
+    } else { panic!("expected Ca variant"); }
+}
+
+#[test]
+fn tc026_hsmconfig_pin_env_is_name() {
+    use rbs_api_types::config::{HsmConfig, ResourceProviderConfig};
+    let json = serde_json::json!({
+        "type": "hsm",
+        "module_path": "/softhsm.so",
+        "slot": {"label": "rbs"},
+        "credentials": {"pin_env": "RBS_HSM_PIN"},
+        "allowed_resource_types": ["key", "secret"]
+    });
+    let cfg: ResourceProviderConfig = serde_json::from_value(json).unwrap();
+    if let ResourceProviderConfig::Hsm(h) = cfg {
+        assert_eq!(h.credentials.pin_env, "RBS_HSM_PIN");
+        assert_eq!(h.max_key_bytes, 1_048_576);
+        assert_eq!(h.timeout, 30);
+    } else { panic!("expected Hsm variant"); }
+}
+
+#[test]
+fn tc027_unknown_type_rejected() {
+    use rbs_api_types::config::ResourceProviderConfig;
+    let json = serde_json::json!({"type": "etcd", "url": "x"});
+    let result: Result<ResourceProviderConfig, _> = serde_json::from_value(json);
+    assert!(result.is_err());
+}
+
+#[test]
+fn tc028_missing_type_rejected() {
+    use rbs_api_types::config::ResourceProviderConfig;
+    let json = serde_json::json!({"url": "https://v:8200"});
+    let result: Result<ResourceProviderConfig, _> = serde_json::from_value(json);
+    assert!(result.is_err());
 }

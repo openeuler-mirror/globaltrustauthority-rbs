@@ -19,13 +19,14 @@
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use base64::Engine;
 use serde_json::json;
 use zeroize::Zeroizing;
 
 use rbs_core::auth::authz::{Action, AuthzError, RequiredRole};
 use rbs_core::auth::authz_checker::AuthzChecker;
 use rbs_core::auth::context::{AttestContext, AuthContext, BearerContext, TokenType};
-use rbs_core::resource::adapter::{BackendProvider, PolicyClient, ResourceBackend};
+use rbs_core::resource::adapter::{BackendCapabilities, BackendProvider, PolicyClient, ResourceBackend};
 use rbs_core::resource::error::ResourceError;
 use rbs_core::resource::repository::{ResourceEntity, ResourceRepository};
 use rbs_core::resource::{
@@ -52,6 +53,10 @@ struct MockResourceRepository {
     count_by_user_result: Mutex<MockResult<usize>>,
     create_with_limit_check_result: Mutex<MockResult<()>>,
     find_by_policy_id_result: Mutex<MockResult<Vec<ResourceEntity>>>,
+    // Call counters
+    delete_call_count: Mutex<u32>,
+    create_with_limit_check_call_count: Mutex<u32>,
+    update_call_count: Mutex<u32>,
 }
 
 #[allow(dead_code)]
@@ -66,7 +71,22 @@ impl MockResourceRepository {
             count_by_user_result: Mutex::new(Ok(0)),
             create_with_limit_check_result: Mutex::new(Ok(())),
             find_by_policy_id_result: Mutex::new(Ok(vec![])),
+            delete_call_count: Mutex::new(0),
+            create_with_limit_check_call_count: Mutex::new(0),
+            update_call_count: Mutex::new(0),
         }
+    }
+
+    fn delete_call_count(&self) -> u32 {
+        *self.delete_call_count.lock().unwrap()
+    }
+
+    fn create_with_limit_check_call_count(&self) -> u32 {
+        *self.create_with_limit_check_call_count.lock().unwrap()
+    }
+
+    fn update_call_count(&self) -> u32 {
+        *self.update_call_count.lock().unwrap()
     }
 }
 
@@ -81,10 +101,12 @@ impl ResourceRepository for MockResourceRepository {
     }
 
     async fn update(&self, _uri: &str, _entity: &ResourceEntity, _old_update_time: i64) -> MockResult<u64> {
+        *self.update_call_count.lock().unwrap() += 1;
         self.update_result.lock().unwrap().clone()
     }
 
     async fn delete(&self, _uri: &str, _username: &str) -> MockResult<u64> {
+        *self.delete_call_count.lock().unwrap() += 1;
         self.delete_result.lock().unwrap().clone()
     }
 
@@ -99,6 +121,7 @@ impl ResourceRepository for MockResourceRepository {
     async fn create_with_user_limit_check(
         &self, _uri: &str, _entity: &ResourceEntity, _max_per_user: usize,
     ) -> MockResult<()> {
+        *self.create_with_limit_check_call_count.lock().unwrap() += 1;
         self.create_with_limit_check_result.lock().unwrap().clone()
     }
 
@@ -143,36 +166,130 @@ impl PolicyClient for MockPolicyClient {
 
 // ---------- MockResourceBackend ----------
 
+use std::sync::atomic::{AtomicU32, Ordering};
+
 struct MockResourceBackend {
-    check_exists_result: Mutex<MockResult<bool>>,
+    capabilities: Mutex<BackendCapabilities>,
     get_content_result: Mutex<MockResult<Zeroizing<Vec<u8>>>>,
+    put_result: Mutex<MockResult<()>>,
+    delete_result: Mutex<MockResult<()>>,
+    check_exists_result: Mutex<MockResult<bool>>,
+    // Call counters
+    put_call_count: Mutex<u32>,
+    delete_call_count: Mutex<u32>,
+    check_exists_call_count: Mutex<u32>,
+    get_content_call_count: Mutex<u32>,
+    // Capture last put content for zeroize verification
+    last_put_content: Mutex<Option<Vec<u8>>>,
+    // Sequence counter for order verification
+    seq_counter: AtomicU32,
 }
 
 #[allow(dead_code)]
 impl MockResourceBackend {
     fn new() -> Self {
         Self {
-            check_exists_result: Mutex::new(Ok(true)),
+            capabilities: Mutex::new(BackendCapabilities::PUT | BackendCapabilities::DELETE | BackendCapabilities::CHECK),
             get_content_result: Mutex::new(Ok(Zeroizing::new(vec![]))),
+            put_result: Mutex::new(Ok(())),
+            delete_result: Mutex::new(Ok(())),
+            check_exists_result: Mutex::new(Ok(true)),
+            put_call_count: Mutex::new(0),
+            delete_call_count: Mutex::new(0),
+            check_exists_call_count: Mutex::new(0),
+            get_content_call_count: Mutex::new(0),
+            last_put_content: Mutex::new(None),
+            seq_counter: AtomicU32::new(0),
         }
     }
 
     fn with_content(content: Vec<u8>) -> Self {
         Self {
-            check_exists_result: Mutex::new(Ok(true)),
             get_content_result: Mutex::new(Ok(Zeroizing::new(content))),
+            ..Self::new()
         }
+    }
+
+    fn with_capabilities(self, caps: BackendCapabilities) -> Self {
+        *self.capabilities.lock().unwrap() = caps;
+        self
+    }
+
+    fn with_put_result(self, result: MockResult<()>) -> Self {
+        *self.put_result.lock().unwrap() = result;
+        self
+    }
+
+    fn with_delete_result(self, result: MockResult<()>) -> Self {
+        *self.delete_result.lock().unwrap() = result;
+        self
+    }
+
+    fn with_check_exists_result(self, result: MockResult<bool>) -> Self {
+        *self.check_exists_result.lock().unwrap() = result;
+        self
+    }
+
+    fn put_call_count(&self) -> u32 {
+        *self.put_call_count.lock().unwrap()
+    }
+
+    fn delete_call_count(&self) -> u32 {
+        *self.delete_call_count.lock().unwrap()
+    }
+
+    fn check_exists_call_count(&self) -> u32 {
+        *self.check_exists_call_count.lock().unwrap()
+    }
+
+    fn get_content_call_count(&self) -> u32 {
+        *self.get_content_call_count.lock().unwrap()
+    }
+
+    fn last_put_content_zeroized(&self) -> bool {
+        self.last_put_content.lock().unwrap()
+            .as_ref()
+            .map(|c| c.iter().all(|&b| b == 0u8))
+            .unwrap_or(false)
     }
 }
 
 #[async_trait]
 impl ResourceBackend for MockResourceBackend {
-    async fn check_resource_exists(&self, _uri: &str) -> MockResult<bool> {
-        self.check_exists_result.lock().unwrap().clone()
+    fn capabilities(&self) -> BackendCapabilities {
+        *self.capabilities.lock().unwrap()
     }
 
-    async fn get_resource_content(&self, _uri: &str) -> MockResult<Zeroizing<Vec<u8>>> {
+    async fn get_resource_content(
+        &self,
+        _desc: &rbs_api_types::ResourceDesc,
+        _opts: rbs_api_types::GetResourceOptions,
+    ) -> MockResult<Zeroizing<Vec<u8>>> {
+        *self.get_content_call_count.lock().unwrap() += 1;
         self.get_content_result.lock().unwrap().clone()
+    }
+
+    async fn put_resource_content(
+        &self,
+        _desc: &rbs_api_types::ResourceDesc,
+        data: &[u8],
+    ) -> MockResult<()> {
+        *self.put_call_count.lock().unwrap() += 1;
+        self.seq_counter.store(self.seq_counter.load(Ordering::SeqCst) + 1, Ordering::SeqCst);
+        *self.last_put_content.lock().unwrap() = Some(data.to_vec());
+        self.put_result.lock().unwrap().clone()
+    }
+
+    async fn delete_resource(&self, _desc: &rbs_api_types::ResourceDesc) -> MockResult<()> {
+        *self.delete_call_count.lock().unwrap() += 1;
+        self.seq_counter.store(self.seq_counter.load(Ordering::SeqCst) + 1, Ordering::SeqCst);
+        self.delete_result.lock().unwrap().clone()
+    }
+
+    async fn check_resource_exists(&self, _desc: &rbs_api_types::ResourceDesc) -> MockResult<bool> {
+        *self.check_exists_call_count.lock().unwrap() += 1;
+        self.seq_counter.store(self.seq_counter.load(Ordering::SeqCst) + 1, Ordering::SeqCst);
+        self.check_exists_result.lock().unwrap().clone()
     }
 }
 
@@ -211,6 +328,7 @@ fn create_req() -> CreateResourceRequest {
         content_type: Some("text".to_string()),
         export_mode: Some("jwe".to_string()),
         additional_info: None,
+        content: None,
     }
 }
 
@@ -221,6 +339,7 @@ fn update_req() -> UpdateResourceRequest {
         content_type: Some("text".to_string()),
         export_mode: Some("jwe".to_string()),
         additional_info: None,
+        content: None,
     }
 }
 
@@ -338,7 +457,7 @@ impl AuthzChecker for MockAuthzChecker {
         if *self.deny_all.lock().unwrap() { return Err(AuthzError::Denied); }
         mock_check_action(ctx, &action, &role)
     }
-    async fn check_resource_get(&self, ctx: &AuthContext, _owner: &str, policy: &str) -> Result<(), AuthzError> {
+    async fn check_resource_get(&self, ctx: &AuthContext, _owner: &str, policy: &str, _res_provider: Option<&str>) -> Result<(), AuthzError> {
         if *self.deny_all.lock().unwrap() { return Err(AuthzError::Denied); }
         match ctx {
             AuthContext::Attest(_) => {
@@ -364,6 +483,43 @@ fn make_service(
     let mut bp = BackendProvider::new(); configure_backend(&mut bp);
     let authz: Arc<dyn AuthzChecker> = Arc::new(MockAuthzChecker::new());
     ResourceService::new(Arc::new(repo), authz, bp, Arc::new(policy), validator)
+}
+
+/// Build a service with a custom ResourceConfig (for multi-backend tests).
+fn make_service_with_config(
+    config: ResourceConfig,
+    configure_repo: impl FnOnce(&MockResourceRepository),
+    configure_policy: impl FnOnce(&MockPolicyClient),
+    configure_backend: impl FnOnce(&mut BackendProvider),
+) -> ResourceService {
+    let validator = ResourceValidator::new(config);
+    let repo = MockResourceRepository::new(); configure_repo(&repo);
+    let policy = MockPolicyClient::new(); configure_policy(&policy);
+    let mut bp = BackendProvider::new(); configure_backend(&mut bp);
+    let authz: Arc<dyn AuthzChecker> = Arc::new(MockAuthzChecker::new());
+    ResourceService::new(Arc::new(repo), authz, bp, Arc::new(policy), validator)
+}
+
+/// Config supporting vault, hsm, and ca backends with their resource types.
+fn test_config() -> ResourceConfig {
+    use std::collections::HashMap;
+    ResourceConfig {
+        max_per_user: 10,
+        max_resource_name_len: 32,
+        max_repo_name_len: 32,
+        max_additional_info_len: 512,
+        per_backend_allowed_types: HashMap::from([
+            ("vault".to_string(), vec!["secret".to_string(), "cert".to_string()]),
+            ("hsm".to_string(), vec!["key".to_string(), "secret".to_string()]),
+            ("ca".to_string(), vec!["certificate".to_string(), "cert".to_string()]),
+        ]),
+        allowed_content_types: vec![
+            "jwt".to_string(), "json".to_string(), "text".to_string(),
+            "binary".to_string(), "jwk".to_string(), "jwe".to_string(),
+        ],
+        allowed_export_modes: vec!["jwe".to_string()],
+        configured_backends: vec!["vault".to_string(), "hsm".to_string(), "ca".to_string()],
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1022,12 +1178,10 @@ async fn test_get_content_backend_error() {
                 Ok("package example; result = {\"policy_matched\": true}".to_string());
         },
         |bp| {
-            let backend = MockResourceBackend {
-                check_exists_result: Mutex::new(Ok(true)),
-                get_content_result: Mutex::new(Err(ResourceError::BackendError {
-                    detail: "vault connection refused".to_string(),
-                })),
-            };
+            let backend = MockResourceBackend::new();
+            *backend.get_content_result.lock().unwrap() = Err(ResourceError::BackendError {
+                detail: "vault connection refused".to_string(),
+            });
             bp.register("vault", Arc::new(backend));
         },
     );
@@ -1437,4 +1591,815 @@ async fn test_update_returns_created_false() {
     );
     let (_, created) = svc.update(&admin_ctx(TEST_USER), TEST_URI, &update_req()).await.unwrap();
     assert!(!created, "existing resource should return created=false");
+}
+
+// ===========================================================================
+// Tests – TC-P0-01..03: create capability dispatch (D1)
+// ===========================================================================
+
+const HSM_URI: &str = "/rbs/v0/hsm/default/key/mykey";
+const CA_URI: &str = "/rbs/v0/ca/default/certificate/mycert";
+
+/// TC-P0-01a: create HSM — put_resource_content→insert + content zeroize
+///
+/// The service gates on capabilities: a PUT backend receives
+/// `put_resource_content(desc, content)` once, then `repo.insert`.
+#[tokio::test]
+async fn test_post_create_hsm_put_insert() {
+    let hsm_backend = MockResourceBackend::new()
+        .with_capabilities(BackendCapabilities::PUT | BackendCapabilities::DELETE);
+    let hsm_ptr = Arc::new(hsm_backend);
+    let hsm_ref = hsm_ptr.clone();
+
+    let svc = make_service_with_config(
+        test_config(),
+        |repo| {
+            *repo.find_by_uri_result.lock().unwrap() = Ok(None);
+            *repo.insert_result.lock().unwrap() = Ok(());
+        },
+        |policy| { *policy.validate_policy_result.lock().unwrap() = Ok(true); },
+        |bp| { bp.register("hsm", hsm_ptr); },
+    );
+
+    let mut req = create_req();
+    req.content = Some(base64::engine::general_purpose::STANDARD.encode(b"raw-key-bytes"));
+
+    let result = svc.create(&admin_ctx(TEST_USER), HSM_URI, &req).await;
+    assert!(result.is_ok(), "HSM create should succeed: {:?}", result.err());
+    assert_eq!(hsm_ref.put_call_count(), 1, "put_resource_content should be called once");
+    assert_eq!(hsm_ref.check_exists_call_count(), 0, "check should not be called for a PUT backend");
+    assert!(hsm_ref.last_put_content.lock().unwrap().is_some(), "put content should be captured");
+}
+
+/// TC-P0-01b: create HSM — put_resource_content fails after DB reservation
+/// → BackendError, the reserved DB row is rolled back via repo.delete (not
+/// the backend object, which may belong to a concurrent winner).
+#[tokio::test]
+async fn test_post_create_hsm_put_fail_natural_rollback() {
+    let hsm_backend = MockResourceBackend::new()
+        .with_capabilities(BackendCapabilities::PUT | BackendCapabilities::DELETE)
+        .with_put_result(Err(ResourceError::BackendError { detail: "pkcs11 write failed".to_string() }));
+    let hsm_ptr = Arc::new(hsm_backend);
+    let hsm_ref = hsm_ptr.clone();
+
+    let svc = make_service_with_config(
+        test_config(),
+        |repo| {
+            *repo.find_by_uri_result.lock().unwrap() = Ok(None);
+            *repo.insert_result.lock().unwrap() = Ok(());
+        },
+        |policy| { *policy.validate_policy_result.lock().unwrap() = Ok(true); },
+        |bp| { bp.register("hsm", hsm_ptr); },
+    );
+
+    let mut req = create_req();
+    req.content = Some(base64::engine::general_purpose::STANDARD.encode(b"raw-key-bytes"));
+
+    let result = svc.create(&admin_ctx(TEST_USER), HSM_URI, &req).await;
+    match &result {
+        Err(ResourceError::BackendError { .. }) => {}
+        _ => panic!("Expected BackendError, got {:?}", result),
+    }
+    assert_eq!(hsm_ref.put_call_count(), 1, "put_resource_content should be called once even on failure");
+    assert!(hsm_ref.last_put_content.lock().unwrap().is_some(), "put content should be captured even on failure");
+}
+
+/// TC-P0-01c: create HSM — concurrent dup (insert returns AlreadyExists) MUST
+/// NOT touch the backend. This is the core TOCTOU fix: the loser's insert
+/// fails atomically before any backend mutation, so it can neither clobber
+/// nor orphan the winner's HSM object (old flow did put-then-insert-then-delete).
+#[tokio::test]
+async fn test_post_create_dup_does_not_touch_backend() {
+    let hsm_backend = MockResourceBackend::new()
+        .with_capabilities(BackendCapabilities::PUT | BackendCapabilities::DELETE);
+    let hsm_ptr = Arc::new(hsm_backend);
+    let hsm_ref = hsm_ptr.clone();
+
+    let svc = make_service_with_config(
+        test_config(),
+        |repo| {
+            // Simulate a concurrent winner: the atomic dup-check inside
+            // create_with_user_limit_check observes the URI already exists.
+            *repo.create_with_limit_check_result.lock().unwrap() =
+                Err(ResourceError::AlreadyExists { uri: HSM_URI.to_string() });
+        },
+        |policy| { *policy.validate_policy_result.lock().unwrap() = Ok(true); },
+        |bp| { bp.register("hsm", hsm_ptr); },
+    );
+
+    let mut req = create_req();
+    req.content = Some(base64::engine::general_purpose::STANDARD.encode(b"raw-key-bytes"));
+
+    let result = svc.create(&admin_ctx(TEST_USER), HSM_URI, &req).await;
+    match &result {
+        Err(ResourceError::AlreadyExists { .. }) => {}
+        other => panic!("Expected AlreadyExists, got {:?}", other),
+    }
+    assert_eq!(hsm_ref.put_call_count(), 0, "backend put MUST NOT be called when insert detects a dup (TOCTOU fix)");
+    assert_eq!(hsm_ref.delete_call_count(), 0, "backend delete MUST NOT be called on dup (no object was created)");
+}
+
+/// TC-P0-01d: create HSM — put fails AFTER DB reservation → reserved DB row
+/// is rolled back via repo.delete (compensation deletes the DB row, not the
+/// backend object). Verified by holding an Arc to the repo to read counters.
+#[tokio::test]
+async fn test_post_create_put_fail_rolls_back_db_row() {
+    let hsm_backend = MockResourceBackend::new()
+        .with_capabilities(BackendCapabilities::PUT | BackendCapabilities::DELETE)
+        .with_put_result(Err(ResourceError::BackendError { detail: "pkcs11 write failed".to_string() }));
+    let hsm_ptr = Arc::new(hsm_backend);
+
+    let repo = Arc::new(MockResourceRepository::new());
+    *repo.find_by_uri_result.lock().unwrap() = Ok(None);
+    *repo.insert_result.lock().unwrap() = Ok(());
+    let policy = MockPolicyClient::new();
+    *policy.validate_policy_result.lock().unwrap() = Ok(true);
+    let mut bp = BackendProvider::new();
+    bp.register("hsm", hsm_ptr);
+    let config = test_config();
+    let validator = ResourceValidator::new(config);
+    let authz: Arc<dyn AuthzChecker> = Arc::new(MockAuthzChecker::new());
+    let svc = ResourceService::new(repo.clone(), authz, bp, Arc::new(policy), validator);
+
+    let mut req = create_req();
+    req.content = Some(base64::engine::general_purpose::STANDARD.encode(b"raw-key-bytes"));
+
+    let result = svc.create(&admin_ctx(TEST_USER), HSM_URI, &req).await;
+    match &result {
+        Err(ResourceError::BackendError { .. }) => {}
+        other => panic!("Expected BackendError, got {:?}", other),
+    }
+    assert_eq!(
+        repo.delete_call_count(), 1,
+        "compensation must delete the reserved DB row when backend put fails"
+    );
+}
+
+/// TC-P0-02: create CA — empty capabilities → metadata-only insert
+///
+/// A get-only backend (CA) advertises no PUT/CHECK: the service skips all
+/// backend calls and only inserts metadata.
+#[tokio::test]
+async fn test_post_create_ca_direct_insert() {
+    let ca_backend = MockResourceBackend::new()
+        .with_capabilities(BackendCapabilities::empty());
+    let ca_ptr = Arc::new(ca_backend);
+    let ca_ref = ca_ptr.clone();
+
+    let svc = make_service_with_config(
+        test_config(),
+        |repo| {
+            *repo.find_by_uri_result.lock().unwrap() = Ok(None);
+            *repo.insert_result.lock().unwrap() = Ok(());
+        },
+        |policy| { *policy.validate_policy_result.lock().unwrap() = Ok(true); },
+        |bp| { bp.register("ca", ca_ptr); },
+    );
+
+    let req = create_req(); // No content for CA
+
+    let result = svc.create(&admin_ctx(TEST_USER), CA_URI, &req).await;
+    assert!(result.is_ok(), "CA create should succeed: {:?}", result.err());
+    assert_eq!(ca_ref.put_call_count(), 0, "put should NOT be called for a get-only backend");
+    assert_eq!(ca_ref.check_exists_call_count(), 0, "check should NOT be called for a get-only backend");
+}
+
+/// TC-P0-03a: create Vault — CHECK → check_resource_exists→insert
+///
+/// A CHECK backend verifies existence before the service registers metadata.
+#[tokio::test]
+async fn test_post_create_vault_check_insert() {
+    let vault_backend = MockResourceBackend::new()
+        .with_capabilities(BackendCapabilities::CHECK);
+    let vault_ptr = Arc::new(vault_backend);
+    let vault_ref = vault_ptr.clone();
+
+    let svc = make_service(
+        |repo| {
+            *repo.find_by_uri_result.lock().unwrap() = Ok(None);
+            *repo.insert_result.lock().unwrap() = Ok(());
+        },
+        |policy| { *policy.validate_policy_result.lock().unwrap() = Ok(true); },
+        |bp| { bp.register("vault", vault_ptr); },
+    );
+
+    let result = svc.create(&admin_ctx(TEST_USER), TEST_URI, &create_req()).await;
+    assert!(result.is_ok(), "Vault create should succeed: {:?}", result.err());
+    assert_eq!(vault_ref.check_exists_call_count(), 1, "check_resource_exists should be called once for Vault");
+    assert_eq!(vault_ref.put_call_count(), 0, "put should NOT be called for a CHECK-only backend");
+}
+
+/// TC-P0-03b: create Vault — check_resource_exists returns false → BackendNotFound
+#[tokio::test]
+async fn test_post_create_vault_check_false() {
+    let vault_backend = MockResourceBackend::new()
+        .with_capabilities(BackendCapabilities::CHECK)
+        .with_check_exists_result(Ok(false));
+    let vault_ptr = Arc::new(vault_backend);
+    let vault_ref = vault_ptr.clone();
+
+    let svc = make_service(
+        |repo| {
+            *repo.find_by_uri_result.lock().unwrap() = Ok(None);
+        },
+        |policy| { *policy.validate_policy_result.lock().unwrap() = Ok(true); },
+        |bp| { bp.register("vault", vault_ptr); },
+    );
+
+    let result = svc.create(&admin_ctx(TEST_USER), TEST_URI, &create_req()).await;
+    match &result {
+        Err(ResourceError::BackendNotFound) => {}
+        _ => panic!("Expected BackendNotFound, got {:?}", result),
+    }
+    assert_eq!(vault_ref.check_exists_call_count(), 1, "check_resource_exists should be called once");
+}
+
+/// TC-P0-01 compatible: create HSM without content → no backend call, metadata-only
+///
+/// A PUT backend with no content to write skips the backend put entirely;
+/// only metadata is registered.
+#[tokio::test]
+async fn test_post_create_hsm_no_content_param_invalid() {
+    let hsm_backend = MockResourceBackend::new()
+        .with_capabilities(BackendCapabilities::PUT | BackendCapabilities::DELETE);
+    let hsm_ptr = Arc::new(hsm_backend);
+
+    let svc = make_service_with_config(
+        test_config(),
+        |_| {},
+        |policy| { *policy.validate_policy_result.lock().unwrap() = Ok(true); },
+        |bp| { bp.register("hsm", hsm_ptr); },
+    );
+
+    let req = create_req(); // No content
+
+    let result = svc.create(&admin_ctx(TEST_USER), HSM_URI, &req).await;
+    assert!(result.is_ok(), "create with no content should succeed via the generic mock: {:?}", result.err());
+}
+
+// ===========================================================================
+// Tests – TC-P1-01: update capability dispatch (D2)
+// ===========================================================================
+
+/// TC-P1-01: update CA with content → no PUT capability → BackendOperationUnsupported
+///
+/// A get-only backend cannot store content: the service rejects a
+/// content-bearing update without invoking the backend.
+#[tokio::test]
+async fn test_put_update_ca_with_content_unsupported() {
+    let ca_backend = MockResourceBackend::new()
+        .with_capabilities(BackendCapabilities::empty());
+    let ca_ptr = Arc::new(ca_backend);
+    let ca_ref = ca_ptr.clone();
+
+    let svc = make_service_with_config(
+        test_config(),
+        |repo| { *repo.find_by_uri_result.lock().unwrap() = Ok(Some(make_entity())); },
+        |_| {},
+        |bp| { bp.register("ca", ca_ptr); },
+    );
+
+    let mut req = update_req();
+    req.content = Some(base64::engine::general_purpose::STANDARD.encode(b"new-cert-data"));
+
+    // Use a CA URI
+    let result = svc.update(&admin_ctx(TEST_USER), CA_URI, &req).await;
+    match &result {
+        Err(ResourceError::BackendOperationUnsupported) => {}
+        _ => panic!("Expected BackendOperationUnsupported, got {:?}", result),
+    }
+    assert_eq!(ca_ref.put_call_count(), 0, "put should NOT be called for a get-only backend");
+}
+
+/// TC-P1-01b: update HSM with content → put_resource_content → update DB
+///
+/// The service calls `put_resource_content` with the content, then updates the DB.
+#[tokio::test]
+async fn test_put_update_hsm_with_content_put_then_update() {
+    let hsm_backend = MockResourceBackend::new()
+        .with_capabilities(BackendCapabilities::PUT | BackendCapabilities::DELETE);
+    let hsm_ptr = Arc::new(hsm_backend);
+    let hsm_ref = hsm_ptr.clone();
+
+    let svc = make_service_with_config(
+        test_config(),
+        |repo| {
+            *repo.find_by_uri_result.lock().unwrap() = Ok(Some(make_entity()));
+            *repo.update_result.lock().unwrap() = Ok(1);
+        },
+        |policy| { *policy.validate_policy_result.lock().unwrap() = Ok(true); },
+        |bp| { bp.register("hsm", hsm_ptr); },
+    );
+
+    let mut req = update_req();
+    req.content = Some(base64::engine::general_purpose::STANDARD.encode(b"new-key-bytes"));
+
+    let result = svc.update(&admin_ctx(TEST_USER), HSM_URI, &req).await;
+    assert!(result.is_ok(), "HSM update should succeed: {:?}", result.err());
+    assert_eq!(hsm_ref.put_call_count(), 1, "put_resource_content should be called once");
+    let (_resp, created) = result.unwrap();
+    assert!(!created, "existing resource update should return created=false");
+}
+
+/// TC-P1-01c: update HSM without content → metadata-only (no backend call)
+///
+/// Without content there is nothing to put; the service skips the backend and
+/// only updates DB metadata.
+#[tokio::test]
+async fn test_put_update_hsm_no_content_metadata_only() {
+    let hsm_backend = MockResourceBackend::new()
+        .with_capabilities(BackendCapabilities::PUT | BackendCapabilities::DELETE);
+    let hsm_ptr = Arc::new(hsm_backend);
+    let hsm_ref = hsm_ptr.clone();
+
+    let svc = make_service_with_config(
+        test_config(),
+        |repo| {
+            *repo.find_by_uri_result.lock().unwrap() = Ok(Some(make_entity()));
+            *repo.update_result.lock().unwrap() = Ok(1);
+        },
+        |policy| { *policy.validate_policy_result.lock().unwrap() = Ok(true); },
+        |bp| { bp.register("hsm", hsm_ptr); },
+    );
+
+    let req = update_req(); // No content
+
+    let result = svc.update(&admin_ctx(TEST_USER), HSM_URI, &req).await;
+    assert!(result.is_ok(), "HSM metadata-only update should succeed: {:?}", result.err());
+    assert_eq!(hsm_ref.put_call_count(), 0, "put should NOT be called when there is no content");
+}
+
+/// TC-P1-01d: update HSM create-via-update with content → put_resource_content → insert
+#[tokio::test]
+async fn test_put_update_hsm_create_via_update_with_content() {
+    let hsm_backend = MockResourceBackend::new()
+        .with_capabilities(BackendCapabilities::PUT | BackendCapabilities::DELETE);
+    let hsm_ptr = Arc::new(hsm_backend);
+    let hsm_ref = hsm_ptr.clone();
+
+    let svc = make_service_with_config(
+        test_config(),
+        |repo| {
+            *repo.find_by_uri_result.lock().unwrap() = Ok(None);
+            *repo.insert_result.lock().unwrap() = Ok(());
+        },
+        |policy| { *policy.validate_policy_result.lock().unwrap() = Ok(true); },
+        |bp| { bp.register("hsm", hsm_ptr); },
+    );
+
+    let mut req = update_req();
+    req.content = Some(base64::engine::general_purpose::STANDARD.encode(b"new-key-bytes"));
+
+    let result = svc.update(&admin_ctx(TEST_USER), HSM_URI, &req).await;
+    assert!(result.is_ok(), "HSM create-via-update should succeed: {:?}", result.err());
+    assert_eq!(hsm_ref.put_call_count(), 1, "put_resource_content should be called once");
+    let (_, created) = result.unwrap();
+    assert!(created, "new resource should return created=true");
+}
+
+/// TC-P1-01e: update Vault without content → metadata-only → update DB
+#[tokio::test]
+async fn test_put_update_vault_no_content_check_update() {
+    let vault_backend = MockResourceBackend::new()
+        .with_capabilities(BackendCapabilities::CHECK);
+    let vault_ptr = Arc::new(vault_backend);
+    let vault_ref = vault_ptr.clone();
+
+    let svc = make_service(
+        |repo| {
+            *repo.find_by_uri_result.lock().unwrap() = Ok(Some(make_entity()));
+            *repo.update_result.lock().unwrap() = Ok(1);
+        },
+        |_| {},
+        |bp| { bp.register("vault", vault_ptr); },
+    );
+
+    let result = svc.update(&admin_ctx(TEST_USER), TEST_URI, &update_req()).await;
+    assert!(result.is_ok(), "Vault update should succeed: {:?}", result.err());
+    assert_eq!(vault_ref.put_call_count(), 0, "put should NOT be called for a CHECK-only backend without content");
+}
+
+// ===========================================================================
+// Tests – TC-P0-04, TC-P1-02: delete capability dispatch (D3)
+// ===========================================================================
+
+/// TC-P0-04a: delete HSM — backend→DB (先后端后 DB)
+#[tokio::test]
+async fn test_delete_hsm_backend_then_db() {
+    let hsm_backend = MockResourceBackend::new()
+        .with_capabilities(BackendCapabilities::PUT | BackendCapabilities::DELETE);
+    let hsm_ptr = Arc::new(hsm_backend);
+    let hsm_ref = hsm_ptr.clone();
+
+    let svc = make_service_with_config(
+        test_config(),
+        |repo| {
+            *repo.find_by_uri_result.lock().unwrap() = Ok(Some(make_entity()));
+            *repo.delete_result.lock().unwrap() = Ok(1);
+        },
+        |_| {},
+        |bp| { bp.register("hsm", hsm_ptr); },
+    );
+
+    let result = svc.delete(&bearer_ctx(TEST_USER), HSM_URI).await;
+    assert!(result.is_ok(), "HSM delete should succeed: {:?}", result.err());
+    assert_eq!(hsm_ref.delete_call_count(), 1, "backend delete should be called once");
+}
+
+/// TC-P0-04b: delete HSM — backend failure → BackendError, DB preserved
+#[tokio::test]
+async fn test_delete_hsm_backend_fail_db_preserved() {
+    let hsm_backend = MockResourceBackend::new()
+        .with_capabilities(BackendCapabilities::PUT | BackendCapabilities::DELETE)
+        .with_delete_result(Err(ResourceError::BackendError { detail: "pkcs11 delete failed".to_string() }));
+    let hsm_ptr = Arc::new(hsm_backend);
+    let hsm_ref = hsm_ptr.clone();
+
+    let svc = make_service_with_config(
+        test_config(),
+        |repo| {
+            *repo.find_by_uri_result.lock().unwrap() = Ok(Some(make_entity()));
+            *repo.delete_result.lock().unwrap() = Ok(1);
+        },
+        |_| {},
+        |bp| { bp.register("hsm", hsm_ptr); },
+    );
+
+    let result = svc.delete(&bearer_ctx(TEST_USER), HSM_URI).await;
+    match &result {
+        Err(ResourceError::BackendError { .. }) => {}
+        _ => panic!("Expected BackendError, got {:?}", result),
+    }
+    assert_eq!(hsm_ref.delete_call_count(), 1, "backend delete should be called once even on failure");
+    // DB row preserved — repo.delete not called (we verify indirectly via error return)
+}
+
+/// TC-P0-04c: delete HSM — idempotent (object already gone → Ok → DB delete)
+#[tokio::test]
+async fn test_delete_hsm_idempotent() {
+    let hsm_backend = MockResourceBackend::new()
+        .with_capabilities(BackendCapabilities::PUT | BackendCapabilities::DELETE); // delete_result defaults to Ok(())
+    let hsm_ptr = Arc::new(hsm_backend);
+    let hsm_ref = hsm_ptr.clone();
+
+    let svc = make_service_with_config(
+        test_config(),
+        |repo| {
+            *repo.find_by_uri_result.lock().unwrap() = Ok(Some(make_entity()));
+            *repo.delete_result.lock().unwrap() = Ok(1);
+        },
+        |_| {},
+        |bp| { bp.register("hsm", hsm_ptr); },
+    );
+
+    let result = svc.delete(&bearer_ctx(TEST_USER), HSM_URI).await;
+    assert!(result.is_ok(), "HSM idempotent delete should succeed: {:?}", result.err());
+    assert_eq!(hsm_ref.delete_call_count(), 1, "backend delete should be called once");
+}
+
+/// TC-P1-02a: delete CA — no DELETE capability → DB delete only
+///
+/// A get-only backend cannot destroy objects; the service skips the backend
+/// and only deletes the DB row.
+#[tokio::test]
+async fn test_delete_ca_db_only() {
+    let ca_backend = MockResourceBackend::new()
+        .with_capabilities(BackendCapabilities::empty());
+    let ca_ptr = Arc::new(ca_backend);
+    let ca_ref = ca_ptr.clone();
+
+    let svc = make_service_with_config(
+        test_config(),
+        |repo| {
+            *repo.find_by_uri_result.lock().unwrap() = Ok(Some(make_entity()));
+            *repo.delete_result.lock().unwrap() = Ok(1);
+        },
+        |_| {},
+        |bp| { bp.register("ca", ca_ptr); },
+    );
+
+    let result = svc.delete(&bearer_ctx(TEST_USER), CA_URI).await;
+    assert!(result.is_ok(), "CA delete should succeed: {:?}", result.err());
+    assert_eq!(ca_ref.delete_call_count(), 0, "backend delete should NOT be called for a get-only backend");
+}
+
+/// TC-P1-02b: delete Vault — no DELETE capability → DB delete only
+#[tokio::test]
+async fn test_delete_vault_db_only() {
+    let vault_backend = MockResourceBackend::new()
+        .with_capabilities(BackendCapabilities::CHECK);
+    let vault_ptr = Arc::new(vault_backend);
+    let vault_ref = vault_ptr.clone();
+
+    let svc = make_service(
+        |repo| {
+            *repo.find_by_uri_result.lock().unwrap() = Ok(Some(make_entity()));
+            *repo.delete_result.lock().unwrap() = Ok(1);
+        },
+        |_| {},
+        |bp| { bp.register("vault", vault_ptr); },
+    );
+
+    let result = svc.delete(&bearer_ctx(TEST_USER), TEST_URI).await;
+    assert!(result.is_ok(), "Vault delete should succeed: {:?}", result.err());
+    assert_eq!(vault_ref.delete_call_count(), 0, "backend delete should NOT be called for a CHECK-only backend");
+}
+
+// ===========================================================================
+// Tests – TC-P0-05: get_content GetResourceOptions construction (D4/D8)
+// ===========================================================================
+
+/// Attest context with CSR (Base64 DER) for CA tests.
+fn attest_with_csr() -> AuthContext {
+    AuthContext::Attest(AttestContext {
+        claims: json!({
+            "nonce": "abc123",
+            "attester_data": {"runtime_data": {"tee-pubkey": EC_P256_JWK, "csr": base64::engine::general_purpose::STANDARD.encode(b"der-csr-bytes")}},
+        }),
+        token_type: TokenType::Attest,
+    })
+}
+
+/// Attest context without CSR for CA CsrRequired tests.
+fn attest_no_csr_with_pubkey() -> AuthContext {
+    AuthContext::Attest(AttestContext {
+        claims: json!({
+            "nonce": "abc123",
+            "attester_data": {"runtime_data": {"tee-pubkey": EC_P256_JWK}}
+        }),
+        token_type: TokenType::Attest,
+    })
+}
+
+/// TC-P0-05a: CA GET with CSR → GetResourceOptions{csr: Some} → JWE 200
+#[tokio::test]
+async fn test_get_content_ca_with_csr() {
+    let ca_backend = MockResourceBackend::new();
+    *ca_backend.get_content_result.lock().unwrap() = Ok(Zeroizing::new(b"cert-data".to_vec()));
+    let ca_ptr = Arc::new(ca_backend);
+    let ca_ref = ca_ptr.clone();
+
+    let svc = make_service_with_config(
+        test_config(),
+        |repo| { *repo.find_by_uri_result.lock().unwrap() = Ok(Some(make_entity())); },
+        |policy| {
+            *policy.get_policy_content_result.lock().unwrap() =
+                Ok("package example; result = {\"policy_matched\": true}".to_string());
+        },
+        |bp| { bp.register("ca", ca_ptr); },
+    );
+
+    let result = svc.get_content(&attest_with_csr(), CA_URI).await;
+    assert!(result.is_ok(), "CA GET with CSR should succeed: {:?}", result.err());
+    assert_eq!(ca_ref.get_content_call_count(), 1, "get_resource_content should be called once");
+}
+
+/// TC-P0-05b: CA GET without CSR → CsrRequired(400)
+///
+/// CSR enforcement now lives in the backend: the service calls
+/// `get_resource_content` with `csr_der: None`, and the CA backend returns
+/// `CsrRequired`. The mock simulates that by returning `CsrRequired`.
+#[tokio::test]
+async fn test_get_content_ca_no_csr() {
+    let ca_backend = MockResourceBackend::new();
+    *ca_backend.get_content_result.lock().unwrap() = Err(ResourceError::CsrRequired);
+    let ca_ptr = Arc::new(ca_backend);
+    let ca_ref = ca_ptr.clone();
+
+    let svc = make_service_with_config(
+        test_config(),
+        |repo| { *repo.find_by_uri_result.lock().unwrap() = Ok(Some(make_entity())); },
+        |policy| {
+            *policy.get_policy_content_result.lock().unwrap() =
+                Ok("package example; result = {\"policy_matched\": true}".to_string());
+        },
+        |bp| { bp.register("ca", ca_ptr); },
+    );
+
+    let result = svc.get_content(&attest_no_csr_with_pubkey(), CA_URI).await;
+    match &result {
+        Err(ResourceError::CsrRequired) => {}
+        _ => panic!("Expected CsrRequired, got {:?}", result),
+    }
+    assert_eq!(ca_ref.get_content_call_count(), 1, "get_resource_content should be called once (backend enforces CSR)");
+}
+
+/// TC-P0-05c: CA GET authz deny + no CSR → NotFound(404), not CsrRequired(400)
+///
+/// D8: 404 masks 400 — authz failure is returned before CsrRequired check.
+#[tokio::test]
+async fn test_get_content_ca_authz_deny_no_csr() {
+    let ca_backend = MockResourceBackend::new();
+    let ca_ptr = Arc::new(ca_backend);
+    let ca_ref = ca_ptr.clone();
+
+    let svc = make_service_with_config(
+        test_config(),
+        |repo| { *repo.find_by_uri_result.lock().unwrap() = Ok(Some(make_entity())); },
+        |policy| {
+            *policy.get_policy_content_result.lock().unwrap() =
+                Ok("package example; result = {\"policy_matched\": false}".to_string());
+        },
+        |bp| { bp.register("ca", ca_ptr); },
+    );
+
+    let result = svc.get_content(&attest_no_csr_with_pubkey(), CA_URI).await;
+    match &result {
+        Err(ResourceError::NotFound) => {}
+        _ => panic!("Expected NotFound (not CsrRequired), got {:?}", result),
+    }
+    assert_eq!(ca_ref.get_content_call_count(), 0, "backend should not be called when authz fails");
+}
+
+/// TC-P0-05d: HSM GET → GetResourceOptions{csr: None} (supports_csr=false)
+#[tokio::test]
+async fn test_get_content_hsm_no_csr_needed() {
+    let hsm_backend = MockResourceBackend::new();
+    *hsm_backend.get_content_result.lock().unwrap() = Ok(Zeroizing::new(b"key-data".to_vec()));
+    let hsm_ptr = Arc::new(hsm_backend);
+    let hsm_ref = hsm_ptr.clone();
+
+    let svc = make_service_with_config(
+        test_config(),
+        |repo| { *repo.find_by_uri_result.lock().unwrap() = Ok(Some(make_entity())); },
+        |policy| {
+            *policy.get_policy_content_result.lock().unwrap() =
+                Ok("package example; result = {\"policy_matched\": true}".to_string());
+        },
+        |bp| { bp.register("hsm", hsm_ptr); },
+    );
+
+    let result = svc.get_content(&attest_with_pubkey(), HSM_URI).await;
+    assert!(result.is_ok(), "HSM GET should succeed without CSR: {:?}", result.err());
+    assert_eq!(hsm_ref.get_content_call_count(), 1, "get_resource_content should be called once");
+}
+
+/// TC-P0-05e: retrieve CA with CSR → same options construction as get_content
+#[tokio::test]
+async fn test_retrieve_ca_with_csr() {
+    let svc = make_service_with_config(
+        test_config(),
+        |repo| { *repo.find_by_uri_result.lock().unwrap() = Ok(Some(make_entity())); },
+        |policy| {
+            *policy.get_policy_content_result.lock().unwrap() =
+                Ok("package example; result = {\"policy_matched\": true}".to_string());
+        },
+        |bp| {
+            let backend = MockResourceBackend::new();
+            *backend.get_content_result.lock().unwrap() = Ok(Zeroizing::new(b"cert-data".to_vec()));
+            bp.register("ca", Arc::new(backend));
+        },
+    );
+
+    let attest_ctx = AttestContext {
+        claims: json!({
+            "nonce": "abc123",
+            "attester_data": {"runtime_data": {"tee-pubkey": EC_P256_JWK, "csr": base64::engine::general_purpose::STANDARD.encode(b"der-csr-bytes")}},
+        }),
+        token_type: TokenType::Attest,
+    };
+
+    let result = svc.retrieve(&attest_ctx, CA_URI).await;
+    assert!(result.is_ok(), "CA retrieve with CSR should succeed: {:?}", result.err());
+}
+
+// ===========================================================================
+// Tests – TC-P2-01: optimistic concurrency conflict
+// ===========================================================================
+
+/// TC-P2-01: update with affected==0 → VersionConflict(409), backend NOT touched.
+///
+/// Simulates concurrent update: repo.update returns 0 affected rows (version
+/// mismatch) → VersionConflict. DB-first ordering means the backend put is
+/// skipped entirely, so the loser cannot clobber the winner's object.
+#[tokio::test]
+async fn test_update_optimistic_concurrency_conflict() {
+    let hsm_backend = MockResourceBackend::new()
+        .with_capabilities(BackendCapabilities::PUT | BackendCapabilities::DELETE);
+    let hsm_ptr = Arc::new(hsm_backend);
+    let hsm_ref = hsm_ptr.clone();
+
+    let svc = make_service_with_config(
+        test_config(),
+        |repo| {
+            *repo.find_by_uri_result.lock().unwrap() = Ok(Some(make_entity()));
+            *repo.update_result.lock().unwrap() = Ok(0); // 0 affected = conflict
+        },
+        |policy| { *policy.validate_policy_result.lock().unwrap() = Ok(true); },
+        |bp| { bp.register("hsm", hsm_ptr); },
+    );
+
+    let mut req = update_req();
+    req.content = Some(base64::engine::general_purpose::STANDARD.encode(b"new-key"));
+
+    let result = svc.update(&admin_ctx(TEST_USER), HSM_URI, &req).await;
+    match &result {
+        Err(ResourceError::VersionConflict) => {}
+        _ => panic!("Expected VersionConflict, got {:?}", result),
+    }
+    assert_eq!(
+        hsm_ref.put_call_count(), 0,
+        "backend put MUST NOT be called when optimistic lock fails (TOCTOU fix)"
+    );
+}
+
+/// TC-P2-03: update — put fails after DB update committed → DB row rolled back.
+///
+/// DB-first ordering: optimistic-lock update succeeds, then backend put fails
+/// → repo.update called again to restore the pre-update state. Verified by
+/// holding an Arc to the repo to read update_call_count (2: 1 commit + 1 rollback).
+#[tokio::test]
+async fn test_put_update_put_fail_rolls_back_db() {
+    let hsm_backend = MockResourceBackend::new()
+        .with_capabilities(BackendCapabilities::PUT | BackendCapabilities::DELETE)
+        .with_put_result(Err(ResourceError::BackendError { detail: "pkcs11 write failed".to_string() }));
+    let hsm_ptr = Arc::new(hsm_backend);
+
+    let repo = Arc::new(MockResourceRepository::new());
+    *repo.find_by_uri_result.lock().unwrap() = Ok(Some(make_entity()));
+    *repo.update_result.lock().unwrap() = Ok(1); // optimistic lock succeeds
+    let policy = MockPolicyClient::new();
+    *policy.validate_policy_result.lock().unwrap() = Ok(true);
+    let mut bp = BackendProvider::new();
+    bp.register("hsm", hsm_ptr);
+    let config = test_config();
+    let validator = ResourceValidator::new(config);
+    let authz: Arc<dyn AuthzChecker> = Arc::new(MockAuthzChecker::new());
+    let svc = ResourceService::new(repo.clone(), authz, bp, Arc::new(policy), validator);
+
+    let mut req = update_req();
+    req.content = Some(base64::engine::general_purpose::STANDARD.encode(b"new-key"));
+
+    let result = svc.update(&admin_ctx(TEST_USER), HSM_URI, &req).await;
+    match &result {
+        Err(ResourceError::BackendError { .. }) => {}
+        other => panic!("Expected BackendError, got {:?}", other),
+    }
+    assert_eq!(
+        repo.update_call_count(), 2,
+        "compensation must roll back the DB update when backend put fails (1 commit + 1 rollback)"
+    );
+}
+
+// ===========================================================================
+// Tests – TC-P1-04: Bearer GET HSM → deny (404 mask)
+// ===========================================================================
+
+/// TC-P1-04: Bearer GET HSM with authz deny → NotFound(404)
+///
+/// D8: authz failure returns NotFound, masking existence. Backend not called.
+#[tokio::test]
+async fn test_get_content_hsm_bearer_deny() {
+    let hsm_backend = MockResourceBackend::new();
+    let hsm_ptr = Arc::new(hsm_backend);
+    let hsm_ref = hsm_ptr.clone();
+
+    let authz: Arc<dyn AuthzChecker> = Arc::new(MockAuthzChecker::new().with_deny());
+
+    let config = test_config();
+    let validator = ResourceValidator::new(config);
+    let repo = MockResourceRepository::new();
+    *repo.find_by_uri_result.lock().unwrap() = Ok(Some(make_entity()));
+    let policy = MockPolicyClient::new();
+    let mut bp = BackendProvider::new();
+    bp.register("hsm", hsm_ptr);
+    let svc = ResourceService::new(Arc::new(repo), authz, bp, Arc::new(policy), validator);
+
+    let result = svc.get_content(&bearer_ctx(TEST_USER), HSM_URI).await;
+    match &result {
+        Err(ResourceError::NotFound) => {}
+        _ => panic!("Expected NotFound (authz deny masked), got {:?}", result),
+    }
+    assert_eq!(hsm_ref.get_content_call_count(), 0, "backend should not be called when authz denies");
+}
+
+/// TC-P2-02: authz deny + CA no CSR → NotFound (not CsrRequired)
+///
+/// D8: 404 masks 400 — authz failure is returned before CsrRequired check.
+/// Complementary to TC-P0-05c, this test explicitly asserts the error is NOT CsrRequired.
+#[tokio::test]
+async fn test_get_content_ca_authz_deny_no_csr_not_csr_required() {
+    let ca_backend = MockResourceBackend::new();
+    let ca_ptr = Arc::new(ca_backend);
+    let ca_ref = ca_ptr.clone();
+
+    let authz: Arc<dyn AuthzChecker> = Arc::new(MockAuthzChecker::new().with_deny());
+
+    let config = test_config();
+    let validator = ResourceValidator::new(config);
+    let repo = MockResourceRepository::new();
+    *repo.find_by_uri_result.lock().unwrap() = Ok(Some(make_entity()));
+    let policy = MockPolicyClient::new();
+    let mut bp = BackendProvider::new();
+    bp.register("ca", ca_ptr);
+    let svc = ResourceService::new(Arc::new(repo), authz, bp, Arc::new(policy), validator);
+
+    let result = svc.get_content(&attest_no_csr_with_pubkey(), CA_URI).await;
+    // Must be NotFound, NOT CsrRequired
+    match &result {
+        Err(ResourceError::NotFound) => {}
+        Err(ResourceError::CsrRequired) => panic!("Expected NotFound, got CsrRequired (D8 violation)"),
+        _ => panic!("Expected NotFound, got {:?}", result),
+    }
+    assert_eq!(ca_ref.get_content_call_count(), 0, "backend should not be called when authz fails");
 }

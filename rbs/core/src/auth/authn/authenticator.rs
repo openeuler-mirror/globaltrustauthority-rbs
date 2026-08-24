@@ -97,10 +97,9 @@ impl Auth for Authenticator {
 mod tests {
     use super::*;
     use std::io::Write;
-    use std::sync::Once;
+    use std::sync::OnceLock;
 
-    static INIT: Once = Once::new();
-    static mut TEST_KEY_PATH: Option<String> = None;
+    static TEST_KEY_PATH: OnceLock<String> = OnceLock::new();
 
     /// Generate a fresh RSA public key PEM for each test session.
     fn generate_test_public_key_pem() -> String {
@@ -110,17 +109,14 @@ mod tests {
     }
 
     fn setup_test_key() -> String {
-        INIT.call_once(|| {
+        TEST_KEY_PATH.get_or_init(|| {
             let pem = generate_test_public_key_pem();
             let temp_dir = std::env::temp_dir();
             let key_path = temp_dir.join("rbs_test_authenticator_pubkey.pem");
             let mut file = std::fs::File::create(&key_path).expect("Failed to create temp key file");
             file.write_all(&pem.as_bytes()).expect("Failed to write key");
-            unsafe {
-                TEST_KEY_PATH = Some(key_path.to_string_lossy().to_string());
-            }
-        });
-        unsafe { TEST_KEY_PATH.clone().unwrap() }
+            key_path.to_string_lossy().to_string()
+        }).clone()
     }
 
     /// Stub UserKeyProvider that returns the test public key for any sub.
