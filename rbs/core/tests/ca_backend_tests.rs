@@ -24,6 +24,33 @@ use rbs_core::resource::error::ResourceError;
 use rbs_api_types::config::{CaConfig, HttpsConfig, IdempotencyConfig};
 
 const SHA256_RSA_OID: &str = "1.2.840.113549.1.1.11";
+const ECDSA_SHA256_OID: &str = "1.2.840.10045.4.3.2";
+
+/// Mirror the production logic: pick a CMP protection algorithm OID + OpenSSL
+/// digest from the signer key type so `build_response` works for both RSA
+/// and EC responder keys.
+fn oid_and_digest_for_key(key: &PKey<openssl::pkey::Private>) -> (&'static str, MessageDigest) {
+    match key.id() {
+        openssl::pkey::Id::RSA => (SHA256_RSA_OID, MessageDigest::sha256()),
+        openssl::pkey::Id::EC => {
+            let ec = key.ec_key().expect("EC key");
+            let nid = ec.group().curve_name().unwrap_or(openssl::nid::Nid::from_raw(0));
+            if nid == openssl::nid::Nid::X9_62_PRIME256V1 {
+                (ECDSA_SHA256_OID, MessageDigest::sha256())
+            } else {
+                panic!("test only sets up EC P-256 responders, got nid {:?}", nid);
+            }
+        }
+        other => panic!("unsupported responder key type in test: {:?}", other),
+    }
+}
+
+/// Generate an EC P-256 private key for tests.
+fn ec_p256_key() -> PKey<openssl::pkey::Private> {
+    let group = openssl::ec::EcGroup::from_curve_name(openssl::nid::Nid::X9_62_PRIME256V1).unwrap();
+    let ec = openssl::ec::EcKey::generate(&group).unwrap();
+    PKey::from_ec_key(ec).unwrap()
+}
 
 fn self_signed(priv_key: &PKey<openssl::pkey::Private>, cn: &str) -> X509 {
     let mut b = X509Builder::new().unwrap();
@@ -78,13 +105,14 @@ fn build_response(
     let anchor_cert = x509_cert::Certificate::from_der(anchor_cert_der).unwrap();
     let issued = x509_cert::Certificate::from_der(issued_der).unwrap();
 
+    let (resp_alg_oid, resp_digest) = oid_and_digest_for_key(anchor_key);
     let resp_header = PkiHeader {
         pvno: Pvno::Cmp2000,
         sender: GeneralName::DirectoryName(anchor_cert.tbs_certificate.subject.clone()),
         recipient: req.header.sender.clone(),
         message_time: GeneralizedTime::from_system_time(std::time::SystemTime::now()).ok(),
         protection_alg: Some(AlgorithmIdentifierOwned {
-            oid: ObjectIdentifier::new_unwrap(SHA256_RSA_OID),
+            oid: ObjectIdentifier::new_unwrap(resp_alg_oid),
             parameters: None,
         }),
         sender_kid: None,
@@ -110,7 +138,7 @@ fn build_response(
 
     let protected = ProtectedPart { header: resp_header.clone(), body: body.clone() };
     let protected_der = protected.to_der().unwrap();
-    let mut signer = Signer::new(MessageDigest::sha256(), anchor_key).unwrap();
+    let mut signer = Signer::new(resp_digest, anchor_key).unwrap();
     signer.update(&protected_der).unwrap();
     let sig = signer.sign_to_vec().unwrap();
 
@@ -262,6 +290,54 @@ async fn ca_backend_issue_extracts_certificate() {
     let opts2 = rbs_api_types::GetResourceOptions { csr_der: Some(zeroize::Zeroizing::new(csr_der.clone())) };
     let got2 = ca.get_resource_content(&desc, opts2).await.expect("idempotent get");
     assert_eq!(got2.as_slice(), &issued_der[..]);
+}
+
+/// EC end-to-end: EC P-256 keys for both the responder (anchor) and the RBS
+/// protection key. Proves ECDSA request signing (`protection_alg_oid_for_key`
+/// → ecdsa-with-SHA256) and ECDSA response verification (`digest_for_oid` with
+/// an EC anchor) both work — not just the RSA path.
+#[tokio::test]
+async fn ca_backend_issue_extracts_certificate_ec() {
+    let dir = tempfile::TempDir::new().unwrap();
+
+    let anchor_key = ec_p256_key();
+    let anchor_cert = self_signed(&anchor_key, "rbs-ca-mock-anchor-ec");
+    let anchor_der = anchor_cert.to_der().unwrap();
+    let anchors_file = write_cert_pem(&anchor_cert, dir.path(), "anchor.pem");
+
+    let client_key = ec_p256_key();
+    let client_cert = self_signed(&client_key, "rbs-ca-mock-client-ec");
+    let prot_cert_file = write_cert_pem(&client_cert, dir.path(), "client.pem");
+    let prot_key_file = write_key_pem(&client_key, dir.path(), "client.key");
+
+    let issued_key = ec_p256_key();
+    let issued_cert = self_signed(&issued_key, "issued-cert-ec");
+    let issued_der = issued_cert.to_der().unwrap();
+
+    let mut rb = openssl::x509::X509ReqBuilder::new().unwrap();
+    let mut nm = openssl::x509::X509NameBuilder::new().unwrap();
+    nm.append_entry_by_text("CN", "workload-ec").unwrap();
+    let nm = nm.build();
+    rb.set_subject_name(&nm).unwrap();
+    rb.set_pubkey(&client_key).unwrap();
+    rb.sign(&client_key, MessageDigest::sha256()).unwrap();
+    let csr_der = rb.build().to_der().unwrap();
+
+    let ak = anchor_key.clone();
+    let issued_for_closure = issued_der.clone();
+    let mock = CmpMock::start(move |req_body: &[u8]| {
+        let req = PkiMessage::from_der(req_body).ok()?;
+        if !matches!(req.body, PkiBody::P10cr(_)) { return None; }
+        Some(build_response(&req, &ak, &anchor_der, &issued_for_closure))
+    });
+
+    let cfg = make_ca_config(mock.url(), prot_cert_file, prot_key_file, anchors_file);
+    let ca = rbs_core::resource::adapter::CABackend::new(&cfg).expect("CA backend init (EC)");
+
+    let desc = ca_desc("cert1-ec");
+    let opts = rbs_api_types::GetResourceOptions { csr_der: Some(zeroize::Zeroizing::new(csr_der.clone())) };
+    let got = ca.get_resource_content(&desc, opts).await.expect("issue (EC) should return the cert");
+    assert_eq!(got.as_slice(), &issued_der[..], "extracted EC cert must equal the issued DER");
 }
 
 #[tokio::test]

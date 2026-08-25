@@ -36,6 +36,9 @@ use x509_cert::spki::AlgorithmIdentifierOwned;
 
 const CMP_CONTENT_TYPE: &str = "application/pkixcmp";
 const SHA256_RSA_OID: &str = "1.2.840.113549.1.1.11";
+const ECDSA_SHA256_OID: &str = "1.2.840.10045.4.3.2";
+const ECDSA_SHA384_OID: &str = "1.2.840.10045.4.3.3";
+const ECDSA_SHA512_OID: &str = "1.2.840.10045.4.3.4";
 /// id-it-certProfile: carries the cert profile name in PKIHeader.generalInfo.
 const IT_CERT_PROFILE_OID: &str = "1.3.6.1.5.5.7.4.21";
 
@@ -56,6 +59,9 @@ pub struct CABackend {
     max_response_bytes: u64,
     timeout: Duration,
     protection_key: PKey<Private>,
+    /// CMP request protection algorithm OID derived from `protection_key`
+    /// (RSA→sha256WithRSA, EC P256/P384/P521→ecdsa-with-SHA256/384/512).
+    protection_alg_oid: &'static str,
     protection_cert_der: Vec<u8>,
     extra_certs_der: Vec<Vec<u8>>,
     anchors: Vec<PKey<Public>>,
@@ -114,6 +120,10 @@ impl CABackend {
             Err(e) => return Err(format!("extract cert public key: {e}")),
         }
 
+        // Derive the request protection algorithm from the key type (fail-fast:
+        // unsupported key types/curves abort startup, not the first request).
+        let protection_alg_oid = protection_alg_oid_for_key(&protection_key)?;
+
         let ta_certs = load_certs(&config.response_protection_trust_anchors_file, "trust anchors")?;
         if ta_certs.is_empty() {
             return Err("no certificate in trust anchors file".to_string());
@@ -152,6 +162,7 @@ impl CABackend {
             max_response_bytes: config.max_response_bytes as u64,
             timeout: Duration::from_secs(config.timeout as u64),
             protection_key,
+            protection_alg_oid,
             protection_cert_der,
             extra_certs_der,
             anchors,
@@ -235,7 +246,7 @@ impl CABackend {
             ),
             message_time: GeneralizedTime::from_system_time(SystemTime::now()).ok(),
             protection_alg: Some(AlgorithmIdentifierOwned {
-                oid: ObjectIdentifier::new_unwrap(SHA256_RSA_OID),
+                oid: ObjectIdentifier::new_unwrap(self.protection_alg_oid),
                 parameters: None,
             }),
             sender_kid: None,
@@ -257,7 +268,8 @@ impl CABackend {
         let protected_der = protected.to_der().map_err(|e| {
             ResourceError::BackendError { detail: format!("ProtectedPart encode: {e}") }
         })?;
-        let mut signer = Signer::new(MessageDigest::sha256(), &self.protection_key).map_err(|e| {
+        let prot_digest = digest_for_oid(self.protection_alg_oid)?;
+        let mut signer = Signer::new(prot_digest, &self.protection_key).map_err(|e| {
             ResourceError::BackendError { detail: format!("protection signer init: {e}") }
         })?;
         signer.update(&protected_der).map_err(|e| {
@@ -430,24 +442,61 @@ fn load_private_key(path: &str) -> Result<PKey<Private>, String> {
     }
 }
 
-/// Map a CMP response `protection_alg` to the OpenSSL `MessageDigest` used to
-/// verify the response signature. The request side always sends
-/// `sha256WithRSAEncryption`, but a CA MAY respond with a different RSA
-/// signature algorithm; honour it instead of hardcoding SHA-256. Unsupported
-/// algorithms yield an explicit error rather than silently mis-verifying.
-fn digest_for_protection_alg(
-    alg: &AlgorithmIdentifierOwned,
-) -> Result<MessageDigest, ResourceError> {
-    match alg.oid.to_string().as_str() {
-        // 1.2.840.113549.1.1.11 = sha256WithRSAEncryption
-        "1.2.840.113549.1.1.11" => Ok(MessageDigest::sha256()),
-        // 1.2.840.113549.1.1.12 = sha384WithRSAEncryption
-        "1.2.840.113549.1.1.12" => Ok(MessageDigest::sha384()),
-        // 1.2.840.113549.1.1.13 = sha512WithRSAEncryption
-        "1.2.840.113549.1.1.13" => Ok(MessageDigest::sha512()),
+/// Map a CMP protection algorithm OID to the OpenSSL `MessageDigest` used to
+/// sign (request side) / verify (response side). Supports RSA
+/// (sha{256,384,512}WithRSAEncryption) and ECDSA (ecdsa-with-SHA{256,384,512}).
+/// A CA/gateway MAY respond with any of these; honour the declared algorithm
+/// instead of hardcoding. Unsupported OIDs yield an explicit error rather than
+/// silently mis-verifying.
+fn digest_for_oid(oid: &str) -> Result<MessageDigest, ResourceError> {
+    match oid {
+        // RSA signature algorithms
+        "1.2.840.113549.1.1.11" => Ok(MessageDigest::sha256()), // sha256WithRSAEncryption
+        "1.2.840.113549.1.1.12" => Ok(MessageDigest::sha384()), // sha384WithRSAEncryption
+        "1.2.840.113549.1.1.13" => Ok(MessageDigest::sha512()), // sha512WithRSAEncryption
+        // ECDSA signature algorithms
+        "1.2.840.10045.4.3.2" => Ok(MessageDigest::sha256()), // ecdsa-with-SHA256
+        "1.2.840.10045.4.3.3" => Ok(MessageDigest::sha384()), // ecdsa-with-SHA384
+        "1.2.840.10045.4.3.4" => Ok(MessageDigest::sha512()), // ecdsa-with-SHA512
         other => Err(ResourceError::BackendError {
             detail: format!("unsupported cmp protection alg OID: {other}"),
         }),
+    }
+}
+
+/// Map a CMP response `protection_alg` to the OpenSSL digest via [`digest_for_oid`].
+fn digest_for_protection_alg(
+    alg: &AlgorithmIdentifierOwned,
+) -> Result<MessageDigest, ResourceError> {
+    digest_for_oid(&alg.oid.to_string())
+}
+
+/// Derive the CMP request protection algorithm OID from the protection key
+/// type. RSA → sha256WithRSAEncryption; EC P-256/P-384/P-521 →
+/// ecdsa-with-SHA256/384/512. Other key types / curves error (fail-fast in
+/// `new()`, not the first request).
+fn protection_alg_oid_for_key(key: &PKey<Private>) -> Result<&'static str, String> {
+    match key.id() {
+        openssl::pkey::Id::RSA => Ok(SHA256_RSA_OID),
+        openssl::pkey::Id::EC => {
+            let ec_key = key.ec_key().map_err(|_| {
+                "protection key: invalid EC key".to_string()
+            })?;
+            let nid = ec_key
+                .group()
+                .curve_name()
+                .unwrap_or(openssl::nid::Nid::from_raw(0));
+            if nid == openssl::nid::Nid::X9_62_PRIME256V1 {
+                Ok(ECDSA_SHA256_OID)
+            } else if nid == openssl::nid::Nid::SECP384R1 {
+                Ok(ECDSA_SHA384_OID)
+            } else if nid == openssl::nid::Nid::SECP521R1 {
+                Ok(ECDSA_SHA512_OID)
+            } else {
+                Err(format!("unsupported EC curve for protection key: {:?}", nid))
+            }
+        }
+        other => Err(format!("unsupported protection key type: {:?}", other)),
     }
 }
 
@@ -690,10 +739,10 @@ mod tests {
         assert!(cache.contains_key("fresh"), "non-expired 'fresh' must survive");
     }
 
-    /// `digest_for_protection_alg` maps the RSA signature OIDs to a matching
-    /// OpenSSL digest (Ok) and rejects unknown algorithms (Err) instead of
-    /// mis-verifying. Concrete digest value is proven end-to-end by
-    /// `ca_backend_issue_extracts_certificate` (SHA-256 path).
+    /// `digest_for_protection_alg` maps the RSA + ECDSA signature OIDs to a
+    /// matching OpenSSL digest (Ok) and rejects unknown algorithms (Err)
+    /// instead of mis-verifying. Concrete digest value is proven end-to-end by
+    /// `ca_backend_issue_extracts_certificate` (RSA/SHA-256 path).
     #[test]
     fn test_digest_for_protection_alg_oid_mapping() {
         let mk = |oid: &str| AlgorithmIdentifierOwned {
@@ -704,6 +753,10 @@ mod tests {
         assert!(digest_for_protection_alg(&mk("1.2.840.113549.1.1.11")).is_ok(), "sha256WithRSA must map");
         assert!(digest_for_protection_alg(&mk("1.2.840.113549.1.1.12")).is_ok(), "sha384WithRSA must map");
         assert!(digest_for_protection_alg(&mk("1.2.840.113549.1.1.13")).is_ok(), "sha512WithRSA must map");
+        // Known ECDSA signature OIDs → Ok.
+        assert!(digest_for_protection_alg(&mk("1.2.840.10045.4.3.2")).is_ok(), "ecdsa-with-SHA256 must map");
+        assert!(digest_for_protection_alg(&mk("1.2.840.10045.4.3.3")).is_ok(), "ecdsa-with-SHA384 must map");
+        assert!(digest_for_protection_alg(&mk("1.2.840.10045.4.3.4")).is_ok(), "ecdsa-with-SHA512 must map");
 
         // Unsupported OID → explicit error (no silent SHA-256 fallback).
         match digest_for_protection_alg(&mk("1.2.3.4.5.6.7.8")) {
