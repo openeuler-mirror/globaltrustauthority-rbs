@@ -42,7 +42,12 @@ def test_get_resource_maps_invalid_attest_token_to_auth_error(
 def test_get_resource_maps_unknown_resource_to_not_found(
     rbc_binary: Path, rbs_api: Any, agent_config_path: Path, rbc_key_material: Any
 ) -> None:
-    """Map an authenticated RBS 404 response to the RBC resource-not-found category."""
+    """Map an RBS 404 to the resource-not-found category, mentioning both possible causes.
+
+    RBS folds "missing" and "policy denied" into one 404 whose body names both
+    causes ("resource not found or access denied"); the CLI output carries that
+    body through verbatim.
+    """
     token = rbs_api.fake_gta.issue_token(
         {"attester_data": {"runtime_data": {"tee-pubkey": rbc_key_material.public_jwk}}}
     )
@@ -63,3 +68,4 @@ def test_get_resource_maps_unknown_resource_to_not_found(
     )
     assert result.returncode != 0
     assert "resource not found" in result.stderr.lower()
+    assert "access denied" in result.stderr.lower()

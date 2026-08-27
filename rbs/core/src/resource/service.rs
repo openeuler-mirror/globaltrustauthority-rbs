@@ -64,9 +64,11 @@ fn millis_to_rfc3339(ms: i64) -> String {
 /// Two classes are distinguished:
 ///
 /// - `AuthzError::Denied` — the policy (or ownership) decision went against the
-///   caller. Collapsed to `NotFound` so unauthorized callers cannot distinguish
-///   "resource missing" from "resource present but denied" (anti-enumeration).
-///   Logged at `warn` with the policy id so operators can still tell them apart.
+///   caller. Collapsed to `NotFoundOrDenied` — byte-identical to the response a
+///   genuinely missing resource produces on read paths, so unauthorized callers
+///   cannot distinguish "missing" from "denied" (anti-enumeration). The shared
+///   body text names both causes; which one occurred is logged (warn, with the
+///   policy id) for operators.
 /// - Any other variant — no decision could be reached (broken Rego, missing
 ///   evaluation input): a server-side fault, logged at `error` with the detail
 ///   and surfaced as a 500 instead of masquerading as a missing resource.
@@ -77,7 +79,7 @@ fn read_authz_error(op: &str, uri: &str, policy_id: &str, e: AuthzError) -> Reso
                 "Resource {} denied: caller not authorized for uri '{}' (policy_id='{}')",
                 op, uri, policy_id
             );
-            ResourceError::NotFound
+            ResourceError::NotFoundOrDenied
         }
         AuthzError::PolicyEvaluationFailed(detail) => {
             log::error!(
@@ -478,10 +480,11 @@ impl ResourceService {
             e
         })?;
 
-        // step 2: resource existence
+        // step 2: resource existence (read paths fold "missing" and "denied"
+        // into one identical 404 body — see NotFoundOrDenied)
         let entity = self.repo.find_by_uri(uri).await?.ok_or_else(|| {
             log::error!("Resource get_content denied: resource '{}' not found", uri);
-            ResourceError::NotFound
+            ResourceError::NotFoundOrDenied
         })?;
 
         // step 3: get resource-bound Rego policy
@@ -545,10 +548,11 @@ impl ResourceService {
             e
         })?;
 
-        // step 2: resource existence
+        // step 2: resource existence (read paths fold "missing" and "denied"
+        // into one identical 404 body — see NotFoundOrDenied)
         let entity = self.repo.find_by_uri(uri).await?.ok_or_else(|| {
             log::error!("Resource get_info denied: resource '{}' not found", uri);
-            ResourceError::NotFound
+            ResourceError::NotFoundOrDenied
         })?;
 
         // step 3: get resource-bound Rego policy
@@ -586,10 +590,11 @@ impl ResourceService {
             e
         })?;
 
-        // step 2: resource existence
+        // step 2: resource existence (read paths fold "missing" and "denied"
+        // into one identical 404 body — see NotFoundOrDenied)
         let entity = self.repo.find_by_uri(uri).await?.ok_or_else(|| {
             log::error!("Resource retrieve denied: resource '{}' not found", uri);
-            ResourceError::NotFound
+            ResourceError::NotFoundOrDenied
         })?;
 
         // step 3: get resource-bound Rego policy

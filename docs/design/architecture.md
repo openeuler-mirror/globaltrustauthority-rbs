@@ -362,7 +362,7 @@ sequenceDiagram
 
 Passport `get_content` (Attest GET) reads the TEE encryption pubkey from **nested** claims only: `attester_data.runtime_data.tee-pubkey`. Top-level `tee-pubkey` is **not** accepted on this path.
 
-Authorization failures on the Attest read paths (`get_content` / `get_info` / `retrieve`) are split by cause: a completed policy decision against the caller (`policy_matched != true`, or Bearer owner mismatch) collapses to **404** so unauthorized callers cannot distinguish "missing" from "denied" (anti-enumeration; logged at `warn` with the policy id); a policy that **cannot be evaluated** (broken Rego, safe-mode rejection) is a server-side fault and surfaces as **500** with a generic message — the Rego detail goes to the error log only.
+Authorization failures on the Attest read paths (`get_content` / `get_info` / `retrieve`) are split by cause: a completed policy decision against the caller (`policy_matched != true`, or Bearer owner mismatch) collapses to **404** with the shared body "resource not found or access denied" — byte-identical to what a genuinely missing resource returns on the same paths, so unauthorized callers cannot distinguish "missing" from "denied" (anti-enumeration; the folding itself is public — API docs name both causes; which case occurred is logged at `warn` with the policy id). A policy that **cannot be evaluated** (broken Rego, safe-mode rejection) is a server-side fault and surfaces as **500** with a generic message — the Rego detail goes to the error log only. Management paths (create/update/delete) keep a plain "resource not found" 404 because denial there is a distinct 403.
 
 ### 8.3b Resource Retrieval (Bearer Owner GET Path)
 

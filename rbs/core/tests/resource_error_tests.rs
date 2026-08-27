@@ -96,6 +96,17 @@ fn test_not_found_http_status() {
     assert_eq!(ResourceError::NotFound.http_status(), 404);
 }
 
+/// NotFoundOrDenied -> 404, with the dual-cause external message shared by
+/// read-path "missing" and "denied" (anti-enumeration folding is public).
+#[test]
+fn test_not_found_or_denied_http_status_and_message() {
+    assert_eq!(ResourceError::NotFoundOrDenied.http_status(), 404);
+    assert_eq!(
+        ResourceError::NotFoundOrDenied.external_message(),
+        "resource not found or access denied"
+    );
+}
+
 /// PolicyEvaluationFailed -> 500
 #[test]
 fn test_policy_evaluation_failed_http_status() {

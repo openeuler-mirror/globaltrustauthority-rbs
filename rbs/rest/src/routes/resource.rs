@@ -231,7 +231,7 @@ pub async fn delete_resource(
         (status = 200, description = "Resource metadata", body = ResourceResponse),
         (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody),
-        (status = 404, description = "Resource not found", body = ErrorBody),
+        (status = 404, description = "Resource not found or access denied", body = ErrorBody),
         (status = 500, description = "Internal error", body = ErrorBody),
     )
 )]

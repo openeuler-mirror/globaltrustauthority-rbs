@@ -1038,7 +1038,8 @@ async fn test_delete_permission_denied_different_user() {
 /// UT-RS-013a: GET content/info auth denied via Attest token.
 ///
 /// Attest tokens are hard-denied by AuthzFacade. For GET operations, the service
-/// maps authz Deny → NotFound (404) to hide resource existence.
+/// maps authz Deny → NotFoundOrDenied (404) to hide resource existence; the body
+/// names both causes since it is identical for genuinely missing resources too.
 #[tokio::test]
 async fn test_get_content_permission_denied() {
     let svc = make_service(
@@ -1051,8 +1052,8 @@ async fn test_get_content_permission_denied() {
         .get_content(&attest_ctx(), TEST_URI)
         .await;
     match result {
-        Err(ResourceError::NotFound) => {}
-        _ => panic!("Expected NotFound, got {:?}", result),
+        Err(ResourceError::NotFoundOrDenied) => {}
+        _ => panic!("Expected NotFoundOrDenied, got {:?}", result),
     }
 }
 
@@ -1081,7 +1082,7 @@ async fn test_get_content_attest_policy_deny() {
         .get_content(&attest_with_pubkey(), TEST_URI)
         .await;
     match result {
-        Err(ResourceError::NotFound) => {}
+        Err(ResourceError::NotFoundOrDenied) => {}
         other => panic!("Expected NotFound (resource hidden), got {:?}", other),
     }
 }
@@ -1135,7 +1136,7 @@ async fn test_get_content_not_found() {
         .get_content(&bearer_ctx(TEST_USER), TEST_URI)
         .await;
     match result {
-        Err(ResourceError::NotFound) => {}
+        Err(ResourceError::NotFoundOrDenied) => {}
         _ => panic!("Expected NotFound, got {:?}", result),
     }
 }
@@ -1185,7 +1186,7 @@ async fn test_get_content_policy_deny() {
         .get_content(&attest_with_pubkey(), TEST_URI)
         .await;
     match result {
-        Err(ResourceError::NotFound) => {}
+        Err(ResourceError::NotFoundOrDenied) => {}
         _ => panic!("Expected NotFound (resource hidden), got {:?}", result),
     }
 }
@@ -1362,7 +1363,7 @@ async fn test_get_info_not_found() {
         .get_info(&bearer_ctx(TEST_USER), TEST_URI)
         .await;
     match result {
-        Err(ResourceError::NotFound) => {}
+        Err(ResourceError::NotFoundOrDenied) => {}
         _ => panic!("Expected NotFound, got {:?}", result),
     }
 }
@@ -1387,7 +1388,7 @@ async fn test_get_info_opa_deny() {
         .get_info(&attest_with_pubkey(), TEST_URI)
         .await;
     match result {
-        Err(ResourceError::NotFound) => {}
+        Err(ResourceError::NotFoundOrDenied) => {}
         _ => panic!("Expected NotFound (resource hidden), got {:?}", result),
     }
 }
@@ -1471,7 +1472,7 @@ async fn test_retrieve_policy_deny() {
 
     let result = svc.retrieve(&attest_payload(), TEST_URI).await;
     match result {
-        Err(ResourceError::NotFound) => {}
+        Err(ResourceError::NotFoundOrDenied) => {}
         _ => panic!("Expected NotFound (resource hidden), got {:?}", result),
     }
 }
@@ -1601,7 +1602,7 @@ async fn test_retrieve_policy_not_matched() {
         |bp| { bp.register("vault", Arc::new(MockResourceBackend::new())); },
     );
     let result = svc.retrieve(&attest_payload(), TEST_URI).await;
-    assert!(matches!(result, Err(ResourceError::NotFound)), "expected NotFound, got {:?}", result);
+    assert!(matches!(result, Err(ResourceError::NotFoundOrDenied)), "expected NotFound, got {:?}", result);
 }
 
 #[tokio::test]
@@ -1611,7 +1612,7 @@ async fn test_retrieve_resource_not_found() {
         |_| {}, |_| {},
     );
     let result = svc.retrieve(&attest_payload(), TEST_URI).await;
-    assert!(matches!(result, Err(ResourceError::NotFound)), "expected NotFound, got {:?}", result);
+    assert!(matches!(result, Err(ResourceError::NotFoundOrDenied)), "expected NotFound, got {:?}", result);
 }
 
 #[tokio::test]
@@ -2322,7 +2323,7 @@ async fn test_get_content_ca_authz_deny_no_csr() {
 
     let result = svc.get_content(&attest_no_csr_with_pubkey(), CA_URI).await;
     match &result {
-        Err(ResourceError::NotFound) => {}
+        Err(ResourceError::NotFoundOrDenied) => {}
         _ => panic!("Expected NotFound (not CsrRequired), got {:?}", result),
     }
     assert_eq!(ca_ref.get_content_call_count(), 0, "backend should not be called when authz fails");
@@ -2484,7 +2485,7 @@ async fn test_get_content_hsm_bearer_deny() {
 
     let result = svc.get_content(&bearer_ctx(TEST_USER), HSM_URI).await;
     match &result {
-        Err(ResourceError::NotFound) => {}
+        Err(ResourceError::NotFoundOrDenied) => {}
         _ => panic!("Expected NotFound (authz deny masked), got {:?}", result),
     }
     assert_eq!(hsm_ref.get_content_call_count(), 0, "backend should not be called when authz denies");
@@ -2514,7 +2515,7 @@ async fn test_get_content_ca_authz_deny_no_csr_not_csr_required() {
     let result = svc.get_content(&attest_no_csr_with_pubkey(), CA_URI).await;
     // Must be NotFound, NOT CsrRequired
     match &result {
-        Err(ResourceError::NotFound) => {}
+        Err(ResourceError::NotFoundOrDenied) => {}
         Err(ResourceError::CsrRequired) => panic!("Expected NotFound, got CsrRequired (D8 violation)"),
         _ => panic!("Expected NotFound, got {:?}", result),
     }

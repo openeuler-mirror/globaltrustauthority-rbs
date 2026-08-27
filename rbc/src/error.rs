@@ -61,7 +61,10 @@ pub enum RbcError {
     #[error("auth error: {0}")]
     AuthError(String),
 
-    /// Resource not found (404).
+    /// Resource not found (404). RBS deliberately returns the same response
+    /// for "missing" and "denied" (anti-enumeration) — the response body names
+    /// both causes ("resource not found or access denied"), which this error
+    /// carries through verbatim.
     #[error("resource not found: {0}")]
     ResourceNotFound(String),
 
