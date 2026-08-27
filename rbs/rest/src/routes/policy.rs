@@ -56,11 +56,7 @@ fn validate_path_id(policy_id: &str) -> Result<(), HttpResponse> {
     summary = "List policies",
     tags = ["Policy"],
     security(("bearerAuth" = [])),
-    params(
-        ("ids" = Option<String>, Query, description = "Comma-separated policy IDs"),
-        ("limit" = Option<i64>, Query, description = "Page size (1..100, default 10)"),
-        ("offset" = Option<i64>, Query, description = "Offset (0..100000, default 0)"),
-    ),
+    params(PolicyListQuery),
     responses(
         (status = 200, description = "Policy list", body = PolicyListResponse),
         (status = 401, description = "Unauthorized", body = ErrorBody),

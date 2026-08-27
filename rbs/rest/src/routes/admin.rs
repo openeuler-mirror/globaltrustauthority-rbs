@@ -13,7 +13,7 @@
 //! Admin / user management routes (`/rbs/v0/users`).
 
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, http::StatusCode};
-use rbs_api_types::{ErrorBody, Role, UserCreateRequest, UserListQuery, UserListResponse, UserResponse, UserUpdateRequest, validate_username};
+use rbs_api_types::{ErrorBody, UserCreateRequest, UserListQuery, UserListResponse, UserResponse, UserUpdateRequest, validate_username};
 use rbs_api_types::error::RbsError;
 use rbs_core::RbsCore;
 use std::sync::Arc;
@@ -45,12 +45,7 @@ fn error_response(e: impl ToString, status: u16) -> HttpResponse {
     summary = "List users (admin only)",
     tags = ["Admin"],
     security(("bearerAuth" = [])),
-    params(
-        ("limit" = Option<i64>, Query, description = "Page size (1..100, default 10)"),
-        ("offset" = Option<i64>, Query, description = "Offset (0..100000, default 0)"),
-        ("role" = Option<Role>, Query, description = "Filter by role (admin or user)"),
-        ("enabled" = Option<bool>, Query, description = "Filter by enabled status"),
-    ),
+    params(UserListQuery),
     responses(
         (status = 200, description = "Paginated user list", body = UserListResponse),
         (status = 401, description = "Unauthorized", body = ErrorBody),

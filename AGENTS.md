@@ -205,6 +205,7 @@ See [`docs/design/architecture.md` §10](docs/design/architecture.md#10-security
 - Use `#[utoipa::ToSchema]` derive for API types
 - Use `#[utoipa::path]` for endpoint documentation
 - Example values in schema should be non-empty strings (build-time embedded)
+- Mirror every `#[validate(length|range)]` rule as `#[schema(min_length|max_length|pattern|minimum|maximum)]` (body types) or `#[param(...)]` (query structs with `#[derive(IntoParams)]` + `#[into_params(parameter_in = Query)]`), so validation rules reach the OpenAPI contract; `rbs/api-types/tests/schema_constraint_test.rs` and `rbs/rest/tests/openapi_constraint_test.rs` enforce the pairing
 
 ### Language
 
