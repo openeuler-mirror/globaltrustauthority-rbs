@@ -294,7 +294,7 @@ if (rc != RBC_ERROR_CODE_OK) {
 | `RBC_ERROR_CODE_TIMEOUT` | 8 | Request timed out |
 | `RBC_ERROR_CODE_AUTH` | 9 | Token invalid or expired (401/403) |
 | `RBC_ERROR_CODE_POLICY_DENIED` | 10 | Request denied by attestation policy |
-| `RBC_ERROR_CODE_RESOURCE_NOT_FOUND` | 11 | Resource URI not found (404) |
+| `RBC_ERROR_CODE_RESOURCE_NOT_FOUND` | 11 | RBS returned 404 — "resource not found or access denied". RBS deliberately returns this identical body for a missing resource and a denied policy match (anti-enumeration), so this code means either — verify the URI exists and that the attestation environment satisfies the resource policy |
 | `RBC_ERROR_CODE_ATTEST` | 12 | Attestation flow failure |
 | `RBC_ERROR_CODE_SERVER` | 13 | RBS server internal error (5xx) |
 | `RBC_ERROR_CODE_ENCRYPT` | 14 | JWE encryption error |

@@ -3147,7 +3147,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '404':
-          description: Resource not found
+          description: Resource not found or access denied
           content:
             application/json:
               schema:

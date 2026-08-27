@@ -28,6 +28,10 @@ typedef enum {
   RBC_ERROR_CODE_TIMEOUT = 8,
   RBC_ERROR_CODE_AUTH = 9,
   RBC_ERROR_CODE_POLICY_DENIED = 10,
+  /**
+   * RBS returns the same 404 for "resource missing" and "attestation policy
+   * denied" (anti-enumeration); the message distinguishes neither.
+   */
   RBC_ERROR_CODE_RESOURCE_NOT_FOUND = 11,
   RBC_ERROR_CODE_ATTEST = 12,
   RBC_ERROR_CODE_SERVER = 13,

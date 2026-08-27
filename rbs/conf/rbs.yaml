@@ -108,6 +108,7 @@ resource:
       timeout: 30                 # request timeout in seconds; range [1, 3600]
       max_connections: 100        # connection count; range [1, 10000]
       max_retries: 2              # retry count on failure; ≤ 100
+      max_response_body_bytes: 1048576   # max backend response body size in bytes; bounds memory when reading resource content; range [1024, 10485760], default 1 MiB
       allowed_resource_types: ["secret", "cert"]  # resource type whitelist for this backend
 
     # HSM (PKCS#11) backend — stores key material as opaque blobs in an HSM token.

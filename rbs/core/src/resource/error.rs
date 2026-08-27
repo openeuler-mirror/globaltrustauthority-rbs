@@ -21,6 +21,15 @@ pub enum ResourceError {
     #[error("resource not found")]
     NotFound,
 
+    /// Read-path 404 (get_content / get_info / retrieve). RBS deliberately
+    /// returns this identical body for "resource missing" and "authorization
+    /// denied" so callers cannot enumerate resource existence (the folding is
+    /// public — the API docs document it); which case occurred lives in
+    /// server-side logs only. Management paths (create/update/delete) use
+    /// plain `NotFound` because denial there is a distinct 403.
+    #[error("resource not found or access denied")]
+    NotFoundOrDenied,
+
     #[error("version conflict: resource was modified by another request")]
     VersionConflict,
 
@@ -32,6 +41,12 @@ pub enum ResourceError {
 
     #[error("backend unsupported: {provider}")]
     BackendUnsupported { provider: String },
+
+    /// The resource-bound Rego policy could not be evaluated (e.g. broken
+    /// syntax, safe-mode rejected builtin). A server-side fault, not an
+    /// authorization decision — the detail is logged, not exposed.
+    #[error("policy evaluation failed")]
+    PolicyEvaluationFailed,
 
     #[error("JWE encryption failed: {reason}")]
     JweEncryptionFailed { reason: String },
@@ -60,8 +75,10 @@ impl ResourceError {
             | ResourceError::BackendOperationUnsupported
             | ResourceError::CsrRequired => 400,
             ResourceError::NotFound => 404,
+            ResourceError::NotFoundOrDenied => 404,
             ResourceError::BackendError { .. } => 502,
             ResourceError::CaRequestPending => 202,
+            ResourceError::PolicyEvaluationFailed => 500,
         }
     }
 

@@ -24,6 +24,10 @@ default allow = false
 result = {\"policy_matched\": allow}
 """
 
+# Rego that cannot be parsed/evaluated — simulates a server-side policy fault.
+# Read paths must surface this as a 500, not hide it behind the anti-enumeration 404.
+BROKEN_POLICY = "this is not valid rego syntax {"
+
 USER_KEYS = {"id", "username", "role", "enabled", "created_at", "updated_at"}
 POLICY_KEYS = {"policy_id", "policy_name", "policy_version", "content_type", "created_at", "updated_at"}
 RESOURCE_REQUIRED_KEYS = {

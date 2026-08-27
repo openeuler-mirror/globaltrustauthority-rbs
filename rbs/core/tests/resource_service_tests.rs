@@ -432,12 +432,22 @@ fn attest_without_pubkey() -> AuthContext {
 
 struct MockAuthzChecker {
     deny_all: Mutex<bool>,
+    /// When set, `check_resource_get` returns `PolicyEvaluationFailed` with this
+    /// detail — simulates a resource-bound Rego policy that cannot be evaluated.
+    eval_error: Mutex<Option<String>>,
 }
 
 impl MockAuthzChecker {
-    fn new() -> Self { Self { deny_all: Mutex::new(false) } }
+    fn new() -> Self {
+        Self { deny_all: Mutex::new(false), eval_error: Mutex::new(None) }
+    }
     #[allow(dead_code)]
     fn with_deny(self) -> Self { *self.deny_all.lock().unwrap() = true; self }
+    #[allow(dead_code)]
+    fn with_eval_error(self, detail: &str) -> Self {
+        *self.eval_error.lock().unwrap() = Some(detail.to_string());
+        self
+    }
 }
 
 /// Inner mock logic — simple Bearer grant, Attest deny (matches admin_policy.rego spirit).
@@ -458,6 +468,9 @@ impl AuthzChecker for MockAuthzChecker {
         mock_check_action(ctx, &action, &role)
     }
     async fn check_resource_get(&self, ctx: &AuthContext, _owner: &str, policy: &str, _res_provider: Option<&str>) -> Result<(), AuthzError> {
+        if let Some(detail) = self.eval_error.lock().unwrap().clone() {
+            return Err(AuthzError::PolicyEvaluationFailed(detail));
+        }
         if *self.deny_all.lock().unwrap() { return Err(AuthzError::Denied); }
         match ctx {
             AuthContext::Attest(_) => {
@@ -476,13 +489,24 @@ fn make_service(
     configure_policy: impl FnOnce(&MockPolicyClient),
     configure_backend: impl FnOnce(&mut BackendProvider),
 ) -> ResourceService {
+    make_service_with_authz(|_| {}, configure_repo, configure_policy, configure_backend)
+}
+
+/// Like `make_service`, but also allows configuring the `AuthzChecker` mock
+/// (e.g. to inject `PolicyEvaluationFailed`).
+fn make_service_with_authz(
+    configure_authz: impl FnOnce(&MockAuthzChecker),
+    configure_repo: impl FnOnce(&MockResourceRepository),
+    configure_policy: impl FnOnce(&MockPolicyClient),
+    configure_backend: impl FnOnce(&mut BackendProvider),
+) -> ResourceService {
     let config = ResourceConfig::default();
     let validator = ResourceValidator::new(config);
     let repo = MockResourceRepository::new(); configure_repo(&repo);
     let policy = MockPolicyClient::new(); configure_policy(&policy);
     let mut bp = BackendProvider::new(); configure_backend(&mut bp);
-    let authz: Arc<dyn AuthzChecker> = Arc::new(MockAuthzChecker::new());
-    ResourceService::new(Arc::new(repo), authz, bp, Arc::new(policy), validator)
+    let authz = MockAuthzChecker::new(); configure_authz(&authz);
+    ResourceService::new(Arc::new(repo), Arc::new(authz), bp, Arc::new(policy), validator)
 }
 
 /// Build a service with a custom ResourceConfig (for multi-backend tests).
@@ -1014,7 +1038,8 @@ async fn test_delete_permission_denied_different_user() {
 /// UT-RS-013a: GET content/info auth denied via Attest token.
 ///
 /// Attest tokens are hard-denied by AuthzFacade. For GET operations, the service
-/// maps authz Deny → NotFound (404) to hide resource existence.
+/// maps authz Deny → NotFoundOrDenied (404) to hide resource existence; the body
+/// names both causes since it is identical for genuinely missing resources too.
 #[tokio::test]
 async fn test_get_content_permission_denied() {
     let svc = make_service(
@@ -1027,8 +1052,8 @@ async fn test_get_content_permission_denied() {
         .get_content(&attest_ctx(), TEST_URI)
         .await;
     match result {
-        Err(ResourceError::NotFound) => {}
-        _ => panic!("Expected NotFound, got {:?}", result),
+        Err(ResourceError::NotFoundOrDenied) => {}
+        _ => panic!("Expected NotFoundOrDenied, got {:?}", result),
     }
 }
 
@@ -1057,7 +1082,7 @@ async fn test_get_content_attest_policy_deny() {
         .get_content(&attest_with_pubkey(), TEST_URI)
         .await;
     match result {
-        Err(ResourceError::NotFound) => {}
+        Err(ResourceError::NotFoundOrDenied) => {}
         other => panic!("Expected NotFound (resource hidden), got {:?}", other),
     }
 }
@@ -1111,7 +1136,7 @@ async fn test_get_content_not_found() {
         .get_content(&bearer_ctx(TEST_USER), TEST_URI)
         .await;
     match result {
-        Err(ResourceError::NotFound) => {}
+        Err(ResourceError::NotFoundOrDenied) => {}
         _ => panic!("Expected NotFound, got {:?}", result),
     }
 }
@@ -1161,8 +1186,37 @@ async fn test_get_content_policy_deny() {
         .get_content(&attest_with_pubkey(), TEST_URI)
         .await;
     match result {
-        Err(ResourceError::NotFound) => {}
+        Err(ResourceError::NotFoundOrDenied) => {}
         _ => panic!("Expected NotFound (resource hidden), got {:?}", result),
+    }
+}
+
+/// UT-RS-015a: GET content policy *evaluation* failure -> Err(PolicyEvaluationFailed).
+///
+/// An unevaluable Rego policy is a server-side fault (500), not a hidden
+/// resource (404).
+#[tokio::test]
+async fn test_get_content_policy_evaluation_failed() {
+    let svc = make_service_with_authz(
+        |authz| { *authz.eval_error.lock().unwrap() = Some("rego compile error".to_string()); },
+        |repo| {
+            *repo.find_by_uri_result.lock().unwrap() = Ok(Some(make_entity()));
+        },
+        |policy| {
+            *policy.get_policy_content_result.lock().unwrap() =
+                Ok("package broken; result = ((( ".to_string());
+        },
+        |bp| {
+            bp.register("vault", Arc::new(MockResourceBackend::new()));
+        },
+    );
+
+    let result = svc
+        .get_content(&attest_with_pubkey(), TEST_URI)
+        .await;
+    match result {
+        Err(ResourceError::PolicyEvaluationFailed) => {}
+        other => panic!("Expected PolicyEvaluationFailed, got {:?}", other),
     }
 }
 
@@ -1309,7 +1363,7 @@ async fn test_get_info_not_found() {
         .get_info(&bearer_ctx(TEST_USER), TEST_URI)
         .await;
     match result {
-        Err(ResourceError::NotFound) => {}
+        Err(ResourceError::NotFoundOrDenied) => {}
         _ => panic!("Expected NotFound, got {:?}", result),
     }
 }
@@ -1334,8 +1388,37 @@ async fn test_get_info_opa_deny() {
         .get_info(&attest_with_pubkey(), TEST_URI)
         .await;
     match result {
-        Err(ResourceError::NotFound) => {}
+        Err(ResourceError::NotFoundOrDenied) => {}
         _ => panic!("Expected NotFound (resource hidden), got {:?}", result),
+    }
+}
+
+/// UT-RS-020a: GET info policy *evaluation* failure -> Err(PolicyEvaluationFailed).
+///
+/// An unevaluable Rego policy is a server-side fault (500), not a hidden
+/// resource (404).
+#[tokio::test]
+async fn test_get_info_policy_evaluation_failed() {
+    let svc = make_service_with_authz(
+        |authz| { *authz.eval_error.lock().unwrap() = Some("rego compile error".to_string()); },
+        |repo| {
+            *repo.find_by_uri_result.lock().unwrap() = Ok(Some(make_entity()));
+        },
+        |policy| {
+            *policy.get_policy_content_result.lock().unwrap() =
+                Ok("package broken; result = ((( ".to_string());
+        },
+        |bp| {
+            bp.register("vault", Arc::new(MockResourceBackend::new()));
+        },
+    );
+
+    let result = svc
+        .get_info(&attest_with_pubkey(), TEST_URI)
+        .await;
+    match result {
+        Err(ResourceError::PolicyEvaluationFailed) => {}
+        other => panic!("Expected PolicyEvaluationFailed, got {:?}", other),
     }
 }
 
@@ -1389,8 +1472,36 @@ async fn test_retrieve_policy_deny() {
 
     let result = svc.retrieve(&attest_payload(), TEST_URI).await;
     match result {
-        Err(ResourceError::NotFound) => {}
+        Err(ResourceError::NotFoundOrDenied) => {}
         _ => panic!("Expected NotFound (resource hidden), got {:?}", result),
+    }
+}
+
+/// UT-RS-022a: retrieve policy *evaluation* failure -> Err(PolicyEvaluationFailed).
+///
+/// A Rego policy that cannot be evaluated (broken syntax, safe-mode rejection)
+/// is a server-side fault and must surface as a 500, not masquerade as a
+/// missing resource (404).
+#[tokio::test]
+async fn test_retrieve_policy_evaluation_failed() {
+    let svc = make_service_with_authz(
+        |authz| { *authz.eval_error.lock().unwrap() = Some("rego parse error".to_string()); },
+        |repo| {
+            *repo.find_by_uri_result.lock().unwrap() = Ok(Some(make_entity()));
+        },
+        |policy| {
+            *policy.get_policy_content_result.lock().unwrap() =
+                Ok("package broken; result = ((( ".to_string());
+        },
+        |bp| {
+            bp.register("vault", Arc::new(MockResourceBackend::new()));
+        },
+    );
+
+    let result = svc.retrieve(&attest_payload(), TEST_URI).await;
+    match result {
+        Err(ResourceError::PolicyEvaluationFailed) => {}
+        other => panic!("Expected PolicyEvaluationFailed, got {:?}", other),
     }
 }
 
@@ -1491,7 +1602,7 @@ async fn test_retrieve_policy_not_matched() {
         |bp| { bp.register("vault", Arc::new(MockResourceBackend::new())); },
     );
     let result = svc.retrieve(&attest_payload(), TEST_URI).await;
-    assert!(matches!(result, Err(ResourceError::NotFound)), "expected NotFound, got {:?}", result);
+    assert!(matches!(result, Err(ResourceError::NotFoundOrDenied)), "expected NotFound, got {:?}", result);
 }
 
 #[tokio::test]
@@ -1501,7 +1612,7 @@ async fn test_retrieve_resource_not_found() {
         |_| {}, |_| {},
     );
     let result = svc.retrieve(&attest_payload(), TEST_URI).await;
-    assert!(matches!(result, Err(ResourceError::NotFound)), "expected NotFound, got {:?}", result);
+    assert!(matches!(result, Err(ResourceError::NotFoundOrDenied)), "expected NotFound, got {:?}", result);
 }
 
 #[tokio::test]
@@ -1565,6 +1676,13 @@ fn test_permission_denied_is_403() {
 #[test]
 fn test_not_found_is_404() {
     assert_eq!(ResourceError::NotFound.http_status(), 404);
+}
+
+#[test]
+fn test_policy_evaluation_failed_is_500() {
+    assert_eq!(ResourceError::PolicyEvaluationFailed.http_status(), 500);
+    // The external message must not carry the internal evaluation detail.
+    assert_eq!(ResourceError::PolicyEvaluationFailed.external_message(), "policy evaluation failed");
 }
 
 // ===========================================================================
@@ -2205,7 +2323,7 @@ async fn test_get_content_ca_authz_deny_no_csr() {
 
     let result = svc.get_content(&attest_no_csr_with_pubkey(), CA_URI).await;
     match &result {
-        Err(ResourceError::NotFound) => {}
+        Err(ResourceError::NotFoundOrDenied) => {}
         _ => panic!("Expected NotFound (not CsrRequired), got {:?}", result),
     }
     assert_eq!(ca_ref.get_content_call_count(), 0, "backend should not be called when authz fails");
@@ -2367,7 +2485,7 @@ async fn test_get_content_hsm_bearer_deny() {
 
     let result = svc.get_content(&bearer_ctx(TEST_USER), HSM_URI).await;
     match &result {
-        Err(ResourceError::NotFound) => {}
+        Err(ResourceError::NotFoundOrDenied) => {}
         _ => panic!("Expected NotFound (authz deny masked), got {:?}", result),
     }
     assert_eq!(hsm_ref.get_content_call_count(), 0, "backend should not be called when authz denies");
@@ -2397,7 +2515,7 @@ async fn test_get_content_ca_authz_deny_no_csr_not_csr_required() {
     let result = svc.get_content(&attest_no_csr_with_pubkey(), CA_URI).await;
     // Must be NotFound, NOT CsrRequired
     match &result {
-        Err(ResourceError::NotFound) => {}
+        Err(ResourceError::NotFoundOrDenied) => {}
         Err(ResourceError::CsrRequired) => panic!("Expected NotFound, got CsrRequired (D8 violation)"),
         _ => panic!("Expected NotFound, got {:?}", result),
     }

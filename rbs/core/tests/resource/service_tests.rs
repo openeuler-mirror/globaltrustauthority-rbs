@@ -117,7 +117,10 @@ async fn test_res_create_010_backend_not_found() {
 // ===========================================================================
 
 /// test_point_id: RUST_GTA_RBS_TP_RES_Get_003
-/// When authz denies get_content, the error is mapped to NotFound (not 403).
+/// When authz denies get_content, the error is mapped to NotFoundOrDenied
+/// (404), not 403. The read paths return this same variant for a genuinely
+/// missing resource, so callers cannot tell "missing" from "denied"
+/// (anti-enumeration); the shared body names both causes.
 #[tokio::test]
 async fn test_res_get_003_authz_denied_returns_not_found() {
     let repo = {
@@ -131,8 +134,8 @@ async fn test_res_get_003_authz_denied_returns_not_found() {
     let ctx = bearer_ctx_with_pubkey();
 
     let result = svc.get_content(&ctx, TEST_URI).await;
-    assert!(matches!(result, Err(ResourceError::NotFound)),
-        "authz denial should map to NotFound, got {:?}", result.as_ref().err());
+    assert!(matches!(result, Err(ResourceError::NotFoundOrDenied)),
+        "authz denial should map to NotFoundOrDenied, got {:?}", result.as_ref().err());
 }
 
 // ===========================================================================

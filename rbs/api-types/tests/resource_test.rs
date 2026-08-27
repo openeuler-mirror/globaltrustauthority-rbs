@@ -151,6 +151,43 @@ fn tc001_vault_variant_serde_roundtrip() {
     assert_eq!(back["type"], "vault");
 }
 
+/// Omitted `max_response_body_bytes` falls back to the documented 1 MiB default,
+/// and an explicit value round-trips unchanged.
+#[test]
+fn tc001a_vault_max_response_body_bytes_default_and_explicit() {
+    use rbs_api_types::config::{ResourceProviderConfig, VaultConfig};
+    let json = serde_json::json!({
+        "type": "vault",
+        "url": "https://v:8200",
+        "token": "x",
+        "mount_path": "secret",
+        "allowed_resource_types": ["secret"]
+    });
+    let cfg: ResourceProviderConfig = serde_json::from_value(json).unwrap();
+    match cfg {
+        ResourceProviderConfig::Vault(v) => {
+            assert_eq!(v.max_response_body_bytes, 1_048_576, "default must be 1 MiB");
+        }
+        other => panic!("expected Vault variant, got {:?}", other),
+    }
+
+    let json = serde_json::json!({
+        "type": "vault",
+        "url": "https://v:8200",
+        "token": "x",
+        "mount_path": "secret",
+        "max_response_body_bytes": 2097152,
+        "allowed_resource_types": ["secret"]
+    });
+    let cfg: ResourceProviderConfig = serde_json::from_value(json).unwrap();
+    match cfg {
+        ResourceProviderConfig::Vault(VaultConfig { max_response_body_bytes, .. }) => {
+            assert_eq!(max_response_body_bytes, 2_097_152);
+        }
+        other => panic!("expected Vault variant, got {:?}", other),
+    }
+}
+
 #[test]
 fn tc002_ca_variant_serde_roundtrip() {
     use rbs_api_types::config::ResourceProviderConfig;

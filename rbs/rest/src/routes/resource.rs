@@ -32,10 +32,12 @@ fn require_auth(req: &HttpRequest) -> Result<rbs_core::AuthContext, HttpResponse
 
 fn error_response(e: impl ToString, status: u16) -> HttpResponse {
     let msg = e.to_string();
+    // Server-side faults are errors; 4xx outcomes are client-caused (including
+    // the deliberate 404 collapse for denied reads) and must not page anyone.
     if status >= 500 {
         log::error!("Resource HTTP error response: status={}, error='{}'", status, msg);
-    } else if status >= 400 {
-        log::error!("Resource HTTP error response: status={}, error='{}'", status, msg);
+    } else {
+        log::warn!("Resource HTTP error response: status={}, error='{}'", status, msg);
     }
     HttpResponse::build(StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR))
         .json(ErrorBody::new(msg))
@@ -229,7 +231,7 @@ pub async fn delete_resource(
         (status = 200, description = "Resource metadata", body = ResourceResponse),
         (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody),
-        (status = 404, description = "Resource not found", body = ErrorBody),
+        (status = 404, description = "Resource not found or access denied", body = ErrorBody),
         (status = 500, description = "Internal error", body = ErrorBody),
     )
 )]

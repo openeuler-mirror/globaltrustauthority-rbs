@@ -35,6 +35,8 @@ pub enum RbcErrorCode {
     Timeout = 8,
     Auth = 9,
     PolicyDenied = 10,
+    /// RBS returns the same 404 for "resource missing" and "attestation policy
+    /// denied" (anti-enumeration); the message distinguishes neither.
     ResourceNotFound = 11,
     Attest = 12,
     Server = 13,
