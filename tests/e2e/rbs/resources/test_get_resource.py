@@ -5,6 +5,7 @@ from typing import Any
 import httpx
 import pytest
 from e2e.rbs.support import (
+    BROKEN_POLICY,
     DENY_POLICY,
     RESOURCE_CONTENT_KEYS,
     assert_error,
@@ -50,6 +51,16 @@ def test_get_resource_applies_attest_policy_deny(rbs_api: Any) -> None:
         path, _, secret = create_resource(client, rbs_api, policy_content=DENY_POLICY)
         response = client.get(f"{rbs_api.base_url}/rbs/v0/{path}", headers=attest_headers(rbs_api))
     assert_error(response, 404)
+    assert secret["value"] not in response.text
+
+
+def test_get_resource_maps_broken_policy_to_internal_error(rbs_api: Any) -> None:
+    """Return 500, not a misleading 404, when the bound Rego policy cannot be evaluated."""
+    with httpx.Client(trust_env=False) as client:
+        path, _, secret = create_resource(client, rbs_api, policy_content=BROKEN_POLICY)
+        response = client.get(f"{rbs_api.base_url}/rbs/v0/{path}", headers=attest_headers(rbs_api))
+    error = assert_error(response, 500, "policy evaluation failed")
+    assert error == "policy evaluation failed", "internal Rego detail must not leak"
     assert secret["value"] not in response.text
 
 

@@ -195,6 +195,7 @@ class RbsServer:
                         "timeout": 5,
                         "max_connections": 10,
                         "max_retries": 0,
+                        "allowed_resource_types": ["secret"],
                     }
                 }
             }

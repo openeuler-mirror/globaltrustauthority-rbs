@@ -33,6 +33,12 @@ pub enum ResourceError {
     #[error("backend unsupported: {provider}")]
     BackendUnsupported { provider: String },
 
+    /// The resource-bound Rego policy could not be evaluated (e.g. broken
+    /// syntax, safe-mode rejected builtin). A server-side fault, not an
+    /// authorization decision — the detail is logged, not exposed.
+    #[error("policy evaluation failed")]
+    PolicyEvaluationFailed,
+
     #[error("JWE encryption failed: {reason}")]
     JweEncryptionFailed { reason: String },
 
@@ -62,6 +68,7 @@ impl ResourceError {
             ResourceError::NotFound => 404,
             ResourceError::BackendError { .. } => 502,
             ResourceError::CaRequestPending => 202,
+            ResourceError::PolicyEvaluationFailed => 500,
         }
     }
 

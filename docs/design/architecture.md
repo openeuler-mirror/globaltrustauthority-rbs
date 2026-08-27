@@ -362,6 +362,8 @@ sequenceDiagram
 
 Passport `get_content` (Attest GET) reads the TEE encryption pubkey from **nested** claims only: `attester_data.runtime_data.tee-pubkey`. Top-level `tee-pubkey` is **not** accepted on this path.
 
+Authorization failures on the Attest read paths (`get_content` / `get_info` / `retrieve`) are split by cause: a completed policy decision against the caller (`policy_matched != true`, or Bearer owner mismatch) collapses to **404** so unauthorized callers cannot distinguish "missing" from "denied" (anti-enumeration; logged at `warn` with the policy id); a policy that **cannot be evaluated** (broken Rego, safe-mode rejection) is a server-side fault and surfaces as **500** with a generic message — the Rego detail goes to the error log only.
+
 ### 8.3b Resource Retrieval (Bearer Owner GET Path)
 
 Operational path for resource owners using `rbs-cli` or other operator tooling — **not** a RATS Passport flow. Middleware validates a Bearer JWT; authorization uses embedded `admin_policy.rego` (owner / `UserScoped` check), **not** the resource-bound Rego policy (which is used only on the Attest path).
@@ -437,6 +439,7 @@ sequenceDiagram
     RS-->>REST: ResourceContentResponse
     REST-->>Client: 200 JSON (JWE only; no attest token returned)
     Note over Client,REST: attestation backend failure → 502
+    Note over RS: policy not matched → 404 (anti-enumeration); Rego evaluation failure → 500
 ```
 
 Background-Check `retrieve` accepts the TEE encryption pubkey from nested `attester_data.runtime_data.tee-pubkey` **or** `attester_data`-top-level `tee-pubkey` (`claims["attester_data"]["tee-pubkey"]`) in attest token claims (Passport GET accepts nested only — §8.3).
@@ -631,7 +634,7 @@ flowchart LR
 | # | Invariant |
 |---|-----------|
 | 1 | **Nonce control:** Challenge nonces forwarded to attestation provider (typically GTA REST); `rbs-core` has no local single-use nonce store — freshness enforced by GTA |
-| 2 | **Default deny:** Missing policy, invalid Rego, missing claims, expired tokens, locked users, `AdminOnly` role mismatch, missing metadata, or unresolvable backend ref → reject |
+| 2 | **Default deny:** Missing policy, invalid Rego, missing claims, expired tokens, locked users, `AdminOnly` role mismatch, missing metadata, or unresolvable backend ref → reject. On resource read paths a policy mismatch rejects as 404 (indistinguishable from missing, anti-enumeration) while an unevaluable policy rejects as 500 (server fault) |
 | 3 | **Plaintext boundary:** Resource plaintext enters `rbs-core` only after authorization on a controlled path; JWE-encrypt ASAP; no logging of evidence, tokens, backend creds, or plaintext |
 | 4 | **`export_mode`:** Metadata on resource records only; release always JWE today; `plain` rejected at validation |
 

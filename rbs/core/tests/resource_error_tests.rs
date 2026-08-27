@@ -96,6 +96,12 @@ fn test_not_found_http_status() {
     assert_eq!(ResourceError::NotFound.http_status(), 404);
 }
 
+/// PolicyEvaluationFailed -> 500
+#[test]
+fn test_policy_evaluation_failed_http_status() {
+    assert_eq!(ResourceError::PolicyEvaluationFailed.http_status(), 500);
+}
+
 /// BackendError -> 502
 #[test]
 fn test_backend_error_http_status() {

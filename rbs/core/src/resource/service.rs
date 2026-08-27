@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use base64::Engine;
 use zeroize::Zeroize;
-use crate::auth::authz::{Action, RequiredRole};
+use crate::auth::authz::{Action, AuthzError, RequiredRole};
 use crate::auth::authz_checker::AuthzChecker;
 use crate::auth::context::{AttestContext, AuthContext};
 
@@ -56,6 +56,44 @@ fn millis_to_rfc3339(ms: i64) -> String {
     chrono::DateTime::from_timestamp_millis(ms)
         .map(|dt| dt.with_nanosecond(0).unwrap_or(dt).to_rfc3339())
         .unwrap_or_default()
+}
+
+/// Map an `AuthzError` returned by `check_resource_get` on a read path
+/// (`get_content` / `get_info` / `retrieve`) to a `ResourceError`.
+///
+/// Two classes are distinguished:
+///
+/// - `AuthzError::Denied` — the policy (or ownership) decision went against the
+///   caller. Collapsed to `NotFound` so unauthorized callers cannot distinguish
+///   "resource missing" from "resource present but denied" (anti-enumeration).
+///   Logged at `warn` with the policy id so operators can still tell them apart.
+/// - Any other variant — no decision could be reached (broken Rego, missing
+///   evaluation input): a server-side fault, logged at `error` with the detail
+///   and surfaced as a 500 instead of masquerading as a missing resource.
+fn read_authz_error(op: &str, uri: &str, policy_id: &str, e: AuthzError) -> ResourceError {
+    match e {
+        AuthzError::Denied => {
+            log::warn!(
+                "Resource {} denied: caller not authorized for uri '{}' (policy_id='{}')",
+                op, uri, policy_id
+            );
+            ResourceError::NotFound
+        }
+        AuthzError::PolicyEvaluationFailed(detail) => {
+            log::error!(
+                "Resource {} failed: policy evaluation error for uri '{}' (policy_id='{}'): {}",
+                op, uri, policy_id, detail
+            );
+            ResourceError::PolicyEvaluationFailed
+        }
+        other => {
+            log::error!(
+                "Resource {} failed: authorization error for uri '{}' (policy_id='{}'): {}",
+                op, uri, policy_id, other
+            );
+            ResourceError::PolicyEvaluationFailed
+        }
+    }
 }
 
 impl ResourceService {
@@ -452,10 +490,7 @@ impl ResourceService {
         // step 4: authorisation (AuthzFacade branches on token type internally)
         // res_provider=Some: admin_policy.rego applies Bearer-deny for hsm/ca content GET
         self.authz.check_resource_get(ctx, &entity.username, &rego, Some(&parsed.res_provider)).await
-            .map_err(|_| {
-                log::error!("Resource get_content denied: user '{}' not authorized for uri '{}'", ctx.sub(), uri);
-                ResourceError::NotFound
-            })?;
+            .map_err(|e| read_authz_error("get_content", uri, &entity.policy_id, e))?;
 
         // step 5: backend fetch
         let backend = self.backend_provider.get_backend(&parsed.res_provider)
@@ -523,10 +558,7 @@ impl ResourceService {
         // res_provider=None: get_info returns metadata only (no secret content),
         // so admin_policy.rego Bearer-deny for hsm/ca must NOT apply (SR-001 §4.5).
         self.authz.check_resource_get(ctx, &entity.username, &rego, None).await
-            .map_err(|_| {
-                log::error!("Resource get_info denied: user '{}' not authorized for uri '{}'", ctx.sub(), uri);
-                ResourceError::NotFound
-            })?;
+            .map_err(|e| read_authz_error("get_info", uri, &entity.policy_id, e))?;
 
         // step 5: return metadata (no backend fetch)
         log::info!("Resource get_info completed: uri='{}', user='{}'", uri, ctx.sub());
@@ -566,10 +598,7 @@ impl ResourceService {
         // step 4: authorisation — unified via AuthzChecker (Attest path evaluates rego)
         let auth_ctx = AuthContext::Attest(attest_ctx.clone());
         self.authz.check_resource_get(&auth_ctx, &entity.username, &rego, Some(&parsed.res_provider)).await
-            .map_err(|_| {
-                log::error!("Resource retrieve denied: attestation token not authorized for uri '{}'", uri);
-                ResourceError::NotFound
-            })?;
+            .map_err(|e| read_authz_error("retrieve", uri, &entity.policy_id, e))?;
 
         // step 5: backend fetch
         let backend = self.backend_provider.get_backend(&parsed.res_provider)
