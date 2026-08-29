@@ -22,16 +22,19 @@ use serde::Serialize;
 use tabled::settings::Style;
 use tabled::Table;
 
-use crate::admin::GTA_ID_MAX_LEN;
+use crate::admin::ID_MAX_LEN;
 use crate::common::formatter::{format_epoch_timestamp, format_indented_content, Formatter};
 use crate::common::utils::read_path_file;
 use crate::common::validate::{
-    validate_i64, validate_optional_text, validate_query_ids, validate_required_text, validate_string_max_len,
+    validate_file_reference_path, validate_optional_i64, validate_optional_text, validate_query_ids,
+    validate_required_text, validate_uuid_like_id,
 };
 use crate::config::GlobalOptions;
 use crate::error::CliError;
-const SUPPORTED_ATTESTER_TYPES: [&str; 9] =
+const SUPPORTED_POLICY_ATTESTER_TYPES: [&str; 9] =
     ["all", "tpm", "tpm_boot", "tpm_ima", "virt_cca", "ascend_npu", "itrustee", "cca", "dice"];
+const SUPPORTED_POLICY_FILTER_ATTESTER_TYPES: [&str; 8] =
+    ["tpm", "tpm_boot", "tpm_ima", "virt_cca", "ascend_npu", "itrustee", "cca", "dice"];
 const SUPPORTED_CONTENT_TYPES: [&str; 2] = ["text", "jwt"];
 const DELETE_POLICY_ID: &str = "id";
 const DELETE_POLICY_ATTESTER_TYPE: &str = "attester_type";
@@ -78,24 +81,19 @@ pub struct ListArgs {
     #[arg(long, value_delimiter = ',', help = "Comma-separated policy IDs; at most 10 IDs and 500 characters total")]
     pub ids: Option<Vec<String>>,
 
-    #[arg(
-        short = 't',
-        long = "attester-type",
-        value_parser = SUPPORTED_ATTESTER_TYPES,
-        help = "Attester type filter"
-    )]
+    #[arg(short = 't', long = "attester-type", help = "Attester type filter")]
     pub attester_type: Option<String>,
 
-    #[arg(long, value_parser = |value: &str| validate_i64(value, LIST_MIN_LIMIT, LIST_MAX_LIMIT, "limit"), help = "Page size (1-10; RBS default is 10)")]
-    pub limit: Option<i64>,
+    #[arg(long, allow_hyphen_values = true, help = "Page size (1-10; RBS default is 10)")]
+    pub limit: Option<String>,
 
-    #[arg(long, value_parser = |value: &str| validate_i64(value, LIST_MIN_OFFSET, LIST_MAX_OFFSET, "offset"), help = "Page offset (0-100000; RBS default is 0)")]
-    pub offset: Option<i64>,
+    #[arg(long, allow_hyphen_values = true, help = "Page offset (0-100000; RBS default is 0)")]
+    pub offset: Option<String>,
 }
 
 #[derive(Args, Debug, Clone)]
 pub struct GetArgs {
-    #[arg(long, value_parser = |s: &str| validate_string_max_len(s, GTA_ID_MAX_LEN), help = "Policy ID")]
+    #[arg(long, help = "Policy ID")]
     pub id: String,
 }
 
@@ -112,7 +110,6 @@ pub struct CreateArgs {
         long = "attester-type",
         value_delimiter = ',',
         required = true,
-        value_parser = SUPPORTED_ATTESTER_TYPES,
         help = "Applicable attester types"
     )]
     pub attester_type: Vec<String>,
@@ -134,7 +131,7 @@ pub struct CreateArgs {
 
 #[derive(Args, Debug, Clone)]
 pub struct UpdateArgs {
-    #[arg(long, value_parser = |s: &str| validate_string_max_len(s, GTA_ID_MAX_LEN), help = "Policy ID")]
+    #[arg(long, help = "Policy ID")]
     pub id: String,
 
     #[arg(long, help = "New policy name")]
@@ -143,13 +140,7 @@ pub struct UpdateArgs {
     #[arg(long, help = "New description")]
     pub description: Option<String>,
 
-    #[arg(
-        short = 't',
-        long = "attester-type",
-        value_delimiter = ',',
-        value_parser = SUPPORTED_ATTESTER_TYPES,
-        help = "New attester type list"
-    )]
+    #[arg(short = 't', long = "attester-type", value_delimiter = ',', help = "New attester type list")]
     pub attester_type: Option<Vec<String>>,
 
     #[arg(long, value_parser = SUPPORTED_CONTENT_TYPES, help = "New content type: text or jwt")]
@@ -174,12 +165,7 @@ pub struct DeleteArgs {
     )]
     pub ids: Vec<String>,
 
-    #[arg(
-        short = 't',
-        long = "attester-type",
-        value_parser = SUPPORTED_ATTESTER_TYPES,
-        help = "Attester type; required when --delete-type attester_type"
-    )]
+    #[arg(short = 't', long = "attester-type", help = "Attester type; required when --delete-type attester_type")]
     pub attester_type: Option<String>,
 }
 
@@ -197,18 +183,24 @@ pub fn run(cli: &PolicyCli, global: &GlobalOptions) -> Result<Box<dyn Formatter>
 async fn execute_policy_command(cli: &PolicyCli, service: &PolicyClient) -> Result<Box<dyn Formatter>, CliError> {
     match &cli.command {
         PolicyCommand::List(args) => {
-            validate_query_ids(args.ids.as_deref())?;
+            let ids = validate_query_ids(args.ids.as_deref(), ID_MAX_LEN)?;
+            validate_optional_attester_type(args.attester_type.as_deref())?;
+            let limit = validate_optional_i64(args.limit.as_deref(), LIST_MIN_LIMIT, LIST_MAX_LIMIT, "limit")?;
+            let offset = validate_optional_i64(args.offset.as_deref(), LIST_MIN_OFFSET, LIST_MAX_OFFSET, "offset")?;
             let resp = service
                 .list_policies(&AttestationPolicyListParams {
-                    ids: args.ids.clone(),
+                    ids,
                     attester_type: args.attester_type.clone(),
-                    limit: args.limit,
-                    offset: args.offset,
+                    limit,
+                    offset,
                 })
                 .await?;
             Ok(Box::new(PolicyListOutput(resp)))
         },
-        PolicyCommand::Get(args) => get_policy_output(service.get_policy(&args.id).await?),
+        PolicyCommand::Get(args) => {
+            let id = validate_uuid_like_id(&args.id, ID_MAX_LEN)?;
+            get_policy_output(service.get_policy(&id).await?)
+        },
         PolicyCommand::Create(args) => {
             validate_create_args(args)?;
             let mut content = read_policy_content(args.content.as_str())?;
@@ -231,6 +223,7 @@ async fn execute_policy_command(cli: &PolicyCli, service: &PolicyClient) -> Resu
             Ok(Box::new(PolicyMutationOutput(resp)))
         },
         PolicyCommand::Update(args) => {
+            let id = validate_uuid_like_id(&args.id, ID_MAX_LEN)?;
             validate_update_args(args)?;
             let content = match (&args.content_type, &args.content) {
                 (Some(content_type), Some(content_input)) => {
@@ -247,7 +240,7 @@ async fn execute_policy_command(cli: &PolicyCli, service: &PolicyClient) -> Resu
             };
             let resp = service
                 .update_policy(&AttestationPolicyUpdateRequest {
-                    id: args.id.clone(),
+                    id,
                     name: args.name.clone(),
                     description: args.description.clone(),
                     attester_type: args.attester_type.clone(),
@@ -299,6 +292,9 @@ fn validate_update_args(args: &UpdateArgs) -> Result<(), CliError> {
         validate_required_text(name, 255, "name")?;
     }
     validate_optional_text(args.description.as_deref(), 512, "description")?;
+    if let Some(attester_types) = &args.attester_type {
+        validate_attester_types(attester_types)?;
+    }
 
     if args.content.is_some() && args.content_type.is_none() {
         return Err(CliError::InvalidArgument("content_type must be set when content is provided".to_string()));
@@ -309,12 +305,37 @@ fn validate_update_args(args: &UpdateArgs) -> Result<(), CliError> {
 
 fn validate_create_args(args: &CreateArgs) -> Result<(), CliError> {
     validate_required_text(&args.name, 255, "name")?;
-    validate_optional_text(args.description.as_deref(), 512, "description")
+    validate_optional_text(args.description.as_deref(), 512, "description")?;
+    validate_attester_types(&args.attester_type)
+}
+
+fn validate_attester_types(attester_types: &[String]) -> Result<(), CliError> {
+    if attester_types.is_empty() {
+        return Err(CliError::InvalidArgument("attester-type must not be empty".to_string()));
+    }
+    if attester_types.iter().any(|item| !SUPPORTED_POLICY_ATTESTER_TYPES.contains(&item.as_str())) {
+        return Err(CliError::InvalidArgument(format!(
+            "attester-type contains an invalid value; supported values: {}",
+            SUPPORTED_POLICY_ATTESTER_TYPES.join(", ")
+        )));
+    }
+    Ok(())
+}
+
+fn validate_optional_attester_type(attester_type: Option<&str>) -> Result<(), CliError> {
+    if attester_type.is_some_and(|item| !SUPPORTED_POLICY_FILTER_ATTESTER_TYPES.contains(&item)) {
+        return Err(CliError::InvalidArgument(format!(
+            "attester-type is invalid; supported values: {}",
+            SUPPORTED_POLICY_FILTER_ATTESTER_TYPES.join(", ")
+        )));
+    }
+    Ok(())
 }
 
 fn build_delete_request(args: &DeleteArgs) -> Result<AttestationPolicyDeleteRequest, CliError> {
-    let ids = (!args.ids.is_empty()).then(|| args.ids.clone());
-    validate_query_ids(ids.as_deref())?;
+    let raw_ids = (!args.ids.is_empty()).then(|| args.ids.as_slice());
+    let ids = validate_query_ids(raw_ids, ID_MAX_LEN)?;
+    validate_optional_attester_type(args.attester_type.as_deref())?;
 
     match args.delete_type.as_str() {
         DELETE_POLICY_ID => {
@@ -470,6 +491,47 @@ mod tests {
         assert!(!err.to_string().contains(&supplied));
     }
 
+    #[test]
+    fn validate_attester_type_uses_sanitized_execution_error() {
+        let mut create = base_create_args();
+        create.attester_type = vec!["tpm".to_string(), "invalid-type".to_string()];
+        let err = validate_create_args(&create).expect_err("unsupported create type should fail");
+        let expected =
+            "attester-type contains an invalid value; supported values: all, tpm, tpm_boot, tpm_ima, virt_cca, ascend_npu, itrustee, cca, dice";
+        assert_eq!(err.to_string(), expected);
+        assert!(!err.to_string().contains("invalid-type"));
+
+        create.attester_type = vec!["all".to_string()];
+        assert!(validate_create_args(&create).is_ok());
+
+        let mut update = base_update_args();
+        update.attester_type = Some(vec!["invalid-type".to_string()]);
+        assert_eq!(
+            validate_update_args(&update).expect_err("unsupported update type should fail").to_string(),
+            expected
+        );
+        let filter_expected =
+            "attester-type is invalid; supported values: tpm, tpm_boot, tpm_ima, virt_cca, ascend_npu, itrustee, cca, dice";
+        for attester_type in ["invalid-type", "all"] {
+            assert_eq!(
+                validate_optional_attester_type(Some(attester_type))
+                    .expect_err("unsupported list type should fail")
+                    .to_string(),
+                filter_expected
+            );
+        }
+
+        let delete = DeleteArgs {
+            delete_type: "attester_type".to_string(),
+            ids: vec![],
+            attester_type: Some("invalid-type".to_string()),
+        };
+        assert_eq!(
+            build_delete_request(&delete).expect_err("unsupported delete type should fail").to_string(),
+            filter_expected
+        );
+    }
+
     fn base_update_args() -> UpdateArgs {
         UpdateArgs {
             id: "policy-1".to_string(),
@@ -555,6 +617,14 @@ mod tests {
             "policy content is too large; maximum size is 500 KiB"
         );
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn read_policy_content_rejects_oversized_file_path() {
+        let supplied = format!("@{}", "x".repeat(4097));
+        let err = read_policy_content(&supplied).expect_err("oversized policy file path");
+        assert_eq!(err.to_string(), "policy content file path is too long; maximum length is 4096 bytes");
+        assert!(!err.to_string().contains(&supplied));
     }
 
     #[test]
@@ -718,7 +788,7 @@ mod tests {
 }
 
 fn read_policy_content(content: &str) -> Result<String, CliError> {
-    if let Some(path) = content.strip_prefix('@') {
+    if let Some(path) = validate_file_reference_path(content, "policy content")? {
         let metadata = std::fs::metadata(path).map_err(|_| {
             CliError::FileReadError(
                 "unable to access policy content file. Please check that the file exists and is readable".to_string(),

@@ -20,11 +20,12 @@ use serde::Serialize;
 use tabled::settings::Style;
 use tabled::Table;
 
-use crate::admin::GTA_ID_MAX_LEN;
+use crate::admin::ID_MAX_LEN;
 use crate::common::formatter::{format_epoch_timestamp, format_indented_content, Formatter};
 use crate::common::utils::read_path_file;
 use crate::common::validate::{
-    validate_i64, validate_optional_text, validate_query_ids, validate_required_text, validate_string_max_len,
+    validate_file_reference_path, validate_optional_i64, validate_optional_text, validate_query_ids,
+    validate_required_text, validate_uuid_like_id,
 };
 use crate::common::CERT_FILE_MAX_SIZE;
 use crate::config::GlobalOptions;
@@ -87,24 +88,16 @@ pub struct ListArgs {
     )]
     pub cert_type: Option<String>,
 
-    #[arg(
-        long,
-        value_parser = |limit: &str| validate_i64(limit, CERT_LIST_MIN_LIMIT, CERT_LIST_MAX_LIMIT, "limit"),
-        help = "Page size (1-10; RBS default is 10)"
-    )]
-    pub limit: Option<i64>,
+    #[arg(long, allow_hyphen_values = true, help = "Page size (1-10; RBS default is 10)")]
+    pub limit: Option<String>,
 
-    #[arg(
-        long,
-        value_parser = |offset: &str| validate_i64(offset, CERT_LIST_MIN_OFFSET, CERT_LIST_MAX_OFFSET, "offset"),
-        help = "Page offset (0-100000; RBS default is 0)"
-    )]
-    pub offset: Option<i64>,
+    #[arg(long, allow_hyphen_values = true, help = "Page offset (0-100000; RBS default is 0)")]
+    pub offset: Option<String>,
 }
 
 #[derive(Args, Debug, Clone)]
 pub struct GetArgs {
-    #[arg(short, long, value_parser = |s: &str| validate_string_max_len(s, GTA_ID_MAX_LEN), help = "Cert or CRL ID")]
+    #[arg(short, long, help = "Cert or CRL ID")]
     pub id: String,
 }
 
@@ -121,24 +114,39 @@ pub struct CreateArgs {
         long = "type",
         value_delimiter = ',',
         required = true,
-        value_parser = SUPPORTED_CERT_TYPES,
         help = "Cert type list. `crl` must be used alone"
     )]
     pub cert_type: Vec<String>,
 
-    #[arg(short, long, help = "Normal cert content or @file path; required for non-CRL certs")]
+    #[arg(
+        short,
+        long,
+        required_if_eq_any([
+            ("cert_type", "refvalue"),
+            ("cert_type", "policy"),
+            ("cert_type", "tpm_boot"),
+            ("cert_type", "tpm"),
+            ("cert_type", "tpm_ima"),
+            ("cert_type", "ascend_npu")
+        ]),
+        help = "Normal cert content or @file path; required for non-CRL certs"
+    )]
     pub content: Option<String>,
 
-    #[arg(long = "crl-content", help = "CRL content or @file path; required when --type crl")]
+    #[arg(
+        long = "crl-content",
+        required_if_eq("cert_type", "crl"),
+        help = "CRL content or @file path; required when --type crl"
+    )]
     pub crl_content: Option<String>,
 
     #[arg(long, help = "Whether to mark this cert as default")]
-    pub is_default: Option<bool>,
+    pub is_default: Option<String>,
 }
 
 #[derive(Args, Debug, Clone)]
 pub struct UpdateArgs {
-    #[arg(short, long, value_parser = |s: &str| validate_string_max_len(s, GTA_ID_MAX_LEN), help = "Cert ID")]
+    #[arg(short, long, help = "Cert ID")]
     pub id: String,
 
     #[arg(short, long, help = "New cert name")]
@@ -147,17 +155,11 @@ pub struct UpdateArgs {
     #[arg(short, long, help = "New description")]
     pub description: Option<String>,
 
-    #[arg(
-        short = 't',
-        long = "type",
-        value_delimiter = ',',
-        value_parser = SUPPORTED_CERT_TYPES,
-        help = "New cert type list; `crl` is not supported here"
-    )]
+    #[arg(short = 't', long = "type", value_delimiter = ',', help = "New cert type list; `crl` is not supported here")]
     pub cert_type: Option<Vec<String>>,
 
     #[arg(long, help = "Whether to mark this cert as default")]
-    pub is_default: Option<bool>,
+    pub is_default: Option<String>,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -199,20 +201,21 @@ pub fn run(cli: &CertCli, global: &GlobalOptions) -> Result<Box<dyn Formatter>, 
 async fn execute_cert_command(cli: &CertCli, service: &CertClient) -> Result<Box<dyn Formatter>, CliError> {
     match &cli.command {
         CertCommand::List(args) => {
-            validate_query_ids(args.ids.as_deref())?;
-            let resp = service
-                .list_certs(&CertListParams {
-                    ids: args.ids.clone(),
-                    cert_type: args.cert_type.clone(),
-                    limit: args.limit,
-                    offset: args.offset,
-                })
-                .await?;
+            let ids = validate_query_ids(args.ids.as_deref(), ID_MAX_LEN)?;
+            let limit =
+                validate_optional_i64(args.limit.as_deref(), CERT_LIST_MIN_LIMIT, CERT_LIST_MAX_LIMIT, "limit")?;
+            let offset =
+                validate_optional_i64(args.offset.as_deref(), CERT_LIST_MIN_OFFSET, CERT_LIST_MAX_OFFSET, "offset")?;
+            let resp =
+                service.list_certs(&CertListParams { ids, cert_type: args.cert_type.clone(), limit, offset }).await?;
             Ok(Box::new(CertListOutput(resp)))
         },
-        CertCommand::Get(args) => get_cert_output(service.get_cert(&args.id).await?),
+        CertCommand::Get(args) => {
+            let id = validate_uuid_like_id(&args.id, ID_MAX_LEN)?;
+            get_cert_output(service.get_cert(&id).await?)
+        },
         CertCommand::Create(args) => {
-            validate_create_args(args)?;
+            let is_default = validate_create_args(args)?;
             let resp = service
                 .create_cert(&CertCreateRequest {
                     name: args.name.clone(),
@@ -220,20 +223,21 @@ async fn execute_cert_command(cli: &CertCli, service: &CertClient) -> Result<Box
                     cert_type: args.cert_type.clone(),
                     content: read_optional_path(&args.content)?,
                     crl_content: read_optional_path(&args.crl_content)?,
-                    is_default: args.is_default,
+                    is_default,
                 })
                 .await?;
             Ok(Box::new(CertMutationOutput(resp)))
         },
         CertCommand::Update(args) => {
-            validate_update_args(args)?;
+            let id = validate_uuid_like_id(&args.id, ID_MAX_LEN)?;
+            let is_default = validate_update_args(args)?;
             let resp = service
                 .update_cert(&rbs_admin_client::attestation::cert::CertUpdateRequest {
-                    id: args.id.clone(),
+                    id,
                     name: args.name.clone(),
                     description: args.description.clone(),
                     cert_type: args.cert_type.clone(),
-                    is_default: args.is_default,
+                    is_default,
                     content: None,
                 })
                 .await?;
@@ -251,13 +255,33 @@ fn read_optional_path(value: &Option<String>) -> Result<Option<String>, CliError
     value.as_ref().map(|content| read_path_file(content)).transpose()
 }
 
-fn validate_create_args(args: &CreateArgs) -> Result<(), CliError> {
+fn parse_is_default(value: Option<&str>) -> Result<Option<bool>, CliError> {
+    match value {
+        None => Ok(None),
+        Some("true") => Ok(Some(true)),
+        Some("false") => Ok(Some(false)),
+        Some(_) => Err(CliError::InvalidArgument("is-default is invalid; expected true or false".to_string())),
+    }
+}
+
+fn validate_cert_types(cert_types: &[String]) -> Result<(), CliError> {
+    if cert_types.is_empty() {
+        return Err(CliError::InvalidArgument("type must not be empty".to_string()));
+    }
+    if cert_types.iter().any(|item| !SUPPORTED_CERT_TYPES.contains(&item.as_str())) {
+        return Err(CliError::InvalidArgument(format!(
+            "type contains an invalid value; supported values: {}",
+            SUPPORTED_CERT_TYPES.join(", ")
+        )));
+    }
+    Ok(())
+}
+
+fn validate_create_args(args: &CreateArgs) -> Result<Option<bool>, CliError> {
     validate_required_text(&args.name, 255, "name")?;
     validate_optional_text(args.description.as_deref(), 512, "description")?;
 
-    if args.cert_type.is_empty() {
-        return Err(CliError::InvalidArgument("type must not be empty".to_string()));
-    }
+    validate_cert_types(&args.cert_type)?;
 
     let is_crl = args.cert_type.iter().any(|item| item == CRL);
     let (content, empty_error, size_error) = if is_crl {
@@ -283,7 +307,7 @@ fn validate_create_args(args: &CreateArgs) -> Result<(), CliError> {
         )
     };
 
-    if let Some(path) = content.strip_prefix('@') {
+    if let Some(path) = validate_file_reference_path(content, "certificate content")? {
         let metadata = std::fs::metadata(path).map_err(|_| {
             CliError::FileReadError(
                 "unable to access certificate content file. Please check that the file exists and is readable"
@@ -304,10 +328,10 @@ fn validate_create_args(args: &CreateArgs) -> Result<(), CliError> {
         return Err(CliError::InvalidArgument(empty_error.to_string()));
     }
 
-    Ok(())
+    parse_is_default(args.is_default.as_deref())
 }
 
-fn validate_update_args(args: &UpdateArgs) -> Result<(), CliError> {
+fn validate_update_args(args: &UpdateArgs) -> Result<Option<bool>, CliError> {
     if args.name.is_none() && args.description.is_none() && args.cert_type.is_none() && args.is_default.is_none() {
         return Err(CliError::InvalidArgument(
             "at least one updatable field must be set: name, description, type, is_default".to_string(),
@@ -320,21 +344,19 @@ fn validate_update_args(args: &UpdateArgs) -> Result<(), CliError> {
     validate_optional_text(args.description.as_deref(), 512, "description")?;
 
     if let Some(cert_type) = &args.cert_type {
-        if cert_type.is_empty() {
-            return Err(CliError::InvalidArgument("type must not be empty".to_string()));
-        }
+        validate_cert_types(cert_type)?;
         if cert_type.iter().any(|item| item == CRL) {
             return Err(CliError::InvalidArgument("update does not support cert type `crl`".to_string()));
         }
     }
 
-    Ok(())
+    parse_is_default(args.is_default.as_deref())
 }
 
 fn build_delete_request(args: &DeleteArgs) -> Result<CertDeleteRequest, CliError> {
-    let ids = (!args.ids.is_empty()).then(|| args.ids.clone());
+    let raw_ids = (!args.ids.is_empty()).then(|| args.ids.as_slice());
     let cert_type = args.cert_type.clone();
-    validate_query_ids(ids.as_deref())?;
+    let ids = validate_query_ids(raw_ids, ID_MAX_LEN)?;
 
     if matches!(cert_type.as_deref(), Some(CRL)) {
         if args.delete_type.is_some() {
@@ -574,6 +596,28 @@ mod tests {
     }
 
     #[test]
+    fn create_cli_reports_missing_content_with_clap_errors() {
+        for (args, required_arg) in [
+            (vec!["create", "--name", "cert-1", "--type", "tpm"], "--content <CONTENT>"),
+            (vec!["create", "--name", "cert-1", "--type", "tpm,tpm_ima"], "--content <CONTENT>"),
+            (vec!["create", "--name", "crl-1", "--type", "crl"], "--crl-content <CRL_CONTENT>"),
+        ] {
+            let err = CreateArgs::augment_args(clap::Command::new("create"))
+                .try_get_matches_from(args)
+                .expect_err("required content should be reported by clap");
+            assert_eq!(err.kind(), clap::error::ErrorKind::MissingRequiredArgument);
+            assert!(err.to_string().contains(required_arg));
+        }
+
+        assert!(CreateArgs::augment_args(clap::Command::new("create"))
+            .try_get_matches_from(["create", "--name", "cert-1", "--type", "tpm", "--content", "pem"])
+            .is_ok());
+        assert!(CreateArgs::augment_args(clap::Command::new("create"))
+            .try_get_matches_from(["create", "--name", "crl-1", "--type", "crl", "--crl-content", "crl-data",])
+            .is_ok());
+    }
+
+    #[test]
     fn validate_create_args_rejects_empty_required_cert_and_crl_content() {
         let mut args = base_create_args();
         args.content = Some("".to_string());
@@ -621,6 +665,16 @@ mod tests {
     }
 
     #[test]
+    fn validate_create_args_rejects_oversized_cert_file_path() {
+        let supplied = format!("@{}", "x".repeat(4097));
+        let mut args = base_create_args();
+        args.content = Some(supplied.clone());
+        let err = validate_create_args(&args).expect_err("oversized cert file path");
+        assert_eq!(err.to_string(), "certificate content file path is too long; maximum length is 4096 bytes");
+        assert!(!err.to_string().contains(&supplied));
+    }
+
+    #[test]
     fn validate_cert_text_fields_rejects_blank_and_oversized_values_without_echoing_them() {
         let mut args = base_create_args();
         args.name = " \t".to_string();
@@ -632,6 +686,55 @@ mod tests {
         let err = validate_create_args(&args).expect_err("long description");
         assert_eq!(err.to_string(), "description is too long; maximum length is 512 characters");
         assert!(!err.to_string().contains(&supplied));
+    }
+
+    #[test]
+    fn validate_is_default_uses_sanitized_execution_error() {
+        let mut args = base_create_args();
+        args.is_default = Some("true".to_string());
+        assert_eq!(validate_create_args(&args).expect("true should be accepted"), Some(true));
+
+        args.is_default = Some("invalid-value".to_string());
+        let err = validate_create_args(&args).expect_err("invalid boolean should fail");
+        assert_eq!(err.to_string(), "is-default is invalid; expected true or false");
+        assert!(!err.to_string().contains("invalid-value"));
+
+        let args = UpdateArgs {
+            id: "cert-1".to_string(),
+            name: None,
+            description: None,
+            cert_type: None,
+            is_default: Some("false".to_string()),
+        };
+        assert_eq!(validate_update_args(&args).expect("false should be accepted"), Some(false));
+    }
+
+    #[test]
+    fn validate_cert_type_uses_sanitized_execution_error() {
+        let mut args = base_create_args();
+        args.cert_type = vec!["tpm".to_string(), "invalid-type".to_string()];
+        let err = validate_create_args(&args).expect_err("unsupported type should fail");
+        assert_eq!(
+            err.to_string(),
+            "type contains an invalid value; supported values: refvalue, policy, tpm_boot, tpm, tpm_ima, ascend_npu, crl"
+        );
+        assert!(!err.to_string().contains("invalid-type"));
+
+        let args = UpdateArgs {
+            id: "cert-1".to_string(),
+            name: None,
+            description: None,
+            cert_type: Some(vec!["invalid-type".to_string()]),
+            is_default: None,
+        };
+        assert_eq!(
+            validate_update_args(&args).expect_err("unsupported update type should fail").to_string(),
+            "type contains an invalid value; supported values: refvalue, policy, tpm_boot, tpm, tpm_ima, ascend_npu, crl"
+        );
+
+        assert!(CreateArgs::augment_args(clap::Command::new("create"))
+            .try_get_matches_from(["create", "--name", "cert-1", "--type", "invalid-type", "--content", "pem",])
+            .is_ok());
     }
 
     #[test]

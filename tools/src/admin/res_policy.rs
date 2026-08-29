@@ -11,7 +11,7 @@
  */
 use crate::common::formatter::{Formatter, TextOutput};
 use crate::common::utils::read_path_file;
-use crate::common::validate::{validate_trimmed_string_max_len, validate_url_path_segment};
+use crate::common::validate::{validate_optional_i64, validate_trimmed_string_max_len, validate_url_path_segment};
 use crate::common::DEFAULT_PAGE_LIMIT;
 use crate::common::MAX_PAGE_LIMIT;
 use crate::config::GlobalOptions;
@@ -99,11 +99,11 @@ pub struct ListArgs {
     )]
     pub ids: Option<Vec<String>>,
 
-    #[arg(long, default_value_t = DEFAULT_PAGE_LIMIT, value_parser = clap::value_parser!(i64).range(1..=MAX_PAGE_LIMIT))]
-    pub limit: i64,
+    #[arg(long, allow_hyphen_values = true)]
+    pub limit: Option<String>,
 
-    #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(i64).range(0..=MAX_PAGE_LIMIT))]
-    pub offset: i64,
+    #[arg(long, allow_hyphen_values = true)]
+    pub offset: Option<String>,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -178,11 +178,14 @@ async fn execute_res_policy_command(
 ) -> Result<Box<dyn Formatter>, CliError> {
     match &cli.command {
         ResPolicyCommand::List(args) => {
+            let limit =
+                validate_optional_i64(args.limit.as_deref(), 1, MAX_PAGE_LIMIT, "limit")?.unwrap_or(DEFAULT_PAGE_LIMIT);
+            let offset = validate_optional_i64(args.offset.as_deref(), 0, MAX_PAGE_LIMIT, "offset")?.unwrap_or(0);
             let resp = service
                 .list_policies(&PolicyListQuery {
                     ids: args.ids.clone().and_then(|v| (!v.is_empty()).then(|| v.join(","))),
-                    limit: Some(args.limit),
-                    offset: Some(args.offset),
+                    limit: Some(limit),
+                    offset: Some(offset),
                 })
                 .await?;
             Ok(Box::new(ResourcePolicyListOutput(resp)))
