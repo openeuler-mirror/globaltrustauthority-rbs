@@ -12,11 +12,15 @@
 use crate::common::clap::Page;
 use crate::common::formatter::Formatter;
 use crate::common::utils::read_path_file;
+use crate::common::validate::validate_optional_i64;
 use crate::common::validate::validate_pubkey_file;
 use crate::common::validate::{validate_max_len, validate_not_empty};
 use crate::common::ROLE_ARRAY;
 use crate::common::ROLE_USER;
 use crate::common::USERNAME_MAX_LEN;
+use crate::common::{
+    DEFAULT_PAGE_LIMIT, DEFAULT_PAGE_OFFSET, MAX_PAGE_LIMIT, MAX_PAGE_OFFSET, MIN_PAGE_LIMIT, MIN_PAGE_OFFSET,
+};
 use crate::config::GlobalOptions;
 use crate::error::CliError;
 use base64::engine::general_purpose;
@@ -139,13 +143,13 @@ pub fn run(cli: &UserCli, global: &GlobalOptions) -> Result<Box<dyn Formatter>, 
 async fn execute_user_command(cli: &UserCli, service: &UserClient) -> Result<Box<dyn Formatter>, CliError> {
     match &cli.command {
         UserCommand::List(args) => {
+            let limit = validate_optional_i64(args.page.limit.as_deref(), MIN_PAGE_LIMIT, MAX_PAGE_LIMIT, "limit")?
+                .unwrap_or(DEFAULT_PAGE_LIMIT);
+            let offset =
+                validate_optional_i64(args.page.offset.as_deref(), MIN_PAGE_OFFSET, MAX_PAGE_OFFSET, "offset")?
+                    .unwrap_or(DEFAULT_PAGE_OFFSET);
             let resp = service
-                .list(&UserListQuery {
-                    limit: Some(args.page.limit),
-                    offset: Some(args.page.offset),
-                    role: None,
-                    enabled: None,
-                })
+                .list(&UserListQuery { limit: Some(limit), offset: Some(offset), role: None, enabled: None })
                 .await?;
             Ok(Box::new(UserListOutput(resp)))
         },

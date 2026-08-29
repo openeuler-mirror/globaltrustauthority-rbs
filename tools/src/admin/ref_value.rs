@@ -27,7 +27,8 @@ use crate::admin::ID_MAX_LEN;
 use crate::common::formatter::{format_indented_content, Formatter};
 use crate::common::utils::read_path_file;
 use crate::common::validate::{
-    validate_i64, validate_optional_text, validate_query_ids, validate_required_text, validate_uuid_like_id,
+    validate_file_reference_path, validate_optional_i64, validate_optional_text, validate_query_ids,
+    validate_required_text, validate_uuid_like_id,
 };
 use crate::config::GlobalOptions;
 use crate::error::CliError;
@@ -79,29 +80,23 @@ pub struct ListArgs {
     #[arg(
         long,
         value_delimiter = ',',
-        value_parser = |s: &str| validate_uuid_like_id(s, ID_MAX_LEN),
         help = "Comma-separated ref value IDs; at most 10 IDs and 500 characters total"
     )]
     pub ids: Option<Vec<String>>,
 
-    #[arg(
-        short = 't',
-        long = "attester-type",
-        value_parser = SUPPORTED_ATTESTER_TYPES,
-        help = "Attester type filter"
-    )]
+    #[arg(short = 't', long = "attester-type", help = "Attester type filter")]
     pub attester_type: Option<String>,
 
-    #[arg(long, value_parser = |value: &str| validate_i64(value, LIST_MIN_LIMIT, LIST_MAX_LIMIT, "limit"), help = "Page size (1-10; RBS default is 10)")]
-    pub limit: Option<i64>,
+    #[arg(long, allow_hyphen_values = true, help = "Page size (1-10; RBS default is 10)")]
+    pub limit: Option<String>,
 
-    #[arg(long, value_parser = |value: &str| validate_i64(value, LIST_MIN_OFFSET, LIST_MAX_OFFSET, "offset"), help = "Page offset (0-100000; RBS default is 0)")]
-    pub offset: Option<i64>,
+    #[arg(long, allow_hyphen_values = true, help = "Page offset (0-100000; RBS default is 0)")]
+    pub offset: Option<String>,
 }
 
 #[derive(Args, Debug, Clone)]
 pub struct GetArgs {
-    #[arg(long, value_parser = |s: &str| validate_uuid_like_id(s, ID_MAX_LEN), help = "Ref value ID")]
+    #[arg(long, help = "Ref value ID")]
     pub id: String,
 }
 
@@ -113,12 +108,7 @@ pub struct CreateArgs {
     #[arg(long, help = "Optional description")]
     pub description: Option<String>,
 
-    #[arg(
-        short = 't',
-        long = "attester-type",
-        value_parser = SUPPORTED_ATTESTER_TYPES,
-        help = "Attester type: tpm, tpm_ima, virt_cca, or ascend_npu"
-    )]
+    #[arg(short = 't', long = "attester-type", help = "Attester type: tpm, tpm_ima, virt_cca, or ascend_npu")]
     pub attester_type: String,
 
     #[arg(long, help = "JWT or Base64 content, or @file path; size must be between 1 byte and 10 MiB")]
@@ -135,7 +125,7 @@ pub struct CreateArgs {
 
 #[derive(Args, Debug, Clone)]
 pub struct UpdateArgs {
-    #[arg(long, value_parser = |s: &str| validate_uuid_like_id(s, ID_MAX_LEN), required = true, help = "Ref value ID")]
+    #[arg(long, required = true, help = "Ref value ID")]
     pub id: String,
 
     #[arg(long, help = "New ref value name")]
@@ -144,12 +134,7 @@ pub struct UpdateArgs {
     #[arg(long, help = "New description")]
     pub description: Option<String>,
 
-    #[arg(
-        short = 't',
-        long = "attester-type",
-        value_parser = SUPPORTED_ATTESTER_TYPES,
-        help = "New attester type"
-    )]
+    #[arg(short = 't', long = "attester-type", help = "New attester type")]
     pub attester_type: Option<String>,
 
     #[arg(long, help = "New JWT or Base64 content, or @file path; size must be between 1 byte and 10 MiB")]
@@ -167,17 +152,11 @@ pub struct DeleteArgs {
     #[arg(
         long,
         value_delimiter = ',',
-        value_parser = |s: &str| validate_uuid_like_id(s, ID_MAX_LEN),
         help = "Comma-separated ref value IDs; at most 10 IDs and 500 characters total; required when --delete-type id"
     )]
     pub ids: Vec<String>,
 
-    #[arg(
-        short = 't',
-        long = "attester-type",
-        value_parser = SUPPORTED_ATTESTER_TYPES,
-        help = "Attester type; required when --delete-type type"
-    )]
+    #[arg(short = 't', long = "attester-type", help = "Attester type; required when --delete-type type")]
     pub attester_type: Option<String>,
 }
 
@@ -198,18 +177,19 @@ async fn execute_ref_value_command(
 ) -> Result<Box<dyn Formatter>, CliError> {
     match &cli.command {
         RefValueCommand::List(args) => {
-            validate_query_ids(args.ids.as_deref(), ID_MAX_LEN)?;
+            let ids = validate_query_ids(args.ids.as_deref(), ID_MAX_LEN)?;
+            validate_optional_attester_type(args.attester_type.as_deref())?;
+            let limit = validate_optional_i64(args.limit.as_deref(), LIST_MIN_LIMIT, LIST_MAX_LIMIT, "limit")?;
+            let offset = validate_optional_i64(args.offset.as_deref(), LIST_MIN_OFFSET, LIST_MAX_OFFSET, "offset")?;
             let resp = service
-                .list_ref_values(&RefValueListParams {
-                    ids: args.ids.clone(),
-                    attester_type: args.attester_type.clone(),
-                    limit: args.limit,
-                    offset: args.offset,
-                })
+                .list_ref_values(&RefValueListParams { ids, attester_type: args.attester_type.clone(), limit, offset })
                 .await?;
             Ok(Box::new(RefValueListOutput(resp)))
         },
-        RefValueCommand::Get(args) => get_ref_value_output(service.get_ref_value(&args.id).await?),
+        RefValueCommand::Get(args) => {
+            let id = validate_uuid_like_id(&args.id, ID_MAX_LEN)?;
+            get_ref_value_output(service.get_ref_value(&id).await?)
+        },
         RefValueCommand::Create(args) => {
             validate_create_args(args)?;
             let resp = service
@@ -224,10 +204,11 @@ async fn execute_ref_value_command(
             Ok(Box::new(RefValueMutationOutput(resp)))
         },
         RefValueCommand::Update(args) => {
+            let id = validate_uuid_like_id(&args.id, ID_MAX_LEN)?;
             validate_update_args(args)?;
             let resp = service
                 .update_ref_value(&RefValueUpdateRequest {
-                    id: args.id.clone(),
+                    id,
                     name: args.name.clone(),
                     description: args.description.clone(),
                     attester_type: args.attester_type.clone(),
@@ -266,17 +247,34 @@ fn validate_update_args(args: &UpdateArgs) -> Result<(), CliError> {
         validate_required_text(name, 255, "name")?;
     }
     validate_optional_text(args.description.as_deref(), 512, "description")?;
+    validate_optional_attester_type(args.attester_type.as_deref())?;
     Ok(())
 }
 
 fn validate_create_args(args: &CreateArgs) -> Result<(), CliError> {
     validate_required_text(&args.name, 255, "name")?;
-    validate_optional_text(args.description.as_deref(), 512, "description")
+    validate_optional_text(args.description.as_deref(), 512, "description")?;
+    validate_attester_type(&args.attester_type)
+}
+
+fn validate_attester_type(attester_type: &str) -> Result<(), CliError> {
+    if !SUPPORTED_ATTESTER_TYPES.contains(&attester_type) {
+        return Err(CliError::InvalidArgument(format!(
+            "attester-type is invalid; supported values: {}",
+            SUPPORTED_ATTESTER_TYPES.join(", ")
+        )));
+    }
+    Ok(())
+}
+
+fn validate_optional_attester_type(attester_type: Option<&str>) -> Result<(), CliError> {
+    attester_type.map_or(Ok(()), validate_attester_type)
 }
 
 fn build_delete_request(args: &DeleteArgs) -> Result<RefValueDeleteRequest, CliError> {
-    let ids = (!args.ids.is_empty()).then(|| args.ids.clone());
-    validate_query_ids(ids.as_deref(), ID_MAX_LEN)?;
+    let raw_ids = (!args.ids.is_empty()).then(|| args.ids.as_slice());
+    let ids = validate_query_ids(raw_ids, ID_MAX_LEN)?;
+    validate_optional_attester_type(args.attester_type.as_deref())?;
 
     match args.delete_type.as_str() {
         DELETE_REF_VALUE_ID => {
@@ -435,7 +433,7 @@ fn read_ref_value_content(value: &str, content_type: &str) -> Result<String, Cli
 }
 
 fn validate_ref_value_input_size(value: &str) -> Result<(), CliError> {
-    if let Some(path) = value.strip_prefix('@') {
+    if let Some(path) = validate_file_reference_path(value, "ref value content")? {
         let metadata = std::fs::metadata(path).map_err(|_| {
             CliError::FileReadError(
                 "unable to access ref value content file. Please check that the file exists and is readable"
@@ -493,6 +491,45 @@ mod tests {
         let err = validate_create_args(&args).expect_err("long description");
         assert_eq!(err.to_string(), "description is too long; maximum length is 512 characters");
         assert!(!err.to_string().contains(&supplied));
+    }
+
+    #[test]
+    fn validate_attester_type_uses_sanitized_execution_error() {
+        let mut create = base_create_args();
+        create.attester_type = "invalid-type".to_string();
+        let err = validate_create_args(&create).expect_err("unsupported create type should fail");
+        let expected = "attester-type is invalid; supported values: tpm, tpm_ima, virt_cca, ascend_npu, cca";
+        assert_eq!(err.to_string(), expected);
+        assert!(!err.to_string().contains("invalid-type"));
+
+        let update = UpdateArgs {
+            id: "rv-1".to_string(),
+            name: None,
+            description: None,
+            attester_type: Some("invalid-type".to_string()),
+            content: None,
+            content_type: None,
+        };
+        assert_eq!(
+            validate_update_args(&update).expect_err("unsupported update type should fail").to_string(),
+            expected
+        );
+        assert_eq!(
+            validate_optional_attester_type(Some("invalid-type"))
+                .expect_err("unsupported list type should fail")
+                .to_string(),
+            expected
+        );
+
+        let delete = DeleteArgs {
+            delete_type: "type".to_string(),
+            ids: vec![],
+            attester_type: Some("invalid-type".to_string()),
+        };
+        assert_eq!(
+            build_delete_request(&delete).expect_err("unsupported delete type should fail").to_string(),
+            expected
+        );
     }
 
     #[test]
@@ -595,6 +632,14 @@ mod tests {
         let input = format!("@{}", path.display());
         assert_eq!(read_ref_value_content(&input, "jwt").expect("read file"), "jwt-content");
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn ref_value_content_rejects_oversized_file_path() {
+        let supplied = format!("@{}", "x".repeat(4097));
+        let err = read_ref_value_content(&supplied, "jwt").expect_err("oversized ref value file path");
+        assert_eq!(err.to_string(), "ref value content file path is too long; maximum length is 4096 bytes");
+        assert!(!err.to_string().contains(&supplied));
     }
 
     #[test]

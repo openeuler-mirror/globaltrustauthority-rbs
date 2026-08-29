@@ -15,6 +15,8 @@ use regex::Regex;
 use std::fs;
 use std::path::Path;
 
+const FILE_PATH_MAX_BYTES: usize = 4096;
+
 pub trait HasLen {
     fn len(&self) -> usize;
 }
@@ -73,11 +75,14 @@ pub fn validate_optional_text(value: Option<&str>, max: usize, field_name: &str)
     value.map_or(Ok(()), |value| validate_text_max_len(value, max, field_name))
 }
 
-/// Validate a comma-separated query ID list as a whole.
-pub fn validate_query_ids(ids: Option<&[String]>, max_id_len: usize) -> Result<(), CliError> {
+/// Validate and normalize a comma-separated query ID list as a whole.
+pub fn validate_query_ids(ids: Option<&[String]>, max_id_len: usize) -> Result<Option<Vec<String>>, CliError> {
     let Some(ids) = ids else {
-        return Ok(());
+        return Ok(None);
     };
+    if ids.iter().any(|id| id.contains(';')) {
+        return Err(CliError::InvalidArgument("ids must be separated by commas".to_string()));
+    }
     let joined = ids.join(",");
     if joined.trim().is_empty() || joined.starts_with(',') || joined.ends_with(',') || joined.contains(",,") {
         return Err(CliError::InvalidArgument("ids must not contain empty values".to_string()));
@@ -86,10 +91,8 @@ pub fn validate_query_ids(ids: Option<&[String]>, max_id_len: usize) -> Result<(
         return Err(CliError::InvalidArgument("ids must contain at most 10 values".to_string()));
     }
     validate_text_max_len(&joined, 500, "ids")?;
-    for id in ids {
-        validate_uuid_like_id(id, max_id_len)?;
-    }
-    Ok(())
+    let normalized = ids.iter().map(|id| validate_uuid_like_id(id, max_id_len)).collect::<Result<Vec<_>, _>>()?;
+    Ok(Some(normalized))
 }
 
 fn validate_text_max_len(value: &str, max: usize, field_name: &str) -> Result<(), CliError> {
@@ -176,6 +179,25 @@ pub fn validate_file_path(file_path: &str) -> Result<String, CliError> {
     Ok(file_path.into())
 }
 
+/// Validate the path portion of an `@file` reference without exposing it in diagnostics.
+pub fn validate_file_reference_path<'a>(value: &'a str, field_name: &str) -> Result<Option<&'a str>, CliError> {
+    let Some(path) = value.strip_prefix('@') else {
+        return Ok(None);
+    };
+    if path.is_empty() {
+        return Err(CliError::InvalidArgument(format!("{field_name} file path must not be empty")));
+    }
+    if path.as_bytes().len() > FILE_PATH_MAX_BYTES {
+        return Err(CliError::InvalidArgument(format!(
+            "{field_name} file path is too long; maximum length is {FILE_PATH_MAX_BYTES} bytes"
+        )));
+    }
+    if path.contains('\0') {
+        return Err(CliError::InvalidArgument(format!("{field_name} file path contains an invalid character")));
+    }
+    Ok(Some(path))
+}
+
 pub fn validate_file_size(file_path: &str, max_size: u64) -> Result<String, CliError> {
     validate_file_path(file_path)?;
     let file_metadata = fs::metadata(file_path).map_err(|_err| {
@@ -240,6 +262,10 @@ pub fn validate_i64(value: &str, min: i64, max: i64, field: &str) -> Result<i64,
     Ok(parsed)
 }
 
+pub fn validate_optional_i64(value: Option<&str>, min: i64, max: i64, field: &str) -> Result<Option<i64>, CliError> {
+    value.map(|value| validate_i64(value, min, max, field).map_err(CliError::InvalidArgument)).transpose()
+}
+
 pub fn validate_passphrase_len(value: &str, max: usize) -> Result<(), CliError> {
     if value.len() <= max {
         Ok(())
@@ -300,6 +326,27 @@ mod tests {
     }
 
     #[test]
+    fn validate_file_reference_path_enforces_sanitized_byte_limit() {
+        assert_eq!(validate_file_reference_path("inline", "content").expect("inline content"), None);
+        assert_eq!(validate_file_reference_path("@file.pem", "content").expect("valid path"), Some("file.pem"));
+        assert_eq!(
+            validate_file_reference_path("@", "content").expect_err("empty path").to_string(),
+            "content file path must not be empty"
+        );
+
+        assert!(validate_file_reference_path(&format!("@{}", "a".repeat(FILE_PATH_MAX_BYTES)), "content").is_ok());
+
+        let oversized = format!("@{}", "a".repeat(FILE_PATH_MAX_BYTES + 1));
+        let err = validate_file_reference_path(&oversized, "content").expect_err("oversized path");
+        assert_eq!(err.to_string(), "content file path is too long; maximum length is 4096 bytes");
+        assert!(!err.to_string().contains(&oversized));
+
+        assert!(validate_file_reference_path(&format!("@{}", "中".repeat(1365)), "content").is_ok());
+        assert!(validate_file_reference_path(&format!("@{}a", "中".repeat(1365)), "content").is_ok());
+        assert!(validate_file_reference_path(&format!("@{}aa", "中".repeat(1365)), "content").is_err());
+    }
+
+    #[test]
     fn validate_cert_file_accepts_inline_content() {
         let cert = "-----BEGIN CERTIFICATE-----mock-----END CERTIFICATE-----";
         assert_eq!(validate_cert_file(cert).expect("inline cert"), cert);
@@ -315,6 +362,12 @@ mod tests {
     fn validate_i64_reports_out_of_range_values() {
         let err = validate_i64("11", 1, 10, "limit").expect_err("out of range should fail");
         assert_eq!(err, "limit must be between 1 and 10");
+        assert_eq!(
+            validate_optional_i64(Some("abc"), 1, 10, "limit").expect_err("non-integer should fail").to_string(),
+            "limit must be an integer"
+        );
+        assert_eq!(validate_optional_i64(Some("10"), 1, 10, "limit").expect("valid limit"), Some(10));
+        assert_eq!(validate_optional_i64(None, 1, 10, "limit").expect("missing value"), None);
     }
 
     // Exercise shared string validators at max-1, max, normal, and max+1.
@@ -343,7 +396,7 @@ mod tests {
     #[test]
     fn query_ids_validation_limits_count_and_total_length() {
         let ids = (0..10).map(|index| format!("id-{index}")).collect::<Vec<_>>();
-        assert!(validate_query_ids(Some(&ids), 36).is_ok());
+        assert_eq!(validate_query_ids(Some(&ids), 36).expect("valid IDs"), Some(ids));
         assert_eq!(
             validate_query_ids(Some(&(0..11).map(|index| format!("id-{index}")).collect::<Vec<_>>()), 36)
                 .expect_err("too many IDs")
@@ -358,6 +411,15 @@ mod tests {
         assert!(validate_query_ids(Some(&["id_1".to_string()]), 36).is_err());
         assert!(validate_query_ids(Some(&["a".repeat(36)]), 36).is_ok());
         assert!(validate_query_ids(Some(&["a".repeat(37)]), 36).is_err());
+        assert_eq!(
+            validate_query_ids(Some(&["id-1;id-2".to_string()]), 36).expect_err("semicolon-separated IDs").to_string(),
+            "ids must be separated by commas"
+        );
+        assert_eq!(
+            validate_query_ids(Some(&[" id-1 ".to_string(), "ID-2\t".to_string()]), 36)
+                .expect("surrounding whitespace"),
+            Some(vec!["id-1".to_string(), "ID-2".to_string()])
+        );
     }
 
     // Cover resource and policy URI segment boundaries and URL controls.

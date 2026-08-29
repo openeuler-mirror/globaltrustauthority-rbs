@@ -21,7 +21,7 @@ use crate::config::cmd::{validate_base_url, validate_cert, validate_output_file,
 use crate::error::CliError;
 use crate::token::cmd::TokenCli;
 use crate::version::cmd::VersionCli;
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap::{Args, Parser, Subcommand};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
@@ -48,8 +48,8 @@ pub struct GlobalCliArgs {
     #[arg(long, display_order = 102, value_parser = validate_cert, help = "CA certificate file used to verify the RBS server")]
     pub cert: Option<String>,
 
-    #[arg(short, long, display_order = 103, global = true, value_enum, help = "Output format")]
-    pub format: Option<OutputFormat>,
+    #[arg(short, long, display_order = 103, global = true, help = "Output format")]
+    pub format: Option<String>,
 
     #[arg(
         short,
@@ -97,7 +97,7 @@ pub enum Command {
 pub const DEFAULT_BASE_URL: &str = "https://127.0.0.1:6666";
 pub const DEFAULT_FORMAT: &str = "text";
 
-#[derive(ValueEnum, Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum OutputFormat {
     Json,
     #[default]
@@ -120,7 +120,7 @@ impl FromStr for OutputFormat {
         match s {
             "json" => Ok(Self::Json),
             "text" => Ok(Self::Text),
-            _ => Err(CliError::InvalidConfig(format!("invalid output format `{s}`; expected `text` or `json`"))),
+            _ => Err(CliError::InvalidArgument("format is invalid; expected text or json".to_string())),
         }
     }
 }
@@ -164,7 +164,7 @@ mod tests {
     #[test]
     fn output_format_from_str_rejects_invalid_value() {
         let err = "yaml".parse::<OutputFormat>().expect_err("invalid format should fail");
-        assert!(err.to_string().contains("invalid output format"));
+        assert_eq!(err.to_string(), "format is invalid; expected text or json");
     }
 
     #[test]
@@ -207,9 +207,9 @@ mod tests {
             Cli::try_parse_from(["rbs-cli", "policy", "get", "--id", "Policy-1"]),
             Ok(Cli { command: Command::Policy(_), .. })
         ));
-        assert!(Cli::try_parse_from(["rbs-cli", "cert", "list", "--limit", "11"]).is_err());
-        assert!(Cli::try_parse_from(["rbs-cli", "ref-value", "list", "--limit", "11"]).is_err());
-        assert!(Cli::try_parse_from(["rbs-cli", "policy", "list", "--offset", "-1"]).is_err());
+        assert!(Cli::try_parse_from(["rbs-cli", "cert", "list", "--limit", "11"]).is_ok());
+        assert!(Cli::try_parse_from(["rbs-cli", "ref-value", "list", "--limit", "11"]).is_ok());
+        assert!(Cli::try_parse_from(["rbs-cli", "policy", "list", "--offset", "-1"]).is_ok());
         assert!(matches!(
             Cli::try_parse_from(["rbs-cli", "policy", "list"]),
             Ok(Cli { command: Command::Policy(_), .. })
@@ -217,28 +217,24 @@ mod tests {
     }
 
     #[test]
-    fn id_arguments_reject_characters_outside_uuid_like_set() {
+    fn id_arguments_defer_validation_until_execution() {
         for args in [
             ["rbs-cli", "cert", "get", "--id", "cert_1"],
             ["rbs-cli", "ref-value", "get", "--id", "rv/1"],
             ["rbs-cli", "policy", "get", "--id", "policy?1"],
         ] {
-            let err = Cli::try_parse_from(args).expect_err("unsafe ID character should fail");
-            assert_eq!(err.kind(), clap::error::ErrorKind::ValueValidation);
-            assert!(err.to_string().contains("letters, numbers, and hyphens"));
+            assert!(Cli::try_parse_from(args).is_ok());
         }
     }
 
     #[test]
-    fn ids_arguments_validate_each_comma_separated_id() {
+    fn ids_arguments_defer_validation_until_execution() {
         for args in [
             ["rbs-cli", "cert", "list", "--ids", "cert-1,中文"],
             ["rbs-cli", "policy", "list", "--ids", "policy-1,中文"],
             ["rbs-cli", "ref-value", "list", "--ids", "rv-1,中文"],
         ] {
-            let err = Cli::try_parse_from(args).expect_err("Chinese ID should fail");
-            assert_eq!(err.kind(), clap::error::ErrorKind::ValueValidation);
-            assert!(err.to_string().contains("letters, numbers, and hyphens"));
+            assert!(Cli::try_parse_from(args).is_ok());
         }
 
         assert!(Cli::try_parse_from(["rbs-cli", "cert", "list", "--ids", "cert-1,CERT-2"]).is_ok());
@@ -247,7 +243,7 @@ mod tests {
     }
 
     #[test]
-    fn id_and_ids_arguments_trim_surrounding_whitespace_and_reject_internal_whitespace() {
+    fn id_and_ids_arguments_accept_raw_whitespace_for_execution_validation() {
         for args in [
             ["rbs-cli", "cert", "get", "--id", " cert-1"],
             ["rbs-cli", "policy", "get", "--id", "policy-1 "],
@@ -261,9 +257,7 @@ mod tests {
             ["rbs-cli", "ref-value", "list", "--ids", "rv-1,rv 2"],
             ["rbs-cli", "cert", "list", "--ids", "cert-1,cert 2"],
         ] {
-            let err = Cli::try_parse_from(args).expect_err("internal ID whitespace should fail");
-            assert_eq!(err.kind(), clap::error::ErrorKind::ValueValidation);
-            assert!(err.to_string().contains("letters, numbers, and hyphens"));
+            assert!(Cli::try_parse_from(args).is_ok());
         }
     }
 }

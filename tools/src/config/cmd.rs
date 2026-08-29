@@ -25,10 +25,6 @@ pub fn resolve_global_options(cli: &GlobalCliArgs) -> std::result::Result<Global
     let env_cert = env::var("RBS_CERT").ok();
     let env_format = env::var("RBS_FORMAT").ok();
 
-    if let Some(format) = &env_format {
-        format.parse::<OutputFormat>()?;
-    }
-
     let base_url_source = if cli.base_url.is_some() {
         "cli"
     } else if env_base_url.is_some() {
@@ -38,9 +34,8 @@ pub fn resolve_global_options(cli: &GlobalCliArgs) -> std::result::Result<Global
     };
     let format_explicitly_set = cli.format.is_some() || env_format.is_some();
     let base_url = cli.base_url.clone().unwrap_or_else(|| env_base_url.unwrap_or_else(|| DEFAULT_BASE_URL.to_string()));
-    let format = cli.format.clone().unwrap_or_else(|| {
-        env_format.unwrap_or_else(|| DEFAULT_FORMAT.to_string()).parse::<OutputFormat>().unwrap_or(OutputFormat::Text)
-    });
+    let format_value = cli.format.clone().or(env_format).unwrap_or_else(|| DEFAULT_FORMAT.to_string());
+    let format = format_value.parse::<OutputFormat>()?;
     let token = cli.token.clone().or_else(|| env_token);
     let cert_path = cli.cert.clone().or_else(|| env_cert);
     validate_base_url(&base_url)?;
@@ -129,7 +124,7 @@ mod tests {
             base_url: Some("http://127.0.0.1:8080".to_string()),
             token: Some("token-value".to_string()),
             cert: None,
-            format: Some(OutputFormat::Json),
+            format: Some("json".to_string()),
             output_file: Some("/tmp/out.json".to_string()),
             verbose: true,
             quiet: false,
@@ -144,6 +139,14 @@ mod tests {
         assert_eq!(options.output_file.as_deref(), Some("/tmp/out.json"));
         assert!(options.format_explicitly_set);
         assert!(options.verbose);
+    }
+
+    #[test]
+    fn resolve_global_options_reports_sanitized_format_error() {
+        let cli = GlobalCliArgs { format: Some("invalid-format".to_string()), ..Default::default() };
+        let err = resolve_global_options(&cli).expect_err("unsupported format should fail");
+        assert_eq!(err.to_string(), "format is invalid; expected text or json");
+        assert!(!err.to_string().contains("invalid-format"));
     }
 
     // Validate global URL, token, and output path inputs before any HTTP request.
