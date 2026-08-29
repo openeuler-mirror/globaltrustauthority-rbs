@@ -20,11 +20,11 @@ use serde::Serialize;
 use tabled::settings::Style;
 use tabled::Table;
 
-use crate::admin::GTA_ID_MAX_LEN;
+use crate::admin::ID_MAX_LEN;
 use crate::common::formatter::{format_epoch_timestamp, format_indented_content, Formatter};
 use crate::common::utils::read_path_file;
 use crate::common::validate::{
-    validate_i64, validate_optional_text, validate_query_ids, validate_required_text, validate_string_max_len,
+    validate_i64, validate_optional_text, validate_query_ids, validate_required_text, validate_uuid_like_id,
 };
 use crate::common::CERT_FILE_MAX_SIZE;
 use crate::config::GlobalOptions;
@@ -75,6 +75,7 @@ pub struct ListArgs {
     #[arg(
         long,
         value_delimiter = ',',
+        value_parser = |s: &str| validate_uuid_like_id(s, ID_MAX_LEN),
         help = "Comma-separated cert or CRL IDs; at most 10 IDs and 500 characters total"
     )]
     pub ids: Option<Vec<String>>,
@@ -104,7 +105,7 @@ pub struct ListArgs {
 
 #[derive(Args, Debug, Clone)]
 pub struct GetArgs {
-    #[arg(short, long, value_parser = |s: &str| validate_string_max_len(s, GTA_ID_MAX_LEN), help = "Cert or CRL ID")]
+    #[arg(short, long, value_parser = |s: &str| validate_uuid_like_id(s, ID_MAX_LEN), help = "Cert or CRL ID")]
     pub id: String,
 }
 
@@ -138,7 +139,7 @@ pub struct CreateArgs {
 
 #[derive(Args, Debug, Clone)]
 pub struct UpdateArgs {
-    #[arg(short, long, value_parser = |s: &str| validate_string_max_len(s, GTA_ID_MAX_LEN), help = "Cert ID")]
+    #[arg(short, long, value_parser = |s: &str| validate_uuid_like_id(s, ID_MAX_LEN), help = "Cert ID")]
     pub id: String,
 
     #[arg(short, long, help = "New cert name")]
@@ -172,6 +173,7 @@ pub struct DeleteArgs {
     #[arg(
         long,
         value_delimiter = ',',
+        value_parser = |s: &str| validate_uuid_like_id(s, ID_MAX_LEN),
         help = "Comma-separated cert or CRL IDs; at most 10 IDs and 500 characters total"
     )]
     pub ids: Vec<String>,
@@ -199,7 +201,7 @@ pub fn run(cli: &CertCli, global: &GlobalOptions) -> Result<Box<dyn Formatter>, 
 async fn execute_cert_command(cli: &CertCli, service: &CertClient) -> Result<Box<dyn Formatter>, CliError> {
     match &cli.command {
         CertCommand::List(args) => {
-            validate_query_ids(args.ids.as_deref())?;
+            validate_query_ids(args.ids.as_deref(), ID_MAX_LEN)?;
             let resp = service
                 .list_certs(&CertListParams {
                     ids: args.ids.clone(),
@@ -334,7 +336,7 @@ fn validate_update_args(args: &UpdateArgs) -> Result<(), CliError> {
 fn build_delete_request(args: &DeleteArgs) -> Result<CertDeleteRequest, CliError> {
     let ids = (!args.ids.is_empty()).then(|| args.ids.clone());
     let cert_type = args.cert_type.clone();
-    validate_query_ids(ids.as_deref())?;
+    validate_query_ids(ids.as_deref(), ID_MAX_LEN)?;
 
     if matches!(cert_type.as_deref(), Some(CRL)) {
         if args.delete_type.is_some() {

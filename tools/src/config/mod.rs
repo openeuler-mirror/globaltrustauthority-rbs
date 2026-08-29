@@ -196,7 +196,7 @@ mod tests {
         ));
         assert!(matches!(Cli::try_parse_from(["rbs-cli", "cert", "list"]), Ok(Cli { command: Command::Cert(_), .. })));
         assert!(matches!(
-            Cli::try_parse_from(["rbs-cli", "cert", "get", "--id", "C1"]),
+            Cli::try_parse_from(["rbs-cli", "cert", "get", "--id", "cert-1"]),
             Ok(Cli { command: Command::Cert(_), .. })
         ));
         assert!(matches!(
@@ -204,7 +204,7 @@ mod tests {
             Ok(Cli { command: Command::RefValue(_), .. })
         ));
         assert!(matches!(
-            Cli::try_parse_from(["rbs-cli", "policy", "get", "--id", "P1"]),
+            Cli::try_parse_from(["rbs-cli", "policy", "get", "--id", "Policy-1"]),
             Ok(Cli { command: Command::Policy(_), .. })
         ));
         assert!(Cli::try_parse_from(["rbs-cli", "cert", "list", "--limit", "11"]).is_err());
@@ -214,5 +214,56 @@ mod tests {
             Cli::try_parse_from(["rbs-cli", "policy", "list"]),
             Ok(Cli { command: Command::Policy(_), .. })
         ));
+    }
+
+    #[test]
+    fn id_arguments_reject_characters_outside_uuid_like_set() {
+        for args in [
+            ["rbs-cli", "cert", "get", "--id", "cert_1"],
+            ["rbs-cli", "ref-value", "get", "--id", "rv/1"],
+            ["rbs-cli", "policy", "get", "--id", "policy?1"],
+        ] {
+            let err = Cli::try_parse_from(args).expect_err("unsafe ID character should fail");
+            assert_eq!(err.kind(), clap::error::ErrorKind::ValueValidation);
+            assert!(err.to_string().contains("letters, numbers, and hyphens"));
+        }
+    }
+
+    #[test]
+    fn ids_arguments_validate_each_comma_separated_id() {
+        for args in [
+            ["rbs-cli", "cert", "list", "--ids", "cert-1,中文"],
+            ["rbs-cli", "policy", "list", "--ids", "policy-1,中文"],
+            ["rbs-cli", "ref-value", "list", "--ids", "rv-1,中文"],
+        ] {
+            let err = Cli::try_parse_from(args).expect_err("Chinese ID should fail");
+            assert_eq!(err.kind(), clap::error::ErrorKind::ValueValidation);
+            assert!(err.to_string().contains("letters, numbers, and hyphens"));
+        }
+
+        assert!(Cli::try_parse_from(["rbs-cli", "cert", "list", "--ids", "cert-1,CERT-2"]).is_ok());
+        assert!(Cli::try_parse_from(["rbs-cli", "policy", "list", "--ids", "policy-1,POLICY-2"]).is_ok());
+        assert!(Cli::try_parse_from(["rbs-cli", "ref-value", "list", "--ids", "rv-1,RV-2"]).is_ok());
+    }
+
+    #[test]
+    fn id_and_ids_arguments_trim_surrounding_whitespace_and_reject_internal_whitespace() {
+        for args in [
+            ["rbs-cli", "cert", "get", "--id", " cert-1"],
+            ["rbs-cli", "policy", "get", "--id", "policy-1 "],
+            ["rbs-cli", "ref-value", "list", "--ids", " rv-1,RV-2 "],
+        ] {
+            assert!(Cli::try_parse_from(args).is_ok(), "surrounding whitespace should be trimmed");
+        }
+
+        for args in [
+            ["rbs-cli", "ref-value", "get", "--id", "rv 1"],
+            ["rbs-cli", "ref-value", "list", "--ids", "rv-1,rv 2"],
+            ["rbs-cli", "cert", "list", "--ids", "cert-1,cert 2"],
+        ] {
+            let err = Cli::try_parse_from(args).expect_err("internal ID whitespace should fail");
+            assert_eq!(err.kind(), clap::error::ErrorKind::ValueValidation);
+            assert!(err.to_string().contains("letters, numbers, and hyphens"));
+        }
     }
 }

@@ -17,4 +17,4 @@ pub mod res;
 pub mod res_policy;
 pub mod user;
 
-pub const GTA_ID_MAX_LEN: usize = 40;
+pub const ID_MAX_LEN: usize = 36;

@@ -22,11 +22,11 @@ use serde::Serialize;
 use tabled::settings::Style;
 use tabled::Table;
 
-use crate::admin::GTA_ID_MAX_LEN;
+use crate::admin::ID_MAX_LEN;
 use crate::common::formatter::{format_epoch_timestamp, format_indented_content, Formatter};
 use crate::common::utils::read_path_file;
 use crate::common::validate::{
-    validate_i64, validate_optional_text, validate_query_ids, validate_required_text, validate_string_max_len,
+    validate_i64, validate_optional_text, validate_query_ids, validate_required_text, validate_uuid_like_id,
 };
 use crate::config::GlobalOptions;
 use crate::error::CliError;
@@ -75,7 +75,12 @@ pub enum PolicyCommand {
 
 #[derive(Args, Debug, Clone)]
 pub struct ListArgs {
-    #[arg(long, value_delimiter = ',', help = "Comma-separated policy IDs; at most 10 IDs and 500 characters total")]
+    #[arg(
+        long,
+        value_delimiter = ',',
+        value_parser = |s: &str| validate_uuid_like_id(s, ID_MAX_LEN),
+        help = "Comma-separated policy IDs; at most 10 IDs and 500 characters total"
+    )]
     pub ids: Option<Vec<String>>,
 
     #[arg(
@@ -95,7 +100,7 @@ pub struct ListArgs {
 
 #[derive(Args, Debug, Clone)]
 pub struct GetArgs {
-    #[arg(long, value_parser = |s: &str| validate_string_max_len(s, GTA_ID_MAX_LEN), help = "Policy ID")]
+    #[arg(long, value_parser = |s: &str| validate_uuid_like_id(s, ID_MAX_LEN), help = "Policy ID")]
     pub id: String,
 }
 
@@ -134,7 +139,7 @@ pub struct CreateArgs {
 
 #[derive(Args, Debug, Clone)]
 pub struct UpdateArgs {
-    #[arg(long, value_parser = |s: &str| validate_string_max_len(s, GTA_ID_MAX_LEN), help = "Policy ID")]
+    #[arg(long, value_parser = |s: &str| validate_uuid_like_id(s, ID_MAX_LEN), help = "Policy ID")]
     pub id: String,
 
     #[arg(long, help = "New policy name")]
@@ -170,6 +175,7 @@ pub struct DeleteArgs {
     #[arg(
         long,
         value_delimiter = ',',
+        value_parser = |s: &str| validate_uuid_like_id(s, ID_MAX_LEN),
         help = "Comma-separated policy IDs; at most 10 IDs and 500 characters total; required when --delete-type id"
     )]
     pub ids: Vec<String>,
@@ -197,7 +203,7 @@ pub fn run(cli: &PolicyCli, global: &GlobalOptions) -> Result<Box<dyn Formatter>
 async fn execute_policy_command(cli: &PolicyCli, service: &PolicyClient) -> Result<Box<dyn Formatter>, CliError> {
     match &cli.command {
         PolicyCommand::List(args) => {
-            validate_query_ids(args.ids.as_deref())?;
+            validate_query_ids(args.ids.as_deref(), ID_MAX_LEN)?;
             let resp = service
                 .list_policies(&AttestationPolicyListParams {
                     ids: args.ids.clone(),
@@ -314,7 +320,7 @@ fn validate_create_args(args: &CreateArgs) -> Result<(), CliError> {
 
 fn build_delete_request(args: &DeleteArgs) -> Result<AttestationPolicyDeleteRequest, CliError> {
     let ids = (!args.ids.is_empty()).then(|| args.ids.clone());
-    validate_query_ids(ids.as_deref())?;
+    validate_query_ids(ids.as_deref(), ID_MAX_LEN)?;
 
     match args.delete_type.as_str() {
         DELETE_POLICY_ID => {

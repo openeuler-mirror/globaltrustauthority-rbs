@@ -74,7 +74,7 @@ pub fn validate_optional_text(value: Option<&str>, max: usize, field_name: &str)
 }
 
 /// Validate a comma-separated query ID list as a whole.
-pub fn validate_query_ids(ids: Option<&[String]>) -> Result<(), CliError> {
+pub fn validate_query_ids(ids: Option<&[String]>, max_id_len: usize) -> Result<(), CliError> {
     let Some(ids) = ids else {
         return Ok(());
     };
@@ -85,7 +85,11 @@ pub fn validate_query_ids(ids: Option<&[String]>) -> Result<(), CliError> {
     if ids.len() > 10 {
         return Err(CliError::InvalidArgument("ids must contain at most 10 values".to_string()));
     }
-    validate_text_max_len(&joined, 500, "ids")
+    validate_text_max_len(&joined, 500, "ids")?;
+    for id in ids {
+        validate_uuid_like_id(id, max_id_len)?;
+    }
+    Ok(())
 }
 
 fn validate_text_max_len(value: &str, max: usize, field_name: &str) -> Result<(), CliError> {
@@ -127,6 +131,18 @@ pub fn validate_url_path_segment(value: &str, max: usize, field_name: &str) -> R
         || value.chars().any(char::is_control)
     {
         return Err(CliError::InvalidArgument(format!("{field_name} must not contain URL path control characters")));
+    }
+    Ok(value.to_string())
+}
+
+/// Validate an identifier using a UUID-like safe character set without
+/// requiring UUID segment lengths or hexadecimal-only content.
+pub fn validate_uuid_like_id(value: &str, max: usize) -> Result<String, CliError> {
+    let value = value.trim();
+    validate_max_len(value, max)?;
+    let uuid_like = Regex::new(r"^[A-Za-z0-9-]+$").map_err(|_| CliError::InternalFormat)?;
+    if !uuid_like.is_match(value) {
+        return Err(CliError::InvalidArgument("id may contain only letters, numbers, and hyphens".to_string()));
     }
     Ok(value.to_string())
 }
@@ -259,6 +275,25 @@ mod tests {
     }
 
     #[test]
+    fn validate_uuid_like_id_accepts_safe_characters_without_requiring_uuid_shape() {
+        for id in ["cert-1", "RV1", "550e8400-e29b", "550E8400-E29B-41D4-A716-446655440000"] {
+            assert_eq!(validate_uuid_like_id(id, 36).expect("ID should be accepted"), id);
+        }
+        assert_eq!(
+            validate_uuid_like_id("  cert-1\t", 36).expect("surrounding whitespace should be trimmed"),
+            "cert-1"
+        );
+        let uuid = "550e8400-e29b-41d4-a716-446655440000";
+        assert_eq!(validate_uuid_like_id(&format!(" {uuid} "), 36).expect("spaced UUID should be accepted"), uuid);
+        for id in ["", "policy_id", "policy/id", "policy?debug=true", "策略-1"] {
+            assert!(validate_uuid_like_id(id, 36).is_err(), "{id:?} should fail");
+        }
+        assert!(validate_uuid_like_id("cert 1", 36).is_err());
+        assert!(validate_uuid_like_id(&"a".repeat(36), 36).is_ok());
+        assert!(validate_uuid_like_id(&"a".repeat(37), 36).is_err());
+    }
+
+    #[test]
     fn validate_file_path_rejects_existing_directory() {
         let err = validate_file_path(".").expect_err("directory should fail");
         assert!(err.to_string().contains("existing directory"));
@@ -308,17 +343,21 @@ mod tests {
     #[test]
     fn query_ids_validation_limits_count_and_total_length() {
         let ids = (0..10).map(|index| format!("id-{index}")).collect::<Vec<_>>();
-        assert!(validate_query_ids(Some(&ids)).is_ok());
+        assert!(validate_query_ids(Some(&ids), 36).is_ok());
         assert_eq!(
-            validate_query_ids(Some(&(0..11).map(|index| format!("id-{index}")).collect::<Vec<_>>()))
+            validate_query_ids(Some(&(0..11).map(|index| format!("id-{index}")).collect::<Vec<_>>()), 36)
                 .expect_err("too many IDs")
                 .to_string(),
             "ids must contain at most 10 values"
         );
         assert_eq!(
-            validate_query_ids(Some(&vec!["x".repeat(501)])).expect_err("oversized query").to_string(),
+            validate_query_ids(Some(&vec!["x".repeat(501)]), 36).expect_err("oversized query").to_string(),
             "ids is too long; maximum length is 500 characters"
         );
+        assert!(validate_query_ids(Some(&["中文".to_string()]), 36).is_err());
+        assert!(validate_query_ids(Some(&["id_1".to_string()]), 36).is_err());
+        assert!(validate_query_ids(Some(&["a".repeat(36)]), 36).is_ok());
+        assert!(validate_query_ids(Some(&["a".repeat(37)]), 36).is_err());
     }
 
     // Cover resource and policy URI segment boundaries and URL controls.
