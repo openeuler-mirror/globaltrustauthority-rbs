@@ -18,7 +18,7 @@
 //!
 //! Markdown and HTML (`rbs_rest_api.md` / `rbs_rest_api.html`) under `docs/api/rbs/md/`
 //! and `docs/api/rbs/html/` are produced from that YAML via `./scripts/generate-api-docs.sh`
-//! (OpenAPI Generator + Redocly; see `scripts/conf/openapi-docs/package.json`).
+//! (oas-to-markdown + Redocly; see `scripts/conf/openapi-docs/package.json`).
 
 #[cfg(feature = "rest")]
 use rbs_rest::ApiDoc;

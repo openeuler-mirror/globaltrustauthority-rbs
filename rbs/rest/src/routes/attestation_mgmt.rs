@@ -166,8 +166,7 @@ macro_rules! h_del_single {
     tags = ["Attestation"], security(("bearerAuth" = [])),
     params(
         ("as_provider" = String, Path, description = "Attestation provider name"),
-        ("ids" = Option<String>, Query, description = "Comma-separated ref_value IDs (1-10)"),("attester_type" = Option<String>, Query, description = "Filter by attester type"),("limit" = Option<i64>, Query, description = "Page size (1-10, default 10)"),
-        ("offset" = Option<i64>, Query, description = "Offset (0-100000, default 0)"),
+        RefValueListQuery,
     ),
     responses(
         (status = 200, description = "Ref_value list", body = RefValueListResponse),
@@ -185,10 +184,7 @@ pub async fn list_ref_values(core: web::Data<Arc<RbsCore>>, req: HttpRequest, pa
     get, path = "/rbs/v0/attestation/ref_value",
     operation_id = "listRefValuesDefault", summary = "List reference value baselines (default provider)",
     tags = ["Attestation"], security(("bearerAuth" = [])),
-    params(
-        ("ids" = Option<String>, Query, description = "Comma-separated ref_value IDs (1-10)"),("attester_type" = Option<String>, Query, description = "Filter by attester type"),("limit" = Option<i64>, Query, description = "Page size (1-10, default 10)"),
-        ("offset" = Option<i64>, Query, description = "Offset (0-100000, default 0)"),
-    ),
+    params(RefValueListQuery),
     responses(
         (status = 200, description = "Ref_value list", body = RefValueListResponse),
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
@@ -388,8 +384,7 @@ pub async fn delete_ref_value_default(core: web::Data<Arc<RbsCore>>, req: HttpRe
     tags = ["Attestation"], security(("bearerAuth" = [])),
     params(
         ("as_provider" = String, Path, description = "Attestation provider name"),
-        ("ids" = Option<String>, Query, description = "Comma-separated certificate IDs"),("cert_type" = Option<String>, Query, description = "Filter by certificate type"),("limit" = Option<i64>, Query, description = "Page size (1-10, default 10)"),
-        ("offset" = Option<i64>, Query, description = "Offset (0-100000, default 0)"),
+        CertListQuery,
     ),
     responses(
         (status = 200, description = "Certificate list", body = CertListResponse),
@@ -407,10 +402,7 @@ pub async fn list_certs(core: web::Data<Arc<RbsCore>>, req: HttpRequest, path: w
     get, path = "/rbs/v0/attestation/cert",
     operation_id = "listCertsDefault", summary = "List certificates (default provider)",
     tags = ["Attestation"], security(("bearerAuth" = [])),
-    params(
-        ("ids" = Option<String>, Query, description = "Comma-separated certificate IDs"),("cert_type" = Option<String>, Query, description = "Filter by certificate type"),("limit" = Option<i64>, Query, description = "Page size (1-10, default 10)"),
-        ("offset" = Option<i64>, Query, description = "Offset (0-100000, default 0)"),
-    ),
+    params(CertListQuery),
     responses(
         (status = 200, description = "Certificate list", body = CertListResponse),
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
@@ -610,8 +602,7 @@ pub async fn delete_cert_default(core: web::Data<Arc<RbsCore>>, req: HttpRequest
     tags = ["Attestation"], security(("bearerAuth" = [])),
     params(
         ("as_provider" = String, Path, description = "Attestation provider name"),
-        ("ids" = Option<String>, Query, description = "Comma-separated policy IDs"),("attester_type" = Option<String>, Query, description = "Filter by attester type"),("limit" = Option<i64>, Query, description = "Page size (1-10, default 10)"),
-        ("offset" = Option<i64>, Query, description = "Offset (0-100000, default 0)"),
+        PolicyListQuery,
     ),
     responses(
         (status = 200, description = "Policy list", body = AttestationPolicyListResponse),
@@ -629,10 +620,7 @@ pub async fn list_attestation_policies(core: web::Data<Arc<RbsCore>>, req: HttpR
     get, path = "/rbs/v0/attestation/policy",
     operation_id = "listAttestationPoliciesDefault", summary = "List attestation policies (default provider)",
     tags = ["Attestation"], security(("bearerAuth" = [])),
-    params(
-        ("ids" = Option<String>, Query, description = "Comma-separated policy IDs"),("attester_type" = Option<String>, Query, description = "Filter by attester type"),("limit" = Option<i64>, Query, description = "Page size (1-10, default 10)"),
-        ("offset" = Option<i64>, Query, description = "Offset (0-100000, default 0)"),
-    ),
+    params(PolicyListQuery),
     responses(
         (status = 200, description = "Policy list", body = AttestationPolicyListResponse),
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),

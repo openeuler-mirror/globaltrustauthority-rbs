@@ -67,30 +67,34 @@ paths:
       parameters:
       - name: ids
         in: query
-        description: Comma-separated certificate IDs
+        description: Comma-separated certificate IDs.
         required: false
         schema:
           type: string
       - name: cert_type
         in: query
-        description: Filter by certificate type
+        description: Filter by certificate type (query param `cert_type`, JSON field `type`).
         required: false
         schema:
           type: string
       - name: limit
         in: query
-        description: Page size (1-10, default 10)
+        description: Page size (1-10, default 10).
         required: false
         schema:
           type: integer
           format: int64
+          maximum: 10
+          minimum: 1
       - name: offset
         in: query
-        description: Offset (0-100000, default 0)
+        description: Page offset (0-100000, default 0).
         required: false
         schema:
           type: integer
           format: int64
+          maximum: 100000
+          minimum: 0
       responses:
         '200':
           description: Certificate list
@@ -408,30 +412,34 @@ paths:
       parameters:
       - name: ids
         in: query
-        description: Comma-separated policy IDs
+        description: Comma-separated policy IDs.
         required: false
         schema:
           type: string
       - name: attester_type
         in: query
-        description: Filter by attester type
+        description: Filter by attester_type.
         required: false
         schema:
           type: string
       - name: limit
         in: query
-        description: Page size (1-10, default 10)
+        description: Page size (1-10, default 10).
         required: false
         schema:
           type: integer
           format: int64
+          maximum: 10
+          minimum: 1
       - name: offset
         in: query
-        description: Offset (0-100000, default 0)
+        description: Page offset (0-100000, default 0).
         required: false
         schema:
           type: integer
           format: int64
+          maximum: 100000
+          minimum: 0
       responses:
         '200':
           description: Policy list
@@ -749,30 +757,34 @@ paths:
       parameters:
       - name: ids
         in: query
-        description: Comma-separated ref_value IDs (1-10)
+        description: Comma-separated ref_value IDs (1-10); when present, pagination is ignored.
         required: false
         schema:
           type: string
       - name: attester_type
         in: query
-        description: Filter by attester type
+        description: Filter by attester_type (e.g. tpm, tpm_ima).
         required: false
         schema:
           type: string
       - name: limit
         in: query
-        description: Page size (1-10, default 10)
+        description: Page size (1-10, default 10). Ignored when `ids` is present.
         required: false
         schema:
           type: integer
           format: int64
+          maximum: 10
+          minimum: 1
       - name: offset
         in: query
-        description: Offset (0-100000, default 0)
+        description: Page offset (0-100000, default 0). Ignored when `ids` is present.
         required: false
         schema:
           type: integer
           format: int64
+          maximum: 100000
+          minimum: 0
       responses:
         '200':
           description: Ref_value list
@@ -1096,30 +1108,34 @@ paths:
           type: string
       - name: ids
         in: query
-        description: Comma-separated certificate IDs
+        description: Comma-separated certificate IDs.
         required: false
         schema:
           type: string
       - name: cert_type
         in: query
-        description: Filter by certificate type
+        description: Filter by certificate type (query param `cert_type`, JSON field `type`).
         required: false
         schema:
           type: string
       - name: limit
         in: query
-        description: Page size (1-10, default 10)
+        description: Page size (1-10, default 10).
         required: false
         schema:
           type: integer
           format: int64
+          maximum: 10
+          minimum: 1
       - name: offset
         in: query
-        description: Offset (0-100000, default 0)
+        description: Page offset (0-100000, default 0).
         required: false
         schema:
           type: integer
           format: int64
+          maximum: 100000
+          minimum: 0
       responses:
         '200':
           description: Certificate list
@@ -1476,30 +1492,34 @@ paths:
           type: string
       - name: ids
         in: query
-        description: Comma-separated policy IDs
+        description: Comma-separated policy IDs.
         required: false
         schema:
           type: string
       - name: attester_type
         in: query
-        description: Filter by attester type
+        description: Filter by attester_type.
         required: false
         schema:
           type: string
       - name: limit
         in: query
-        description: Page size (1-10, default 10)
+        description: Page size (1-10, default 10).
         required: false
         schema:
           type: integer
           format: int64
+          maximum: 10
+          minimum: 1
       - name: offset
         in: query
-        description: Offset (0-100000, default 0)
+        description: Page offset (0-100000, default 0).
         required: false
         schema:
           type: integer
           format: int64
+          maximum: 100000
+          minimum: 0
       responses:
         '200':
           description: Policy list
@@ -1856,30 +1876,34 @@ paths:
           type: string
       - name: ids
         in: query
-        description: Comma-separated ref_value IDs (1-10)
+        description: Comma-separated ref_value IDs (1-10); when present, pagination is ignored.
         required: false
         schema:
           type: string
       - name: attester_type
         in: query
-        description: Filter by attester type
+        description: Filter by attester_type (e.g. tpm, tpm_ima).
         required: false
         schema:
           type: string
       - name: limit
         in: query
-        description: Page size (1-10, default 10)
+        description: Page size (1-10, default 10). Ignored when `ids` is present.
         required: false
         schema:
           type: integer
           format: int64
+          maximum: 10
+          minimum: 1
       - name: offset
         in: query
-        description: Offset (0-100000, default 0)
+        description: Page offset (0-100000, default 0). Ignored when `ids` is present.
         required: false
         schema:
           type: integer
           format: int64
+          maximum: 100000
+          minimum: 0
       responses:
         '200':
           description: Ref_value list
@@ -2270,24 +2294,30 @@ paths:
       parameters:
       - name: ids
         in: query
-        description: Comma-separated policy IDs
+        description: Comma-separated policy IDs.
         required: false
         schema:
           type: string
+          maxLength: 4096
+          minLength: 1
       - name: limit
         in: query
-        description: Page size (1..100, default 10)
+        description: Page size (1..100, default 10).
         required: false
         schema:
           type: integer
           format: int64
+          maximum: 100
+          minimum: 1
       - name: offset
         in: query
-        description: Offset (0..100000, default 0)
+        description: Offset (0..100000, default 0).
         required: false
         schema:
           type: integer
           format: int64
+          maximum: 100000
+          minimum: 0
       responses:
         '200':
           description: Policy list
@@ -2583,27 +2613,31 @@ paths:
       parameters:
       - name: limit
         in: query
-        description: Page size (1..100, default 10)
+        description: Page size (1..100, default 10).
         required: false
         schema:
           type: integer
           format: int64
+          maximum: 100
+          minimum: 1
       - name: offset
         in: query
-        description: Offset (0..100000, default 0)
+        description: Offset (0..100000, default 0).
         required: false
         schema:
           type: integer
           format: int64
+          maximum: 100000
+          minimum: 0
       - name: role
         in: query
-        description: Filter by role (admin or user)
+        description: Filter by role (admin or user).
         required: false
         schema:
           $ref: '#/components/schemas/Role'
       - name: enabled
         in: query
-        description: Filter by enabled status
+        description: Filter by enabled status.
         required: false
         schema:
           type: boolean
@@ -3167,10 +3201,12 @@ paths:
       - Resource
       summary: Retrieve resource with attestation evidence
       description: |-
-        The client submits RBC evidences in the request body. The service calls the
-        configured attestation backend to verify the evidence and obtain an attest
-        token, then uses the token claims (including `tee-pubkey`) for Rego policy
-        evaluation and JWE encryption of the resource content.
+        The client submits RBC evidences in the request body.
+
+        The service calls the configured attestation backend to verify the evidence
+        and obtain an attest token, then uses the token claims (including
+        `tee-pubkey`) for Rego policy evaluation and JWE encryption of the resource
+        content.
       operationId: retrieveResource
       parameters:
       - name: res_provider
@@ -3271,7 +3307,7 @@ components:
     AttestationDeleteType:
       type: string
       description: |-
-        Delete mode for ref_value/cert DELETE operations.
+        Delete mode for ref_value/cert DELETE operations: `"id"`, `"all"`, or `"type"`.
 
         GTA accepts `"id"`, `"all"`, `"type"` for ref_value and cert.
       enum:
@@ -3281,7 +3317,7 @@ components:
     AttestationPolicy:
       type: object
       description: |-
-        Attestation policy entity returned by GTA.
+        Attestation policy entity returned by GTA; fields beyond `id`/`name`/`attester_type` appear only in by_ids.
 
         Named `AttestationPolicy` to distinguish from RBS local resource policy
         (`Policy`/`PolicyResponse` in `t_res_policy`). `id`/`name`/`attester_type`
@@ -3374,19 +3410,20 @@ components:
     AttesterData:
       type: object
       description: |-
-        Optional attester-supplied metadata, carried per measurement under
-        `rbc_evidences.measurements[].attester_data`.
+        Optional attester-supplied metadata, carried per measurement.
 
-        `runtime_data` must not duplicate the challenge nonce (nonce lives only under
-        `rbc_evidences.measurements[].nonce`).
+        Stored under `rbc_evidences.measurements[].attester_data`.
+        `runtime_data` must not duplicate the challenge nonce (nonce lives only
+        under `rbc_evidences.measurements[].nonce`).
       properties:
         runtime_data:
           type:
           - object
           - 'null'
           description: |-
-            Key/value runtime fields (e.g. attester_pubkey as JWK for encrypted resource return);
-            excludes nonce.
+            Key/value runtime fields; excludes nonce.
+
+            Example: `attester_pubkey` as JWK for encrypted resource return.
           additionalProperties: {}
           propertyNames:
             type: string
@@ -3438,6 +3475,7 @@ components:
           type: string
           description: Certificate name (non-empty).
           example: cert1
+          minLength: 1
         type:
           type: array
           items:
@@ -3710,10 +3748,15 @@ components:
       properties:
         name:
           type: string
+          maxLength: 255
+          minLength: 1
+          pattern: ^[^<>"'&|\\/*?`]*$
         content_type:
           type: string
+          pattern: ^base64$
         content:
           type: string
+          minLength: 1
     CreateResourceRequest:
       type: object
       description: Request body for `POST /rbs/v0/{uri}` — create a resource.
@@ -3722,6 +3765,8 @@ components:
       properties:
         policy_id:
           type: string
+          maxLength: 36
+          minLength: 1
         content_type:
           type:
           - string
@@ -3787,8 +3832,10 @@ components:
         error:
           type: string
           description: |-
-            Error string for the caller: may be a stable code, a short machine-oriented label,
-            or a concise human-readable message. Must not include stack traces or secrets.
+            Error string for the caller.
+
+            May be a stable code, a short machine-oriented label, or a concise
+            human-readable message. Must not include stack traces or secrets.
     PolicyCreateRequest:
       type: object
       description: Request body for POST attestation policy (create).
@@ -3802,20 +3849,24 @@ components:
           type: string
           description: Policy name (non-empty).
           example: policy1
+          minLength: 1
         attester_type:
           type: array
           items:
             type: string
           description: Attester type list (non-empty array).
           example: '["tpm"]'
+          minItems: 1
         content_type:
           type: string
           description: 'Content encoding (required): "jwt" or "text".'
           example: jwt
+          minLength: 1
         content:
           type: string
           description: Policy content (non-empty).
           example: eyJhbGciOiJSUzI1NiJ9...
+          minLength: 1
         is_default:
           type:
           - boolean
@@ -4168,14 +4219,17 @@ components:
           type: string
           description: Baseline name (non-empty).
           example: tpm-baseline
+          minLength: 1
         attester_type:
           type: string
           description: Attester type (non-empty).
           example: tpm
+          minLength: 1
         content:
           type: string
           description: Baseline content — JWT or base64-encoded payload (non-empty).
           example: eyJhbGciOiJSUzI1NiJ9...
+          minLength: 1
         content_type:
           type:
           - string
@@ -4432,10 +4486,15 @@ components:
       properties:
         name:
           type: string
+          maxLength: 255
+          minLength: 1
+          pattern: ^[^<>"'&|\\/*?`]*$
         content_type:
           type: string
+          pattern: ^base64$
         content:
           type: string
+          minLength: 1
     UpdateResourceRequest:
       type: object
       description: |-
@@ -4450,6 +4509,8 @@ components:
           type:
           - string
           - 'null'
+          maxLength: 36
+          minLength: 1
         content_type:
           type:
           - string
@@ -4476,6 +4537,9 @@ components:
         username:
           type: string
           description: Login or unique handle. Immutable.
+          maxLength: 36
+          minLength: 1
+          pattern: ^[a-zA-Z0-9_-]+$
         role:
           oneOf:
           - type: 'null'
@@ -4564,22 +4628,25 @@ components:
           - type: 'null'
           - $ref: '#/components/schemas/Role'
             description: |-
-              New role (admin only). The `admin` role is pre-configured and not
-              API-assignable: assigning it to a non-built-in target is rejected with
-              `admin role is pre-configured and not API-assignable` (403); the built-in
-              Administrator may only keep `role: "admin"` (a no-op, 200) — any other
-              role is rejected with `cannot modify 'role' of the built-in
-              administrator` (403). A non-admin self-update sending its current role
-              (`user`) is a no-op (200); any other role is rejected with `self-update
-              may not modify 'role'` (403).
+              New role (admin only).
+
+              The `admin` role is pre-configured and not API-assignable: assigning it
+              to a non-built-in target is rejected with `admin role is pre-configured
+              and not API-assignable` (403); the built-in Administrator may only keep
+              `role: "admin"` (a no-op, 200) — any other role is rejected with
+              `cannot modify 'role' of the built-in administrator` (403). A non-admin
+              self-update sending its current role (`user`) is a no-op (200); any
+              other role is rejected with `self-update may not modify 'role'` (403).
         enabled:
           type:
           - boolean
           - 'null'
           description: |-
-            Whether the account can authenticate. A non-admin self-update may set
-            this to `true` (a no-op) but may **not** disable itself; `false` is
-            rejected with `self-update may not modify 'enabled'` (403).
+            Whether the account can authenticate.
+
+            A non-admin self-update may set this to `true` (a no-op) but may
+            **not** disable itself; `false` is rejected with `self-update may not
+            modify 'enabled'` (403).
         auth_type:
           oneOf:
           - type: 'null'

@@ -449,8 +449,10 @@ impl Serialize for RbsError {
 /// Error payload for HTTP error responses (e.g. 500).
 #[derive(Clone, Debug, Deserialize, Serialize, utoipa::ToSchema)]
 pub struct ErrorBody {
-    /// Error string for the caller: may be a stable code, a short machine-oriented label,
-    /// or a concise human-readable message. Must not include stack traces or secrets.
+    /// Error string for the caller.
+    ///
+    /// May be a stable code, a short machine-oriented label, or a concise
+    /// human-readable message. Must not include stack traces or secrets.
     pub error: String,
 }
 

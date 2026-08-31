@@ -252,10 +252,12 @@ pub async fn get_resource_info(
 
 /// `POST /rbs/v0/{uri}/retrieve`: Retrieve resource with attestation evidence.
 ///
-/// The client submits RBC evidences in the request body. The service calls the
-/// configured attestation backend to verify the evidence and obtain an attest
-/// token, then uses the token claims (including `tee-pubkey`) for Rego policy
-/// evaluation and JWE encryption of the resource content.
+/// The client submits RBC evidences in the request body.
+///
+/// The service calls the configured attestation backend to verify the evidence
+/// and obtain an attest token, then uses the token claims (including
+/// `tee-pubkey`) for Rego policy evaluation and JWE encryption of the resource
+/// content.
 #[utoipa::path(
     post,
     path = "/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}/retrieve",

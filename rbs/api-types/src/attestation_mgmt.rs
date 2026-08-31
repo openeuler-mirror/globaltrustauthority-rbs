@@ -99,6 +99,7 @@ pub struct RefValue {
 /// When `ids` is absent, `attester_type` and pagination apply (by_type/all path).
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::IntoParams, Validate)]
 #[serde(rename_all = "snake_case")]
+#[into_params(parameter_in = Query)]
 pub struct RefValueListQuery {
     /// Comma-separated ref_value IDs (1-10); when present, pagination is ignored.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -108,10 +109,12 @@ pub struct RefValueListQuery {
     pub attester_type: Option<String>,
     /// Page size (1-10, default 10). Ignored when `ids` is present.
     #[validate(range(min = 1, max = 10))]
+    #[param(minimum = 1, maximum = 10)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<i64>,
     /// Page offset (0-100000, default 0). Ignored when `ids` is present.
     #[validate(range(min = 0, max = 100_000))]
+    #[param(minimum = 0, maximum = 100_000)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub offset: Option<i64>,
 }
@@ -142,15 +145,15 @@ pub struct RefValueListResponse {
 pub struct RefValueCreateRequest {
     /// Baseline name (non-empty).
     #[validate(length(min = 1))]
-    #[schema(example = "tpm-baseline")]
+    #[schema(example = "tpm-baseline", min_length = 1)]
     pub name: String,
     /// Attester type (non-empty).
     #[validate(length(min = 1))]
-    #[schema(example = "tpm")]
+    #[schema(example = "tpm", min_length = 1)]
     pub attester_type: String,
     /// Baseline content — JWT or base64-encoded payload (non-empty).
     #[validate(length(min = 1))]
-    #[schema(example = "eyJhbGciOiJSUzI1NiJ9...")]
+    #[schema(example = "eyJhbGciOiJSUzI1NiJ9...", min_length = 1)]
     pub content: String,
     /// Content encoding: "jwt" (default) or "base64". When absent, GTA defaults to jwt.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -193,7 +196,7 @@ pub struct RefValueUpdateRequest {
     pub content_type: Option<String>,
 }
 
-/// Delete mode for ref_value/cert DELETE operations.
+/// Delete mode for ref_value/cert DELETE operations: `"id"`, `"all"`, or `"type"`.
 ///
 /// GTA accepts `"id"`, `"all"`, `"type"` for ref_value and cert.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
@@ -417,6 +420,7 @@ pub struct CrlRecord {
 /// Query parameters for GET cert list.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::IntoParams, Validate)]
 #[serde(rename_all = "snake_case")]
+#[into_params(parameter_in = Query)]
 pub struct CertListQuery {
     /// Comma-separated certificate IDs.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -426,10 +430,12 @@ pub struct CertListQuery {
     pub cert_type: Option<String>,
     /// Page size (1-10, default 10).
     #[validate(range(min = 1, max = 10))]
+    #[param(minimum = 1, maximum = 10)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<i64>,
     /// Page offset (0-100000, default 0).
     #[validate(range(min = 0, max = 100_000))]
+    #[param(minimum = 0, maximum = 100_000)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub offset: Option<i64>,
 }
@@ -461,7 +467,7 @@ pub struct CertListResponse {
 pub struct CertCreateRequest {
     /// Certificate name (non-empty).
     #[validate(length(min = 1))]
-    #[schema(example = "cert1")]
+    #[schema(example = "cert1", min_length = 1)]
     pub name: String,
     /// Certificate type list (JSON field name `type`).
     #[serde(rename = "type")]
@@ -564,7 +570,7 @@ pub struct CertMutationResponse {
 // Attestation policy types (AR-003)
 // ---------------------------------------------------------------------------
 
-/// Attestation policy entity returned by GTA.
+/// Attestation policy entity returned by GTA; fields beyond `id`/`name`/`attester_type` appear only in by_ids.
 ///
 /// Named `AttestationPolicy` to distinguish from RBS local resource policy
 /// (`Policy`/`PolicyResponse` in `t_res_policy`). `id`/`name`/`attester_type`
@@ -615,6 +621,7 @@ pub struct AttestationPolicy {
 /// Query parameters for GET attestation policy list.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::IntoParams, Validate)]
 #[serde(rename_all = "snake_case")]
+#[into_params(parameter_in = Query)]
 pub struct PolicyListQuery {
     /// Comma-separated policy IDs.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -624,10 +631,12 @@ pub struct PolicyListQuery {
     pub attester_type: Option<String>,
     /// Page size (1-10, default 10).
     #[validate(range(min = 1, max = 10))]
+    #[param(minimum = 1, maximum = 10)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<i64>,
     /// Page offset (0-100000, default 0).
     #[validate(range(min = 0, max = 100_000))]
+    #[param(minimum = 0, maximum = 100_000)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub offset: Option<i64>,
 }
@@ -655,19 +664,19 @@ pub struct AttestationPolicyListResponse {
 pub struct PolicyCreateRequest {
     /// Policy name (non-empty).
     #[validate(length(min = 1))]
-    #[schema(example = "policy1")]
+    #[schema(example = "policy1", min_length = 1)]
     pub name: String,
     /// Attester type list (non-empty array).
     #[validate(length(min = 1))]
-    #[schema(example = "[\"tpm\"]")]
+    #[schema(example = "[\"tpm\"]", min_items = 1)]
     pub attester_type: Vec<String>,
     /// Content encoding (required): "jwt" or "text".
     #[validate(length(min = 1))]
-    #[schema(example = "jwt")]
+    #[schema(example = "jwt", min_length = 1)]
     pub content_type: String,
     /// Policy content (non-empty).
     #[validate(length(min = 1))]
-    #[schema(example = "eyJhbGciOiJSUzI1NiJ9...")]
+    #[schema(example = "eyJhbGciOiJSUzI1NiJ9...", min_length = 1)]
     pub content: String,
     /// Whether to set as default policy.
     #[serde(skip_serializing_if = "Option::is_none")]

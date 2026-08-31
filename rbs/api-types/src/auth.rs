@@ -17,16 +17,17 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Map;
 
-/// Optional attester-supplied metadata, carried per measurement under
-/// `rbc_evidences.measurements[].attester_data`.
+/// Optional attester-supplied metadata, carried per measurement.
 ///
-/// `runtime_data` must not duplicate the challenge nonce (nonce lives only under
-/// `rbc_evidences.measurements[].nonce`).
+/// Stored under `rbc_evidences.measurements[].attester_data`.
+/// `runtime_data` must not duplicate the challenge nonce (nonce lives only
+/// under `rbc_evidences.measurements[].nonce`).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct AttesterData {
-    /// Key/value runtime fields (e.g. attester_pubkey as JWK for encrypted resource return);
-    /// excludes nonce.
+    /// Key/value runtime fields; excludes nonce.
+    ///
+    /// Example: `attester_pubkey` as JWK for encrypted resource return.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime_data: Option<Map<String, serde_json::Value>>,
 

@@ -31,12 +31,15 @@ pub const POLICY_CONTENT_TYPE_WHITELIST: &[&str] = &["base64"];
 #[serde(rename_all = "snake_case")]
 pub struct CreatePolicyRequest {
     #[validate(length(min = 1, max = POLICY_NAME_MAX_LEN), custom(function = "validate_policy_name"))]
+    #[schema(min_length = 1, max_length = 255, pattern = "^[^<>\"'&|\\\\/*?`]*$")]
     pub name: String,
 
     #[validate(custom(function = "validate_content_type"))]
+    #[schema(pattern = "^base64$")]
     pub content_type: String,
 
     #[validate(length(min = 1))]
+    #[schema(min_length = 1)]
     pub content: String,
 }
 
@@ -45,12 +48,15 @@ pub struct CreatePolicyRequest {
 #[serde(rename_all = "snake_case")]
 pub struct UpdatePolicyRequest {
     #[validate(length(min = 1, max = POLICY_NAME_MAX_LEN), custom(function = "validate_policy_name"))]
+    #[schema(min_length = 1, max_length = 255, pattern = "^[^<>\"'&|\\\\/*?`]*$")]
     pub name: String,
 
     #[validate(custom(function = "validate_content_type"))]
+    #[schema(pattern = "^base64$")]
     pub content_type: String,
 
     #[validate(length(min = 1))]
+    #[schema(min_length = 1)]
     pub content: String,
 }
 
@@ -82,14 +88,21 @@ pub struct PolicyListResponse {
 /// Query parameters for GET /rbs/v0/resource/policy.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::IntoParams, validator::Validate)]
 #[serde(rename_all = "snake_case")]
+#[into_params(parameter_in = Query)]
 pub struct PolicyListQuery {
+    /// Comma-separated policy IDs.
     #[validate(length(min = 1, max = POLICY_IDS_QUERY_MAX_LEN))]
+    #[param(min_length = 1, max_length = 4096)]
     pub ids: Option<String>,
 
+    /// Page size (1..100, default 10).
     #[validate(range(min = 1, max = 100))]
+    #[param(minimum = 1, maximum = 100)]
     pub limit: Option<i64>,
 
+    /// Offset (0..100000, default 0).
     #[validate(range(min = 0, max = 100_000))]
+    #[param(minimum = 0, maximum = 100_000)]
     pub offset: Option<i64>,
 }
 

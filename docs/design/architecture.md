@@ -893,6 +893,7 @@ Contributor workflows follow crate boundaries (§6). Commands: [`AGENTS.md`](../
 | Crate layout | Logic `rbs-core`; HTTP `rbs-rest`; types `rbs-api-types` |
 | Traits | `Send + Sync` on async provider traits |
 | API changes | `#[utoipa::path]` + `ToSchema`; regen docs; CI fails on OpenAPI drift |
+| Validation ↔ contract | Keep `#[validate]` rules mirrored in `#[schema]`/`#[param]` constraints (api-types consistency tests enforce it) |
 | Security changes | Update §10; test failure paths; never log secrets |
 
 ### Documentation map

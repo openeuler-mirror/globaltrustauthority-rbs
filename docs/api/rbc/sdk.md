@@ -196,10 +196,10 @@ Request an authentication challenge (nonce) from RBS.
 #### `new_session`
 
 ```rust
-pub fn new_session( &self, attester_data: Option<&AttesterData>, ) -> Result<Session, RbcError>
+pub fn new_session(&self, attester_data: Option<&AttesterData>) -> Result<Session, RbcError>
 ```
 
-Begin a new session. If `attester_data` does not contain `tee_pubkey`, an ephemeral key pair is generated automatically; otherwise the caller is responsible for the key.
+Begin a new session. If `attester_data` does not contain `tee-pubkey`, an ephemeral key pair is generated automatically; otherwise the caller is responsible for the key.
 
 ---
 
@@ -212,7 +212,7 @@ Represents a single attestation session. Not thread-safe (uses `Rc` internally).
 #### `collect_evidence`
 
 ```rust
-pub fn collect_evidence( &self, challenge: &AuthChallengeResponse, ) -> Result<Value, RbcError>
+pub fn collect_evidence(&self, challenge: &AuthChallengeResponse) -> Result<Value, RbcError>
 ```
 
 Collect TEE evidence for the given challenge using the configured evidence provider.
@@ -228,7 +228,7 @@ Obtain an attest token from the configured token provider, optionally passing ra
 #### `get_resource`
 
 ```rust
-pub fn get_resource( &self, uri: &str, request: GetResourceRequest<'_>, ) -> Result<Resource, RbcError>
+pub fn get_resource(&self, uri: &str, request: GetResourceRequest<'_>) -> Result<Resource, RbcError>
 ```
 
 Fetch the resource at `uri`, authorized via `request`.
