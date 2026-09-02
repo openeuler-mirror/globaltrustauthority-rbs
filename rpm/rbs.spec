@@ -46,10 +46,10 @@ install -D -m 644 rbs/rdb_sql/sqlite_rbs.sql %{buildroot}%{_datadir}/rbs/sqlite_
 # Match flexibly on leading/trailing whitespace; fail the build if rewrites miss (plain sed -i is silent).
 RBS_CFG=%{buildroot}%{_sysconfdir}/rbs/rbs.yaml
 sed -ri \
-    -e 's|^([[:space:]]*)url:[[:space:]]*"sqlite:///root/rbs.db"[[:space:]]*$|\1url: "sqlite:///var/lib/rbs/rbs.db"|' \
+    -e 's|^([[:space:]]*)url:[[:space:]]*"sqlite:///root/rbs\.db(\?mode=rwc)?"[[:space:]]*$|\1url: "sqlite:///var/lib/rbs/rbs.db?mode=rwc"|' \
     -e 's|^([[:space:]]*)sql_file_path:[[:space:]]*"rbs/rdb_sql/sqlite_rbs.sql"[[:space:]]*$|\1sql_file_path: "/usr/share/rbs/sqlite_rbs.sql"|' \
     "$RBS_CFG"
-grep -Eq '^[[:space:]]*url:[[:space:]]*"sqlite:///var/lib/rbs/rbs.db"' "$RBS_CFG" || exit 1
+grep -Eq '^[[:space:]]*url:[[:space:]]*"sqlite:///var/lib/rbs/rbs\.db\?mode=rwc"' "$RBS_CFG" || exit 1
 grep -Eq '^[[:space:]]*sql_file_path:[[:space:]]*"/usr/share/rbs/sqlite_rbs.sql"' "$RBS_CFG" || exit 1
 grep -q 'sqlite:///root/rbs.db' "$RBS_CFG" && exit 1
 grep -E '^[[:space:]]*sql_file_path:' "$RBS_CFG" | grep -q 'rbs/conf/' && exit 1

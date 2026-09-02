@@ -60,12 +60,12 @@ pub enum ResCommand {
     GetResInfo(PathArgs),
     #[command(
         about = "Create a resource binding",
-        long_about = "Create resource metadata for a key, secret, or cert resource.\n\nExample:\n  rbs-cli res create --uri vault/default/secret/my-secret --policy-id policy-1 --content-type text --export-mode jwe"
+        long_about = "Create resource metadata for a key, secret, or cert resource.\n\nExample:\n  rbs-cli res create --uri vault/default/secret/my-secret --policy-id policy-1 --content-type text --export-mode jwe\n\nWith --content, the Base64-decoded payload is stored in backends that support writes (e.g. HSM):\n  rbs-cli res create --uri hsm/default/key/my-key --policy-id policy-1 --content-type binary --content @key.b64"
     )]
     Create(CreateArgs),
     #[command(
         about = "Update a resource binding",
-        long_about = "Update resource metadata for a key, secret, or cert resource.\n\nExample:\n  rbs-cli res update --uri vault/default/secret/my-secret --policy-id policy-1 --content-type text --export-mode jwe"
+        long_about = "Update resource metadata for a key, secret, or cert resource.\n\nExample:\n  rbs-cli res update --uri vault/default/secret/my-secret --policy-id policy-1 --content-type text --export-mode jwe\n\nWith --content, the Base64-decoded payload replaces the stored value in backends that support writes (e.g. HSM):\n  rbs-cli res update --uri hsm/default/key/my-key --content-type binary --content @key.b64"
     )]
     Update(UpdateArgs),
     #[command(
@@ -91,6 +91,9 @@ pub struct CreateArgs {
 
     #[arg(long, value_parser = read_path_file, help = "Optional Base64 additional_info value or @file path")]
     pub additional_info: Option<String>,
+
+    #[arg(long, value_parser = normalize_base64_content, help = "Optional Base64 content value or @file path; raw content is Base64-encoded automatically")]
+    pub content: Option<String>,
 
     #[arg(long, value_parser = RESOURCE_CONTENT_TYPES, help = "Resource content type: jwt, json, text, binary, jwk, or jwe")]
     pub content_type: Option<String>,
@@ -126,6 +129,9 @@ pub struct UpdateArgs {
 
     #[arg(long, value_parser = |s: &str| validate_trimmed_string_max_len(s, ADDITIONAL_INFO_MAX_LEN, "additional-info"), help = "Optional Base64 additional_info value or @file path")]
     pub additional_info: Option<String>,
+
+    #[arg(long, value_parser = normalize_base64_content, help = "Optional Base64 content value or @file path; raw content is Base64-encoded automatically")]
+    pub content: Option<String>,
 
     #[arg(long, value_parser = RESOURCE_CONTENT_TYPES, help = "Resource content type: jwt, json, text, binary, jwk, or jwe")]
     pub content_type: Option<String>,
@@ -164,7 +170,7 @@ async fn execute_res_command(cli: &ResCli, service: &ResourceClient) -> Result<B
                         additional_info: args.additional_info.clone(),
                         content_type: args.content_type.clone(),
                         export_mode: args.export_mode.clone(),
-                        content: None,
+                        content: args.content.clone(),
                     },
                 )
                 .await?;
@@ -179,7 +185,7 @@ async fn execute_res_command(cli: &ResCli, service: &ResourceClient) -> Result<B
                         additional_info: args.additional_info.clone(),
                         content_type: args.content_type.clone(),
                         export_mode: args.export_mode.clone(),
-                        content: None,
+                        content: args.content.clone(),
                     },
                 )
                 .await?;
@@ -267,6 +273,36 @@ fn decode_resource_jwe(content: &str) -> Result<String, CliError> {
         .map_err(|err| CliError::InvalidArgument(format!("resource content is not valid Base64 JWE data: {err}")))?;
     String::from_utf8(decoded)
         .map_err(|_| CliError::InvalidArgument("resource content is not valid UTF-8 JWE; cannot decrypt".to_string()))
+}
+
+fn normalize_base64_content(value: &str) -> Result<String, CliError> {
+    if let Some(path) = value.strip_prefix('@') {
+        let bytes = fs::read(path).map_err(|_| {
+            CliError::FileReadError(format!(
+                "unable to read file `{path}`. Please check that the file exists and is readable"
+            ))
+        })?;
+        if let Ok(text) = std::str::from_utf8(&bytes) {
+            let trimmed = text.trim();
+            if !trimmed.is_empty() && base64::engine::general_purpose::STANDARD.decode(trimmed).is_ok() {
+                return Ok(trimmed.to_string());
+            }
+            if trimmed.is_empty() {
+                return Err(CliError::InvalidArgument("content must not be empty".to_string()));
+            }
+        }
+        Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+    } else {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            return Err(CliError::InvalidArgument("content must not be empty".to_string()));
+        }
+        if base64::engine::general_purpose::STANDARD.decode(trimmed).is_ok() {
+            Ok(trimmed.to_string())
+        } else {
+            Ok(base64::engine::general_purpose::STANDARD.encode(value.as_bytes()))
+        }
+    }
 }
 
 fn load_passphrase(passphrase: &Option<Option<String>>) -> Result<Option<Zeroizing<String>>, CliError> {
@@ -405,6 +441,96 @@ mod tests {
             matches.get_one::<String>("policy_id").is_none(),
             "policy_id should be absent when --policy-id is omitted"
         );
+    }
+
+    #[test]
+    fn create_and_update_accept_optional_content() {
+        let command = CreateArgs::augment_args(clap::Command::new("create"));
+        let matches = command
+            .try_get_matches_from([
+                "create",
+                "--uri",
+                "hsm/default/key/demo",
+                "--policy-id",
+                "policy-1",
+                "--content",
+                "QUJD",
+                "--content-type",
+                "binary",
+            ])
+            .expect("create should succeed with --content");
+        assert_eq!(matches.get_one::<String>("content").map(String::as_str), Some("QUJD"));
+
+        let command = CreateArgs::augment_args(clap::Command::new("create"));
+        let matches = command
+            .try_get_matches_from(["create", "--uri", "hsm/default/key/demo", "--policy-id", "policy-1"])
+            .expect("create should succeed without --content");
+        assert!(matches.get_one::<String>("content").is_none(), "content should be absent when --content is omitted");
+
+        let command = UpdateArgs::augment_args(clap::Command::new("update"));
+        let matches = command
+            .try_get_matches_from(["update", "--uri", "hsm/default/key/demo", "--content", "QUJD"])
+            .expect("update should succeed with --content");
+        assert_eq!(matches.get_one::<String>("content").map(String::as_str), Some("QUJD"));
+    }
+
+    #[test]
+    fn normalize_base64_content_passes_through_valid_base64() {
+        assert_eq!(normalize_base64_content("QUJD").expect("inline base64"), "QUJD");
+        assert_eq!(normalize_base64_content("  QUJDRA==  ").expect("inline base64 with padding"), "QUJDRA==");
+    }
+
+    #[test]
+    fn normalize_base64_content_encodes_raw_input() {
+        let encoded = normalize_base64_content("hello vault").expect("raw inline value");
+        assert_eq!(encoded, base64::engine::general_purpose::STANDARD.encode(b"hello vault"));
+    }
+
+    #[test]
+    fn normalize_base64_content_reads_files() {
+        let dir = std::env::temp_dir();
+        let suffix = std::process::id();
+
+        let b64_path = dir.join(format!("tools-res-content-b64-{}.txt", suffix));
+        std::fs::write(&b64_path, "QUJDRA==\n").expect("write base64 file");
+        assert_eq!(normalize_base64_content(&format!("@{}", b64_path.display())).expect("base64 file"), "QUJDRA==");
+        let _ = std::fs::remove_file(&b64_path);
+
+        let raw_path = dir.join(format!("tools-res-content-raw-{}.txt", suffix));
+        std::fs::write(&raw_path, "raw key material").expect("write raw file");
+        assert_eq!(
+            normalize_base64_content(&format!("@{}", raw_path.display())).expect("raw file"),
+            base64::engine::general_purpose::STANDARD.encode(b"raw key material")
+        );
+        let _ = std::fs::remove_file(&raw_path);
+
+        let bin_path = dir.join(format!("tools-res-content-bin-{}.bin", suffix));
+        std::fs::write(&bin_path, [0u8, 159, 146, 150]).expect("write binary file");
+        assert_eq!(
+            normalize_base64_content(&format!("@{}", bin_path.display())).expect("binary file"),
+            base64::engine::general_purpose::STANDARD.encode([0u8, 159, 146, 150])
+        );
+        let _ = std::fs::remove_file(&bin_path);
+    }
+
+    #[test]
+    fn normalize_base64_content_rejects_empty_input() {
+        let err = normalize_base64_content("   ").expect_err("blank inline value should fail");
+        assert!(err.to_string().contains("content must not be empty"));
+
+        let dir = std::env::temp_dir();
+        let empty_path = dir.join(format!("tools-res-content-empty-{}.txt", std::process::id()));
+        std::fs::write(&empty_path, "  \n").expect("write empty file");
+        let err = normalize_base64_content(&format!("@{}", empty_path.display())).expect_err("empty file should fail");
+        assert!(err.to_string().contains("content must not be empty"));
+        let _ = std::fs::remove_file(&empty_path);
+    }
+
+    #[test]
+    fn normalize_base64_content_reports_missing_file() {
+        let err = normalize_base64_content("@/nonexistent/tools-res-content-missing.txt")
+            .expect_err("missing file should fail");
+        assert!(err.to_string().contains("unable to read file"));
     }
 
     #[test]
