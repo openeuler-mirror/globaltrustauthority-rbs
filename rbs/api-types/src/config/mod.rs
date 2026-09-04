@@ -129,7 +129,7 @@ impl Default for Database {
     }
 }
 
-/// Top-level run configuration (`rbs.yaml`). Only **`rest`**, **`logging`**, **`storage`**, **`attestation`**, **`auth`**, **`admin`**, and **`policy`** are deserialized;
+/// Top-level run configuration (`rbs.yaml`). Only **`rest`**, **`logging`**, **`storage`**, **`attestation`**, **`auth`**, **`admin`**, **`policy`**, and **`resource`** are deserialized;
 /// any other top-level key is rejected (`deny_unknown_fields`).
 ///
 /// In YAML, `rest` may be omitted or null (deserializes as `None`). The `rbs` binary's `load_config`

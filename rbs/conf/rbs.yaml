@@ -8,14 +8,14 @@ rest:
   workers: 4
   body_limit_bytes: 10485760   # 10 MiB; max request body size (413 if exceeded)
   listen_backlog: 128           # TCP accept queue size
-  request_timeout_secs: 60      # max time to read request and send response; 0 = no limit
+  request_timeout_secs: 60      # max time to read request and send response; 0 is rejected (1..=3600)
   shutdown_timeout_secs: 30    # graceful shutdown: wait for in-flight requests before exit
   # When enabled: true, cert_file and key_file must be non-empty and point to valid PEM files.
   https:
     enabled: true
     cert_file: ""
     key_file: ""
-  # Per-IP rate limit (token bucket). Effective only when built with --features per-ip-rate-limit.
+  # Per-IP rate limit (token bucket). Compiled in by default; effective when enabled: true.
   rate_limit:
     enabled: false
     requests_per_sec: 60   # max requests per second per client IP
@@ -89,7 +89,8 @@ storage:
   # #  timeout secs
   timeout: 30
   # # url: "mysql://user:pass@host:3306/rbs"
-  url: "sqlite:///root/rbs.db"
+  # # mode=rwc: create the SQLite file on first connect (parent directory must exist)
+  url: "sqlite:///root/rbs.db?mode=rwc"
   sql_file_path: "rbs/rdb_sql/sqlite_rbs.sql"
 
 # Resource backends (for multiple backends). Reserved provider names: admin, attestation,

@@ -692,6 +692,8 @@ rbs-cli -b http://127.0.0.1:8080 -t "$RBS_TOKEN" \
 
 ### `res create`
 
+Create a resource binding. Backends that support writes (for example HSM) also store the payload provided via `--content`; CHECK-only backends (for example Vault) ignore `--content` and only verify that the referenced secret already exists.
+
 **Usage**
 
 ```bash
@@ -706,6 +708,7 @@ rbs-cli res create [OPTIONS] \
 |---|---|---|---|
 | shared URI field | Yes | none | See the shared URI table above. |
 | `--policy-id <POLICY_ID>` | Yes | none | Bound resource policy ID. |
+| `--content <CONTENT>` | No | unset | Optional Base64 content value or `@file` path; raw content is Base64-encoded automatically. Stored by write-capable backends (for example HSM). |
 | `--additional-info <ADDITIONAL_INFO>` | No | unset | Optional Base64 `additional_info` value or `@file` path. |
 | `--content-type <CONTENT_TYPE>` | No | unset | Resource content type: `jwt`, `json`, `text`, `binary`, `jwk`, or `jwe`. |
 | `--export-mode <EXPORT_MODE>` | No | unset | Export mode. Currently only `jwe` is accepted. |
@@ -721,14 +724,26 @@ rbs-cli -b http://127.0.0.1:8080 -t "$RBS_TOKEN" \
   --export-mode jwe
 ```
 
+```bash
+# Store key material in an HSM backend; @key.b64 holds Base64 content
+# (a raw binary file is Base64-encoded automatically).
+rbs-cli -b http://127.0.0.1:8080 -t "$RBS_TOKEN" \
+  res create \
+  --uri hsm/default/key/my-key \
+  --policy-id policy-1 \
+  --content-type binary \
+  --content @key.b64
+```
+
 ### `res update`
+
+Update a resource binding. When `--content` is provided, write-capable backends (for example HSM) replace the stored payload with the new content; backends that cannot store content (for example Vault and CA) reject the update.
 
 **Usage**
 
 ```bash
 rbs-cli res update [OPTIONS] \
-  --uri <URI> \
-  --policy-id <POLICY_ID>
+  --uri <URI>
 ```
 
 **Parameters**
@@ -736,7 +751,8 @@ rbs-cli res update [OPTIONS] \
 | Option | Required | Default | Meaning / Notes |
 |---|---|---|---|
 | shared URI field | Yes | none | See the shared URI table above. |
-| `--policy-id <POLICY_ID>` | Yes | none | Bound resource policy ID. |
+| `--policy-id <POLICY_ID>` | No | unset | New resource policy ID to rebind the resource to; omit to keep the current binding. |
+| `--content <CONTENT>` | No | unset | Optional Base64 content value or `@file` path; raw content is Base64-encoded automatically. Replaces the stored payload on write-capable backends (for example HSM). |
 | `--additional-info <ADDITIONAL_INFO>` | No | unset | Optional Base64 `additional_info` value or `@file` path. |
 | `--content-type <CONTENT_TYPE>` | No | unset | Resource content type: `jwt`, `json`, `text`, `binary`, `jwk`, or `jwe`. |
 | `--export-mode <EXPORT_MODE>` | No | unset | Export mode. Currently only `jwe` is accepted. |
