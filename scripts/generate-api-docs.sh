@@ -176,10 +176,13 @@ fi
 #                                            tables per endpoint, JSON examples, schema tables;
 #                                            no per-language code samples. postprocess-md.cjs then
 #                                            rewrites "one of: null \\| [X]" type labels (the double-
-#                                            escaped pipe breaks GFM tables) to "[X]" and strips
+#                                            escaped pipe breaks GFM tables) to "[X]", strips
 #                                            ", nullable" type suffixes (the Required column already
 #                                            states optionality; the Type column shows the type a
-#                                            field takes when present).
+#                                            field takes when present), and lifts the oneOf branch
+#                                            description (utoipa puts optional reference-typed field
+#                                            docs inside the oneOf branch, which oas-to-markdown
+#                                            ignores) into empty property-table cells.
 #         docs/api/rbs/html/rbs_rest_api.html — Redocly build-docs (api:html).
 # api:docs runs license:check, then api:docs:gen (api:md + api:html). SKIP_LICENSE_CHECK=1 runs api:docs:gen only.
 mkdir -p docs/api/rbs/md docs/api/rbs/html

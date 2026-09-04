@@ -163,9 +163,10 @@ macro_rules! h_del_single {
 #[utoipa::path(
     get, path = "/rbs/v0/attestation/{as_provider}/ref_value",
     operation_id = "listRefValues", summary = "List reference value baselines",
+    description = "List reference value baselines (trusted measurements compared against attestation evidence). With `ids`, up to 10 full records are returned and pagination is ignored; otherwise paged summaries, filterable by `attester_type`. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).",
     tags = ["Attestation"], security(("bearerAuth" = [])),
     params(
-        ("as_provider" = String, Path, description = "Attestation provider name"),
+        ("as_provider" = String, Path, description = "Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`)"),
         RefValueListQuery,
     ),
     responses(
@@ -183,6 +184,7 @@ pub async fn list_ref_values(core: web::Data<Arc<RbsCore>>, req: HttpRequest, pa
 #[utoipa::path(
     get, path = "/rbs/v0/attestation/ref_value",
     operation_id = "listRefValuesDefault", summary = "List reference value baselines (default provider)",
+    description = "Uses the configured default attestation provider. List reference value baselines: `ids` returns up to 10 full records (pagination ignored); otherwise paged summaries filtered by `attester_type`. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).",
     tags = ["Attestation"], security(("bearerAuth" = [])),
     params(RefValueListQuery),
     responses(
@@ -200,10 +202,11 @@ pub async fn list_ref_values_default(core: web::Data<Arc<RbsCore>>, req: HttpReq
 #[utoipa::path(
     get, path = "/rbs/v0/attestation/{as_provider}/ref_value/{id}",
     operation_id = "getRefValue", summary = "Get a single reference value baseline",
+    description = "Fetch one reference value baseline by ID (full record). Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).",
     tags = ["Attestation"], security(("bearerAuth" = [])),
     params(
-        ("as_provider" = String, Path, description = "Attestation provider name"),
-        ("id" = String, Path, description = "Ref_value ID"),
+        ("as_provider" = String, Path, description = "Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`)"),
+        ("id" = String, Path, description = "Ref_value ID (1-36 chars, GTA-enforced)"),
     ),
     responses(
         (status = 200, description = "Ref_value detail", body = RefValueListResponse),
@@ -220,8 +223,9 @@ pub async fn get_ref_value(core: web::Data<Arc<RbsCore>>, req: HttpRequest, path
 #[utoipa::path(
     get, path = "/rbs/v0/attestation/ref_value/{id}",
     operation_id = "getRefValueDefault", summary = "Get a single reference value baseline (default provider)",
+    description = "Uses the configured default attestation provider. Fetch one reference value baseline by ID (full record). Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).",
     tags = ["Attestation"], security(("bearerAuth" = [])),
-    params(("id" = String, Path, description = "Ref_value ID")),
+    params(("id" = String, Path, description = "Ref_value ID (1-36 chars, GTA-enforced)")),
     responses(
         (status = 200, description = "Ref_value detail", body = RefValueListResponse),
         (status = 401, description = "Unauthorized", body = ErrorBody), (status = 403, description = "Forbidden", body = ErrorBody),
@@ -236,9 +240,10 @@ pub async fn get_ref_value_default(core: web::Data<Arc<RbsCore>>, req: HttpReque
 #[utoipa::path(
     post, path = "/rbs/v0/attestation/{as_provider}/ref_value",
     operation_id = "createRefValue", summary = "Create a reference value baseline",
+    description = "Create a reference value baseline: `name`, `attester_type`, and `content` are required; `content_type` defaults to `jwt` when omitted. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).",
     tags = ["Attestation"], security(("bearerAuth" = [])),
-    params(("as_provider" = String, Path, description = "Attestation provider name")),
-    request_body = RefValueCreateRequest,
+    params(("as_provider" = String, Path, description = "Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`)")),
+    request_body(content = RefValueCreateRequest, description = "Baseline definition: name, attester type, content (JWT or base64), optional encoding (defaults to `jwt`) and description."),
     responses(
         (status = 201, description = "Ref_value created", body = RefValueMutationResponse),
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
@@ -254,8 +259,9 @@ pub async fn create_ref_value(core: web::Data<Arc<RbsCore>>, req: HttpRequest, p
 #[utoipa::path(
     post, path = "/rbs/v0/attestation/ref_value",
     operation_id = "createRefValueDefault", summary = "Create a reference value baseline (default provider)",
+    description = "Uses the configured default attestation provider. Create a reference value baseline (`name`, `attester_type`, `content` required; `content_type` defaults to `jwt`). Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).",
     tags = ["Attestation"], security(("bearerAuth" = [])),
-    request_body = RefValueCreateRequest,
+    request_body(content = RefValueCreateRequest, description = "Baseline definition: name, attester type, content (JWT or base64), optional encoding (defaults to `jwt`) and description."),
     responses(
         (status = 201, description = "Ref_value created", body = RefValueMutationResponse),
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
@@ -271,9 +277,10 @@ pub async fn create_ref_value_default(core: web::Data<Arc<RbsCore>>, req: HttpRe
 #[utoipa::path(
     put, path = "/rbs/v0/attestation/{as_provider}/ref_value",
     operation_id = "updateRefValue", summary = "Update a reference value baseline",
+    description = "Update a reference value baseline identified by in-body `id`; all other fields are optional pass-through. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).",
     tags = ["Attestation"], security(("bearerAuth" = [])),
-    params(("as_provider" = String, Path, description = "Attestation provider name")),
-    request_body = RefValueUpdateRequest,
+    params(("as_provider" = String, Path, description = "Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`)")),
+    request_body(content = RefValueUpdateRequest, description = "ID of the baseline to update plus optional new field values."),
     responses(
         (status = 200, description = "Ref_value updated", body = RefValueMutationResponse),
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
@@ -289,8 +296,9 @@ pub async fn update_ref_value(core: web::Data<Arc<RbsCore>>, req: HttpRequest, p
 #[utoipa::path(
     put, path = "/rbs/v0/attestation/ref_value",
     operation_id = "updateRefValueDefault", summary = "Update a reference value baseline (default provider)",
+    description = "Uses the configured default attestation provider. Update a reference value baseline identified by in-body `id`; other fields are optional pass-through. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).",
     tags = ["Attestation"], security(("bearerAuth" = [])),
-    request_body = RefValueUpdateRequest,
+    request_body(content = RefValueUpdateRequest, description = "ID of the baseline to update plus optional new field values."),
     responses(
         (status = 200, description = "Ref_value updated", body = RefValueMutationResponse),
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
@@ -306,9 +314,10 @@ pub async fn update_ref_value_default(core: web::Data<Arc<RbsCore>>, req: HttpRe
 #[utoipa::path(
     delete, path = "/rbs/v0/attestation/{as_provider}/ref_value",
     operation_id = "deleteRefValues", summary = "Batch delete reference value baselines",
+    description = "Delete reference value baselines by mode: `id` (ID list), `all`, or `type` (`attester_type` filter). Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).",
     tags = ["Attestation"], security(("bearerAuth" = [])),
-    params(("as_provider" = String, Path, description = "Attestation provider name")),
-    request_body = RefValueDeleteRequest,
+    params(("as_provider" = String, Path, description = "Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`)")),
+    request_body(content = RefValueDeleteRequest, description = "Delete mode (`id` / `all` / `type`) with the matching `ids` or `attester_type` filter."),
     responses(
         (status = 204, description = "Ref_values deleted"),
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
@@ -324,8 +333,9 @@ pub async fn delete_ref_values(core: web::Data<Arc<RbsCore>>, req: HttpRequest, 
 #[utoipa::path(
     delete, path = "/rbs/v0/attestation/ref_value",
     operation_id = "deleteRefValuesDefault", summary = "Batch delete reference value baselines (default provider)",
+    description = "Uses the configured default attestation provider. Delete reference value baselines by mode: `id` (ID list), `all`, or `type` (`attester_type` filter). Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).",
     tags = ["Attestation"], security(("bearerAuth" = [])),
-    request_body = RefValueDeleteRequest,
+    request_body(content = RefValueDeleteRequest, description = "Delete mode (`id` / `all` / `type`) with the matching `ids` or `attester_type` filter."),
     responses(
         (status = 204, description = "Ref_values deleted"),
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
@@ -341,10 +351,11 @@ pub async fn delete_ref_values_default(core: web::Data<Arc<RbsCore>>, req: HttpR
 #[utoipa::path(
     delete, path = "/rbs/v0/attestation/{as_provider}/ref_value/{id}",
     operation_id = "deleteRefValue", summary = "Delete a single reference value baseline",
+    description = "Delete one reference value baseline by ID. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).",
     tags = ["Attestation"], security(("bearerAuth" = [])),
     params(
-        ("as_provider" = String, Path, description = "Attestation provider name"),
-        ("id" = String, Path, description = "Ref_value ID"),
+        ("as_provider" = String, Path, description = "Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`)"),
+        ("id" = String, Path, description = "Ref_value ID (1-36 chars, GTA-enforced)"),
     ),
     responses(
         (status = 204, description = "Ref_value deleted"),
@@ -361,8 +372,9 @@ pub async fn delete_ref_value(core: web::Data<Arc<RbsCore>>, req: HttpRequest, p
 #[utoipa::path(
     delete, path = "/rbs/v0/attestation/ref_value/{id}",
     operation_id = "deleteRefValueDefault", summary = "Delete a single reference value baseline (default provider)",
+    description = "Uses the configured default attestation provider. Delete one reference value baseline by ID. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).",
     tags = ["Attestation"], security(("bearerAuth" = [])),
-    params(("id" = String, Path, description = "Ref_value ID")),
+    params(("id" = String, Path, description = "Ref_value ID (1-36 chars, GTA-enforced)")),
     responses(
         (status = 204, description = "Ref_value deleted"),
         (status = 401, description = "Unauthorized", body = ErrorBody), (status = 403, description = "Forbidden", body = ErrorBody),
@@ -381,9 +393,10 @@ pub async fn delete_ref_value_default(core: web::Data<Arc<RbsCore>>, req: HttpRe
 #[utoipa::path(
     get, path = "/rbs/v0/attestation/{as_provider}/cert",
     operation_id = "listCerts", summary = "List certificates",
+    description = "List certificates and CRLs. With `ids`, up to 10 full records are returned and pagination is ignored; otherwise paged summaries, filterable by `cert_type`. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).",
     tags = ["Attestation"], security(("bearerAuth" = [])),
     params(
-        ("as_provider" = String, Path, description = "Attestation provider name"),
+        ("as_provider" = String, Path, description = "Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`)"),
         CertListQuery,
     ),
     responses(
@@ -401,6 +414,7 @@ pub async fn list_certs(core: web::Data<Arc<RbsCore>>, req: HttpRequest, path: w
 #[utoipa::path(
     get, path = "/rbs/v0/attestation/cert",
     operation_id = "listCertsDefault", summary = "List certificates (default provider)",
+    description = "Uses the configured default attestation provider. List certificates and CRLs: `ids` returns up to 10 full records (pagination ignored); otherwise paged summaries filtered by `cert_type`. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).",
     tags = ["Attestation"], security(("bearerAuth" = [])),
     params(CertListQuery),
     responses(
@@ -418,10 +432,11 @@ pub async fn list_certs_default(core: web::Data<Arc<RbsCore>>, req: HttpRequest,
 #[utoipa::path(
     get, path = "/rbs/v0/attestation/{as_provider}/cert/{id}",
     operation_id = "getCert", summary = "Get a single certificate",
+    description = "Fetch one certificate or CRL by ID. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).",
     tags = ["Attestation"], security(("bearerAuth" = [])),
     params(
-        ("as_provider" = String, Path, description = "Attestation provider name"),
-        ("id" = String, Path, description = "Certificate or CRL ID"),
+        ("as_provider" = String, Path, description = "Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`)"),
+        ("id" = String, Path, description = "Certificate or CRL ID (1-32 chars, GTA-enforced)"),
     ),
     responses(
         (status = 200, description = "Certificate detail", body = CertListResponse),
@@ -438,8 +453,9 @@ pub async fn get_cert(core: web::Data<Arc<RbsCore>>, req: HttpRequest, path: web
 #[utoipa::path(
     get, path = "/rbs/v0/attestation/cert/{id}",
     operation_id = "getCertDefault", summary = "Get a single certificate (default provider)",
+    description = "Uses the configured default attestation provider. Fetch one certificate or CRL by ID. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).",
     tags = ["Attestation"], security(("bearerAuth" = [])),
-    params(("id" = String, Path, description = "Certificate or CRL ID")),
+    params(("id" = String, Path, description = "Certificate or CRL ID (1-32 chars, GTA-enforced)")),
     responses(
         (status = 200, description = "Certificate detail", body = CertListResponse),
         (status = 401, description = "Unauthorized", body = ErrorBody), (status = 403, description = "Forbidden", body = ErrorBody),
@@ -454,9 +470,10 @@ pub async fn get_cert_default(core: web::Data<Arc<RbsCore>>, req: HttpRequest, p
 #[utoipa::path(
     post, path = "/rbs/v0/attestation/{as_provider}/cert",
     operation_id = "createCert", summary = "Create a certificate",
+    description = "Create a certificate or CRL record: when `type` contains `crl`, `crl_content` is required; otherwise `content` is required. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).",
     tags = ["Attestation"], security(("bearerAuth" = [])),
-    params(("as_provider" = String, Path, description = "Attestation provider name")),
-    request_body = CertCreateRequest,
+    params(("as_provider" = String, Path, description = "Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`)")),
+    request_body(content = CertCreateRequest, description = "Certificate or CRL record: when `type` contains `crl`, `crl_content` is required; otherwise `content` is required."),
     responses(
         (status = 201, description = "Certificate created", body = CertMutationResponse),
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
@@ -472,8 +489,9 @@ pub async fn create_cert(core: web::Data<Arc<RbsCore>>, req: HttpRequest, path: 
 #[utoipa::path(
     post, path = "/rbs/v0/attestation/cert",
     operation_id = "createCertDefault", summary = "Create a certificate (default provider)",
+    description = "Uses the configured default attestation provider. Create a certificate or CRL record (`crl_content` required when `type` contains `crl`, otherwise `content`). Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).",
     tags = ["Attestation"], security(("bearerAuth" = [])),
-    request_body = CertCreateRequest,
+    request_body(content = CertCreateRequest, description = "Certificate or CRL record: when `type` contains `crl`, `crl_content` is required; otherwise `content` is required."),
     responses(
         (status = 201, description = "Certificate created", body = CertMutationResponse),
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
@@ -489,9 +507,10 @@ pub async fn create_cert_default(core: web::Data<Arc<RbsCore>>, req: HttpRequest
 #[utoipa::path(
     put, path = "/rbs/v0/attestation/{as_provider}/cert",
     operation_id = "updateCert", summary = "Update a certificate",
+    description = "Update a certificate/CRL record identified by in-body `id`; all other fields are optional pass-through. GTA rejects `content` changes on update. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).",
     tags = ["Attestation"], security(("bearerAuth" = [])),
-    params(("as_provider" = String, Path, description = "Attestation provider name")),
-    request_body = CertUpdateRequest,
+    params(("as_provider" = String, Path, description = "Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`)")),
+    request_body(content = CertUpdateRequest, description = "ID of the certificate to update plus optional new field values; `content` changes are rejected by GTA."),
     responses(
         (status = 200, description = "Certificate updated", body = CertMutationResponse),
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
@@ -507,8 +526,9 @@ pub async fn update_cert(core: web::Data<Arc<RbsCore>>, req: HttpRequest, path: 
 #[utoipa::path(
     put, path = "/rbs/v0/attestation/cert",
     operation_id = "updateCertDefault", summary = "Update a certificate (default provider)",
+    description = "Uses the configured default attestation provider. Update a certificate/CRL record identified by in-body `id`; other fields are optional pass-through. GTA rejects `content` changes on update. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).",
     tags = ["Attestation"], security(("bearerAuth" = [])),
-    request_body = CertUpdateRequest,
+    request_body(content = CertUpdateRequest, description = "ID of the certificate to update plus optional new field values; `content` changes are rejected by GTA."),
     responses(
         (status = 200, description = "Certificate updated", body = CertMutationResponse),
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
@@ -524,9 +544,10 @@ pub async fn update_cert_default(core: web::Data<Arc<RbsCore>>, req: HttpRequest
 #[utoipa::path(
     delete, path = "/rbs/v0/attestation/{as_provider}/cert",
     operation_id = "deleteCerts", summary = "Batch delete certificates",
+    description = "Delete certificates/CRLs by mode: `id` (ID list), `all`, or `type` (cert type filter). Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).",
     tags = ["Attestation"], security(("bearerAuth" = [])),
-    params(("as_provider" = String, Path, description = "Attestation provider name")),
-    request_body = CertDeleteRequest,
+    params(("as_provider" = String, Path, description = "Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`)")),
+    request_body(content = CertDeleteRequest, description = "Delete mode (`id` / `all` / `type`) with the matching `ids` or cert type filter."),
     responses(
         (status = 204, description = "Certificates deleted"),
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
@@ -542,8 +563,9 @@ pub async fn delete_certs(core: web::Data<Arc<RbsCore>>, req: HttpRequest, path:
 #[utoipa::path(
     delete, path = "/rbs/v0/attestation/cert",
     operation_id = "deleteCertsDefault", summary = "Batch delete certificates (default provider)",
+    description = "Uses the configured default attestation provider. Delete certificates/CRLs by mode: `id` (ID list), `all`, or `type` (cert type filter). Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).",
     tags = ["Attestation"], security(("bearerAuth" = [])),
-    request_body = CertDeleteRequest,
+    request_body(content = CertDeleteRequest, description = "Delete mode (`id` / `all` / `type`) with the matching `ids` or cert type filter."),
     responses(
         (status = 204, description = "Certificates deleted"),
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
@@ -559,10 +581,11 @@ pub async fn delete_certs_default(core: web::Data<Arc<RbsCore>>, req: HttpReques
 #[utoipa::path(
     delete, path = "/rbs/v0/attestation/{as_provider}/cert/{id}",
     operation_id = "deleteCert", summary = "Delete a single certificate",
+    description = "Delete one certificate or CRL by ID. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).",
     tags = ["Attestation"], security(("bearerAuth" = [])),
     params(
-        ("as_provider" = String, Path, description = "Attestation provider name"),
-        ("id" = String, Path, description = "Certificate or CRL ID"),
+        ("as_provider" = String, Path, description = "Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`)"),
+        ("id" = String, Path, description = "Certificate or CRL ID (1-32 chars, GTA-enforced)"),
     ),
     responses(
         (status = 204, description = "Certificate deleted"),
@@ -579,8 +602,9 @@ pub async fn delete_cert(core: web::Data<Arc<RbsCore>>, req: HttpRequest, path: 
 #[utoipa::path(
     delete, path = "/rbs/v0/attestation/cert/{id}",
     operation_id = "deleteCertDefault", summary = "Delete a single certificate (default provider)",
+    description = "Uses the configured default attestation provider. Delete one certificate or CRL by ID. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).",
     tags = ["Attestation"], security(("bearerAuth" = [])),
-    params(("id" = String, Path, description = "Certificate or CRL ID")),
+    params(("id" = String, Path, description = "Certificate or CRL ID (1-32 chars, GTA-enforced)")),
     responses(
         (status = 204, description = "Certificate deleted"),
         (status = 401, description = "Unauthorized", body = ErrorBody), (status = 403, description = "Forbidden", body = ErrorBody),
@@ -599,9 +623,10 @@ pub async fn delete_cert_default(core: web::Data<Arc<RbsCore>>, req: HttpRequest
 #[utoipa::path(
     get, path = "/rbs/v0/attestation/{as_provider}/policy",
     operation_id = "listAttestationPolicies", summary = "List attestation policies",
+    description = "List GTA attestation policies. With `ids`, up to 10 full records are returned and pagination is ignored; otherwise paged summaries, filterable by `attester_type`. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).",
     tags = ["Attestation"], security(("bearerAuth" = [])),
     params(
-        ("as_provider" = String, Path, description = "Attestation provider name"),
+        ("as_provider" = String, Path, description = "Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`)"),
         PolicyListQuery,
     ),
     responses(
@@ -619,6 +644,7 @@ pub async fn list_attestation_policies(core: web::Data<Arc<RbsCore>>, req: HttpR
 #[utoipa::path(
     get, path = "/rbs/v0/attestation/policy",
     operation_id = "listAttestationPoliciesDefault", summary = "List attestation policies (default provider)",
+    description = "Uses the configured default attestation provider. List GTA attestation policies: `ids` returns up to 10 full records (pagination ignored); otherwise paged summaries filtered by `attester_type`. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).",
     tags = ["Attestation"], security(("bearerAuth" = [])),
     params(PolicyListQuery),
     responses(
@@ -636,10 +662,11 @@ pub async fn list_attestation_policies_default(core: web::Data<Arc<RbsCore>>, re
 #[utoipa::path(
     get, path = "/rbs/v0/attestation/{as_provider}/policy/{id}",
     operation_id = "getAttestationPolicy", summary = "Get a single attestation policy",
+    description = "Fetch one GTA attestation policy by ID (full record). Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).",
     tags = ["Attestation"], security(("bearerAuth" = [])),
     params(
-        ("as_provider" = String, Path, description = "Attestation provider name"),
-        ("id" = String, Path, description = "Policy ID"),
+        ("as_provider" = String, Path, description = "Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`)"),
+        ("id" = String, Path, description = "Policy ID (1-36 chars, GTA-enforced)"),
     ),
     responses(
         (status = 200, description = "Policy detail", body = AttestationPolicyListResponse),
@@ -656,8 +683,9 @@ pub async fn get_attestation_policy(core: web::Data<Arc<RbsCore>>, req: HttpRequ
 #[utoipa::path(
     get, path = "/rbs/v0/attestation/policy/{id}",
     operation_id = "getAttestationPolicyDefault", summary = "Get a single attestation policy (default provider)",
+    description = "Uses the configured default attestation provider. Fetch one GTA attestation policy by ID (full record). Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).",
     tags = ["Attestation"], security(("bearerAuth" = [])),
-    params(("id" = String, Path, description = "Policy ID")),
+    params(("id" = String, Path, description = "Policy ID (1-36 chars, GTA-enforced)")),
     responses(
         (status = 200, description = "Policy detail", body = AttestationPolicyListResponse),
         (status = 401, description = "Unauthorized", body = ErrorBody), (status = 403, description = "Forbidden", body = ErrorBody),
@@ -672,9 +700,10 @@ pub async fn get_attestation_policy_default(core: web::Data<Arc<RbsCore>>, req: 
 #[utoipa::path(
     post, path = "/rbs/v0/attestation/{as_provider}/policy",
     operation_id = "createAttestationPolicy", summary = "Create an attestation policy",
+    description = "Create a GTA attestation policy: `name`, `attester_type` (non-empty list), `content_type` (`jwt` or `text`), and `content` are required. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).",
     tags = ["Attestation"], security(("bearerAuth" = [])),
-    params(("as_provider" = String, Path, description = "Attestation provider name")),
-    request_body = PolicyCreateRequest,
+    params(("as_provider" = String, Path, description = "Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`)")),
+    request_body(content = PolicyCreateRequest, description = "Policy definition: name, attester type list, content encoding (`jwt` or `text`), and content."),
     responses(
         (status = 201, description = "Policy created", body = PolicyMutationResponse),
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
@@ -690,8 +719,9 @@ pub async fn create_attestation_policy(core: web::Data<Arc<RbsCore>>, req: HttpR
 #[utoipa::path(
     post, path = "/rbs/v0/attestation/policy",
     operation_id = "createAttestationPolicyDefault", summary = "Create an attestation policy (default provider)",
+    description = "Uses the configured default attestation provider. Create a GTA attestation policy (`name`, `attester_type`, `content_type`, `content` required). Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).",
     tags = ["Attestation"], security(("bearerAuth" = [])),
-    request_body = PolicyCreateRequest,
+    request_body(content = PolicyCreateRequest, description = "Policy definition: name, attester type list, content encoding (`jwt` or `text`), and content."),
     responses(
         (status = 201, description = "Policy created", body = PolicyMutationResponse),
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
@@ -707,9 +737,10 @@ pub async fn create_attestation_policy_default(core: web::Data<Arc<RbsCore>>, re
 #[utoipa::path(
     put, path = "/rbs/v0/attestation/{as_provider}/policy",
     operation_id = "updateAttestationPolicy", summary = "Update an attestation policy",
+    description = "Update a GTA attestation policy identified by in-body `id`; all other fields are optional pass-through. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).",
     tags = ["Attestation"], security(("bearerAuth" = [])),
-    params(("as_provider" = String, Path, description = "Attestation provider name")),
-    request_body = PolicyUpdateRequest,
+    params(("as_provider" = String, Path, description = "Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`)")),
+    request_body(content = PolicyUpdateRequest, description = "ID of the policy to update plus optional new field values."),
     responses(
         (status = 200, description = "Policy updated", body = PolicyMutationResponse),
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
@@ -725,8 +756,9 @@ pub async fn update_attestation_policy(core: web::Data<Arc<RbsCore>>, req: HttpR
 #[utoipa::path(
     put, path = "/rbs/v0/attestation/policy",
     operation_id = "updateAttestationPolicyDefault", summary = "Update an attestation policy (default provider)",
+    description = "Uses the configured default attestation provider. Update a GTA attestation policy identified by in-body `id`; other fields are optional pass-through. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).",
     tags = ["Attestation"], security(("bearerAuth" = [])),
-    request_body = PolicyUpdateRequest,
+    request_body(content = PolicyUpdateRequest, description = "ID of the policy to update plus optional new field values."),
     responses(
         (status = 200, description = "Policy updated", body = PolicyMutationResponse),
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
@@ -742,9 +774,10 @@ pub async fn update_attestation_policy_default(core: web::Data<Arc<RbsCore>>, re
 #[utoipa::path(
     delete, path = "/rbs/v0/attestation/{as_provider}/policy",
     operation_id = "deleteAttestationPolicies", summary = "Batch delete attestation policies",
+    description = "Delete GTA attestation policies by mode: `id` (ID list), `all`, or `attester_type` filter. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).",
     tags = ["Attestation"], security(("bearerAuth" = [])),
-    params(("as_provider" = String, Path, description = "Attestation provider name")),
-    request_body = PolicyDeleteRequest,
+    params(("as_provider" = String, Path, description = "Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`)")),
+    request_body(content = PolicyDeleteRequest, description = "Delete mode (`id` / `all` / `attester_type`) with the matching `ids` or `attester_type` filter."),
     responses(
         (status = 204, description = "Policies deleted"),
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
@@ -760,8 +793,9 @@ pub async fn delete_attestation_policies(core: web::Data<Arc<RbsCore>>, req: Htt
 #[utoipa::path(
     delete, path = "/rbs/v0/attestation/policy",
     operation_id = "deleteAttestationPoliciesDefault", summary = "Batch delete attestation policies (default provider)",
+    description = "Uses the configured default attestation provider. Delete GTA attestation policies by mode: `id` (ID list), `all`, or `attester_type` filter. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).",
     tags = ["Attestation"], security(("bearerAuth" = [])),
-    request_body = PolicyDeleteRequest,
+    request_body(content = PolicyDeleteRequest, description = "Delete mode (`id` / `all` / `attester_type`) with the matching `ids` or `attester_type` filter."),
     responses(
         (status = 204, description = "Policies deleted"),
         (status = 400, description = "Bad request", body = ErrorBody), (status = 401, description = "Unauthorized", body = ErrorBody),
@@ -777,10 +811,11 @@ pub async fn delete_attestation_policies_default(core: web::Data<Arc<RbsCore>>, 
 #[utoipa::path(
     delete, path = "/rbs/v0/attestation/{as_provider}/policy/{id}",
     operation_id = "deleteAttestationPolicy", summary = "Delete a single attestation policy",
+    description = "Delete one GTA attestation policy by ID. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).",
     tags = ["Attestation"], security(("bearerAuth" = [])),
     params(
-        ("as_provider" = String, Path, description = "Attestation provider name"),
-        ("id" = String, Path, description = "Policy ID"),
+        ("as_provider" = String, Path, description = "Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`)"),
+        ("id" = String, Path, description = "Policy ID (1-36 chars, GTA-enforced)"),
     ),
     responses(
         (status = 204, description = "Policy deleted"),
@@ -797,8 +832,9 @@ pub async fn delete_attestation_policy(core: web::Data<Arc<RbsCore>>, req: HttpR
 #[utoipa::path(
     delete, path = "/rbs/v0/attestation/policy/{id}",
     operation_id = "deleteAttestationPolicyDefault", summary = "Delete a single attestation policy (default provider)",
+    description = "Uses the configured default attestation provider. Delete one GTA attestation policy by ID. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).",
     tags = ["Attestation"], security(("bearerAuth" = [])),
-    params(("id" = String, Path, description = "Policy ID")),
+    params(("id" = String, Path, description = "Policy ID (1-36 chars, GTA-enforced)")),
     responses(
         (status = 204, description = "Policy deleted"),
         (status = 401, description = "Unauthorized", body = ErrorBody), (status = 403, description = "Forbidden", body = ErrorBody),

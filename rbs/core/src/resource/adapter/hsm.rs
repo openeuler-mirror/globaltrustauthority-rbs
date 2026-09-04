@@ -8,7 +8,7 @@ use cryptoki::session::{Session, UserType};
 use cryptoki::slot::Slot;
 use cryptoki::types::AuthPin;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::resource::adapter::{BackendCapabilities, ResourceBackend};
 use crate::resource::error::ResourceError;
@@ -213,14 +213,26 @@ impl ResourceBackend for HsmBackend {
                 ResourceError::BackendError { detail: "PKCS#11 destroy_object failed".to_string() }
             })?;
         }
-        // Create object with CKO_DATA (D11: unified opaque blob storage)
-        let template = vec![
+        // Create object with CKO_DATA (D11: unified opaque blob storage).
+        // The Value attribute holds the write path's only un-zeroized copy of
+        // the key material (the Service layer zeroes its own buffer after the
+        // backend call): cryptoki only borrows the template for C_CreateObject,
+        // so the Vec inside Attribute::Value is still ours to clear afterwards —
+        // mirroring the read path's Zeroizing guarantee. Clear on both the
+        // success and failure paths, before the template is dropped.
+        let mut template = vec![
             Attribute::Class(ObjectClass::DATA),
             Attribute::Label(object_label(desc).into_bytes()),
             Attribute::Value(data.to_vec()),
             Attribute::Token(true),
         ];
-        session.create_object(&template).map_err(|e| {
+        let created = session.create_object(&template);
+        for attr in template.iter_mut() {
+            if let Attribute::Value(bytes) = attr {
+                bytes.zeroize();
+            }
+        }
+        created.map_err(|e| {
             log::error!("HsmBackend: C_CreateObject failed: {}", e);
             ResourceError::BackendError { detail: "PKCS#11 create_object failed".to_string() }
         })?;

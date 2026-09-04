@@ -58,6 +58,12 @@ pub struct CABackend {
     allowed_resource_types: Vec<String>,
     max_response_bytes: u64,
     timeout: Duration,
+    /// CMP request signing key. It must live for the backend's lifetime (it
+    /// signs every request), so it cannot be zeroized while in use; OpenSSL
+    /// clear-frees its secret components when the key object is dropped
+    /// (`RSA_free`/`EC_KEY_free` reach `BN_clear_free` for the private parts).
+    /// The PEM/DER file bytes it was parsed from are zeroized in
+    /// `load_private_key`.
     protection_key: PKey<Private>,
     /// CMP request protection algorithm OID derived from `protection_key`
     /// (RSA→sha256WithRSA, EC P256/P384/P521→ecdsa-with-SHA256/384/512).
@@ -431,8 +437,15 @@ fn load_certs(path: &str, label: &str) -> Result<Vec<X509>, String> {
 }
 
 /// Load a private key from a file that may be PEM or DER (PKCS#8/PKCS#1).
+///
+/// The file bytes hold the complete private key material, so the buffer is
+/// wrapped in `Zeroizing` and cleared as soon as the `PKey` has been parsed
+/// (the parse copies the material into OpenSSL-owned memory; the input buffer
+/// is not referenced afterwards). The parsed key object's own cleanup story is
+/// documented on the `protection_key` field.
 fn load_private_key(path: &str) -> Result<PKey<Private>, String> {
-    let bytes = std::fs::read(path).map_err(|e| format!("read key file '{path}': {e}"))?;
+    let bytes =
+        Zeroizing::new(std::fs::read(path).map_err(|e| format!("read key file '{path}': {e}"))?);
     if is_pem(&bytes) {
         PKey::private_key_from_pem(&bytes)
             .map_err(|e| format!("parse key PEM '{path}': {e}"))
@@ -766,5 +779,50 @@ mod tests {
             Ok(_) => panic!("expected BackendError for unsupported OID, got Ok"),
             Err(e) => panic!("expected BackendError for unsupported OID, got other error: {e:?}"),
         }
+    }
+
+    /// `load_private_key` accepts both PEM and DER encodings and returns the
+    /// same key it parsed. The input buffer is now `Zeroizing`-wrapped (the
+    /// PEM/DER bytes are the raw key material); this test pins the loading
+    /// behaviour so the wrap cannot silently break parsing.
+    #[test]
+    fn test_load_private_key_pem_and_der() {
+        let rsa = openssl::rsa::Rsa::generate(2048).expect("generate RSA key");
+        let pkey = openssl::pkey::PKey::from_rsa(rsa).expect("wrap RSA key in PKey");
+
+        let dir = tempfile::tempdir().expect("create temp dir");
+
+        // PEM path (PKCS#8 PEM) → private_key_from_pem.
+        let pem = pkey.private_key_to_pem_pkcs8().expect("encode PKCS#8 PEM");
+        let pem_path = dir.path().join("protection.pem");
+        std::fs::write(&pem_path, &pem).expect("write PEM file");
+        let loaded =
+            load_private_key(pem_path.to_str().expect("PEM path is UTF-8")).expect("load PEM key");
+        assert_eq!(
+            loaded.private_key_to_pem_pkcs8().expect("re-encode loaded key"),
+            pem,
+            "PEM round-trip must yield the same key"
+        );
+
+        // DER path (type-specific DER via i2d_PrivateKey) → private_key_from_der
+        // (d2i_AutoPrivateKey accepts both traditional and PKCS#8 DER).
+        let der = pkey.private_key_to_der().expect("encode DER");
+        let der_path = dir.path().join("protection.der");
+        std::fs::write(&der_path, &der).expect("write DER file");
+        let loaded =
+            load_private_key(der_path.to_str().expect("DER path is UTF-8")).expect("load DER key");
+        assert_eq!(
+            loaded.private_key_to_der().expect("re-encode loaded key"),
+            der,
+            "DER round-trip must yield the same key"
+        );
+
+        // Non-existent file must fail with a read error mentioning the path.
+        let missing = load_private_key(dir.path().join("missing.pem").to_str().expect("path is UTF-8"));
+        assert!(missing.is_err(), "missing key file must be an error");
+        assert!(
+            missing.unwrap_err().contains("read key file"),
+            "error must mention the read failure"
+        );
     }
 }

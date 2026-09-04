@@ -101,10 +101,10 @@ pub struct RefValue {
 #[serde(rename_all = "snake_case")]
 #[into_params(parameter_in = Query)]
 pub struct RefValueListQuery {
-    /// Comma-separated ref_value IDs (1-10); when present, pagination is ignored.
+    /// Comma-separated ref_value IDs (1-10, each 1-36 chars); when present, pagination is ignored.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ids: Option<String>,
-    /// Filter by attester_type (e.g. tpm, tpm_ima).
+    /// Filter by attester_type; one of `tpm`, `tpm_ima`, `virt_cca`, `ascend_npu`, `cca`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attester_type: Option<String>,
     /// Page size (1-10, default 10). Ignored when `ids` is present.
@@ -143,23 +143,23 @@ pub struct RefValueListResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, Validate, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct RefValueCreateRequest {
-    /// Baseline name (non-empty).
+    /// Baseline name (1-255 chars, GTA-enforced).
     #[validate(length(min = 1))]
     #[schema(example = "tpm-baseline", min_length = 1)]
     pub name: String,
-    /// Attester type (non-empty).
+    /// Attester type; one of `tpm`, `tpm_ima`, `virt_cca`, `ascend_npu`, `cca` (GTA-enforced).
     #[validate(length(min = 1))]
     #[schema(example = "tpm", min_length = 1)]
     pub attester_type: String,
-    /// Baseline content — JWT or base64-encoded payload (non-empty).
+    /// Baseline content — JWT or base64-encoded payload; at most 100 MiB (GTA-enforced).
     #[validate(length(min = 1))]
     #[schema(example = "eyJhbGciOiJSUzI1NiJ9...", min_length = 1)]
     pub content: String,
-    /// Content encoding: "jwt" (default) or "base64". When absent, GTA defaults to jwt.
+    /// Content encoding: `jwt` (default when omitted) or `base64`.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(example = "jwt")]
     pub content_type: Option<String>,
-    /// Optional description.
+    /// Optional description (at most 512 chars, GTA-enforced).
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(example = "TPM reference baseline")]
     pub description: Option<String>,
@@ -172,25 +172,25 @@ pub struct RefValueCreateRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct RefValueUpdateRequest {
-    /// ID of the ref_value to update.
+    /// ID of the ref_value to update (1-36 chars, GTA-enforced).
     #[schema(example = "rv-001")]
     pub id: String,
-    /// New name.
+    /// New name (1-255 chars).
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(example = "updated-baseline")]
     pub name: Option<String>,
-    /// New description.
+    /// New description (at most 512 chars).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    /// New attester_type.
+    /// New attester_type; one of `tpm`, `tpm_ima`, `virt_cca`, `ascend_npu`, `cca`.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(example = "tpm")]
     pub attester_type: Option<String>,
-    /// New content.
+    /// New content (at most 100 MiB).
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(example = "eyJhbGciOiJSUzI1NiJ9...")]
     pub content: Option<String>,
-    /// New content encoding.
+    /// New content encoding: `jwt` or `base64`.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(example = "base64")]
     pub content_type: Option<String>,
@@ -233,10 +233,10 @@ pub enum PolicyDeleteType {
 pub struct RefValueDeleteRequest {
     /// Delete mode.
     pub delete_type: AttestationDeleteType,
-    /// IDs to delete (required when `delete_type` is `Id`).
+    /// IDs to delete (required when `delete_type` is `Id`; 1-10 IDs, each 1-36 chars).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ids: Option<Vec<String>>,
-    /// Attester type filter (required when `delete_type` is `Type`).
+    /// Attester type filter (required when `delete_type` is `Type`); one of `tpm`, `tpm_ima`, `virt_cca`, `ascend_npu`, `cca`.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(example = "tpm")]
     pub attester_type: Option<String>,
@@ -251,10 +251,10 @@ pub struct RefValueDeleteRequest {
 pub struct CertDeleteRequest {
     /// Delete mode.
     pub delete_type: AttestationDeleteType,
-    /// IDs to delete (required when `delete_type` is `Id`).
+    /// IDs to delete (required when `delete_type` is `Id`; at most 10 IDs).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ids: Option<Vec<String>>,
-    /// Cert type filter (required when `delete_type` is `Type`; JSON field name `type`).
+    /// Cert type filter (required when `delete_type` is `Type`; JSON field name `type`); one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `crl`, `ascend_npu`.
     #[serde(skip_serializing_if = "Option::is_none", rename = "type")]
     #[schema(example = "refvalue")]
     pub cert_type: Option<String>,
@@ -269,10 +269,10 @@ pub struct CertDeleteRequest {
 pub struct PolicyDeleteRequest {
     /// Delete mode.
     pub delete_type: PolicyDeleteType,
-    /// IDs to delete (required when `delete_type` is `Id`).
+    /// IDs to delete (required when `delete_type` is `Id`; at most 10 IDs, each at most 36 chars).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ids: Option<Vec<String>>,
-    /// Attester type filter (required when `delete_type` is `AttesterType`).
+    /// Attester type filter (required when `delete_type` is `AttesterType`; at most 255 chars).
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(example = "tpm")]
     pub attester_type: Option<String>,
@@ -422,10 +422,10 @@ pub struct CrlRecord {
 #[serde(rename_all = "snake_case")]
 #[into_params(parameter_in = Query)]
 pub struct CertListQuery {
-    /// Comma-separated certificate IDs.
+    /// Comma-separated certificate IDs (at most 100, GTA-enforced).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ids: Option<String>,
-    /// Filter by certificate type (query param `cert_type`, JSON field `type`).
+    /// Filter by certificate type; one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `crl`, `ascend_npu` (query param `cert_type`, JSON field `type`).
     #[serde(skip_serializing_if = "Option::is_none", rename = "cert_type")]
     pub cert_type: Option<String>,
     /// Page size (1-10, default 10).
@@ -465,21 +465,21 @@ pub struct CertListResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, Validate, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct CertCreateRequest {
-    /// Certificate name (non-empty).
+    /// Certificate name (1-255 chars, GTA-enforced).
     #[validate(length(min = 1))]
     #[schema(example = "cert1", min_length = 1)]
     pub name: String,
-    /// Certificate type list (JSON field name `type`).
+    /// Certificate type list (JSON field name `type`); 1-7 items, each one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `crl`, `ascend_npu`; `crl` must be the only entry.
     #[serde(rename = "type")]
     #[schema(example = "[\"tpm\"]")]
     pub cert_type: Vec<String>,
-    /// Optional description.
+    /// Optional description (at most 512 chars).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     /// Certificate content; required when `cert_type` does not contain `crl`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
-    /// CRL content; required when `cert_type` contains `crl`.
+    /// CRL content; required when `cert_type` contains `crl` (which must then be the only entry).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub crl_content: Option<String>,
     /// Whether to set as default certificate.
@@ -490,21 +490,22 @@ pub struct CertCreateRequest {
 /// Request body for PUT cert (update).
 ///
 /// `id` is required (collection-level operation, id in body not path).
-/// GTA rejects `content` on update — the field is passed through so GTA
-/// can return the appropriate error.
+/// At least one of `name`/`description`/`cert_type`/`is_default` must be
+/// present (GTA rejects empty updates). GTA rejects `content` on update —
+/// the field is passed through so GTA can return the appropriate error.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct CertUpdateRequest {
-    /// ID of the certificate to update.
+    /// ID of the certificate to update (1-32 chars, GTA-enforced).
     #[schema(example = "C1")]
     pub id: String,
-    /// New name.
+    /// New name (1-255 chars).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    /// New description.
+    /// New description (at most 512 chars).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    /// New certificate type list (JSON field name `type`). Must not contain `crl`.
+    /// New certificate type list (JSON field name `type`); 1-7 items, each one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `ascend_npu` — `crl` cannot be set on update.
     #[serde(skip_serializing_if = "Option::is_none", rename = "type")]
     pub cert_type: Option<Vec<String>>,
     /// Certificate content — GTA rejects this on update.
@@ -623,10 +624,10 @@ pub struct AttestationPolicy {
 #[serde(rename_all = "snake_case")]
 #[into_params(parameter_in = Query)]
 pub struct PolicyListQuery {
-    /// Comma-separated policy IDs.
+    /// Comma-separated policy IDs (at most 10, GTA-enforced).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ids: Option<String>,
-    /// Filter by attester_type.
+    /// Filter by attester_type (e.g. `tpm`, `tpm_ima`, `itrustee`, `dice`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attester_type: Option<String>,
     /// Page size (1-10, default 10).
@@ -662,26 +663,26 @@ pub struct AttestationPolicyListResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, Validate, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct PolicyCreateRequest {
-    /// Policy name (non-empty).
+    /// Policy name (1-255 chars; GTA rejects the special characters `< > " ' & | \ / * ?` and backtick).
     #[validate(length(min = 1))]
     #[schema(example = "policy1", min_length = 1)]
     pub name: String,
-    /// Attester type list (non-empty array).
+    /// Attester type list (1-9 items, each at most 255 chars); supported values: `all`, `tpm`, `tpm_boot`, `tpm_ima`, `virt_cca`, `ascend_npu`, `itrustee`, `cca`, `dice`.
     #[validate(length(min = 1))]
     #[schema(example = "[\"tpm\"]", min_items = 1)]
     pub attester_type: Vec<String>,
-    /// Content encoding (required): "jwt" or "text".
+    /// Content encoding (required): `jwt` or `text` (GTA-enforced).
     #[validate(length(min = 1))]
     #[schema(example = "jwt", min_length = 1)]
     pub content_type: String,
-    /// Policy content (non-empty).
+    /// Policy content (base64-encoded); the decoded size is bounded by GTA's `policy_content_size_limit` (shipped default 500 KB).
     #[validate(length(min = 1))]
     #[schema(example = "eyJhbGciOiJSUzI1NiJ9...", min_length = 1)]
     pub content: String,
     /// Whether to set as default policy.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_default: Option<bool>,
-    /// Optional description.
+    /// Optional description (at most 512 chars).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 }
@@ -692,22 +693,22 @@ pub struct PolicyCreateRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct PolicyUpdateRequest {
-    /// ID of the policy to update.
+    /// ID of the policy to update (1-36 chars, GTA-enforced).
     #[schema(example = "P1")]
     pub id: String,
-    /// New name.
+    /// New name (1-255 chars; GTA rejects the special characters `< > " ' & | \ / * ?` and backtick).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    /// New description.
+    /// New description (at most 512 chars).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    /// New attester type list.
+    /// New attester type list (1-9 items, each at most 255 chars).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attester_type: Option<Vec<String>>,
-    /// New content encoding.
+    /// New content encoding: `jwt` or `text`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content_type: Option<String>,
-    /// New policy content.
+    /// New policy content (base64-encoded; decoded size limited as on create).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
     /// Whether to set as default policy.
