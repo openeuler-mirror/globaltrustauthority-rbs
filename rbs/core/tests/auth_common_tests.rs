@@ -29,7 +29,7 @@ fn test_supported_algorithms_contains_all() {
 
 #[test]
 fn test_supported_algorithms_count() {
-    assert_eq!(SUPPORTED_ALGORITHMS.len(), 7);
+    assert_eq!(SUPPORTED_ALGORITHMS.len(), 8);
 }
 
 #[test]

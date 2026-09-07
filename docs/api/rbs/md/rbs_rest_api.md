@@ -997,7 +997,7 @@ Attestation challenge/token issuance (`GET /rbs/v0/challenge`, `POST /rbs/v0/att
 
 **Submit attestation evidence and obtain token**
 
-Submit the RBC evidence bundle to the attestation backend; on success an attest token is returned for resource reads (`GET .../{resource}` and `POST .../retrieve`). The token is replayable until it expires. No authentication required.
+Submit the RBC evidence bundle to the attestation backend; on success an attest token is returned for resource reads (`GET .../{resource}` and `POST .../retrieve`). The token is replayable until it expires. `rbc_evidences.measurements[].nonce_type` supports only `verifier` (the verifier-generated challenge from `GET /rbs/v0/challenge`); attester-generated nonces are not supported. No authentication required.
 
 Operation ID: `postAttest`
 
@@ -1005,7 +1005,7 @@ Operation ID: `postAttest`
 
 Content type: `application/json` · Required: yes
 
-Evidence bundle including the nonce obtained from `GET /rbs/v0/challenge`; `attester_data.runtime_data.tee-pubkey` (JWK) is used to JWE-encrypt returned resources.
+Evidence bundle including the nonce obtained from `GET /rbs/v0/challenge` (`nonce_type` must be `verifier`); `attester_data.runtime_data.tee-pubkey` (JWK) is used to JWE-encrypt returned resources.
 
 Schema: [AttestRequest](#attestrequest)
 
@@ -3376,7 +3376,7 @@ One node or attestation unit inside the evidence bundle.
 |---|---|---|---|
 | `nonce` | string | yes | Must equal the `nonce` field from GET /rbs/v0/challenge (same string, no transformation). |
 | `node_id` | string | no | Optional node or workload identifier. |
-| `nonce_type` | string | no | Optional hint for nonce interpretation (backend-specific). |
+| `nonce_type` | string | no | Nonce interpretation mode. Only `"verifier"` is supported: the nonce must |
 | `token_fmt` | string | no | Optional desired token format hint (backend-specific). |
 | `attester_data` | [AttesterData](#attesterdata) | no | Attester-supplied metadata for this measurement. |
 | `evidences` | array of [RbcEvidenceItem](#rbcevidenceitem) | no | Collected attestation artifacts for this measurement. |

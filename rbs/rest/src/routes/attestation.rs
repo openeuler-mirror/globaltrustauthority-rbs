@@ -54,10 +54,10 @@ pub async fn get_challenge(
     path = "/rbs/v0/attest",
     operation_id = "postAttest",
     summary = "Submit attestation evidence and obtain token",
-    description = "Submit the RBC evidence bundle to the attestation backend; on success an attest token is returned for resource reads (`GET .../{resource}` and `POST .../retrieve`). The token is replayable until it expires. No authentication required.",
+    description = "Submit the RBC evidence bundle to the attestation backend; on success an attest token is returned for resource reads (`GET .../{resource}` and `POST .../retrieve`). The token is replayable until it expires. `rbc_evidences.measurements[].nonce_type` supports only `verifier` (the verifier-generated challenge from `GET /rbs/v0/challenge`); attester-generated nonces are not supported. No authentication required.",
     tags = ["Attestation"],
     security(()),
-    request_body(content = AttestRequest, description = "Evidence bundle including the nonce obtained from `GET /rbs/v0/challenge`; `attester_data.runtime_data.tee-pubkey` (JWK) is used to JWE-encrypt returned resources."),
+    request_body(content = AttestRequest, description = "Evidence bundle including the nonce obtained from `GET /rbs/v0/challenge` (`nonce_type` must be `verifier`); `attester_data.runtime_data.tee-pubkey` (JWK) is used to JWE-encrypt returned resources."),
     responses(
         (status = 200, description = "Attestation token (JSON).", body = AttestResponse),
         (status = 400, description = "Invalid request.", body = ErrorBody),

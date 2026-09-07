@@ -28,12 +28,15 @@ use josekit::jws::ES512;
 use josekit::jwt::{self, JwtPayloadValidator};
 use jsonwebtoken::{decode, Validation};
 use log::{debug, warn};
+use openssl::pkey::PKey;
 use rbs_api_types::config::BearerTokenVerificationConfig;
 use serde_json::Value;
 
 use crate::auth::authn::common::{
-    create_decoding_key, decode_token_header, is_es512, to_jsonwebtoken_alg, validate_algorithm,
+    create_decoding_key, decode_token_header, is_es512, is_sm2, to_jsonwebtoken_alg,
+    validate_algorithm, validate_jwt_claims,
 };
+use crate::auth::authn::sm2;
 use crate::auth::authn::{LockoutTracker, TokenVerifier, UserKeyProvider};
 use crate::auth::context::{BearerContext, TokenType};
 use crate::auth::error::AuthError;
@@ -100,8 +103,12 @@ impl TokenVerifier for BearerTokenVerifier {
                 }
             })?;
 
-        // Step 5 — Branch: ES512 goes through josekit; everything else through jsonwebtoken.
-        let result = if is_es512(&header.alg) {
+        // Step 5 — Branch: SM2 goes through OpenSSL; ES512 through josekit; everything else
+        // through jsonwebtoken. SM2 and ES512 are library-unsupported (or josekit-specific) and
+        // bypass the jsonwebtoken DecodingKey path.
+        let result = if is_sm2(&header.alg) {
+            self.verify_sm2(token, &sub, &public_key_pem).await
+        } else if is_es512(&header.alg) {
             self.verify_es512(token, &sub, &public_key_pem).await
         } else {
             self.verify_jsonwebtoken(token, &sub, &header.alg, &public_key_pem)
@@ -220,6 +227,77 @@ impl BearerTokenVerifier {
                 reason: "invalid token".to_string(),
             })?
         };
+
+        Ok(BearerContext {
+            iss,
+            sub: sub.to_string(),
+            role,
+            claims,
+            token_type: TokenType::Bearer,
+        })
+    }
+
+    /// SM2 verification using OpenSSL (SM2 ECDSA over the SM3 digest).
+    ///
+    /// Neither `jsonwebtoken` nor `josekit` supports SM2, so this path verifies the
+    /// compact JWS signature directly with the vendored OpenSSL backend and parses
+    /// claims manually. All errors collapse to `TokenInvalid { reason: "invalid token" }`
+    /// (and `TokenExpired` for expired tokens) to match the user-enumeration-safe
+    /// behavior of the ES512 path.
+    async fn verify_sm2(
+        &self,
+        token: &str,
+        sub: &str,
+        public_key_pem: &str,
+    ) -> Result<BearerContext, AuthError> {
+        // Split compact JWS: header.payload.signature
+        let parts: Vec<&str> = token.split('.').collect();
+        if parts.len() != 3 {
+            return Err(AuthError::TokenInvalid { reason: "invalid token".to_string() });
+        }
+        let signing_input = format!("{}.{}", parts[0], parts[1]);
+        let signature = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(parts[2])
+            .map_err(|e| {
+                warn!("BearerToken SM2 signature decode failed: {}", e);
+                AuthError::TokenInvalid { reason: "invalid token".to_string() }
+            })?;
+
+        // Verify the SM2 signature (SM3 digest) with the per-user public key,
+        // pinning the standard (GM/T 0009) user ID; see `authn::sm2` for why
+        // the plain Verifier path is not usable.
+        let pkey = PKey::public_key_from_pem(public_key_pem.as_bytes()).map_err(|e| {
+            warn!("BearerToken SM2 public key parse failed: {}", e);
+            AuthError::TokenInvalid { reason: "invalid token".to_string() }
+        })?;
+        let valid = sm2::verify(&pkey, signing_input.as_bytes(), &signature).map_err(|e| {
+            warn!("BearerToken SM2 verify failed: {}", e);
+            AuthError::TokenInvalid { reason: "invalid token".to_string() }
+        })?;
+        if !valid {
+            warn!("BearerToken SM2 signature verification failed");
+            return Err(AuthError::TokenInvalid { reason: "invalid token".to_string() });
+        }
+
+        // Signature trusted — parse and validate claims manually.
+        let payload_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(parts[1])
+            .map_err(|_| AuthError::TokenInvalid { reason: "invalid token".to_string() })?;
+        let claims: Value = serde_json::from_slice(&payload_bytes)
+            .map_err(|_| AuthError::TokenInvalid { reason: "invalid token".to_string() })?;
+
+        validate_jwt_claims(&claims, &self.config.issuer, Some(&self.config.audience))?;
+
+        let iss = claims
+            .get("iss")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let role = claims
+            .get("role")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
 
         Ok(BearerContext {
             iss,
@@ -697,5 +775,217 @@ mod tests {
         let ctx = result.unwrap();
         assert_eq!(ctx.sub, "es512-user");
         assert_eq!(ctx.token_type, TokenType::Bearer);
+    }
+
+    // ── SM2 tests ──
+
+    /// Generate an SM2 key pair for tests. Returns (public_pem, private_pem).
+    ///
+    /// SM2 keys are generated as EC keys on the SM2 curve (`Nid::SM2`) and wrapped
+    /// in a `PKey`; OpenSSL derives the SM2 algorithm context from the curve.
+    fn generate_test_sm2_key_pair() -> (String, String) {
+        use openssl::ec::{EcGroup, EcKey};
+        let group = EcGroup::from_curve_name(Nid::SM2).expect("SM2 group");
+        let ec = EcKey::generate(&group).expect("generate SM2 EC key");
+        let pkey = PKey::from_ec_key(ec).expect("PKey from SM2 EC key");
+        let pub_pem = String::from_utf8(pkey.public_key_to_pem().expect("pub pem")).unwrap();
+        let priv_pem =
+            String::from_utf8(pkey.private_key_to_pem_pkcs8().expect("priv pem")).unwrap();
+        (pub_pem, priv_pem)
+    }
+
+    /// Build an SM2-signed compact JWS (alg "SM2") with claims matching the verifier
+    /// config used in tests. `exp` overrides the expiry; `None` defaults to now+3600.
+    fn sign_sm2_token(
+        priv_pem: &str,
+        exp: Option<SystemTime>,
+        iss: &str,
+        aud: &str,
+        sub: &str,
+    ) -> String {
+        sign_sm2_token_with_id(priv_pem, exp, iss, aud, sub, sm2::SM2_USER_ID)
+    }
+
+    /// Like [`sign_sm2_token`] but with an explicit SM2 user ID, used to prove
+    /// that non-standard IDs are rejected.
+    fn sign_sm2_token_with_id(
+        priv_pem: &str,
+        exp: Option<SystemTime>,
+        iss: &str,
+        aud: &str,
+        sub: &str,
+        user_id: &[u8],
+    ) -> String {
+        let pkey = PKey::private_key_from_pem(priv_pem.as_bytes()).expect("load SM2 priv key");
+        let now = SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let exp_val = match exp {
+            Some(t) => t.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
+            None => now + 3600,
+        };
+        let header = serde_json::json!({ "alg": "SM2", "typ": "JWT" });
+        let payload = serde_json::json!({
+            "iss": iss, "sub": sub, "aud": aud, "exp": exp_val, "role": "admin",
+        });
+        let header_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(serde_json::to_vec(&header).unwrap());
+        let payload_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(serde_json::to_vec(&payload).unwrap());
+        let signing_input = format!("{}.{}", header_b64, payload_b64);
+        let sig = sm2::sign_with_id(&pkey, signing_input.as_bytes(), user_id).expect("SM2 sign");
+        let sig_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&sig);
+        format!("{}.{}", signing_input, sig_b64)
+    }
+
+    fn sm2_verifier(pub_pem: &str) -> BearerTokenVerifier {
+        let config = BearerTokenVerificationConfig {
+            issuer: "https://auth.example.com".to_string(),
+            audience: "globaltrustauthority-rbs".to_string(),
+        };
+        let key_provider = Arc::new(StubKeyProvider(pub_pem.to_string()));
+        let lockout_tracker = Arc::new(LockoutTracker::new());
+        BearerTokenVerifier::new(config, key_provider, lockout_tracker)
+    }
+
+    /// A valid SM2 token verifies successfully and the lockout counter is cleared.
+    #[tokio::test]
+    async fn test_sm2_valid_token_succeeds() {
+        let (pub_pem, priv_pem) = generate_test_sm2_key_pair();
+        let verifier = sm2_verifier(&pub_pem);
+
+        let exp = SystemTime::now() + Duration::from_secs(3600);
+        let token = sign_sm2_token(
+            &priv_pem,
+            Some(exp),
+            "https://auth.example.com",
+            "globaltrustauthority-rbs",
+            "sm2-user",
+        );
+
+        let result = verifier.verify(&token).await;
+        assert!(result.is_ok(), "valid SM2 token should verify: {:?}", result.err());
+        let ctx = result.unwrap();
+        assert_eq!(ctx.sub, "sm2-user");
+        assert_eq!(ctx.role, "admin");
+        assert_eq!(ctx.token_type, TokenType::Bearer);
+    }
+
+    /// An expired SM2 token returns AuthError::TokenExpired.
+    #[tokio::test]
+    async fn test_sm2_expired_returns_token_expired() {
+        let (pub_pem, priv_pem) = generate_test_sm2_key_pair();
+        let verifier = sm2_verifier(&pub_pem);
+
+        let exp = SystemTime::now() - Duration::from_secs(3600);
+        let token = sign_sm2_token(
+            &priv_pem,
+            Some(exp),
+            "https://auth.example.com",
+            "globaltrustauthority-rbs",
+            "sm2-user",
+        );
+
+        let result = verifier.verify(&token).await;
+        assert!(result.is_err(), "expired SM2 token must be rejected");
+        match result.unwrap_err() {
+            AuthError::TokenExpired => {}
+            other => panic!("expected TokenExpired, got: {:?}", other),
+        }
+    }
+
+    /// A token signed by a different key (signature mismatch) is rejected as
+    /// TokenInvalid, and the failure is recorded for lockout tracking.
+    #[tokio::test]
+    async fn test_sm2_invalid_signature_rejected() {
+        let (pub_pem, _priv_pem) = generate_test_sm2_key_pair();
+        let (other_pub, other_priv) = generate_test_sm2_key_pair();
+        let tracker = Arc::new(LockoutTracker::new());
+        let config = BearerTokenVerificationConfig {
+            issuer: "https://auth.example.com".to_string(),
+            audience: "globaltrustauthority-rbs".to_string(),
+        };
+        let key_provider = Arc::new(StubKeyProvider(pub_pem));
+        let verifier = BearerTokenVerifier::new(config, key_provider, Arc::clone(&tracker));
+
+        // Sign with `other_priv` but the verifier holds `pub_pem` (mismatch).
+        let exp = SystemTime::now() + Duration::from_secs(3600);
+        let token = sign_sm2_token(
+            &other_priv,
+            Some(exp),
+            "https://auth.example.com",
+            "globaltrustauthority-rbs",
+            "sm2-user",
+        );
+        let _ = &other_pub;
+
+        let result = verifier.verify(&token).await;
+        assert!(result.is_err(), "SM2 token with wrong signature must be rejected");
+        match result.unwrap_err() {
+            AuthError::TokenInvalid { .. } => {}
+            other => panic!("expected TokenInvalid, got: {:?}", other),
+        }
+        assert!(tracker.has_entry("sm2-user"));
+    }
+
+    /// An SM2 token whose header alg is "SM2" but with a tampered payload must fail
+    /// signature verification (covers the manual JWS reassembly path).
+    #[tokio::test]
+    async fn test_sm2_tampered_payload_rejected() {
+        let (pub_pem, priv_pem) = generate_test_sm2_key_pair();
+        let verifier = sm2_verifier(&pub_pem);
+
+        let exp = SystemTime::now() + Duration::from_secs(3600);
+        let token = sign_sm2_token(
+            &priv_pem,
+            Some(exp),
+            "https://auth.example.com",
+            "globaltrustauthority-rbs",
+            "sm2-user",
+        );
+        // Flip the last character of the payload segment to break the signature binding.
+        let mut parts: Vec<&str> = token.split('.').collect();
+        let mut payload_bytes = parts[1].as_bytes().to_vec();
+        let last = payload_bytes.pop().unwrap();
+        payload_bytes.push(if last == b'A' { b'B' } else { b'A' });
+        parts[1] = std::str::from_utf8(&payload_bytes).unwrap();
+        let tampered = format!("{}.{}.{}", parts[0], parts[1], parts[2]);
+
+        let result = verifier.verify(&tampered).await;
+        assert!(result.is_err(), "tampered SM2 token must be rejected");
+        match result.unwrap_err() {
+            AuthError::TokenInvalid { .. } => {}
+            other => panic!("expected TokenInvalid, got: {:?}", other),
+        }
+    }
+
+    /// SM2 tokens signed with a non-standard user ID are rejected: verification
+    /// pins the GM/T 0009 default ID, so signatures from implementations using
+    /// any other ID (including the empty ID that OpenSSL >= 3.5 defaults to)
+    /// fail closed.
+    #[tokio::test]
+    async fn test_sm2_non_standard_user_id_rejected() {
+        let (pub_pem, priv_pem) = generate_test_sm2_key_pair();
+
+        for wrong_id in [b"" as &[u8], b"rbs"] {
+            let verifier = sm2_verifier(&pub_pem);
+            let exp = SystemTime::now() + Duration::from_secs(3600);
+            let token = sign_sm2_token_with_id(
+                &priv_pem,
+                Some(exp),
+                "https://auth.example.com",
+                "globaltrustauthority-rbs",
+                "sm2-user",
+                wrong_id,
+            );
+
+            let result = verifier.verify(&token).await;
+            assert!(result.is_err(), "SM2 token with user ID {wrong_id:?} must be rejected");
+            match result.unwrap_err() {
+                AuthError::TokenInvalid { .. } => {}
+                other => panic!("expected TokenInvalid, got: {:?}", other),
+            }
+        }
     }
 }

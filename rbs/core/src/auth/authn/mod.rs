@@ -16,6 +16,7 @@ pub mod authenticator;
 pub mod common;
 pub mod bearer_token;
 pub mod lockout;
+pub mod sm2;
 pub mod token;
 
 use async_trait::async_trait;

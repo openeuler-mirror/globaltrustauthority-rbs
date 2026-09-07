@@ -81,7 +81,17 @@ pub fn validate_and_derive_alg(pem: &str) -> Result<String> {
             }
         }
         openssl::pkey::Id::ED25519 => Ok("Ed25519".to_string()),
-        _ => Err(RbsError::InvalidParameter("Unsupported key type".to_string())),
+        _ => {
+            // OpenSSL 3.x may report an SM2 public key's id as -1 (unknown) after
+            // parsing a SubjectPublicKeyInfo PEM, so detect SM2 via the EC-specific
+            // PEM parser, which preserves the curve NID.
+            if let Ok(ec_key) = openssl::ec::EcKey::public_key_from_pem(pem.as_bytes()) {
+                if ec_key.group().curve_name() == Some(openssl::nid::Nid::SM2) {
+                    return Ok("SM2".to_string());
+                }
+            }
+            Err(RbsError::InvalidParameter("Unsupported key type".to_string()))
+        }
     }
 }
 
@@ -187,6 +197,7 @@ fn jwk_ec_to_pem(jwk: &Value) -> Result<String> {
         "P-256" => openssl::nid::Nid::X9_62_PRIME256V1,
         "P-384" => openssl::nid::Nid::SECP384R1,
         "P-521" => openssl::nid::Nid::SECP521R1,
+        "sm2p256v1" => openssl::nid::Nid::SM2,
         _ => {
             log::error!("JWK EC validation failed: unsupported curve '{}'", crv);
             return Err(RbsError::InvalidParameter("Unsupported JWK EC curve".to_string()));
@@ -370,5 +381,20 @@ mod tests {
         let result = validate_and_derive_alg(&pem_str);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "EC");
+    }
+
+    #[test]
+    fn validate_and_derive_alg_returns_sm2_for_sm2_key() {
+        // SM2 EC key — OpenSSL 3.x reports its re-parsed id as -1, so the SM2
+        // curve is detected via the EC-specific PEM parser.
+        let ec_group = openssl::ec::EcGroup::from_curve_name(openssl::nid::Nid::SM2).unwrap();
+        let ec_key = openssl::ec::EcKey::generate(&ec_group).unwrap();
+        let pkey = openssl::pkey::PKey::from_ec_key(ec_key).unwrap();
+        let pem = pkey.public_key_to_pem().unwrap();
+        let pem_str = String::from_utf8_lossy(&pem).to_string();
+
+        let result = validate_and_derive_alg(&pem_str);
+        assert!(result.is_ok(), "SM2 key should be accepted: {:?}", result.err());
+        assert_eq!(result.unwrap(), "SM2");
     }
 }

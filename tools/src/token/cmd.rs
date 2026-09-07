@@ -14,9 +14,15 @@ use clap::{ArgAction, Args, Subcommand, ValueEnum};
 use josekit::jws::{EdDSA, JwsHeader, ES256, ES384, ES512};
 use josekit::jwt::{self, JwtPayload};
 use jsonwebtoken::{encode as jwt_encode, Algorithm as JwtAlgorithm, EncodingKey, Header as JwtHeader};
+use foreign_types_shared::{ForeignType, ForeignTypeRef};
+use openssl::hash::MessageDigest;
+use openssl::md_ctx::MdCtx;
 use openssl::nid::Nid;
-use openssl::pkey::{Id, PKey, Private};
+use openssl::pkey::{Id, PKey, PKeyRef, Private};
+use openssl::sign::Signer;
+use openssl_sys as ossl;
 use serde_json::{Map, Value};
+use base64::Engine as _;
 use std::fmt::{Display, Formatter};
 use std::fs;
 use std::io::{self, IsTerminal, Read};
@@ -46,7 +52,7 @@ const KID_MAX_LEN: usize = 128;
 const CLAIMS_MAX_SIZE: u64 = 64 * 1024;
 const PASSPHRASE_MAX_LEN: usize = 1024;
 const SUPPORTED_PRIVATE_KEYS: &str =
-    "supported private keys: RSA for PS*, P-256 for ES256, P-384 for ES384, P-521 for ES512, Ed25519/Ed448 for EdDSA";
+    "supported private keys: RSA for PS*, P-256 for ES256, P-384 for ES384, P-521 for ES512, Ed25519/Ed448 for EdDSA, SM2 for SM2";
 
 #[derive(ValueEnum, Clone, Debug, Default, PartialEq, Eq)]
 pub enum TokenAlg {
@@ -65,6 +71,8 @@ pub enum TokenAlg {
     #[default]
     #[value(name = "EdDSA")]
     Eddsa,
+    #[value(name = "SM2")]
+    Sm2,
 }
 
 impl Display for TokenAlg {
@@ -78,6 +86,7 @@ impl Display for TokenAlg {
             Self::Es384 => write!(f, "ES384"),
             Self::Es512 => write!(f, "ES512"),
             Self::Eddsa => write!(f, "EdDSA"),
+            Self::Sm2 => write!(f, "SM2"),
         }
     }
 }
@@ -315,6 +324,7 @@ impl TokenGenerate {
                     TokenAlg::Es384 => ec_curve_matches(private_key, Nid::SECP384R1)?,
                     TokenAlg::Es512 => ec_curve_matches(private_key, Nid::SECP521R1)?,
                     TokenAlg::Eddsa => matches!(private_key.id(), Id::ED25519 | Id::ED448),
+                    TokenAlg::Sm2 => key_is_sm2(private_key),
                 };
 
                 if matched {
@@ -402,7 +412,8 @@ impl TokenGenerate {
                     .signer_from_pem(pem)
                     .map_err(|_err| CliError::InvalidArgument("unable to sign the token with EdDSA. Please check that the private key matches the selected algorithm".to_string()))?;
                 jwt::encode_with_signer(&payload, &header, &signer)
-            }
+            },
+            TokenAlg::Sm2 => return generate_sm2_token(pem, header, &payload),
         }
         .map_err(|_err| CliError::InvalidArgument("unable to generate the token. Please check the private key and token options".to_string()))?;
         Ok(Token { token })
@@ -482,6 +493,116 @@ fn generate_pss_token_with_jsonwebtoken(
     Ok(Token { token })
 }
 
+/// GM/T 0009 default SM2 user ID used for every SM2 token signature.
+///
+/// OpenSSL >= 3.5 (including the vendored build used here) no longer applies
+/// this default implicitly: a plain `Signer::new(MessageDigest::sm3(), ..)`
+/// signs with an *empty* user ID, which no standard SM2 implementation
+/// accepts. Mirror of `rbs/core/src/auth/authn/sm2.rs` — keep in sync.
+const SM2_USER_ID: &[u8] = b"1234567812345678";
+
+// `openssl-sys` does not bind `EVP_PKEY_CTX_set1_id`; declare it against the
+// libcrypto linked through the vendored `openssl` crate.
+extern "C" {
+    fn EVP_PKEY_CTX_set1_id(
+        ctx: *mut ossl::EVP_PKEY_CTX,
+        id: *const std::os::raw::c_void,
+        id_len: std::os::raw::c_int,
+    ) -> std::os::raw::c_int;
+}
+
+/// Sign `data` with SM2 (SM3 digest) under the standard default user ID.
+///
+/// Uses the raw EVP interface because the safe `Signer` API cannot set the
+/// SM2 user ID (see [`SM2_USER_ID`]).
+fn sm2_sign(pkey: &PKeyRef<Private>, data: &[u8]) -> Result<Vec<u8>, openssl::error::ErrorStack> {
+    fn cvt(r: std::os::raw::c_int) -> Result<std::os::raw::c_int, openssl::error::ErrorStack> {
+        if r <= 0 {
+            Err(openssl::error::ErrorStack::get())
+        } else {
+            Ok(r)
+        }
+    }
+
+    let mut md_ctx = MdCtx::new()?;
+    let mut pkey_ctx: *mut ossl::EVP_PKEY_CTX = std::ptr::null_mut();
+    unsafe {
+        cvt(ossl::EVP_DigestSignInit(
+            md_ctx.as_ptr(),
+            &mut pkey_ctx,
+            MessageDigest::sm3().as_ptr(),
+            std::ptr::null_mut(),
+            pkey.as_ptr() as *mut _,
+        ))?;
+        cvt(EVP_PKEY_CTX_set1_id(
+            pkey_ctx,
+            SM2_USER_ID.as_ptr() as *const std::os::raw::c_void,
+            SM2_USER_ID.len() as std::os::raw::c_int,
+        ))?;
+        cvt(ossl::EVP_DigestSignUpdate(
+            md_ctx.as_ptr(),
+            data.as_ptr() as *const std::os::raw::c_void,
+            data.len(),
+        ))?;
+        let mut siglen: usize = 0;
+        cvt(ossl::EVP_DigestSignFinal(
+            md_ctx.as_ptr(),
+            std::ptr::null_mut(),
+            &mut siglen,
+        ))?;
+        let mut sig = vec![0u8; siglen];
+        cvt(ossl::EVP_DigestSignFinal(
+            md_ctx.as_ptr(),
+            sig.as_mut_ptr(),
+            &mut siglen,
+        ))?;
+        sig.truncate(siglen);
+        Ok(sig)
+    }
+}
+
+/// Build an SM2-signed compact JWS (alg "SM2") using OpenSSL directly.
+///
+/// `jsonwebtoken` and `josekit` lack SM2 support, so the compact JWS is
+/// assembled manually: `base64url(header).base64url(payload).base64url(sig)`,
+/// where the signature is SM2 ECDSA over the SM3 digest of the signing input.
+/// `header` (a josekit `JwsHeader`) is re-serialized to JSON to preserve `kid`
+/// and `typ`; only `alg` is overridden to `"SM2"`.
+fn generate_sm2_token(
+    pem: &[u8],
+    header: &JwsHeader,
+    payload: &JwtPayload,
+) -> Result<Token, CliError> {
+    let pkey = PKey::private_key_from_pem(pem).map_err(|err| {
+        CliError::InvalidArgument(format!(
+            "unable to load the SM2 private key: {err}; please check that the key is a valid PEM private key"
+        ))
+    })?;
+
+    // Build the JWS header JSON, forcing alg = "SM2" (josekit does not recognize it).
+    let mut header_map: Map<String, Value> = header.as_ref().clone();
+    header_map.insert("alg".to_string(), Value::String("SM2".to_string()));
+
+    let header_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .encode(serde_json::to_vec(&header_map).map_err(|_err| {
+            CliError::InvalidArgument("unable to serialize the token header".to_string())
+        })?);
+    let payload_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .encode(payload.to_string().as_bytes());
+    let signing_input = format!("{}.{}", header_b64, payload_b64);
+
+    let signature = sm2_sign(&pkey, signing_input.as_bytes()).map_err(|err| {
+        CliError::InvalidArgument(format!(
+            "unable to sign the token with SM2: {err}; the private key does not match alg `SM2`; {SUPPORTED_PRIVATE_KEYS}"
+        ))
+    })?;
+    let sig_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&signature);
+
+    Ok(Token {
+        token: format!("{}.{}", signing_input, sig_b64),
+    })
+}
+
 fn validate_claims_input(value: &str) -> Result<String, CliError> {
     if let Some(path) = value.strip_prefix('@') {
         validate_file_size(path, CLAIMS_MAX_SIZE)?;
@@ -528,9 +649,19 @@ fn infer_default_alg(private_key: &PKey<Private>) -> Result<TokenAlg, CliError> 
         Id::RSA_PSS => Ok(TokenAlg::Ps256),
         Id::ED25519 | Id::ED448 => Ok(TokenAlg::Eddsa),
         Id::EC => infer_ec_default_alg(private_key),
-        _ => Err(CliError::InvalidArgument(format!(
-            "unsupported private key type for JWT signing; {SUPPORTED_PRIVATE_KEYS}"
-        ))),
+        _ => {
+            // OpenSSL 3.x reports a re-parsed SM2 private key's id as -1, so it
+            // does not match any known arm above. Confirm it is an SM2 key
+            // (SM2+SM3 signer constructs only for SM2 keys among the unsupported
+            // set) and default to SM2.
+            if key_is_sm2(private_key) {
+                Ok(TokenAlg::Sm2)
+            } else {
+                Err(CliError::InvalidArgument(format!(
+                    "unsupported private key type for JWT signing; {SUPPORTED_PRIVATE_KEYS}"
+                )))
+            }
+        }
     }
 }
 
@@ -564,6 +695,23 @@ fn ec_curve_matches(private_key: &PKey<Private>, curve: Nid) -> Result<bool, Cli
         )
     })?;
     Ok(ec_key.group().curve_name() == Some(curve))
+}
+
+/// Detect an SM2 private key.
+///
+/// OpenSSL 3.x reports a re-parsed SM2 private key's id as -1 (`Id::SM2` is only
+/// seen for in-memory keys built via `from_ec_key`), and `ec_key()` is then
+/// unavailable, so the key cannot be classified by id or curve lookup. An SM2
+/// key is identifiable here as one whose id is `SM2` (in-memory case), or — among
+/// keys whose id is not a recognized non-SM2 type — one for which an SM2+SM3
+/// signer constructs.
+fn key_is_sm2(private_key: &PKey<Private>) -> bool {
+    match private_key.id() {
+        Id::SM2 => true,
+        Id::RSA | Id::RSA_PSS | Id::EC | Id::ED25519 | Id::ED448 => false,
+        // id -1 (re-parsed SM2) or any other unrecognized id: probe with SM2+SM3.
+        _ => Signer::new(MessageDigest::sm3(), private_key).is_ok(),
+    }
 }
 
 /// Calculates the default expiration time as now plus one hour.
@@ -628,5 +776,73 @@ mod tests {
         assert!(validate_time_claims(now, Some(now), None).is_err());
         assert!(validate_time_claims(now, None, Some(now)).is_err());
         assert!(validate_time_claims(now - DEFAULT_EXP_AFTER_SECONDS - 1, None, None).is_err());
+    }
+
+    /// SM2 token generation round-trips: the produced compact JWS has three
+    /// segments and the SM2+SM3 signature verifies against the matching public key.
+    #[test]
+    fn sm2_token_generation_round_trips() {
+        let group = openssl::ec::EcGroup::from_curve_name(Nid::SM2).expect("SM2 group");
+        let ec = openssl::ec::EcKey::generate(&group).expect("generate SM2 EC key");
+        let pkey = PKey::from_ec_key(ec).expect("PKey from SM2 EC key");
+        let priv_pem = Zeroizing::new(pkey.private_key_to_pem_pkcs8().expect("priv pem"));
+        let pub_pem = pkey.public_key_to_pem().expect("pub pem");
+
+        let mut header = JwsHeader::new();
+        header.set_token_type("JWT");
+        header.set_algorithm("SM2");
+        let mut payload = Map::new();
+        payload.insert("iss".to_string(), Value::String("rbs-cli".to_string()));
+        payload.insert("sub".to_string(), Value::String("sm2-admin".to_string()));
+        payload.insert("aud".to_string(), Value::String("globaltrustauthority-rbs".to_string()));
+        let exp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            + 3600;
+        payload.insert("exp".to_string(), Value::Number(exp.into()));
+        let payload = JwtPayload::from_map(payload).expect("payload");
+
+        let token = generate_sm2_token(&priv_pem, &header, &payload).expect("sign SM2 token");
+        let parts: Vec<&str> = token.token.split('.').collect();
+        assert_eq!(parts.len(), 3, "compact JWS must have 3 segments");
+
+        // Verify the signature with the public key under the standard user ID
+        // (test-only mirror of the rbs-core SM2 verifier).
+        let pub_key = PKey::public_key_from_pem(&pub_pem).expect("parse pub");
+        let signing_input = format!("{}.{}", parts[0], parts[1]);
+        let signature = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(parts[2])
+            .expect("decode sig");
+
+        let mut md_ctx = openssl::md_ctx::MdCtx::new().expect("md ctx");
+        let mut pkey_ctx: *mut ossl::EVP_PKEY_CTX = std::ptr::null_mut();
+        let verified = unsafe {
+            assert!(
+                ossl::EVP_DigestVerifyInit(
+                    md_ctx.as_ptr(),
+                    &mut pkey_ctx,
+                    MessageDigest::sm3().as_ptr(),
+                    std::ptr::null_mut(),
+                    pub_key.as_ptr() as *mut _,
+                ) > 0
+            );
+            assert!(
+                super::EVP_PKEY_CTX_set1_id(
+                    pkey_ctx,
+                    super::SM2_USER_ID.as_ptr() as *const std::os::raw::c_void,
+                    super::SM2_USER_ID.len() as std::os::raw::c_int,
+                ) > 0
+            );
+            assert!(
+                ossl::EVP_DigestVerifyUpdate(
+                    md_ctx.as_ptr(),
+                    signing_input.as_ptr() as *const std::os::raw::c_void,
+                    signing_input.len(),
+                ) > 0
+            );
+            ossl::EVP_DigestVerifyFinal(md_ctx.as_ptr(), signature.as_ptr(), signature.len()) == 1
+        };
+        assert!(verified, "SM2 signature must verify under the standard user ID");
     }
 }
