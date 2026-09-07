@@ -34,7 +34,7 @@ Global options accepted by `rbs-cli`:
 | `-q`, `--quiet` | No | `false` | Suppress non-essential output. Conflicts with `--verbose`. |
 | `--noout` | No | `false` | Do not print command output to stdout. |
 
-The default base URL uses HTTPS. For a server using a private or self-signed CA, pass `--cert <CA_PEM>`; use HTTP only by explicitly passing an `http://...` value to `--base-url`.
+The default base URL uses HTTPS. `rbs-cli` uses Rustls for HTTPS and requires TLS 1.3 or later. It trusts the system trust store by default; for a private or self-signed CA, pass `--cert <CA_PEM>`. Use HTTP only by explicitly passing an `http://...` value to `--base-url`.
 
 Notes:
 

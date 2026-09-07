@@ -67,7 +67,7 @@ rbc/
 |-------------|---------|------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | Rust toolchain | ≥ 1.75 | Install via [rustup](https://rustup.rs)                                                                                                                    |
 | libclang | any | Required by cbindgen at build time                                                                                                                         |
-| openssl-devel | ≥ 3.0.x | Required by reqwest TLS backend; must be a version with all known CVEs patched, prefer a ≥ 3.0 LTS release actively maintained by your OS vendor.          |
+| OpenSSL | vendored | Used by RBC cryptographic operations. The Reqwest TLS backend uses Rustls and does not require a system `openssl-devel` package. |
 | attestation_agent | — | Required at runtime for the `native` evidence and token provider, refer to [global-trust-authority](https://gitcode.com/openeuler/global-trust-authority). |
 
 ### 4.2 Build
@@ -161,9 +161,11 @@ let client = Client::new(config)?;
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `base_url` | string | **required** | Base URL of the RBS server |
-| `ca_cert` | string | — | Path to a custom CA certificate (PEM) for TLS verification |
+| `base_url` | string | **required** | Base URL of the RBS server. Use `https://` for TLS; `http://` is supported only when explicitly configured. |
+| `ca_cert` | string | — | Path to a custom CA certificate (PEM) for TLS verification. Required when the server certificate chain is not rooted in the system trust store. |
 | `timeout_secs` | integer | — | Timeout in seconds for evidence collection, token acquisition, and RBS HTTP requests |
+
+HTTPS connections use Rustls and require TLS 1.3 or later. The default trust store is the system trust store. To connect to a private or self-signed RBS CA, configure `ca_cert` (or pass `--cert` to `rbc-cli`).
 
 ### 5.3 `evidence_provider` List
 
@@ -345,6 +347,8 @@ Common global options:
 | `-f`, `--format <FORMAT>` | No | `text` | Output format: `text` or `json`. |
 | `-o`, `--output-file <OUTPUT_FILE>` | No | unset | Write command output to a file. |
 | `--noout` | No | `false` | Do not print command output to stdout. |
+
+`rbc-cli` uses Rustls for HTTPS and requires TLS 1.3 or later. It trusts the system trust store by default. For a private or self-signed CA, pass `--cert <CA_PEM>`; use HTTP only by explicitly passing an `http://...` value to `--base-url`.
 
 Command-specific options:
 

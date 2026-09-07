@@ -38,6 +38,8 @@ impl AdminClient {
         headers.insert("Authorization", bearer_header);
 
         let mut client = reqwest::Client::builder()
+            .use_rustls_tls()
+            .min_tls_version(reqwest::tls::Version::TLS_1_3)
             .default_headers(headers)
             .timeout(Duration::from_secs(60))
             .connect_timeout(Duration::from_secs(10));
