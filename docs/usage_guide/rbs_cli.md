@@ -25,7 +25,7 @@ Global options accepted by `rbs-cli`:
 
 | Option | Required | Default | Meaning / Notes |
 |---|---|---|---|
-| `-b`, `--base-url <BASE_URL>` | No | `http://localhost:8080` | Base URL of the target RBS service. |
+| `-b`, `--base-url <BASE_URL>` | No | `https://127.0.0.1:6666` | Base URL of the target RBS service. |
 | `-t`, `--token <TOKEN>` | No | from `RBS_TOKEN` when set | Bearer token used for authenticated admin requests. |
 | `--cert <CERT>` | No | unset | CA certificate file used to verify the RBS server. |
 | `-f`, `--format <FORMAT>` | No | `text` | Output format: `text` or `json`. |
@@ -33,6 +33,8 @@ Global options accepted by `rbs-cli`:
 | `-v`, `--verbose` | No | `false` | Enable verbose logging. |
 | `-q`, `--quiet` | No | `false` | Suppress non-essential output. Conflicts with `--verbose`. |
 | `--noout` | No | `false` | Do not print command output to stdout. |
+
+The default base URL uses HTTPS. For a server using a private or self-signed CA, pass `--cert <CA_PEM>`; use HTTP only by explicitly passing an `http://...` value to `--base-url`.
 
 Notes:
 

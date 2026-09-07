@@ -337,7 +337,7 @@ Common global options:
 
 | Option | Required | Default | Meaning / Notes |
 |---|---|---|---|
-| `-b`, `--base-url <BASE_URL>` | Yes | none | Base URL of the target RBS service. |
+| `-b`, `--base-url <BASE_URL>` | No | `https://127.0.0.1:6666` | Base URL of the target RBS service. The default uses HTTPS. |
 | `--cert <CERT>` | No | unset | CA certificate file used to verify the RBS server. |
 | `--timeout-secs <TIMEOUT_SECS>` | No | unset | Request timeout in seconds. |
 | `--key-algorithm <KEY_ALGORITHM>` | No | unset | Key algorithm used for TEE key generation: `rsa` or `ec`. |
