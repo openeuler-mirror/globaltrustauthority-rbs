@@ -26,9 +26,10 @@ use serde_json::Value;
 use std::fs;
 
 use crate::auth::authn::common::{
-    create_decoding_key, decode_token_header, is_es512, map_josekit_error, map_jwt_error,
-    to_jsonwebtoken_alg, validate_algorithm,
+    create_decoding_key, decode_token_header, is_es512, is_sm2, map_josekit_error, map_jwt_error,
+    to_jsonwebtoken_alg, validate_algorithm, validate_jwt_claims,
 };
+use crate::auth::authn::sm2;
 use crate::auth::authn::TokenVerifier;
 use crate::auth::context::{AttestContext, TokenType};
 use crate::auth::error::AuthError;
@@ -38,6 +39,8 @@ pub struct AttestTokenVerifier {
     config: AttestTokenVerificationConfig,
     decoding_key: Option<DecodingKey>,
     es512_pem_verifier: Option<EcdsaJwsVerifier>,
+    /// SM2 public key PEM (SM2+SM3 verification path via OpenSSL).
+    sm2_pem: Option<Vec<u8>>,
     jwk_set: Option<JwkSet>,
 }
 
@@ -47,6 +50,7 @@ impl std::fmt::Debug for AttestTokenVerifier {
             .field("config", &self.config)
             .field("has_decoding_key", &self.decoding_key.is_some())
             .field("has_es512_verifier", &self.es512_pem_verifier.is_some())
+            .field("has_sm2_key", &self.sm2_pem.is_some())
             .field("has_jwk_set", &self.jwk_set.is_some())
             .finish()
     }
@@ -58,6 +62,7 @@ impl Clone for AttestTokenVerifier {
             config: self.config.clone(),
             decoding_key: self.decoding_key.clone(),
             es512_pem_verifier: self.es512_pem_verifier.clone(),
+            sm2_pem: self.sm2_pem.clone(),
             jwk_set: self.jwk_set.clone(),
         }
     }
@@ -82,11 +87,12 @@ impl AttestTokenVerifier {
                 }
             })?;
 
-            let (decoding_key, es512_verifier) = classify_pem_key(&public_key_pem)?;
+            let (decoding_key, es512_verifier, sm2_pem) = classify_pem_key(&public_key_pem)?;
             Ok(Self {
                 config,
                 decoding_key,
                 es512_pem_verifier: es512_verifier,
+                sm2_pem,
                 jwk_set: None,
             })
         } else if let Some(ref path) = config.jwks_file {
@@ -111,6 +117,7 @@ impl AttestTokenVerifier {
                 config,
                 decoding_key: None,
                 es512_pem_verifier: None,
+                sm2_pem: None,
                 jwk_set: Some(jwk_set),
             })
         } else {
@@ -135,6 +142,10 @@ impl TokenVerifier for AttestTokenVerifier {
             header.alg,
             header.kid
         );
+
+        if is_sm2(&header.alg) {
+            return self.verify_sm2(token, header.kid.as_deref()).await;
+        }
 
         if is_es512(&header.alg) {
             return self.verify_es512(token, header.kid.as_deref()).await;
@@ -248,6 +259,86 @@ impl AttestTokenVerifier {
         })
     }
 
+    /// SM2 verification using OpenSSL (SM2 ECDSA over the SM3 digest).
+    ///
+    /// Neither `jsonwebtoken` nor `josekit` supports SM2, so this path verifies
+    /// the compact JWS signature directly with the vendored OpenSSL backend and
+    /// parses claims manually (mirroring `verify_es512`'s structure and
+    /// user-enumeration-safe error collapsing).
+    async fn verify_sm2(
+        &self,
+        token: &str,
+        kid: Option<&str>,
+    ) -> Result<AttestContext, AuthError> {
+        let parts: Vec<&str> = token.split('.').collect();
+        if parts.len() != 3 {
+            return Err(AuthError::TokenInvalid { reason: "invalid token".to_string() });
+        }
+        let signing_input = format!("{}.{}", parts[0], parts[1]);
+        let signature = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(parts[2])
+            .map_err(|e| {
+                log::warn!("AttestToken SM2 signature decode failed: {}", e);
+                AuthError::TokenInvalid { reason: "invalid token".to_string() }
+            })?;
+
+        let pem = self.get_sm2_pem(kid)?;
+        let pkey = PKey::public_key_from_pem(&pem).map_err(|e| {
+            log::warn!("AttestToken SM2 public key parse failed: {}", e);
+            AuthError::TokenInvalid { reason: "invalid token".to_string() }
+        })?;
+        // SM2+SM3 verification with the standard (GM/T 0009) user ID pinned;
+        // see `authn::sm2` for why the plain Verifier path is not usable.
+        let valid = sm2::verify(&pkey, signing_input.as_bytes(), &signature).map_err(|e| {
+            log::warn!("AttestToken SM2 verify failed: {}", e);
+            AuthError::TokenInvalid { reason: "invalid token".to_string() }
+        })?;
+        if !valid {
+            log::warn!("AttestToken SM2 signature verification failed");
+            return Err(AuthError::TokenInvalid { reason: "invalid token".to_string() });
+        }
+
+        // Signature trusted — parse and validate claims manually.
+        let payload_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(parts[1])
+            .map_err(|_| AuthError::TokenInvalid { reason: "invalid token".to_string() })?;
+        let claims: Value = serde_json::from_slice(&payload_bytes)
+            .map_err(|_| AuthError::TokenInvalid { reason: "invalid token".to_string() })?;
+
+        validate_jwt_claims(&claims, &self.config.issuer, self.config.audience.as_deref())?;
+
+        Ok(AttestContext {
+            claims,
+            token_type: TokenType::Attest,
+        })
+    }
+
+    /// Resolve the SM2 public key PEM: either the PEM loaded at construction
+    /// (`sm2_pem`) or an SM2-curve EC JWK looked up in the JWKS by `kid`.
+    fn get_sm2_pem(&self, kid: Option<&str>) -> Result<Vec<u8>, AuthError> {
+        if let Some(ref pem) = self.sm2_pem {
+            return Ok(pem.clone());
+        }
+
+        let jwk_set = self.jwk_set.as_ref().ok_or_else(|| AuthError::TokenInvalid {
+            reason: "no key configured for SM2 verification".to_string(),
+        })?;
+
+        let candidates = if let Some(kid) = kid {
+            jwk_set.get(kid)
+        } else {
+            jwk_set.keys()
+        };
+        let jwk = candidates
+            .into_iter()
+            .find(|j| j.key_type() == "EC" && j.curve() == Some("sm2p256v1"))
+            .ok_or_else(|| AuthError::TokenInvalid {
+                reason: "no SM2 key found in JWKS".to_string(),
+            })?;
+
+        josekit_jwk_to_pem(&jwk)
+    }
+
     fn get_decoding_key(
         &self,
         kid: Option<&str>,
@@ -287,19 +378,24 @@ impl AttestTokenVerifier {
 // ── Key classification & conversion ──
 
 /// Classify a PEM public key and return the appropriate verifier(s).
+///
+/// The third tuple element holds the raw SM2 public key PEM (for the OpenSSL
+/// SM2+SM3 path); it is `Some` only for SM2 keys, which neither `jsonwebtoken`
+/// (`DecodingKey`) nor `josekit` (`EcdsaJwsVerifier`) can represent.
 fn classify_pem_key(
     pem: &[u8],
-) -> Result<(Option<DecodingKey>, Option<EcdsaJwsVerifier>), AuthError> {
+) -> Result<(Option<DecodingKey>, Option<EcdsaJwsVerifier>, Option<Vec<u8>>), AuthError> {
     let pkey = PKey::public_key_from_pem(pem).map_err(|e| AuthError::TokenInvalid {
         reason: format!("failed to parse PEM public key: {}", e),
     })?;
 
     match pkey.id() {
+        openssl::pkey::Id::SM2 => Ok((None, None, Some(pem.to_vec()))),
         openssl::pkey::Id::ED25519 => {
             let dk = DecodingKey::from_ed_pem(pem).map_err(|e| AuthError::TokenInvalid {
                 reason: format!("failed to create EdDSA decoding key: {}", e),
             })?;
-            Ok((Some(dk), None))
+            Ok((Some(dk), None, None))
         }
         openssl::pkey::Id::EC => {
             let ec_key = pkey.ec_key().map_err(|_| AuthError::TokenInvalid {
@@ -310,13 +406,19 @@ fn classify_pem_key(
                 .curve_name()
                 .unwrap_or(openssl::nid::Nid::from_raw(0));
 
+            if nid == openssl::nid::Nid::SM2 {
+                // SM2-curve EC key: OpenSSL may report Id::EC rather than Id::SM2
+                // depending on how the key was constructed. Route to the SM2 path.
+                return Ok((None, None, Some(pem.to_vec())));
+            }
+
             if nid == openssl::nid::Nid::SECP521R1 {
                 let verifier = ES512.verifier_from_pem(pem).map_err(|e| {
                     AuthError::TokenInvalid {
                         reason: format!("failed to create ES512 verifier: {}", e),
                     }
                 })?;
-                Ok((None, Some(verifier)))
+                Ok((None, Some(verifier), None))
             } else if nid == openssl::nid::Nid::X9_62_PRIME256V1
                 || nid == openssl::nid::Nid::SECP384R1
             {
@@ -324,7 +426,7 @@ fn classify_pem_key(
                     DecodingKey::from_ec_pem(pem).map_err(|e| AuthError::TokenInvalid {
                         reason: format!("failed to create EC decoding key: {}", e),
                     })?;
-                Ok((Some(dk), None))
+                Ok((Some(dk), None, None))
             } else {
                 Err(AuthError::TokenInvalid {
                     reason: "unsupported EC curve for AttestToken PEM".to_string(),
@@ -336,7 +438,7 @@ fn classify_pem_key(
                 DecodingKey::from_rsa_pem(pem).map_err(|e| AuthError::TokenInvalid {
                     reason: format!("failed to create RSA decoding key: {}", e),
                 })?;
-            Ok((Some(dk), None))
+            Ok((Some(dk), None, None))
         }
         openssl::pkey::Id::RSA_PSS => {
             let rsa = pkey.rsa().map_err(|e| AuthError::TokenInvalid {
@@ -348,11 +450,23 @@ fn classify_pem_key(
                     rsa.e().to_vec().as_slice(),
                 )),
                 None,
+                None,
             ))
         }
-        _ => Err(AuthError::TokenInvalid {
-            reason: "unsupported key type for AttestToken".to_string(),
-        }),
+        _ => {
+            // OpenSSL 3.x may report an SM2 public key's id as -1 (unknown) after
+            // round-tripping through a SubjectPublicKeyInfo PEM, so the EC arm above
+            // is bypassed. Detect SM2 via the EC-specific PEM parser, which preserves
+            // the curve NID, and route to the OpenSSL SM2+SM3 path.
+            if let Ok(ec_key) = openssl::ec::EcKey::public_key_from_pem(pem) {
+                if ec_key.group().curve_name() == Some(openssl::nid::Nid::SM2) {
+                    return Ok((None, None, Some(pem.to_vec())));
+                }
+            }
+            Err(AuthError::TokenInvalid {
+                reason: "unsupported key type for AttestToken".to_string(),
+            })
+        }
     }
 }
 
@@ -401,6 +515,7 @@ fn josekit_jwk_ec_to_pem(jwk: &josekit::jwk::Jwk) -> Result<Vec<u8>, AuthError> 
     let curve_nid = match crv {
         "P-256" => openssl::nid::Nid::X9_62_PRIME256V1,
         "P-384" => openssl::nid::Nid::SECP384R1,
+        "sm2p256v1" => openssl::nid::Nid::SM2,
         _ => {
             return Err(AuthError::TokenInvalid {
                 reason: format!("unsupported EC curve in JWKS: {}", crv),
@@ -586,7 +701,7 @@ mod tests {
     #[test]
     fn test_classify_pem_key_rsa() {
         let pem = generate_test_rsa_public_key_pem();
-        let (dk, es512) = classify_pem_key(pem.as_bytes()).unwrap();
+        let (dk, es512, _sm2) = classify_pem_key(pem.as_bytes()).unwrap();
         assert!(dk.is_some());
         assert!(es512.is_none());
     }
@@ -595,7 +710,7 @@ mod tests {
     fn test_classify_pem_key_ed25519() {
         let ed_key = openssl::pkey::PKey::generate_ed25519().unwrap();
         let ed_pem = ed_key.public_key_to_pem().unwrap();
-        let (dk, es512) = classify_pem_key(&ed_pem).unwrap();
+        let (dk, es512, _sm2) = classify_pem_key(&ed_pem).unwrap();
         assert!(dk.is_some());
         assert!(es512.is_none());
     }
@@ -607,7 +722,7 @@ mod tests {
         let ec_key = openssl::ec::EcKey::generate(&ec_group).unwrap();
         let pkey = openssl::pkey::PKey::from_ec_key(ec_key).unwrap();
         let pem = pkey.public_key_to_pem().unwrap();
-        let (dk, es512) = classify_pem_key(&pem).unwrap();
+        let (dk, es512, _sm2) = classify_pem_key(&pem).unwrap();
         assert!(dk.is_some());
         assert!(es512.is_none());
     }
@@ -619,7 +734,7 @@ mod tests {
         let ec_key = openssl::ec::EcKey::generate(&ec_group).unwrap();
         let pkey = openssl::pkey::PKey::from_ec_key(ec_key).unwrap();
         let pem = pkey.public_key_to_pem().unwrap();
-        let (dk, es512) = classify_pem_key(&pem).unwrap();
+        let (dk, es512, _sm2) = classify_pem_key(&pem).unwrap();
         assert!(dk.is_none());
         assert!(es512.is_some());
     }
@@ -631,7 +746,7 @@ mod tests {
         let ec_key = openssl::ec::EcKey::generate(&ec_group).unwrap();
         let pkey = openssl::pkey::PKey::from_ec_key(ec_key).unwrap();
         let pem = pkey.public_key_to_pem().unwrap();
-        let (dk, es512) = classify_pem_key(&pem).unwrap();
+        let (dk, es512, _sm2) = classify_pem_key(&pem).unwrap();
         assert!(dk.is_some());
         assert!(es512.is_none());
     }
@@ -804,5 +919,235 @@ mod tests {
         ).unwrap();
         let result = josekit_jwk_to_pem(&jwk);
         assert!(result.is_err());
+    }
+
+    // ── SM2 tests ──
+
+    /// Generate an SM2 key pair (EC key on the SM2 curve wrapped in PKey).
+    fn generate_test_sm2_key_pair() -> (String, String) {
+        let group = openssl::ec::EcGroup::from_curve_name(openssl::nid::Nid::SM2)
+            .expect("SM2 group");
+        let ec = openssl::ec::EcKey::generate(&group).expect("generate SM2 EC key");
+        let pkey = openssl::pkey::PKey::from_ec_key(ec).expect("PKey from SM2 EC key");
+        let pub_pem = String::from_utf8(pkey.public_key_to_pem().expect("pub pem")).unwrap();
+        let priv_pem =
+            String::from_utf8(pkey.private_key_to_pem_pkcs8().expect("priv pem")).unwrap();
+        (pub_pem, priv_pem)
+    }
+
+    /// Build an SM2-signed compact JWS (alg "SM2") for AttestToken tests.
+    fn sign_sm2_attest_token(priv_pem: &str, iss: &str, aud: Option<&str>, exp: u64) -> String {
+        sign_sm2_attest_token_with_id(priv_pem, iss, aud, exp, sm2::SM2_USER_ID)
+    }
+
+    /// Like [`sign_sm2_attest_token`] but with an explicit SM2 user ID, used
+    /// to prove that non-standard IDs are rejected.
+    fn sign_sm2_attest_token_with_id(
+        priv_pem: &str,
+        iss: &str,
+        aud: Option<&str>,
+        exp: u64,
+        user_id: &[u8],
+    ) -> String {
+        let pkey = openssl::pkey::PKey::private_key_from_pem(priv_pem.as_bytes())
+            .expect("load SM2 priv key");
+        let header = serde_json::json!({ "alg": "SM2", "typ": "JWT" });
+        let mut payload = serde_json::json!({ "iss": iss, "sub": "attest-sub", "exp": exp });
+        if let Some(aud) = aud {
+            payload["aud"] = serde_json::Value::String(aud.to_string());
+        }
+        let header_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(serde_json::to_vec(&header).unwrap());
+        let payload_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(serde_json::to_vec(&payload).unwrap());
+        let signing_input = format!("{}.{}", header_b64, payload_b64);
+        let sig = sm2::sign_with_id(&pkey, signing_input.as_bytes(), user_id).expect("SM2 sign");
+        let sig_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&sig);
+        format!("{}.{}", signing_input, sig_b64)
+    }
+
+    fn sm2_attest_verifier(pub_key_path: String) -> AttestTokenVerifier {
+        let config = AttestTokenVerificationConfig {
+            public_key_path: Some(pub_key_path),
+            jwks_file: None,
+            issuer: "Global Trust Authority".to_string(),
+            audience: Some("rbs".to_string()),
+        };
+        AttestTokenVerifier::new(config).expect("verifier")
+    }
+
+    #[test]
+    fn test_classify_pem_key_sm2() {
+        let (pub_pem, _) = generate_test_sm2_key_pair();
+        let (dk, es512, sm2) = classify_pem_key(pub_pem.as_bytes()).unwrap();
+        assert!(dk.is_none(), "SM2 must not produce a DecodingKey");
+        assert!(es512.is_none(), "SM2 must not produce an ES512 verifier");
+        assert!(sm2.is_some(), "SM2 must produce a raw PEM");
+    }
+
+    #[tokio::test]
+    async fn test_sm2_attest_token_round_trip() {
+        let (pub_pem, priv_pem) = generate_test_sm2_key_pair();
+        let path = std::env::temp_dir().join("rbs_test_attest_sm2_rt.pem");
+        std::fs::write(&path, &pub_pem).expect("write pub");
+        let verifier = sm2_attest_verifier(path.to_string_lossy().to_string());
+
+        let exp = (std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            + 3600) as u64;
+        let token =
+            sign_sm2_attest_token(&priv_pem, "Global Trust Authority", Some("rbs"), exp);
+
+        let result = verifier.verify(&token).await;
+        assert!(result.is_ok(), "valid SM2 AttestToken should verify: {:?}", result.err());
+        assert_eq!(result.unwrap().token_type, TokenType::Attest);
+    }
+
+    /// An expired SM2 AttestToken returns TokenExpired.
+    #[tokio::test]
+    async fn test_sm2_attest_token_expired() {
+        let (pub_pem, priv_pem) = generate_test_sm2_key_pair();
+        let path = std::env::temp_dir().join("rbs_test_attest_sm2_exp.pem");
+        std::fs::write(&path, &pub_pem).expect("write pub");
+        let verifier = sm2_attest_verifier(path.to_string_lossy().to_string());
+
+        let exp = (std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            - 3600) as u64;
+        let token =
+            sign_sm2_attest_token(&priv_pem, "Global Trust Authority", Some("rbs"), exp);
+
+        let result = verifier.verify(&token).await;
+        assert!(result.is_err(), "expired SM2 AttestToken must be rejected");
+        match result.unwrap_err() {
+            AuthError::TokenExpired => {}
+            other => panic!("expected TokenExpired, got: {:?}", other),
+        }
+    }
+
+    /// An SM2 AttestToken signed with a non-standard user ID is rejected:
+    /// verification pins the GM/T 0009 default ID (see `authn::sm2`).
+    #[tokio::test]
+    async fn test_sm2_attest_token_non_standard_user_id_rejected() {
+        let (pub_pem, priv_pem) = generate_test_sm2_key_pair();
+        let path = std::env::temp_dir().join("rbs_test_attest_sm2_wid.pem");
+        std::fs::write(&path, &pub_pem).expect("write pub");
+        let verifier = sm2_attest_verifier(path.to_string_lossy().to_string());
+
+        let exp = (std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            + 3600) as u64;
+        let token = sign_sm2_attest_token_with_id(
+            &priv_pem,
+            "Global Trust Authority",
+            Some("rbs"),
+            exp,
+            b"",
+        );
+
+        let result = verifier.verify(&token).await;
+        assert!(result.is_err(), "SM2 AttestToken with empty user ID must be rejected");
+        match result.unwrap_err() {
+            AuthError::TokenInvalid { .. } => {}
+            other => panic!("expected TokenInvalid, got: {:?}", other),
+        }
+    }
+
+    /// SM2 AttestToken verification via a JWKS file (crv "sm2p256v1") works end
+    /// to end: kid lookup, JWK-to-PEM conversion, and signature verification
+    /// under the standard user ID.
+    #[tokio::test]
+    async fn test_sm2_attest_token_via_jwks() {
+        let group = openssl::ec::EcGroup::from_curve_name(openssl::nid::Nid::SM2).unwrap();
+        let ec = openssl::ec::EcKey::generate(&group).unwrap();
+
+        // Affine coordinates for the SM2 JWK (crv "sm2p256v1").
+        let mut ctx = openssl::bn::BigNumContext::new().unwrap();
+        let mut x = openssl::bn::BigNum::new().unwrap();
+        let mut y = openssl::bn::BigNum::new().unwrap();
+        ec.public_key()
+            .affine_coordinates(&group, &mut x, &mut y, &mut ctx)
+            .unwrap();
+        let pkey = openssl::pkey::PKey::from_ec_key(ec).unwrap();
+        let priv_pem = String::from_utf8(pkey.private_key_to_pem_pkcs8().unwrap()).unwrap();
+
+        let x_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&x.to_vec());
+        let y_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&y.to_vec());
+        let jwks = serde_json::json!({
+            "keys": [{
+                "kty": "EC", "crv": "sm2p256v1", "kid": "sm2-kid-1",
+                "use": "sig", "x": x_b64, "y": y_b64,
+            }],
+        });
+        let jwks_path = std::env::temp_dir().join("rbs_test_attest_sm2_jwks.json");
+        std::fs::write(&jwks_path, serde_json::to_vec(&jwks).unwrap()).unwrap();
+
+        let config = AttestTokenVerificationConfig {
+            public_key_path: None,
+            jwks_file: Some(jwks_path.to_string_lossy().to_string()),
+            issuer: "Global Trust Authority".to_string(),
+            audience: Some("rbs".to_string()),
+        };
+        let verifier = AttestTokenVerifier::new(config).expect("verifier");
+
+        // Compact JWS with kid pointing at the JWKS key.
+        let exp = (std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            + 3600) as u64;
+        let header = serde_json::json!({ "alg": "SM2", "typ": "JWT", "kid": "sm2-kid-1" });
+        let payload = serde_json::json!({
+            "iss": "Global Trust Authority", "sub": "attest-sub", "aud": "rbs", "exp": exp
+        });
+        let header_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(serde_json::to_vec(&header).unwrap());
+        let payload_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(serde_json::to_vec(&payload).unwrap());
+        let signing_input = format!("{}.{}", header_b64, payload_b64);
+        let signing_key = openssl::pkey::PKey::private_key_from_pem(priv_pem.as_bytes()).unwrap();
+        let sig = sm2::sign(&signing_key, signing_input.as_bytes()).expect("SM2 sign");
+        let sig_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&sig);
+        let token = format!("{}.{}", signing_input, sig_b64);
+
+        let result = verifier.verify(&token).await;
+        assert!(result.is_ok(), "SM2 AttestToken via JWKS should verify: {:?}", result.err());
+        assert_eq!(result.unwrap().token_type, TokenType::Attest);
+    }
+
+    /// SM2 JWK (crv "sm2p256v1") round-trips to a PEM that parses as an SM2 key.
+    #[test]
+    fn test_josekit_jwk_ec_to_pem_sm2() {
+        let group = openssl::ec::EcGroup::from_curve_name(openssl::nid::Nid::SM2).unwrap();
+        let ec_key = openssl::ec::EcKey::generate(&group).unwrap();
+        let mut ctx = openssl::bn::BigNumContext::new().unwrap();
+        let mut x = openssl::bn::BigNum::new().unwrap();
+        let mut y = openssl::bn::BigNum::new().unwrap();
+        ec_key
+            .public_key()
+            .affine_coordinates(&group, &mut x, &mut y, &mut ctx)
+            .unwrap();
+        let x_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&x.to_vec());
+        let y_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&y.to_vec());
+        let jwk: josekit::jwk::Jwk = josekit::jwk::Jwk::from_bytes(
+            serde_json::to_vec(
+                &serde_json::json!({"kty": "EC", "crv": "sm2p256v1", "x": x_b64, "y": y_b64}),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let result = josekit_jwk_ec_to_pem(&jwk).unwrap();
+        let parsed = openssl::pkey::PKey::public_key_from_pem(&result).unwrap();
+        // OpenSSL may report Id::SM2 or Id::EC for an SM2-curve key; both are accepted
+        // by classify_pem_key. Assert it classifies as SM2.
+        let (dk, es512, sm2) = classify_pem_key(&result).unwrap();
+        assert!(dk.is_none() && es512.is_none() && sm2.is_some());
+        let _ = parsed;
     }
 }

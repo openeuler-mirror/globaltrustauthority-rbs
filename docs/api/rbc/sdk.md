@@ -128,7 +128,9 @@ Set the token provider configuration list.
 pub fn key_algorithm(mut self, alg: KeyType) -> Self
 ```
 
-Set the key algorithm used for ephemeral TEE key generation.
+Set the key algorithm used for ephemeral TEE key generation. `KeyType` variants:
+`Rsa`, `Ec`, `Sm2`. `Sm2` supports key generation/loading and signing only; the
+JWE resource envelope does not support SM2 (use `Rsa` or `Ec` for the envelope).
 
 #### `build`
 

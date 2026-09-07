@@ -20,14 +20,19 @@ use josekit::jwe::{self, JweHeader};
 use josekit::jwk::alg::ec::EcCurve;
 use josekit::jwk::alg::ec::EcKeyPair;
 use josekit::jwk::alg::rsa::RsaKeyPair;
-use josekit::jwk::Jwk;
-use josekit::jwk::KeyPair;
+use josekit::jwk::{Jwk, KeyPair};
+use openssl::bn::BigNumContext;
+use openssl::ec::{EcGroup, EcKey};
 use openssl::nid::Nid;
 use openssl::pkey::{Id, PKey};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use zeroize::Zeroizing;
 
 use crate::error::RbcError;
+
+/// The JWK `crv` name for the SM2 curve.
+const SM2_CRV: &str = "sm2p256v1";
 
 /// Please refer to the docs for the algorithms supported by josekit: josekit/README.md
 const DEFAULT_RSA_ENC_ALGORITHM: &str = "RSA-OAEP-256";
@@ -49,6 +54,12 @@ const EC_ALLOWED_CURVES: &[&str] = &["P-256", "P-384", "P-521"];
 pub enum KeyType {
     Rsa,
     Ec,
+    /// SM2 (GM/T 0003). Supported for key generation, PEM/JWK loading, and the
+    /// public-key JWK export used by signing flows. The JWE envelope path is
+    /// **not** supported for SM2 (the SM2 curve is not usable with ECDH-ES),
+    /// so [`TeeKeyPair::encrypt_jwe`] / [`TeeKeyPair::decrypt_jwe`] return an
+    /// error for this variant — use RSA or EC for the resource-return envelope.
+    Sm2,
 }
 
 impl Default for KeyType {
@@ -85,6 +96,39 @@ fn ec_curve_from_openssl_nid(nid: Option<Nid>) -> Result<EcCurve, RbcError> {
     }
 }
 
+/// Build a JWK (`kty` "EC", `crv` "sm2p256v1") from an SM2 `PKey`'s public key.
+///
+/// SM2 is not a josekit `EcCurve`, so the JWK is assembled manually from the
+/// affine coordinates extracted via the EC-specific PEM parser (OpenSSL 3.x
+/// reports a re-parsed SM2 key's id as -1 and exposes no `ec_key()` on the
+/// generic `PKey`, but `EcKey::public_key_from_pem` preserves the SM2 curve).
+fn sm2_public_jwk(pkey: &PKey<openssl::pkey::Private>) -> Result<Jwk, RbcError> {
+    let pub_pem = pkey
+        .public_key_to_pem()
+        .map_err(|e| RbcError::KeyGenError(format!("SM2 public key export: {e}")))?;
+    let ec = EcKey::public_key_from_pem(&pub_pem)
+        .map_err(|e| RbcError::KeyGenError(format!("SM2 public key parse: {e}")))?;
+    let group = ec.group();
+    let mut ctx = BigNumContext::new().map_err(|e| RbcError::KeyGenError(format!("BN ctx: {e}")))?;
+    let mut x = openssl::bn::BigNum::new().map_err(|e| RbcError::KeyGenError(format!("BN x: {e}")))?;
+    let mut y = openssl::bn::BigNum::new().map_err(|e| RbcError::KeyGenError(format!("BN y: {e}")))?;
+    ec.public_key()
+        .affine_coordinates(group, &mut x, &mut y, &mut ctx)
+        .map_err(|e| RbcError::KeyGenError(format!("SM2 affine coords: {e}")))?;
+
+    let x_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&x.to_vec());
+    let y_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&y.to_vec());
+
+    let mut jwk = Jwk::new("EC");
+    jwk.set_parameter("crv", Some(Value::String(SM2_CRV.to_string())))
+        .map_err(|e| RbcError::KeyGenError(format!("JWK crv: {e}")))?;
+    jwk.set_parameter("x", Some(Value::String(x_b64)))
+        .map_err(|e| RbcError::KeyGenError(format!("JWK x: {e}")))?;
+    jwk.set_parameter("y", Some(Value::String(y_b64)))
+        .map_err(|e| RbcError::KeyGenError(format!("JWK y: {e}")))?;
+    Ok(jwk)
+}
+
 impl TeeKeyPair {
     /// Generate an ephemeral key pair.
     ///
@@ -107,6 +151,21 @@ impl TeeKeyPair {
                 let private_der = Zeroizing::new(kp.to_der_private_key());
                 let public_jwk = kp.to_jwk_public_key();
                 Ok(Self { key_type, ec_curve: Some(DEFAULT_EC_CURVE), private_der, public_jwk })
+            },
+            KeyType::Sm2 => {
+                // SM2 is not a josekit EcCurve; generate via OpenSSL directly.
+                let group = EcGroup::from_curve_name(Nid::SM2)
+                    .map_err(|e| RbcError::KeyGenError(format!("SM2 group: {e}")))?;
+                let ec = EcKey::generate(&group)
+                    .map_err(|e| RbcError::KeyGenError(format!("SM2 keygen: {e}")))?;
+                let pkey = PKey::from_ec_key(ec)
+                    .map_err(|e| RbcError::KeyGenError(format!("SM2 PKey: {e}")))?;
+                let private_der = Zeroizing::new(
+                    pkey.private_key_to_der()
+                        .map_err(|e| RbcError::KeyGenError(format!("SM2 DER export: {e}")))?,
+                );
+                let public_jwk = sm2_public_jwk(&pkey)?;
+                Ok(Self { key_type, ec_curve: None, private_der, public_jwk })
             },
         }
     }
@@ -146,7 +205,23 @@ impl TeeKeyPair {
                 Ok(Self { key_type: KeyType::Ec, ec_curve: Some(ec_curve), private_der, public_jwk })
             },
             other => {
-                Err(RbcError::KeyGenError(format!("unsupported private key type `{other:?}`; expected RSA or EC")))
+                // OpenSSL 3.x reports a re-parsed SM2 private key's id as -1, so
+                // it does not match Id::EC (and ec_key() is unavailable). Detect
+                // SM2 via the public-key curve and load it through the SM2 path.
+                let pub_pem = pkey
+                    .public_key_to_pem()
+                    .map_err(|e| RbcError::KeyGenError(format!("SM2 public export: {e}")))?;
+                let is_sm2 = EcKey::public_key_from_pem(&pub_pem)
+                    .ok()
+                    .and_then(|ec| ec.group().curve_name())
+                    == Some(Nid::SM2);
+                if !is_sm2 {
+                    return Err(RbcError::KeyGenError(format!(
+                        "unsupported private key type `{other:?}`; expected RSA, EC, or SM2"
+                    )));
+                }
+                let public_jwk = sm2_public_jwk(&pkey)?;
+                Ok(Self { key_type: KeyType::Sm2, ec_curve: None, private_der, public_jwk })
             },
         }
     }
@@ -187,6 +262,9 @@ impl TeeKeyPair {
                     .map_err(|e| RbcError::DecryptError(format!("JWE decrypt: {e}")))?;
                 Ok(payload)
             },
+            KeyType::Sm2 => Err(RbcError::DecryptError(
+                "JWE envelope does not support SM2; use RSA or EC for the envelope".into(),
+            )),
         }
     }
 
@@ -204,6 +282,15 @@ impl TeeKeyPair {
                     .map_err(|e| RbcError::KeyGenError(format!("load EC DER: {e}")))?;
                 Ok(String::from_utf8_lossy(&kp.to_pem_private_key()).to_string())
             },
+            KeyType::Sm2 => {
+                // SM2 keys are stored as raw OpenSSL DER (josekit has no SM2 EcCurve).
+                let pkey = PKey::private_key_from_der(&*self.private_der)
+                    .map_err(|e| RbcError::KeyGenError(format!("SM2 DER load: {e}")))?;
+                let pem = pkey
+                    .private_key_to_pem_pkcs8()
+                    .map_err(|e| RbcError::KeyGenError(format!("SM2 PEM export: {e}")))?;
+                Ok(String::from_utf8_lossy(&pem).to_string())
+            },
         }
     }
 }
@@ -215,7 +302,14 @@ impl TeePublicKey {
         let jwk = Jwk::from_bytes(json.as_bytes()).map_err(|e| RbcError::InvalidInput(format!("invalid JWK: {e}")))?;
         let key_type = match jwk.key_type() {
             "RSA" => KeyType::Rsa,
-            "EC" => KeyType::Ec,
+            "EC" => {
+                // An EC JWK on the SM2 curve is an SM2 key, not a standard EC key.
+                if jwk.curve() == Some(SM2_CRV) {
+                    KeyType::Sm2
+                } else {
+                    KeyType::Ec
+                }
+            },
             other => return Err(RbcError::InvalidInput(format!("unsupported JWK kty: {other}"))),
         };
         Ok(Self { key_type, public_jwk: jwk })
@@ -230,6 +324,7 @@ impl TeePublicKey {
         match self.key_type {
             KeyType::Rsa => self.validate_rsa_params(),
             KeyType::Ec => self.validate_ec_params(),
+            KeyType::Sm2 => self.validate_sm2_params(),
         }
     }
 
@@ -323,6 +418,29 @@ impl TeePublicKey {
                 jwe::serialize_compact(plaintext, &header, &encrypter)
                     .map_err(|e| RbcError::EncryptError(format!("JWE encrypt: {e}")))
             },
+            KeyType::Sm2 => Err(RbcError::EncryptError(
+                "JWE envelope does not support SM2; use RSA or EC for the envelope".into(),
+            )),
         }
+    }
+
+    /// Validate an SM2 tee-pubkey JWK: requires `crv` = "sm2p256v1" and 32-byte
+    /// affine coordinates. The JWE envelope path rejects SM2 regardless.
+    fn validate_sm2_params(&self) -> Result<(), RbcError> {
+        let invalid = |msg: &str| Err(RbcError::InvalidInput(format!("invalid tee-pubkey: {msg}")));
+        let crv = match self.public_jwk.parameter("crv").and_then(|v| v.as_str()) {
+            Some(SM2_CRV) => SM2_CRV,
+            Some(c) => return invalid(&format!("SM2 key has unexpected curve '{c}'; expected '{SM2_CRV}'")),
+            None => return invalid("SM2 key missing parameter 'crv'"),
+        };
+        // SM2 field size is 256 bits → 32-byte coordinates.
+        self.validate_ec_coordinate("x", crv, 32)?;
+        self.validate_ec_coordinate("y", crv, 32)?;
+        if let Some(alg) = self.public_jwk.algorithm() {
+            return invalid(&format!(
+                "SM2 envelope algorithm '{alg}' is not supported; JWE does not support SM2"
+            ));
+        }
+        Ok(())
     }
 }

@@ -121,7 +121,8 @@ fn parse_key_algorithm(value: &str) -> Result<KeyType, String> {
     match value {
         "rsa" => Ok(KeyType::Rsa),
         "ec" => Ok(KeyType::Ec),
-        _ => Err(format!("invalid key algorithm `{value}`; expected `rsa` or `ec`")),
+        "sm2" => Ok(KeyType::Sm2),
+        _ => Err(format!("invalid key algorithm `{value}`; expected `rsa`, `ec`, or `sm2`")),
     }
 }
 

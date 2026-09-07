@@ -62,7 +62,9 @@ pub struct RbcMeasurement {
     /// Optional node or workload identifier.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub node_id: Option<String>,
-    /// Optional hint for nonce interpretation (backend-specific).
+    /// Nonce interpretation mode. Only `"verifier"` is supported: the nonce must
+    /// be the verifier-generated challenge obtained from `GET /rbs/v0/challenge`.
+    /// Attester-generated nonces are not supported by this flow.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nonce_type: Option<String>,
     /// Optional desired token format hint (backend-specific).

@@ -18,10 +18,10 @@ paths:
       tags:
       - Attestation
       summary: Submit attestation evidence and obtain token
-      description: Submit the RBC evidence bundle to the attestation backend; on success an attest token is returned for resource reads (`GET .../{resource}` and `POST .../retrieve`). The token is replayable until it expires. No authentication required.
+      description: Submit the RBC evidence bundle to the attestation backend; on success an attest token is returned for resource reads (`GET .../{resource}` and `POST .../retrieve`). The token is replayable until it expires. `rbc_evidences.measurements[].nonce_type` supports only `verifier` (the verifier-generated challenge from `GET /rbs/v0/challenge`); attester-generated nonces are not supported. No authentication required.
       operationId: postAttest
       requestBody:
-        description: Evidence bundle including the nonce obtained from `GET /rbs/v0/challenge`; `attester_data.runtime_data.tee-pubkey` (JWK) is used to JWE-encrypt returned resources.
+        description: Evidence bundle including the nonce obtained from `GET /rbs/v0/challenge` (`nonce_type` must be `verifier`); `attester_data.runtime_data.tee-pubkey` (JWK) is used to JWE-encrypt returned resources.
         content:
           application/json:
             schema:
@@ -4248,7 +4248,10 @@ components:
           type:
           - string
           - 'null'
-          description: Optional hint for nonce interpretation (backend-specific).
+          description: |-
+            Nonce interpretation mode. Only `"verifier"` is supported: the nonce must
+            be the verifier-generated challenge obtained from `GET /rbs/v0/challenge`.
+            Attester-generated nonces are not supported by this flow.
         token_fmt:
           type:
           - string

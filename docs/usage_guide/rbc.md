@@ -153,7 +153,7 @@ let client = Client::new(config)?;
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `rbs` | block | **required** | RBS connection parameters (see below) |
-| `key_algorithm` | `rsa` \| `ec` | `rsa` | Algorithm for the ephemeral TEE key pair |
+| `key_algorithm` | `rsa` \| `ec` \| `sm2` | `rsa` | Algorithm for the ephemeral TEE key pair. `sm2` supports key generation/loading and signing only — the JWE resource envelope does not support SM2 (use `rsa` or `ec` for the envelope). |
 | `evidence_provider` | list | — | Evidence provider entries; first enabled entry is used (see §5.3) |
 | `token_provider` | list | — | Token provider entries; first enabled entry is used (see §5.4) |
 
@@ -197,7 +197,9 @@ rbs:
   timeout_secs: 30
 
 # Optional: TEE key pair algorithm used to wrap the resource content key
-# Accepted values: rsa (default) | ec
+# Accepted values: rsa (default) | ec | sm2
+# Note: sm2 supports key generation/loading and signing only; the JWE resource
+# envelope does not support SM2 (use rsa or ec for the envelope).
 # key_algorithm: ec
 
 # Evidence providers: first entry with enabled: true is used
@@ -336,7 +338,7 @@ Common global options:
 | `-b`, `--base-url <BASE_URL>` | Yes | none | Base URL of the target RBS service. |
 | `--cert <CERT>` | No | unset | CA certificate file used to verify the RBS server. |
 | `--timeout-secs <TIMEOUT_SECS>` | No | unset | Request timeout in seconds. |
-| `--key-algorithm <KEY_ALGORITHM>` | No | unset | Key algorithm used for TEE key generation: `rsa` or `ec`. |
+| `--key-algorithm <KEY_ALGORITHM>` | No | unset | Key algorithm used for TEE key generation: `rsa`, `ec`, or `sm2`. `sm2` supports key generation/loading and signing only; the JWE resource envelope does not support SM2. |
 | `--as-provider <AS_PROVIDER>` | No | `gta` | Provider identifier sent to RBS APIs. |
 | `-f`, `--format <FORMAT>` | No | `text` | Output format: `text` or `json`. |
 | `-o`, `--output-file <OUTPUT_FILE>` | No | unset | Write command output to a file. |

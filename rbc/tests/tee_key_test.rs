@@ -317,3 +317,51 @@ fn from_jwk_json_unknown_kty_returns_invalid_input() {
     let err = TeePublicKey::from_jwk_json(json).err().expect("should return Err");
     assert!(matches!(err, RbcError::InvalidInput(_)), "expected InvalidInput, got {err:?}");
 }
+
+// ── SM2: generation, JWK, PEM round-trip, JWE rejection ──
+
+#[test]
+fn test_sm2_generate_and_public_jwk_json() {
+    let kp = TeeKeyPair::generate(KeyType::Sm2).unwrap();
+    let json = kp.public_jwk_json().unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed["kty"], "EC");
+    assert_eq!(parsed["crv"], "sm2p256v1");
+    assert!(parsed.get("x").is_some());
+    assert!(parsed.get("y").is_some());
+    assert!(parsed.get("d").is_none(), "public JWK must not expose the private scalar");
+}
+
+#[test]
+fn test_sm2_from_private_pem_round_trip() {
+    let kp = TeeKeyPair::generate(KeyType::Sm2).unwrap();
+    let priv_pem = kp.to_private_pem().unwrap();
+    let kp2 = TeeKeyPair::from_private_pem(&priv_pem, None).unwrap();
+    assert_eq!(kp2.public_key().key_type(), KeyType::Sm2);
+    // The reloaded public JWK must match the original.
+    assert_eq!(kp.public_jwk_json().unwrap(), kp2.public_jwk_json().unwrap());
+}
+
+#[test]
+fn test_sm2_jwe_encrypt_rejected() {
+    let kp = TeeKeyPair::generate(KeyType::Sm2).unwrap();
+    let err = kp.public_key().encrypt_jwe(b"data").err().unwrap();
+    assert!(matches!(err, RbcError::EncryptError(_)), "expected EncryptError, got {err:?}");
+}
+
+#[test]
+fn test_sm2_jwe_decrypt_rejected() {
+    let kp = TeeKeyPair::generate(KeyType::Sm2).unwrap();
+    let err = kp.decrypt_jwe("not.used").err().unwrap();
+    assert!(matches!(err, RbcError::DecryptError(_)), "expected DecryptError, got {err:?}");
+}
+
+#[test]
+fn test_sm2_from_jwk_json_infers_sm2_and_validates() {
+    let kp = TeeKeyPair::generate(KeyType::Sm2).unwrap();
+    let json = kp.public_jwk_json().unwrap();
+    let pub_key = TeePublicKey::from_jwk_json(&json).unwrap();
+    assert_eq!(pub_key.key_type(), KeyType::Sm2);
+    pub_key.validate_params().expect("SM2 tee-pubkey should validate");
+}
+

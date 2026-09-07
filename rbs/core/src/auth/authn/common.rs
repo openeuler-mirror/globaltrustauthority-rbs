@@ -18,8 +18,16 @@ use jsonwebtoken::{Algorithm, DecodingKey};
 use serde::Deserialize;
 
 /// Supported algorithms for token verification.
+///
+/// `SM2` is a non-RFC-registered custom JWS algorithm identifier (see RFC 7518):
+/// it denotes SM2 ECDSA over the SM3 digest, mandated by GM/T 0003. Both
+/// `jsonwebtoken` and `josekit` lack SM2 support, so SM2 tokens take a dedicated
+/// verification path (`verify_sm2`) backed by the vendored OpenSSL backend rather
+/// than the `DecodingKey`/`jsonwebtoken::Algorithm` route. All SM2 operations pin
+/// the GM/T 0009 default user ID "1234567812345678" (see `authn::sm2`) because
+/// OpenSSL >= 3.5 no longer applies it implicitly.
 pub const SUPPORTED_ALGORITHMS: &[&str] =
-    &["PS256", "PS384", "PS512", "ES256", "ES384", "ES512", "EdDSA"];
+    &["PS256", "PS384", "PS512", "ES256", "ES384", "ES512", "EdDSA", "SM2"];
 
 /// Parsed JWT header (library-agnostic).
 #[derive(Debug, Clone)]
@@ -83,6 +91,16 @@ pub fn is_es512(alg: &str) -> bool {
     alg == "ES512"
 }
 
+/// True if the algorithm is SM2 (requires the OpenSSL SM2+SM3 verification path).
+///
+/// Neither `jsonwebtoken` nor `josekit` supports SM2, so callers must dispatch
+/// to a dedicated `verify_sm2` path before reaching `to_jsonwebtoken_alg` /
+/// `create_decoding_key`, which have no SM2 mapping.
+#[inline]
+pub fn is_sm2(alg: &str) -> bool {
+    alg == "SM2"
+}
+
 /// Convert an algorithm string to jsonwebtoken's `Algorithm` enum.
 pub(crate) fn to_jsonwebtoken_alg(alg: &str) -> Result<Algorithm, AuthError> {
     match alg {
@@ -116,6 +134,57 @@ pub fn create_decoding_key(alg: &str, pem: &[u8]) -> Result<DecodingKey, AuthErr
             })
         }
     }
+}
+
+/// Validate standard JWT claims (exp, iss, aud) for library-unsupported algorithm
+/// paths (e.g. SM2) that verify the signature out-of-band and parse claims manually.
+///
+/// `exp` is required and must be in the future (expired → `TokenExpired`).
+/// `iss` must equal `issuer`. `audience`, when `Some`, must be present in the `aud`
+/// claim (accepted as a string or array of strings). All other failures collapse to
+/// `TokenInvalid { reason: "invalid token" }` to keep the user-enumeration-safe
+/// behavior of the ES512 path.
+pub fn validate_jwt_claims(
+    claims: &serde_json::Value,
+    issuer: &str,
+    audience: Option<&str>,
+) -> Result<(), AuthError> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| AuthError::TokenInvalid { reason: "invalid token".to_string() })?
+        .as_secs() as i64;
+
+    match claims.get("exp").and_then(|v| v.as_i64()) {
+        None => {
+            return Err(AuthError::TokenInvalid { reason: "missing exp claim".to_string() });
+        }
+        Some(exp) if exp <= now => {
+            return Err(AuthError::TokenExpired);
+        }
+        _ => {}
+    }
+
+    match claims.get("iss").and_then(|v| v.as_str()) {
+        Some(iss) if iss == issuer => {}
+        _ => {
+            return Err(AuthError::TokenInvalid { reason: "invalid token".to_string() });
+        }
+    }
+
+    if let Some(expected_aud) = audience {
+        let aud_ok = match claims.get("aud") {
+            Some(serde_json::Value::String(s)) => s == expected_aud,
+            Some(serde_json::Value::Array(arr)) => {
+                arr.iter().filter_map(|v| v.as_str()).any(|s| s == expected_aud)
+            }
+            _ => false,
+        };
+        if !aud_ok {
+            return Err(AuthError::TokenInvalid { reason: "invalid token".to_string() });
+        }
+    }
+
+    Ok(())
 }
 
 /// Map jsonwebtoken errors to AuthError with detailed messages.
@@ -212,7 +281,7 @@ mod tests {
 
     #[test]
     fn test_supported_algorithms_constant() {
-        assert_eq!(SUPPORTED_ALGORITHMS.len(), 7);
+        assert_eq!(SUPPORTED_ALGORITHMS.len(), 8);
         assert!(SUPPORTED_ALGORITHMS.contains(&"PS256"));
         assert!(SUPPORTED_ALGORITHMS.contains(&"PS384"));
         assert!(SUPPORTED_ALGORITHMS.contains(&"PS512"));
@@ -220,6 +289,7 @@ mod tests {
         assert!(SUPPORTED_ALGORITHMS.contains(&"ES384"));
         assert!(SUPPORTED_ALGORITHMS.contains(&"ES512"));
         assert!(SUPPORTED_ALGORITHMS.contains(&"EdDSA"));
+        assert!(SUPPORTED_ALGORITHMS.contains(&"SM2"));
     }
 
     #[test]

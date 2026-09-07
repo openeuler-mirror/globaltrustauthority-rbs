@@ -121,9 +121,9 @@ name a key present in `backends`, or startup fails.
 | `.rest.base_url` | — | conditional | GTA base URL; required non-empty for `mode: rest`. |
 | `.rest.timeout_secs` | `30` | optional | Request timeout, ≤ 3600. |
 | `.rest.retries` | `3` | optional | Retry count, ≤ 100. |
-| `.rest.tls_verify` | `true` | optional | Verify GTA TLS. |
-| `.rest.ca_file` | — | optional | Custom CA bundle; empty = system default. |
-| `.rest.client_cert_path` | — | conditional | mTLS client certificate PEM; required together with `client_key_path` when using mTLS. |
+| `.rest.tls_verify` | `true` | optional | Verify GTA's server certificate (one-way TLS, the default; `false` disables verification — test only). |
+| `.rest.ca_file` | — | optional | Custom CA bundle for one-way TLS verification; empty = system default. |
+| `.rest.client_cert_path` | — | conditional | mTLS client certificate PEM; required together with `client_key_path` when using mTLS (one-way TLS needs neither). |
 | `.rest.client_key_path` | — | conditional | mTLS client private key PEM (PKCS#8); required together with `client_cert_path` when using mTLS. |
 | `.rest.credentials.user_id` | — | required | User ID sent to GTA; ≤ 36 chars, alphanumeric plus `-`/`_`. |
 | `.rest.credentials.api_key_auth` | `false` | optional | Add API-Key auth headers (`main_api_key`/`sub_api_key`). |
@@ -147,7 +147,7 @@ Each backend selects its type with `type`: `vault`, `hsm`, or `ca`.
 | `token` | — | required | Vault access token (sensitive, redacted in logs). |
 | `mount_path` | — | required | Secrets-engine mount path, non-empty and ≤ 128 chars. |
 | `kv_version` | `v2` | optional | `v1` or `v2`. |
-| `verify_ssl` | `true` | optional | Verify TLS. |
+| `verify_ssl` | `true` | optional | Verify the server TLS certificate against the **system trust store**. No per-backend `ca_file` option: for a private-CA OpenBao, import the CA into the system trust store (`verify_ssl: false` disables verification — test environments only). |
 | `timeout` | `30` | optional | Request timeout in seconds, `1..=3600`. |
 | `max_connections` | `100` | optional | Connection count, `1..=10000`. |
 | `max_retries` | `2` | optional | Retry count, ≤ 100. |

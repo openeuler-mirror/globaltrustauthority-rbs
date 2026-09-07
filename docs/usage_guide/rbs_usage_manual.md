@@ -384,6 +384,11 @@ attestation:
           sub_api_key: ""
 ```
 
+The configuration above uses **one-way TLS** (the default): RBS verifies GTA's server
+certificate — against `ca_file` when set, otherwise the system trust store — and sends no
+client certificate. One-way TLS is the recommended production setup; `tls_verify: false`
+(disable verification) is for sealed test environments only.
+
 If GTA uses mutual TLS (mTLS), add the client certificate/key as well (the two must be configured
 together):
 
@@ -670,6 +675,15 @@ sudo systemctl restart rbs.service
 sudo grep -i vault /var/log/rbs/rbs.log | tail -3   # logs go to the file (file_path from chapter 4)
 # Expected: Registered resource backend 'vault' (type=vault, url=http://127.0.0.1:8200)
 ```
+
+> **HTTPS (TLS-enabled OpenBao).** Point `url` at `https://...` and keep `verify_ssl: true`
+> (default). Certificate verification uses the **system trust store** — the vault backend
+> has no per-backend `ca_file` option (unlike the GTA and CA backends):
+> - Public CA: nothing extra to configure.
+> - Private CA: import the CA certificate into the system trust store first, e.g. copy it to
+>   `/etc/pki/ca-trust/source/anchors/` and run `sudo update-ca-trust` (openEuler/CentOS),
+>   or `/usr/local/share/ca-certificates/` + `sudo update-ca-certificates` (Debian).
+> - `verify_ssl: false` skips certificate verification entirely — sealed test environments only.
 
 ### 9.3 Create a resource policy and register the resource
 
