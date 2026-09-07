@@ -26,6 +26,8 @@ use super::{cstr_to_str, opt_cstr_to_str};
 use crate::error::RbcError;
 use crate::sdk::GetResourceRequest;
 
+const PASSPHRASE_MAX_LEN: usize = 1024;
+
 // ─── Session lifecycle ──────────────────────────────────────────────────
 
 /// Begin a new session. `attester_data_json` may be NULL. If non-NULL it must
@@ -224,8 +226,10 @@ pub extern "C" fn rbc_session_get_resource_by_evidence(
 /// Borrow its bytes with `RbcBufferData`, get its length with `RbcBufferLen`,
 /// and release it with `RbcBufferFree`.
 /// `passphrase` / `passphrase_len` — pass a non-NULL pointer and byte length when
-/// `private_key_pem` is encrypted; pass NULL / 0 otherwise. Caller is responsible
-/// for zeroizing the passphrase buffer after this call returns.
+/// `private_key_pem` is encrypted; pass NULL / 0 otherwise. The length is in
+/// bytes and must not exceed 1024. When non-NULL, `passphrase` must point to at
+/// least `passphrase_len` readable bytes. Caller is responsible for zeroizing
+/// the passphrase buffer after this call returns.
 #[export_name = "RbcSessionDecryptContent"]
 pub extern "C" fn rbc_session_decrypt_content(
     session: *mut RbcSession,
@@ -247,7 +251,15 @@ pub extern "C" fn rbc_session_decrypt_content(
         Ok(o) => o,
         Err(e) => return e,
     };
+    if passphrase_len > PASSPHRASE_MAX_LEN {
+        set_last_error(format!("passphrase must not exceed {PASSPHRASE_MAX_LEN} bytes"));
+        return RbcErrorCode::InvalidArg;
+    }
     let pw_opt: Option<&[u8]> = if passphrase.is_null() {
+        if passphrase_len != 0 {
+            set_last_error("passphrase_len must be zero when passphrase is NULL".to_string());
+            return RbcErrorCode::InvalidArg;
+        }
         None
     } else {
         Some(unsafe { std::slice::from_raw_parts(passphrase, passphrase_len) })
@@ -583,6 +595,44 @@ mod tests {
 
         assert_ne!(code, RbcErrorCode::Ok);
         assert!(out.is_null());
+        rbc_session_free(session);
+        rbc_client_free(client);
+    }
+
+    #[test]
+    fn decrypt_content_null_passphrase_with_nonzero_len_returns_invalid_arg() {
+        let client = make_mock_client_handle();
+        let session = unsafe { make_mock_session_handle(client) };
+        let jwe = CString::new("a.b.c.d.e").unwrap();
+        let mut buffer: *mut RbcBuffer = ptr::null_mut();
+
+        let code = rbc_session_decrypt_content(session, jwe.as_ptr(), ptr::null(), ptr::null(), 1, &mut buffer);
+
+        assert_eq!(code, RbcErrorCode::InvalidArg);
+        assert!(buffer.is_null());
+        rbc_session_free(session);
+        rbc_client_free(client);
+    }
+
+    #[test]
+    fn decrypt_content_passphrase_over_max_len_returns_invalid_arg() {
+        let client = make_mock_client_handle();
+        let session = unsafe { make_mock_session_handle(client) };
+        let jwe = CString::new("a.b.c.d.e").unwrap();
+        let passphrase = [b'p'];
+        let mut buffer: *mut RbcBuffer = ptr::null_mut();
+
+        let code = rbc_session_decrypt_content(
+            session,
+            jwe.as_ptr(),
+            ptr::null(),
+            passphrase.as_ptr(),
+            PASSPHRASE_MAX_LEN + 1,
+            &mut buffer,
+        );
+
+        assert_eq!(code, RbcErrorCode::InvalidArg);
+        assert!(buffer.is_null());
         rbc_session_free(session);
         rbc_client_free(client);
     }

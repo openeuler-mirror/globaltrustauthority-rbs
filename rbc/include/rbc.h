@@ -194,8 +194,10 @@ RbcErrorCode RbcSessionGetResourceByEvidence(RbcSession *session,
  * Borrow its bytes with `RbcBufferData`, get its length with `RbcBufferLen`,
  * and release it with `RbcBufferFree`.
  * `passphrase` / `passphrase_len` — pass a non-NULL pointer and byte length when
- * `private_key_pem` is encrypted; pass NULL / 0 otherwise. Caller is responsible
- * for zeroizing the passphrase buffer after this call returns.
+ * `private_key_pem` is encrypted; pass NULL / 0 otherwise. The length is in
+ * bytes and must not exceed 1024. When non-NULL, `passphrase` must point to at
+ * least `passphrase_len` readable bytes. Caller is responsible for zeroizing
+ * the passphrase buffer after this call returns.
  */
 RbcErrorCode RbcSessionDecryptContent(RbcSession *session,
                                       const char *jwe,

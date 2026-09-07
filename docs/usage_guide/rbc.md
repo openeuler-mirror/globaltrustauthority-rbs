@@ -269,6 +269,8 @@ After a free call returns, the handle and all borrowed pointers obtained from it
 
 `RbcBufferData(buffer)` and `RbcBufferLen(buffer)` return a borrowed data view. The data pointer is valid until `RbcBufferFree(buffer)`. Do not pass non-RBC allocations, copied handles, or adjusted pointers to RBC release functions.
 
+For `RbcSessionDecryptContent`, `passphrase_len` is a byte length capped at 1024. A non-NULL `passphrase` must point to at least that many readable bytes; pass `NULL` only with a zero length.
+
 > **Thread safety**: All handles must be used only on the thread that created them. The error slot used by `RbcLastErrorMessage` is thread-local.
 
 #### 6.2.3 Error Handling

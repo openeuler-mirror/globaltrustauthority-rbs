@@ -22,6 +22,7 @@ fn main() {
 
     // Re-run when source files change.
     println!("cargo:rerun-if-changed=src/ffi/mod.rs");
+    println!("cargo:rerun-if-changed=src/ffi/session.rs");
     println!("cargo:rerun-if-changed=src/ffi/error.rs");
     println!("cargo:rerun-if-changed=cbindgen.toml");
     println!("cargo:rerun-if-changed=build.rs");
