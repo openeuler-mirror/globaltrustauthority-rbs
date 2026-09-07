@@ -24,6 +24,7 @@ use crate::routes::error::rbs_error_response;
     path = "/rbs/v0/challenge",
     operation_id = "getAuthChallenge",
     summary = "Obtain an attestation challenge (nonce)",
+    description = "Obtain a one-time attestation challenge (nonce) from the attestation backend (GTA). Echo the nonce verbatim in `rbc_evidences.measurements[].nonce` when calling `POST /rbs/v0/attest` or `POST .../retrieve`. No authentication required.",
     tags = ["Attestation"],
     security(()),
     params(
@@ -53,9 +54,10 @@ pub async fn get_challenge(
     path = "/rbs/v0/attest",
     operation_id = "postAttest",
     summary = "Submit attestation evidence and obtain token",
+    description = "Submit the RBC evidence bundle to the attestation backend; on success an attest token is returned for resource reads (`GET .../{resource}` and `POST .../retrieve`). The token is replayable until it expires. No authentication required.",
     tags = ["Attestation"],
     security(()),
-    request_body = AttestRequest,
+    request_body(content = AttestRequest, description = "Evidence bundle including the nonce obtained from `GET /rbs/v0/challenge`; `attester_data.runtime_data.tee-pubkey` (JWK) is used to JWE-encrypt returned resources."),
     responses(
         (status = 200, description = "Attestation token (JSON).", body = AttestResponse),
         (status = 400, description = "Invalid request.", body = ErrorBody),

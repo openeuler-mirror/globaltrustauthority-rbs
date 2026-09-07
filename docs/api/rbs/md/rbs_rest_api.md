@@ -86,6 +86,8 @@ License: [Mulan Permissive Software License, Version 2](http://license.coscl.org
 
 **Get service name, API version, and build metadata**
 
+Return the service name, API contract version, and build metadata (version, git hash, build time). No authentication required.
+
 Operation ID: `rbsVersion`
 
 #### Responses
@@ -115,6 +117,8 @@ User management CRUD — `GET/POST/PUT/DELETE /rbs/v0/users` (admin or self). Re
 ### GET /rbs/v0/users
 
 **List users (admin only)**
+
+List users with pagination and optional `role` / `enabled` filters, ordered by username. Requires an enabled admin Bearer token.
 
 Operation ID: `listUsers`
 
@@ -162,6 +166,8 @@ Example response (200):
 
 **Create a user (admin only)**
 
+Create a user with authentication key material. Only the `user` role can be assigned here — the `admin` role is pre-configured and rejected (400). Exactly one of `public_key` / `jwk` is required (they are mutually exclusive). `username` is immutable after creation; 409 when it already exists or the configured `max_users` quota is reached.
+
 Operation ID: `createUser`
 
 Security: **bearerAuth**
@@ -170,14 +176,16 @@ Security: **bearerAuth**
 
 Content type: `application/json` · Required: yes
 
+New user record: username, optional role/enabled, auth type, and exactly one of `public_key` or `jwk`.
+
 Schema: [UserCreateRequest](#usercreaterequest)
 
 | Property | Type | Required | Description |
 |---|---|---|---|
 | `username` | string | yes | Login or unique handle. Immutable. |
-| `role` | [Role](#role) | no |  |
+| `role` | [Role](#role) | no | Optional role; only `user` is allowed via API (admin is pre-configured). |
 | `enabled` | boolean | no | Whether the account is enabled. |
-| `auth_type` | [AuthType](#authtype) | yes | Authentication type. |
+| `auth_type` | [AuthType](#authtype) | yes | Authentication method; currently only `jwt` is supported. |
 | `public_key` | string | no | Base64-encoded PEM public key (mutually exclusive with `jwk`). |
 | `jwk` | any | no | JWK public key JSON object (mutually exclusive with `public_key`). |
 
@@ -222,6 +230,8 @@ Example response (201):
 
 **Get a user (admin or self)**
 
+Fetch one user by username. Admins may fetch any user; non-admin callers may only fetch themselves (403 otherwise).
+
 Operation ID: `getUser`
 
 Security: **bearerAuth**
@@ -259,6 +269,8 @@ Example response (200):
 
 **Update a user (admin or self)**
 
+Update a user; at least one field is required and `username` itself is immutable (path parameter only). Non-admin self-updates may only change key material (`public_key` / `jwk`) and `auth_type` — a changed `role` or `enabled: false` is rejected with 403. The `admin` role is not API-assignable, and the built-in Administrator's `role` / `enabled` cannot be changed.
+
 Operation ID: `updateUser`
 
 Security: **bearerAuth**
@@ -273,13 +285,15 @@ Security: **bearerAuth**
 
 Content type: `application/json` · Required: yes
 
+Fields to update; at least one required. `public_key` and `jwk` are mutually exclusive.
+
 Schema: [UserUpdateRequest](#userupdaterequest)
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `role` | [Role](#role) | no |  |
+| `role` | [Role](#role) | no | New role; only the target's current role is accepted — any other value is rejected with 403. |
 | `enabled` | boolean | no | Whether the account can authenticate. |
-| `auth_type` | [AuthType](#authtype) | no |  |
+| `auth_type` | [AuthType](#authtype) | no | New authentication method; currently only `jwt` is supported. |
 | `public_key` | string | no | Base64-encoded PEM public key (mutually exclusive with `jwk`). |
 | `jwk` | any | no | JWK public key JSON object (mutually exclusive with `public_key`). |
 
@@ -323,6 +337,8 @@ Example response (200):
 
 **Delete a user (admin only)**
 
+Delete a user. Admin only; self-deletion is rejected with 403. Blocked with 409 while the user still owns policies or resources — delete those first.
+
 Operation ID: `deleteUser`
 
 Security: **bearerAuth**
@@ -351,6 +367,8 @@ Policy CRUD — `GET/POST/PUT/DELETE /rbs/v0/resource/policy`. Requires BearerTo
 
 **List policies**
 
+List the caller's own policies with optional `ids` filter and pagination; policies are user-scoped and other users' policies are never returned. When `ids` is present, only those are returned and pagination is ignored.
+
 Operation ID: `listPolicies`
 
 Security: **bearerAuth**
@@ -359,7 +377,7 @@ Security: **bearerAuth**
 
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
-| `ids` | query | string | no | Comma-separated policy IDs. |
+| `ids` | query | string | no | Comma-separated policy IDs (UUIDs); when present, only these are returned and pagination is ignored. |
 | `limit` | query | integer(int64) | no | Page size (1..100, default 10). |
 | `offset` | query | integer(int64) | no | Offset (0..100000, default 0). |
 
@@ -399,6 +417,8 @@ Example response (200):
 
 **Create a policy**
 
+Create a policy owned by the caller. `content` must be base64-encoded Rego that decodes to valid UTF-8 within the configured size limit; the name must be unique per user. 409 on duplicate name or when the per-user policy quota is reached.
+
 Operation ID: `createPolicy`
 
 Security: **bearerAuth**
@@ -407,13 +427,15 @@ Security: **bearerAuth**
 
 Content type: `application/json` · Required: yes
 
+Policy name, content encoding (`base64`), and base64-encoded Rego content.
+
 Schema: [CreatePolicyRequest](#createpolicyrequest)
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `name` | string | yes |  |
-| `content_type` | string | yes |  |
-| `content` | string | yes |  |
+| `name` | string | yes | Policy name, unique per user (1-255 chars; `<>\"'&\|\\/*?` and backtick are forbidden). |
+| `content_type` | string | yes | Encoding of `content`; only `base64` is supported. |
+| `content` | string | yes | Base64-encoded Rego policy text; must decode to valid UTF-8 within the configured size limit. |
 
 Example request:
 
@@ -456,6 +478,8 @@ Example response (201):
 
 **Batch delete policies**
 
+Delete up to 10 policies in a single transaction. All IDs must exist and belong to the caller; rejected with 409 (nothing deleted) when any listed policy is still referenced by a resource.
+
 Operation ID: `batchDeletePolicies`
 
 Security: **bearerAuth**
@@ -481,6 +505,8 @@ Security: **bearerAuth**
 ### GET /rbs/v0/resource/policy/{policy_id}
 
 **Get policy detail**
+
+Fetch a single policy including `applied_resources` (URIs of resources bound to it). User-scoped: 403 when the policy belongs to another user.
 
 Operation ID: `getPolicy`
 
@@ -522,6 +548,8 @@ Example response (200):
 
 **Update a policy**
 
+Replace a policy (name, content_type, and content are all required — full replacement, not a patch). The version increments on every update; a concurrent update loses the race and fails with 409 (optimistic locking). User-scoped: 403 when owned by another user.
+
 Operation ID: `updatePolicy`
 
 Security: **bearerAuth**
@@ -536,13 +564,15 @@ Security: **bearerAuth**
 
 Content type: `application/json` · Required: yes
 
+Full replacement values: new name, content encoding (`base64`), and base64-encoded Rego content.
+
 Schema: [UpdatePolicyRequest](#updatepolicyrequest)
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `name` | string | yes |  |
-| `content_type` | string | yes |  |
-| `content` | string | yes |  |
+| `name` | string | yes | New policy name, unique per user (1-255 chars; `<>\"'&\|\\/*?` and backtick are forbidden). |
+| `content_type` | string | yes | New encoding of `content`; only `base64` is supported. |
+| `content` | string | yes | New base64-encoded Rego policy text; must decode to valid UTF-8 within the configured size limit. |
 
 Example request:
 
@@ -586,6 +616,8 @@ Example response (200):
 
 **Delete a policy**
 
+Delete one policy owned by the caller. Rejected with 409 while any resource still references the policy — delete or rebind those resources first.
+
 Operation ID: `deletePolicy`
 
 Security: **bearerAuth**
@@ -615,6 +647,8 @@ Resource CRUD — `GET/POST/PUT/DELETE /rbs/v0/{provider}/{repo}/{type}/{name}`.
 
 **Get resource content**
 
+Read resource content with owner Bearer or attest token authorization; the bound Rego policy is evaluated and `hsm`/`ca` content requires an attest token. The content is always JWE-encrypted to the caller's key (`enc-pubkey` Bearer claim or `tee-pubkey` attest claim) and base64-encoded. Missing and denied reads are collapsed into the same 404.
+
 Operation ID: `getResource`
 
 Security: **bearerAuth**, **attestAuth**
@@ -623,10 +657,10 @@ Security: **bearerAuth**, **attestAuth**
 
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
-| `res_provider` | path | string | yes | Resource provider name |
-| `repository_name` | path | string | yes | Repository name |
-| `resource_type` | path | string | yes | Resource type (secret, cert, etc.) |
-| `resource_name` | path | string | yes | Resource name |
+| `res_provider` | path | string | yes | Backend provider name; must be configured under `resource.backends` in `rbs.yaml` (e.g. `vault`, `ca`, `hsm`); reserved names (`admin`, `attestation`, `resource`, `health`) are rejected |
+| `repository_name` | path | string | yes | Repository name (1-32 chars; only letters, digits, `_` and `-`) |
+| `resource_type` | path | string | yes | Resource type; must be in the provider's configured `allowed_resource_types` (e.g. `secret`, `cert`, `key`) |
+| `resource_name` | path | string | yes | Resource name (1-32 chars; only letters, digits, `_`, `-` and `.`) |
 
 #### Responses
 
@@ -653,6 +687,8 @@ Example response (200):
 
 **Update or create resource**
 
+Upsert a resource owned by the caller. Omitted optional fields keep their current values; an explicit `policy_id` rebinds the resource (must be caller-owned) while omitting it keeps the current binding — a new resource created via this path requires `policy_id`. Returns 201 when created, 200 when updated, and 409 on a concurrent update (optimistic locking).
+
 Operation ID: `updateResource`
 
 Security: **bearerAuth**
@@ -661,24 +697,26 @@ Security: **bearerAuth**
 
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
-| `res_provider` | path | string | yes | Resource provider name |
-| `repository_name` | path | string | yes | Repository name |
-| `resource_type` | path | string | yes | Resource type (secret, cert, etc.) |
-| `resource_name` | path | string | yes | Resource name |
+| `res_provider` | path | string | yes | Backend provider name; must be configured under `resource.backends` in `rbs.yaml` (e.g. `vault`, `ca`, `hsm`); reserved names (`admin`, `attestation`, `resource`, `health`) are rejected |
+| `repository_name` | path | string | yes | Repository name (1-32 chars; only letters, digits, `_` and `-`) |
+| `resource_type` | path | string | yes | Resource type; must be in the provider's configured `allowed_resource_types` (e.g. `secret`, `cert`, `key`) |
+| `resource_name` | path | string | yes | Resource name (1-32 chars; only letters, digits, `_`, `-` and `.`) |
 
 #### Request Body
 
 Content type: `application/json` · Required: yes
 
+Fields to change; omitted optional fields keep their current values. `policy_id` is required when the upsert creates a new resource.
+
 Schema: [UpdateResourceRequest](#updateresourcerequest)
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `policy_id` | string | no |  |
-| `content_type` | string | no |  |
-| `export_mode` | string | no |  |
-| `additional_info` | string | no |  |
-| `content` | string | no |  |
+| `policy_id` | string | no | New policy binding (must be caller-owned); omitted keeps the current binding. Required when the upsert creates a new resource. |
+| `content_type` | string | no | New content type label (`jwt`, `json`, `text`, `binary`, `jwk`, `jwe`); omitted keeps the current value. |
+| `export_mode` | string | no | New export mode; only `jwe` is accepted; omitted keeps the current value. |
+| `additional_info` | string | no | New description (when present, 1-512 chars); omitted keeps the current value. |
+| `content` | string | no | Base64-encoded replacement content; omitted leaves the backend content unchanged. |
 
 Example request:
 
@@ -725,6 +763,8 @@ Example response (200):
 
 **Create resource**
 
+Register a resource owned by the caller. `policy_id` must reference one of the caller's policies and governs reads of this resource. `content` (base64) is stored via the backend when it supports PUT; for CHECK backends the object must already exist; metadata-only backends (e.g. CA) need no content. 409 on duplicate URI or per-user resource quota.
+
 Operation ID: `createResource`
 
 Security: **bearerAuth**
@@ -733,24 +773,26 @@ Security: **bearerAuth**
 
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
-| `res_provider` | path | string | yes | Resource provider name |
-| `repository_name` | path | string | yes | Repository name |
-| `resource_type` | path | string | yes | Resource type (secret, cert, etc.) |
-| `resource_name` | path | string | yes | Resource name |
+| `res_provider` | path | string | yes | Backend provider name; must be configured under `resource.backends` in `rbs.yaml` (e.g. `vault`, `ca`, `hsm`); reserved names (`admin`, `attestation`, `resource`, `health`) are rejected |
+| `repository_name` | path | string | yes | Repository name (1-32 chars; only letters, digits, `_` and `-`) |
+| `resource_type` | path | string | yes | Resource type; must be in the provider's configured `allowed_resource_types` (e.g. `secret`, `cert`, `key`) |
+| `resource_name` | path | string | yes | Resource name (1-32 chars; only letters, digits, `_`, `-` and `.`) |
 
 #### Request Body
 
 Content type: `application/json` · Required: yes
 
+Policy binding (required) plus optional content_type, export_mode, additional_info, and base64-encoded content.
+
 Schema: [CreateResourceRequest](#createresourcerequest)
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `policy_id` | string | yes |  |
-| `content_type` | string | no |  |
-| `export_mode` | string | no |  |
-| `additional_info` | string | no |  |
-| `content` | string | no |  |
+| `policy_id` | string | yes | UUID of the caller-owned policy that governs reads of this resource. |
+| `content_type` | string | no | Content type label; one of `jwt`, `json`, `text`, `binary`, `jwk`, `jwe` (fixed whitelist). |
+| `export_mode` | string | no | Export mode on read; only `jwe` is accepted (plaintext export is rejected); defaults to `jwe`. |
+| `additional_info` | string | no | Free-form description of the resource; when present, 1-512 chars (empty string rejected). |
+| `content` | string | no | Base64-encoded content, stored via the backend when it supports PUT. Optional for backends that generate the object themselves (e.g. CA) or require it to pre-exist. |
 
 Example request:
 
@@ -796,6 +838,8 @@ Example response (201):
 
 **Delete resource**
 
+Delete a resource owned by the caller. The backend object is removed first (when the backend supports DELETE), then the DB record.
+
 Operation ID: `deleteResource`
 
 Security: **bearerAuth**
@@ -804,10 +848,10 @@ Security: **bearerAuth**
 
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
-| `res_provider` | path | string | yes | Resource provider name |
-| `repository_name` | path | string | yes | Repository name |
-| `resource_type` | path | string | yes | Resource type (secret, cert, etc.) |
-| `resource_name` | path | string | yes | Resource name |
+| `res_provider` | path | string | yes | Backend provider name; must be configured under `resource.backends` in `rbs.yaml` (e.g. `vault`, `ca`, `hsm`); reserved names (`admin`, `attestation`, `resource`, `health`) are rejected |
+| `repository_name` | path | string | yes | Repository name (1-32 chars; only letters, digits, `_` and `-`) |
+| `resource_type` | path | string | yes | Resource type; must be in the provider's configured `allowed_resource_types` (e.g. `secret`, `cert`, `key`) |
+| `resource_name` | path | string | yes | Resource name (1-32 chars; only letters, digits, `_`, `-` and `.`) |
 
 #### Responses
 
@@ -823,6 +867,8 @@ Security: **bearerAuth**
 
 **Get resource metadata**
 
+Read resource metadata only — no secret content and no backend fetch. Owner Bearer or attest token plus the bound Rego policy check; missing and denied reads are collapsed into the same 404.
+
 Operation ID: `getResourceInfo`
 
 Security: **bearerAuth**, **attestAuth**
@@ -831,10 +877,10 @@ Security: **bearerAuth**, **attestAuth**
 
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
-| `res_provider` | path | string | yes | Resource provider name |
-| `repository_name` | path | string | yes | Repository name |
-| `resource_type` | path | string | yes | Resource type (secret, cert, etc.) |
-| `resource_name` | path | string | yes | Resource name |
+| `res_provider` | path | string | yes | Backend provider name; must be configured under `resource.backends` in `rbs.yaml` (e.g. `vault`, `ca`, `hsm`); reserved names (`admin`, `attestation`, `resource`, `health`) are rejected |
+| `repository_name` | path | string | yes | Repository name (1-32 chars; only letters, digits, `_` and `-`) |
+| `resource_type` | path | string | yes | Resource type; must be in the provider's configured `allowed_resource_types` (e.g. `secret`, `cert`, `key`) |
+| `resource_name` | path | string | yes | Resource name (1-32 chars; only letters, digits, `_`, `-` and `.`) |
 
 #### Responses
 
@@ -881,10 +927,46 @@ Operation ID: `retrieveResource`
 
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
-| `res_provider` | path | string | yes | Resource provider name |
-| `repository_name` | path | string | yes | Repository name |
-| `resource_type` | path | string | yes | Resource type (secret, cert, etc.) |
-| `resource_name` | path | string | yes | Resource name |
+| `res_provider` | path | string | yes | Backend provider name; must be configured under `resource.backends` in `rbs.yaml` (e.g. `vault`, `ca`, `hsm`); reserved names (`admin`, `attestation`, `resource`, `health`) are rejected |
+| `repository_name` | path | string | yes | Repository name (1-32 chars; only letters, digits, `_` and `-`) |
+| `resource_type` | path | string | yes | Resource type; must be in the provider's configured `allowed_resource_types` (e.g. `secret`, `cert`, `key`) |
+| `resource_name` | path | string | yes | Resource name (1-32 chars; only letters, digits, `_`, `-` and `.`) |
+
+#### Request Body
+
+Content type: `application/json` · Required: yes
+
+Evidence bundle (same shape as `POST /rbs/v0/attest`) including the nonce from `GET /rbs/v0/challenge`; the token's `tee-pubkey` claim is used to JWE-encrypt the returned content.
+
+Schema: [AttestRequest](#attestrequest)
+
+| Property | Type | Required | Description |
+|---|---|---|---|
+| `as_provider` | string | no | Optional attestation backend id (e.g. gta); default is deployment-specific. |
+| `rbc_evidences` | [RbcEvidencesPayload](#rbcevidencespayload) | no | Evidence bundle from RBC. |
+
+Example request:
+
+```json
+{
+  "as_provider": "string",
+  "rbc_evidences": {
+    "agent_version": "string",
+    "measurements": [
+      {
+        "nonce": "string",
+        "node_id": "string",
+        "nonce_type": "string",
+        "token_fmt": "string",
+        "attester_data": null,
+        "evidences": [
+          null
+        ]
+      }
+    ]
+  }
+}
+```
 
 #### Responses
 
@@ -915,11 +997,15 @@ Attestation challenge/token issuance (`GET /rbs/v0/challenge`, `POST /rbs/v0/att
 
 **Submit attestation evidence and obtain token**
 
+Submit the RBC evidence bundle to the attestation backend; on success an attest token is returned for resource reads (`GET .../{resource}` and `POST .../retrieve`). The token is replayable until it expires. No authentication required.
+
 Operation ID: `postAttest`
 
 #### Request Body
 
 Content type: `application/json` · Required: yes
+
+Evidence bundle including the nonce obtained from `GET /rbs/v0/challenge`; `attester_data.runtime_data.tee-pubkey` (JWK) is used to JWE-encrypt returned resources.
 
 Schema: [AttestRequest](#attestrequest)
 
@@ -973,6 +1059,8 @@ Example response (200):
 
 **List certificates (default provider)**
 
+Uses the configured default attestation provider. List certificates and CRLs: `ids` returns up to 10 full records (pagination ignored); otherwise paged summaries filtered by `cert_type`. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
+
 Operation ID: `listCertsDefault`
 
 Security: **bearerAuth**
@@ -981,8 +1069,8 @@ Security: **bearerAuth**
 
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
-| `ids` | query | string | no | Comma-separated certificate IDs. |
-| `cert_type` | query | string | no | Filter by certificate type (query param `cert_type`, JSON field `type`). |
+| `ids` | query | string | no | Comma-separated certificate IDs (at most 100, GTA-enforced). |
+| `cert_type` | query | string | no | Filter by certificate type; one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `crl`, `ascend_npu` (query param `cert_type`, JSON field `type`). |
 | `limit` | query | integer(int64) | no | Page size (1-10, default 10). |
 | `offset` | query | integer(int64) | no | Page offset (0-100000, default 0). |
 
@@ -1037,6 +1125,8 @@ Example response (200):
 
 **Update a certificate (default provider)**
 
+Uses the configured default attestation provider. Update a certificate/CRL record identified by in-body `id`; other fields are optional pass-through. GTA rejects `content` changes on update. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
+
 Operation ID: `updateCertDefault`
 
 Security: **bearerAuth**
@@ -1045,14 +1135,16 @@ Security: **bearerAuth**
 
 Content type: `application/json` · Required: yes
 
+ID of the certificate to update plus optional new field values; `content` changes are rejected by GTA.
+
 Schema: [CertUpdateRequest](#certupdaterequest)
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `id` | string | yes | ID of the certificate to update. |
-| `name` | string | no | New name. |
-| `description` | string | no | New description. |
-| `type` | array of string | no | New certificate type list (JSON field name `type`). Must not contain `crl`. |
+| `id` | string | yes | ID of the certificate to update (1-32 chars, GTA-enforced). |
+| `name` | string | no | New name (1-255 chars). |
+| `description` | string | no | New description (at most 512 chars). |
+| `type` | array of string | no | New certificate type list (JSON field name `type`); 1-7 items, each one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `ascend_npu` — `crl` cannot be set on update. |
 | `content` | string | no | Certificate content — GTA rejects this on update. |
 | `is_default` | boolean | no | Whether to set as default certificate. |
 
@@ -1096,6 +1188,8 @@ Example response (200):
 
 **Create a certificate (default provider)**
 
+Uses the configured default attestation provider. Create a certificate or CRL record (`crl_content` required when `type` contains `crl`, otherwise `content`). Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
+
 Operation ID: `createCertDefault`
 
 Security: **bearerAuth**
@@ -1104,15 +1198,17 @@ Security: **bearerAuth**
 
 Content type: `application/json` · Required: yes
 
+Certificate or CRL record: when `type` contains `crl`, `crl_content` is required; otherwise `content` is required.
+
 Schema: [CertCreateRequest](#certcreaterequest)
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `name` | string | yes | Certificate name (non-empty). |
-| `type` | array of string | yes | Certificate type list (JSON field name `type`). |
-| `description` | string | no | Optional description. |
+| `name` | string | yes | Certificate name (1-255 chars, GTA-enforced). |
+| `type` | array of string | yes | Certificate type list (JSON field name `type`); 1-7 items, each one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `crl`, `ascend_npu`; `crl` must be the only entry. |
+| `description` | string | no | Optional description (at most 512 chars). |
 | `content` | string | no | Certificate content; required when `cert_type` does not contain `crl`. |
-| `crl_content` | string | no | CRL content; required when `cert_type` contains `crl`. |
+| `crl_content` | string | no | CRL content; required when `cert_type` contains `crl` (which must then be the only entry). |
 | `is_default` | boolean | no | Whether to set as default certificate. |
 
 Example request:
@@ -1153,6 +1249,8 @@ Example response (201):
 
 **Batch delete certificates (default provider)**
 
+Uses the configured default attestation provider. Delete certificates/CRLs by mode: `id` (ID list), `all`, or `type` (cert type filter). Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
+
 Operation ID: `deleteCertsDefault`
 
 Security: **bearerAuth**
@@ -1161,13 +1259,15 @@ Security: **bearerAuth**
 
 Content type: `application/json` · Required: yes
 
+Delete mode (`id` / `all` / `type`) with the matching `ids` or cert type filter.
+
 Schema: [CertDeleteRequest](#certdeleterequest)
 
 | Property | Type | Required | Description |
 |---|---|---|---|
 | `delete_type` | [AttestationDeleteType](#attestationdeletetype) | yes | Delete mode. |
-| `ids` | array of string | no | IDs to delete (required when `delete_type` is `Id`). |
-| `type` | string | no | Cert type filter (required when `delete_type` is `Type`; JSON field name `type`). |
+| `ids` | array of string | no | IDs to delete (required when `delete_type` is `Id`; at most 10 IDs). |
+| `type` | string | no | Cert type filter (required when `delete_type` is `Type`; JSON field name `type`); one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `crl`, `ascend_npu`. |
 
 Example request:
 
@@ -1197,6 +1297,8 @@ Example request:
 
 **Get a single certificate (default provider)**
 
+Uses the configured default attestation provider. Fetch one certificate or CRL by ID. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
+
 Operation ID: `getCertDefault`
 
 Security: **bearerAuth**
@@ -1205,7 +1307,7 @@ Security: **bearerAuth**
 
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
-| `id` | path | string | yes | Certificate or CRL ID |
+| `id` | path | string | yes | Certificate or CRL ID (1-32 chars, GTA-enforced) |
 
 #### Responses
 
@@ -1257,6 +1359,8 @@ Example response (200):
 
 **Delete a single certificate (default provider)**
 
+Uses the configured default attestation provider. Delete one certificate or CRL by ID. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
+
 Operation ID: `deleteCertDefault`
 
 Security: **bearerAuth**
@@ -1265,7 +1369,7 @@ Security: **bearerAuth**
 
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
-| `id` | path | string | yes | Certificate or CRL ID |
+| `id` | path | string | yes | Certificate or CRL ID (1-32 chars, GTA-enforced) |
 
 #### Responses
 
@@ -1282,6 +1386,8 @@ Security: **bearerAuth**
 
 **List attestation policies (default provider)**
 
+Uses the configured default attestation provider. List GTA attestation policies: `ids` returns up to 10 full records (pagination ignored); otherwise paged summaries filtered by `attester_type`. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
+
 Operation ID: `listAttestationPoliciesDefault`
 
 Security: **bearerAuth**
@@ -1290,8 +1396,8 @@ Security: **bearerAuth**
 
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
-| `ids` | query | string | no | Comma-separated policy IDs. |
-| `attester_type` | query | string | no | Filter by attester_type. |
+| `ids` | query | string | no | Comma-separated policy IDs (at most 10, GTA-enforced). |
+| `attester_type` | query | string | no | Filter by attester_type (e.g. `tpm`, `tpm_ima`, `itrustee`, `dice`). |
 | `limit` | query | integer(int64) | no | Page size (1-10, default 10). |
 | `offset` | query | integer(int64) | no | Page offset (0-100000, default 0). |
 
@@ -1334,6 +1440,8 @@ Example response (200):
 
 **Update an attestation policy (default provider)**
 
+Uses the configured default attestation provider. Update a GTA attestation policy identified by in-body `id`; other fields are optional pass-through. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
+
 Operation ID: `updateAttestationPolicyDefault`
 
 Security: **bearerAuth**
@@ -1342,16 +1450,18 @@ Security: **bearerAuth**
 
 Content type: `application/json` · Required: yes
 
+ID of the policy to update plus optional new field values.
+
 Schema: [PolicyUpdateRequest](#policyupdaterequest)
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `id` | string | yes | ID of the policy to update. |
-| `name` | string | no | New name. |
-| `description` | string | no | New description. |
-| `attester_type` | array of string | no | New attester type list. |
-| `content_type` | string | no | New content encoding. |
-| `content` | string | no | New policy content. |
+| `id` | string | yes | ID of the policy to update (1-36 chars, GTA-enforced). |
+| `name` | string | no | New name (1-255 chars; GTA rejects the special characters `< > " ' & \| \ / * ?` and backtick). |
+| `description` | string | no | New description (at most 512 chars). |
+| `attester_type` | array of string | no | New attester type list (1-9 items, each at most 255 chars). |
+| `content_type` | string | no | New content encoding: `jwt` or `text`. |
+| `content` | string | no | New policy content (base64-encoded; decoded size limited as on create). |
 | `is_default` | boolean | no | Whether to set as default policy. |
 
 Example request:
@@ -1398,6 +1508,8 @@ Example response (200):
 
 **Create an attestation policy (default provider)**
 
+Uses the configured default attestation provider. Create a GTA attestation policy (`name`, `attester_type`, `content_type`, `content` required). Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
+
 Operation ID: `createAttestationPolicyDefault`
 
 Security: **bearerAuth**
@@ -1406,16 +1518,18 @@ Security: **bearerAuth**
 
 Content type: `application/json` · Required: yes
 
+Policy definition: name, attester type list, content encoding (`jwt` or `text`), and content.
+
 Schema: [PolicyCreateRequest](#policycreaterequest)
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `name` | string | yes | Policy name (non-empty). |
-| `attester_type` | array of string | yes | Attester type list (non-empty array). |
-| `content_type` | string | yes | Content encoding (required): "jwt" or "text". |
-| `content` | string | yes | Policy content (non-empty). |
+| `name` | string | yes | Policy name (1-255 chars; GTA rejects the special characters `< > " ' & \| \ / * ?` and backtick). |
+| `attester_type` | array of string | yes | Attester type list (1-9 items, each at most 255 chars); supported values: `all`, `tpm`, `tpm_boot`, `tpm_ima`, `virt_cca`, `ascend_npu`, `itrustee`, `cca`, `dice`. |
+| `content_type` | string | yes | Content encoding (required): `jwt` or `text` (GTA-enforced). |
+| `content` | string | yes | Policy content (base64-encoded); the decoded size is bounded by GTA's `policy_content_size_limit` (shipped default 500 KB). |
 | `is_default` | boolean | no | Whether to set as default policy. |
-| `description` | string | no | Optional description. |
+| `description` | string | no | Optional description (at most 512 chars). |
 
 Example request:
 
@@ -1458,6 +1572,8 @@ Example response (201):
 
 **Batch delete attestation policies (default provider)**
 
+Uses the configured default attestation provider. Delete GTA attestation policies by mode: `id` (ID list), `all`, or `attester_type` filter. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
+
 Operation ID: `deleteAttestationPoliciesDefault`
 
 Security: **bearerAuth**
@@ -1466,13 +1582,15 @@ Security: **bearerAuth**
 
 Content type: `application/json` · Required: yes
 
+Delete mode (`id` / `all` / `attester_type`) with the matching `ids` or `attester_type` filter.
+
 Schema: [PolicyDeleteRequest](#policydeleterequest)
 
 | Property | Type | Required | Description |
 |---|---|---|---|
 | `delete_type` | [PolicyDeleteType](#policydeletetype) | yes | Delete mode. |
-| `ids` | array of string | no | IDs to delete (required when `delete_type` is `Id`). |
-| `attester_type` | string | no | Attester type filter (required when `delete_type` is `AttesterType`). |
+| `ids` | array of string | no | IDs to delete (required when `delete_type` is `Id`; at most 10 IDs, each at most 36 chars). |
+| `attester_type` | string | no | Attester type filter (required when `delete_type` is `AttesterType`; at most 255 chars). |
 
 Example request:
 
@@ -1502,6 +1620,8 @@ Example request:
 
 **Get a single attestation policy (default provider)**
 
+Uses the configured default attestation provider. Fetch one GTA attestation policy by ID (full record). Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
+
 Operation ID: `getAttestationPolicyDefault`
 
 Security: **bearerAuth**
@@ -1510,7 +1630,7 @@ Security: **bearerAuth**
 
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
-| `id` | path | string | yes | Policy ID |
+| `id` | path | string | yes | Policy ID (1-36 chars, GTA-enforced) |
 
 #### Responses
 
@@ -1550,6 +1670,8 @@ Example response (200):
 
 **Delete a single attestation policy (default provider)**
 
+Uses the configured default attestation provider. Delete one GTA attestation policy by ID. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
+
 Operation ID: `deleteAttestationPolicyDefault`
 
 Security: **bearerAuth**
@@ -1558,7 +1680,7 @@ Security: **bearerAuth**
 
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
-| `id` | path | string | yes | Policy ID |
+| `id` | path | string | yes | Policy ID (1-36 chars, GTA-enforced) |
 
 #### Responses
 
@@ -1575,6 +1697,8 @@ Security: **bearerAuth**
 
 **List reference value baselines (default provider)**
 
+Uses the configured default attestation provider. List reference value baselines: `ids` returns up to 10 full records (pagination ignored); otherwise paged summaries filtered by `attester_type`. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
+
 Operation ID: `listRefValuesDefault`
 
 Security: **bearerAuth**
@@ -1583,8 +1707,8 @@ Security: **bearerAuth**
 
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
-| `ids` | query | string | no | Comma-separated ref_value IDs (1-10); when present, pagination is ignored. |
-| `attester_type` | query | string | no | Filter by attester_type (e.g. tpm, tpm_ima). |
+| `ids` | query | string | no | Comma-separated ref_value IDs (1-10, each 1-36 chars); when present, pagination is ignored. |
+| `attester_type` | query | string | no | Filter by attester_type; one of `tpm`, `tpm_ima`, `virt_cca`, `ascend_npu`, `cca`. |
 | `limit` | query | integer(int64) | no | Page size (1-10, default 10). Ignored when `ids` is present. |
 | `offset` | query | integer(int64) | no | Page offset (0-100000, default 0). Ignored when `ids` is present. |
 
@@ -1627,6 +1751,8 @@ Example response (200):
 
 **Update a reference value baseline (default provider)**
 
+Uses the configured default attestation provider. Update a reference value baseline identified by in-body `id`; other fields are optional pass-through. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
+
 Operation ID: `updateRefValueDefault`
 
 Security: **bearerAuth**
@@ -1635,16 +1761,18 @@ Security: **bearerAuth**
 
 Content type: `application/json` · Required: yes
 
+ID of the baseline to update plus optional new field values.
+
 Schema: [RefValueUpdateRequest](#refvalueupdaterequest)
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `id` | string | yes | ID of the ref_value to update. |
-| `name` | string | no | New name. |
-| `description` | string | no | New description. |
-| `attester_type` | string | no | New attester_type. |
-| `content` | string | no | New content. |
-| `content_type` | string | no | New content encoding. |
+| `id` | string | yes | ID of the ref_value to update (1-36 chars, GTA-enforced). |
+| `name` | string | no | New name (1-255 chars). |
+| `description` | string | no | New description (at most 512 chars). |
+| `attester_type` | string | no | New attester_type; one of `tpm`, `tpm_ima`, `virt_cca`, `ascend_npu`, `cca`. |
+| `content` | string | no | New content (at most 100 MiB). |
+| `content_type` | string | no | New content encoding: `jwt` or `base64`. |
 
 Example request:
 
@@ -1687,6 +1815,8 @@ Example response (200):
 
 **Create a reference value baseline (default provider)**
 
+Uses the configured default attestation provider. Create a reference value baseline (`name`, `attester_type`, `content` required; `content_type` defaults to `jwt`). Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
+
 Operation ID: `createRefValueDefault`
 
 Security: **bearerAuth**
@@ -1695,15 +1825,17 @@ Security: **bearerAuth**
 
 Content type: `application/json` · Required: yes
 
+Baseline definition: name, attester type, content (JWT or base64), optional encoding (defaults to `jwt`) and description.
+
 Schema: [RefValueCreateRequest](#refvaluecreaterequest)
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `name` | string | yes | Baseline name (non-empty). |
-| `attester_type` | string | yes | Attester type (non-empty). |
-| `content` | string | yes | Baseline content — JWT or base64-encoded payload (non-empty). |
-| `content_type` | string | no | Content encoding: "jwt" (default) or "base64". When absent, GTA defaults to jwt. |
-| `description` | string | no | Optional description. |
+| `name` | string | yes | Baseline name (1-255 chars, GTA-enforced). |
+| `attester_type` | string | yes | Attester type; one of `tpm`, `tpm_ima`, `virt_cca`, `ascend_npu`, `cca` (GTA-enforced). |
+| `content` | string | yes | Baseline content — JWT or base64-encoded payload; at most 100 MiB (GTA-enforced). |
+| `content_type` | string | no | Content encoding: `jwt` (default when omitted) or `base64`. |
+| `description` | string | no | Optional description (at most 512 chars, GTA-enforced). |
 
 Example request:
 
@@ -1745,6 +1877,8 @@ Example response (201):
 
 **Batch delete reference value baselines (default provider)**
 
+Uses the configured default attestation provider. Delete reference value baselines by mode: `id` (ID list), `all`, or `type` (`attester_type` filter). Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
+
 Operation ID: `deleteRefValuesDefault`
 
 Security: **bearerAuth**
@@ -1753,13 +1887,15 @@ Security: **bearerAuth**
 
 Content type: `application/json` · Required: yes
 
+Delete mode (`id` / `all` / `type`) with the matching `ids` or `attester_type` filter.
+
 Schema: [RefValueDeleteRequest](#refvaluedeleterequest)
 
 | Property | Type | Required | Description |
 |---|---|---|---|
 | `delete_type` | [AttestationDeleteType](#attestationdeletetype) | yes | Delete mode. |
-| `ids` | array of string | no | IDs to delete (required when `delete_type` is `Id`). |
-| `attester_type` | string | no | Attester type filter (required when `delete_type` is `Type`). |
+| `ids` | array of string | no | IDs to delete (required when `delete_type` is `Id`; 1-10 IDs, each 1-36 chars). |
+| `attester_type` | string | no | Attester type filter (required when `delete_type` is `Type`); one of `tpm`, `tpm_ima`, `virt_cca`, `ascend_npu`, `cca`. |
 
 Example request:
 
@@ -1789,6 +1925,8 @@ Example request:
 
 **Get a single reference value baseline (default provider)**
 
+Uses the configured default attestation provider. Fetch one reference value baseline by ID (full record). Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
+
 Operation ID: `getRefValueDefault`
 
 Security: **bearerAuth**
@@ -1797,7 +1935,7 @@ Security: **bearerAuth**
 
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
-| `id` | path | string | yes | Ref_value ID |
+| `id` | path | string | yes | Ref_value ID (1-36 chars, GTA-enforced) |
 
 #### Responses
 
@@ -1837,6 +1975,8 @@ Example response (200):
 
 **Delete a single reference value baseline (default provider)**
 
+Uses the configured default attestation provider. Delete one reference value baseline by ID. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
+
 Operation ID: `deleteRefValueDefault`
 
 Security: **bearerAuth**
@@ -1845,7 +1985,7 @@ Security: **bearerAuth**
 
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
-| `id` | path | string | yes | Ref_value ID |
+| `id` | path | string | yes | Ref_value ID (1-36 chars, GTA-enforced) |
 
 #### Responses
 
@@ -1862,6 +2002,8 @@ Security: **bearerAuth**
 
 **List certificates**
 
+List certificates and CRLs. With `ids`, up to 10 full records are returned and pagination is ignored; otherwise paged summaries, filterable by `cert_type`. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
+
 Operation ID: `listCerts`
 
 Security: **bearerAuth**
@@ -1870,9 +2012,9 @@ Security: **bearerAuth**
 
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
-| `as_provider` | path | string | yes | Attestation provider name |
-| `ids` | query | string | no | Comma-separated certificate IDs. |
-| `cert_type` | query | string | no | Filter by certificate type (query param `cert_type`, JSON field `type`). |
+| `as_provider` | path | string | yes | Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`) |
+| `ids` | query | string | no | Comma-separated certificate IDs (at most 100, GTA-enforced). |
+| `cert_type` | query | string | no | Filter by certificate type; one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `crl`, `ascend_npu` (query param `cert_type`, JSON field `type`). |
 | `limit` | query | integer(int64) | no | Page size (1-10, default 10). |
 | `offset` | query | integer(int64) | no | Page offset (0-100000, default 0). |
 
@@ -1927,6 +2069,8 @@ Example response (200):
 
 **Update a certificate**
 
+Update a certificate/CRL record identified by in-body `id`; all other fields are optional pass-through. GTA rejects `content` changes on update. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
+
 Operation ID: `updateCert`
 
 Security: **bearerAuth**
@@ -1935,20 +2079,22 @@ Security: **bearerAuth**
 
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
-| `as_provider` | path | string | yes | Attestation provider name |
+| `as_provider` | path | string | yes | Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`) |
 
 #### Request Body
 
 Content type: `application/json` · Required: yes
 
+ID of the certificate to update plus optional new field values; `content` changes are rejected by GTA.
+
 Schema: [CertUpdateRequest](#certupdaterequest)
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `id` | string | yes | ID of the certificate to update. |
-| `name` | string | no | New name. |
-| `description` | string | no | New description. |
-| `type` | array of string | no | New certificate type list (JSON field name `type`). Must not contain `crl`. |
+| `id` | string | yes | ID of the certificate to update (1-32 chars, GTA-enforced). |
+| `name` | string | no | New name (1-255 chars). |
+| `description` | string | no | New description (at most 512 chars). |
+| `type` | array of string | no | New certificate type list (JSON field name `type`); 1-7 items, each one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `ascend_npu` — `crl` cannot be set on update. |
 | `content` | string | no | Certificate content — GTA rejects this on update. |
 | `is_default` | boolean | no | Whether to set as default certificate. |
 
@@ -1992,6 +2138,8 @@ Example response (200):
 
 **Create a certificate**
 
+Create a certificate or CRL record: when `type` contains `crl`, `crl_content` is required; otherwise `content` is required. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
+
 Operation ID: `createCert`
 
 Security: **bearerAuth**
@@ -2000,21 +2148,23 @@ Security: **bearerAuth**
 
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
-| `as_provider` | path | string | yes | Attestation provider name |
+| `as_provider` | path | string | yes | Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`) |
 
 #### Request Body
 
 Content type: `application/json` · Required: yes
 
+Certificate or CRL record: when `type` contains `crl`, `crl_content` is required; otherwise `content` is required.
+
 Schema: [CertCreateRequest](#certcreaterequest)
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `name` | string | yes | Certificate name (non-empty). |
-| `type` | array of string | yes | Certificate type list (JSON field name `type`). |
-| `description` | string | no | Optional description. |
+| `name` | string | yes | Certificate name (1-255 chars, GTA-enforced). |
+| `type` | array of string | yes | Certificate type list (JSON field name `type`); 1-7 items, each one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `crl`, `ascend_npu`; `crl` must be the only entry. |
+| `description` | string | no | Optional description (at most 512 chars). |
 | `content` | string | no | Certificate content; required when `cert_type` does not contain `crl`. |
-| `crl_content` | string | no | CRL content; required when `cert_type` contains `crl`. |
+| `crl_content` | string | no | CRL content; required when `cert_type` contains `crl` (which must then be the only entry). |
 | `is_default` | boolean | no | Whether to set as default certificate. |
 
 Example request:
@@ -2055,6 +2205,8 @@ Example response (201):
 
 **Batch delete certificates**
 
+Delete certificates/CRLs by mode: `id` (ID list), `all`, or `type` (cert type filter). Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
+
 Operation ID: `deleteCerts`
 
 Security: **bearerAuth**
@@ -2063,19 +2215,21 @@ Security: **bearerAuth**
 
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
-| `as_provider` | path | string | yes | Attestation provider name |
+| `as_provider` | path | string | yes | Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`) |
 
 #### Request Body
 
 Content type: `application/json` · Required: yes
+
+Delete mode (`id` / `all` / `type`) with the matching `ids` or cert type filter.
 
 Schema: [CertDeleteRequest](#certdeleterequest)
 
 | Property | Type | Required | Description |
 |---|---|---|---|
 | `delete_type` | [AttestationDeleteType](#attestationdeletetype) | yes | Delete mode. |
-| `ids` | array of string | no | IDs to delete (required when `delete_type` is `Id`). |
-| `type` | string | no | Cert type filter (required when `delete_type` is `Type`; JSON field name `type`). |
+| `ids` | array of string | no | IDs to delete (required when `delete_type` is `Id`; at most 10 IDs). |
+| `type` | string | no | Cert type filter (required when `delete_type` is `Type`; JSON field name `type`); one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `crl`, `ascend_npu`. |
 
 Example request:
 
@@ -2105,6 +2259,8 @@ Example request:
 
 **Get a single certificate**
 
+Fetch one certificate or CRL by ID. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
+
 Operation ID: `getCert`
 
 Security: **bearerAuth**
@@ -2113,8 +2269,8 @@ Security: **bearerAuth**
 
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
-| `as_provider` | path | string | yes | Attestation provider name |
-| `id` | path | string | yes | Certificate or CRL ID |
+| `as_provider` | path | string | yes | Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`) |
+| `id` | path | string | yes | Certificate or CRL ID (1-32 chars, GTA-enforced) |
 
 #### Responses
 
@@ -2166,6 +2322,8 @@ Example response (200):
 
 **Delete a single certificate**
 
+Delete one certificate or CRL by ID. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
+
 Operation ID: `deleteCert`
 
 Security: **bearerAuth**
@@ -2174,8 +2332,8 @@ Security: **bearerAuth**
 
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
-| `as_provider` | path | string | yes | Attestation provider name |
-| `id` | path | string | yes | Certificate or CRL ID |
+| `as_provider` | path | string | yes | Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`) |
+| `id` | path | string | yes | Certificate or CRL ID (1-32 chars, GTA-enforced) |
 
 #### Responses
 
@@ -2192,6 +2350,8 @@ Security: **bearerAuth**
 
 **List attestation policies**
 
+List GTA attestation policies. With `ids`, up to 10 full records are returned and pagination is ignored; otherwise paged summaries, filterable by `attester_type`. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
+
 Operation ID: `listAttestationPolicies`
 
 Security: **bearerAuth**
@@ -2200,9 +2360,9 @@ Security: **bearerAuth**
 
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
-| `as_provider` | path | string | yes | Attestation provider name |
-| `ids` | query | string | no | Comma-separated policy IDs. |
-| `attester_type` | query | string | no | Filter by attester_type. |
+| `as_provider` | path | string | yes | Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`) |
+| `ids` | query | string | no | Comma-separated policy IDs (at most 10, GTA-enforced). |
+| `attester_type` | query | string | no | Filter by attester_type (e.g. `tpm`, `tpm_ima`, `itrustee`, `dice`). |
 | `limit` | query | integer(int64) | no | Page size (1-10, default 10). |
 | `offset` | query | integer(int64) | no | Page offset (0-100000, default 0). |
 
@@ -2245,6 +2405,8 @@ Example response (200):
 
 **Update an attestation policy**
 
+Update a GTA attestation policy identified by in-body `id`; all other fields are optional pass-through. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
+
 Operation ID: `updateAttestationPolicy`
 
 Security: **bearerAuth**
@@ -2253,22 +2415,24 @@ Security: **bearerAuth**
 
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
-| `as_provider` | path | string | yes | Attestation provider name |
+| `as_provider` | path | string | yes | Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`) |
 
 #### Request Body
 
 Content type: `application/json` · Required: yes
 
+ID of the policy to update plus optional new field values.
+
 Schema: [PolicyUpdateRequest](#policyupdaterequest)
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `id` | string | yes | ID of the policy to update. |
-| `name` | string | no | New name. |
-| `description` | string | no | New description. |
-| `attester_type` | array of string | no | New attester type list. |
-| `content_type` | string | no | New content encoding. |
-| `content` | string | no | New policy content. |
+| `id` | string | yes | ID of the policy to update (1-36 chars, GTA-enforced). |
+| `name` | string | no | New name (1-255 chars; GTA rejects the special characters `< > " ' & \| \ / * ?` and backtick). |
+| `description` | string | no | New description (at most 512 chars). |
+| `attester_type` | array of string | no | New attester type list (1-9 items, each at most 255 chars). |
+| `content_type` | string | no | New content encoding: `jwt` or `text`. |
+| `content` | string | no | New policy content (base64-encoded; decoded size limited as on create). |
 | `is_default` | boolean | no | Whether to set as default policy. |
 
 Example request:
@@ -2315,6 +2479,8 @@ Example response (200):
 
 **Create an attestation policy**
 
+Create a GTA attestation policy: `name`, `attester_type` (non-empty list), `content_type` (`jwt` or `text`), and `content` are required. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
+
 Operation ID: `createAttestationPolicy`
 
 Security: **bearerAuth**
@@ -2323,22 +2489,24 @@ Security: **bearerAuth**
 
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
-| `as_provider` | path | string | yes | Attestation provider name |
+| `as_provider` | path | string | yes | Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`) |
 
 #### Request Body
 
 Content type: `application/json` · Required: yes
 
+Policy definition: name, attester type list, content encoding (`jwt` or `text`), and content.
+
 Schema: [PolicyCreateRequest](#policycreaterequest)
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `name` | string | yes | Policy name (non-empty). |
-| `attester_type` | array of string | yes | Attester type list (non-empty array). |
-| `content_type` | string | yes | Content encoding (required): "jwt" or "text". |
-| `content` | string | yes | Policy content (non-empty). |
+| `name` | string | yes | Policy name (1-255 chars; GTA rejects the special characters `< > " ' & \| \ / * ?` and backtick). |
+| `attester_type` | array of string | yes | Attester type list (1-9 items, each at most 255 chars); supported values: `all`, `tpm`, `tpm_boot`, `tpm_ima`, `virt_cca`, `ascend_npu`, `itrustee`, `cca`, `dice`. |
+| `content_type` | string | yes | Content encoding (required): `jwt` or `text` (GTA-enforced). |
+| `content` | string | yes | Policy content (base64-encoded); the decoded size is bounded by GTA's `policy_content_size_limit` (shipped default 500 KB). |
 | `is_default` | boolean | no | Whether to set as default policy. |
-| `description` | string | no | Optional description. |
+| `description` | string | no | Optional description (at most 512 chars). |
 
 Example request:
 
@@ -2381,6 +2549,8 @@ Example response (201):
 
 **Batch delete attestation policies**
 
+Delete GTA attestation policies by mode: `id` (ID list), `all`, or `attester_type` filter. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
+
 Operation ID: `deleteAttestationPolicies`
 
 Security: **bearerAuth**
@@ -2389,19 +2559,21 @@ Security: **bearerAuth**
 
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
-| `as_provider` | path | string | yes | Attestation provider name |
+| `as_provider` | path | string | yes | Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`) |
 
 #### Request Body
 
 Content type: `application/json` · Required: yes
+
+Delete mode (`id` / `all` / `attester_type`) with the matching `ids` or `attester_type` filter.
 
 Schema: [PolicyDeleteRequest](#policydeleterequest)
 
 | Property | Type | Required | Description |
 |---|---|---|---|
 | `delete_type` | [PolicyDeleteType](#policydeletetype) | yes | Delete mode. |
-| `ids` | array of string | no | IDs to delete (required when `delete_type` is `Id`). |
-| `attester_type` | string | no | Attester type filter (required when `delete_type` is `AttesterType`). |
+| `ids` | array of string | no | IDs to delete (required when `delete_type` is `Id`; at most 10 IDs, each at most 36 chars). |
+| `attester_type` | string | no | Attester type filter (required when `delete_type` is `AttesterType`; at most 255 chars). |
 
 Example request:
 
@@ -2431,6 +2603,8 @@ Example request:
 
 **Get a single attestation policy**
 
+Fetch one GTA attestation policy by ID (full record). Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
+
 Operation ID: `getAttestationPolicy`
 
 Security: **bearerAuth**
@@ -2439,8 +2613,8 @@ Security: **bearerAuth**
 
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
-| `as_provider` | path | string | yes | Attestation provider name |
-| `id` | path | string | yes | Policy ID |
+| `as_provider` | path | string | yes | Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`) |
+| `id` | path | string | yes | Policy ID (1-36 chars, GTA-enforced) |
 
 #### Responses
 
@@ -2480,6 +2654,8 @@ Example response (200):
 
 **Delete a single attestation policy**
 
+Delete one GTA attestation policy by ID. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
+
 Operation ID: `deleteAttestationPolicy`
 
 Security: **bearerAuth**
@@ -2488,8 +2664,8 @@ Security: **bearerAuth**
 
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
-| `as_provider` | path | string | yes | Attestation provider name |
-| `id` | path | string | yes | Policy ID |
+| `as_provider` | path | string | yes | Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`) |
+| `id` | path | string | yes | Policy ID (1-36 chars, GTA-enforced) |
 
 #### Responses
 
@@ -2506,6 +2682,8 @@ Security: **bearerAuth**
 
 **List reference value baselines**
 
+List reference value baselines (trusted measurements compared against attestation evidence). With `ids`, up to 10 full records are returned and pagination is ignored; otherwise paged summaries, filterable by `attester_type`. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
+
 Operation ID: `listRefValues`
 
 Security: **bearerAuth**
@@ -2514,9 +2692,9 @@ Security: **bearerAuth**
 
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
-| `as_provider` | path | string | yes | Attestation provider name |
-| `ids` | query | string | no | Comma-separated ref_value IDs (1-10); when present, pagination is ignored. |
-| `attester_type` | query | string | no | Filter by attester_type (e.g. tpm, tpm_ima). |
+| `as_provider` | path | string | yes | Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`) |
+| `ids` | query | string | no | Comma-separated ref_value IDs (1-10, each 1-36 chars); when present, pagination is ignored. |
+| `attester_type` | query | string | no | Filter by attester_type; one of `tpm`, `tpm_ima`, `virt_cca`, `ascend_npu`, `cca`. |
 | `limit` | query | integer(int64) | no | Page size (1-10, default 10). Ignored when `ids` is present. |
 | `offset` | query | integer(int64) | no | Page offset (0-100000, default 0). Ignored when `ids` is present. |
 
@@ -2559,6 +2737,8 @@ Example response (200):
 
 **Update a reference value baseline**
 
+Update a reference value baseline identified by in-body `id`; all other fields are optional pass-through. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
+
 Operation ID: `updateRefValue`
 
 Security: **bearerAuth**
@@ -2567,22 +2747,24 @@ Security: **bearerAuth**
 
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
-| `as_provider` | path | string | yes | Attestation provider name |
+| `as_provider` | path | string | yes | Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`) |
 
 #### Request Body
 
 Content type: `application/json` · Required: yes
 
+ID of the baseline to update plus optional new field values.
+
 Schema: [RefValueUpdateRequest](#refvalueupdaterequest)
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `id` | string | yes | ID of the ref_value to update. |
-| `name` | string | no | New name. |
-| `description` | string | no | New description. |
-| `attester_type` | string | no | New attester_type. |
-| `content` | string | no | New content. |
-| `content_type` | string | no | New content encoding. |
+| `id` | string | yes | ID of the ref_value to update (1-36 chars, GTA-enforced). |
+| `name` | string | no | New name (1-255 chars). |
+| `description` | string | no | New description (at most 512 chars). |
+| `attester_type` | string | no | New attester_type; one of `tpm`, `tpm_ima`, `virt_cca`, `ascend_npu`, `cca`. |
+| `content` | string | no | New content (at most 100 MiB). |
+| `content_type` | string | no | New content encoding: `jwt` or `base64`. |
 
 Example request:
 
@@ -2625,6 +2807,8 @@ Example response (200):
 
 **Create a reference value baseline**
 
+Create a reference value baseline: `name`, `attester_type`, and `content` are required; `content_type` defaults to `jwt` when omitted. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
+
 Operation ID: `createRefValue`
 
 Security: **bearerAuth**
@@ -2633,21 +2817,23 @@ Security: **bearerAuth**
 
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
-| `as_provider` | path | string | yes | Attestation provider name |
+| `as_provider` | path | string | yes | Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`) |
 
 #### Request Body
 
 Content type: `application/json` · Required: yes
 
+Baseline definition: name, attester type, content (JWT or base64), optional encoding (defaults to `jwt`) and description.
+
 Schema: [RefValueCreateRequest](#refvaluecreaterequest)
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `name` | string | yes | Baseline name (non-empty). |
-| `attester_type` | string | yes | Attester type (non-empty). |
-| `content` | string | yes | Baseline content — JWT or base64-encoded payload (non-empty). |
-| `content_type` | string | no | Content encoding: "jwt" (default) or "base64". When absent, GTA defaults to jwt. |
-| `description` | string | no | Optional description. |
+| `name` | string | yes | Baseline name (1-255 chars, GTA-enforced). |
+| `attester_type` | string | yes | Attester type; one of `tpm`, `tpm_ima`, `virt_cca`, `ascend_npu`, `cca` (GTA-enforced). |
+| `content` | string | yes | Baseline content — JWT or base64-encoded payload; at most 100 MiB (GTA-enforced). |
+| `content_type` | string | no | Content encoding: `jwt` (default when omitted) or `base64`. |
+| `description` | string | no | Optional description (at most 512 chars, GTA-enforced). |
 
 Example request:
 
@@ -2689,6 +2875,8 @@ Example response (201):
 
 **Batch delete reference value baselines**
 
+Delete reference value baselines by mode: `id` (ID list), `all`, or `type` (`attester_type` filter). Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
+
 Operation ID: `deleteRefValues`
 
 Security: **bearerAuth**
@@ -2697,19 +2885,21 @@ Security: **bearerAuth**
 
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
-| `as_provider` | path | string | yes | Attestation provider name |
+| `as_provider` | path | string | yes | Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`) |
 
 #### Request Body
 
 Content type: `application/json` · Required: yes
+
+Delete mode (`id` / `all` / `type`) with the matching `ids` or `attester_type` filter.
 
 Schema: [RefValueDeleteRequest](#refvaluedeleterequest)
 
 | Property | Type | Required | Description |
 |---|---|---|---|
 | `delete_type` | [AttestationDeleteType](#attestationdeletetype) | yes | Delete mode. |
-| `ids` | array of string | no | IDs to delete (required when `delete_type` is `Id`). |
-| `attester_type` | string | no | Attester type filter (required when `delete_type` is `Type`). |
+| `ids` | array of string | no | IDs to delete (required when `delete_type` is `Id`; 1-10 IDs, each 1-36 chars). |
+| `attester_type` | string | no | Attester type filter (required when `delete_type` is `Type`); one of `tpm`, `tpm_ima`, `virt_cca`, `ascend_npu`, `cca`. |
 
 Example request:
 
@@ -2739,6 +2929,8 @@ Example request:
 
 **Get a single reference value baseline**
 
+Fetch one reference value baseline by ID (full record). Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
+
 Operation ID: `getRefValue`
 
 Security: **bearerAuth**
@@ -2747,8 +2939,8 @@ Security: **bearerAuth**
 
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
-| `as_provider` | path | string | yes | Attestation provider name |
-| `id` | path | string | yes | Ref_value ID |
+| `as_provider` | path | string | yes | Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`) |
+| `id` | path | string | yes | Ref_value ID (1-36 chars, GTA-enforced) |
 
 #### Responses
 
@@ -2788,6 +2980,8 @@ Example response (200):
 
 **Delete a single reference value baseline**
 
+Delete one reference value baseline by ID. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
+
 Operation ID: `deleteRefValue`
 
 Security: **bearerAuth**
@@ -2796,8 +2990,8 @@ Security: **bearerAuth**
 
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
-| `as_provider` | path | string | yes | Attestation provider name |
-| `id` | path | string | yes | Ref_value ID |
+| `as_provider` | path | string | yes | Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`) |
+| `id` | path | string | yes | Ref_value ID (1-36 chars, GTA-enforced) |
 
 #### Responses
 
@@ -2813,6 +3007,8 @@ Security: **bearerAuth**
 ### GET /rbs/v0/challenge
 
 **Obtain an attestation challenge (nonce)**
+
+Obtain a one-time attestation challenge (nonce) from the attestation backend (GTA). Echo the nonce verbatim in `rbc_evidences.measurements[].nonce` when calling `POST /rbs/v0/attest` or `POST .../retrieve`. No authentication required.
 
 Operation ID: `getAuthChallenge`
 
@@ -2909,7 +3105,7 @@ Response for GET /rbs/v0/challenge (attestation challenge).
 
 ### AuthType
 
-Authentication type. Add new types here.
+Authentication method for the user; currently only `jwt` is supported.
 
 Type: string — enum: `"jwt"`
 
@@ -2929,11 +3125,11 @@ Request body for POST cert (create).
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `name` | string | yes | Certificate name (non-empty). |
-| `type` | array of string | yes | Certificate type list (JSON field name `type`). |
-| `description` | string | no | Optional description. |
+| `name` | string | yes | Certificate name (1-255 chars, GTA-enforced). |
+| `type` | array of string | yes | Certificate type list (JSON field name `type`); 1-7 items, each one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `crl`, `ascend_npu`; `crl` must be the only entry. |
+| `description` | string | no | Optional description (at most 512 chars). |
 | `content` | string | no | Certificate content; required when `cert_type` does not contain `crl`. |
-| `crl_content` | string | no | CRL content; required when `cert_type` contains `crl`. |
+| `crl_content` | string | no | CRL content; required when `cert_type` contains `crl` (which must then be the only entry). |
 | `is_default` | boolean | no | Whether to set as default certificate. |
 
 ### CertDeleteRequest
@@ -2943,8 +3139,8 @@ Request body for DELETE cert (batch delete).
 | Property | Type | Required | Description |
 |---|---|---|---|
 | `delete_type` | [AttestationDeleteType](#attestationdeletetype) | yes | Delete mode. |
-| `ids` | array of string | no | IDs to delete (required when `delete_type` is `Id`). |
-| `type` | string | no | Cert type filter (required when `delete_type` is `Type`; JSON field name `type`). |
+| `ids` | array of string | no | IDs to delete (required when `delete_type` is `Id`; at most 10 IDs). |
+| `type` | string | no | Cert type filter (required when `delete_type` is `Type`; JSON field name `type`); one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `crl`, `ascend_npu`. |
 
 ### CertListResponse
 
@@ -2964,8 +3160,8 @@ Response for POST/PUT cert (create/update mutation).
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `cert` | [CertMutationResult](#certmutationresult) | no |  |
-| `crl` | [CrlMutationResult](#crlmutationresult) | no |  |
+| `cert` | [CertMutationResult](#certmutationresult) | no | Present when a cert was created/updated. |
+| `crl` | [CrlMutationResult](#crlmutationresult) | no | Present when a CRL was created/updated. |
 
 ### CertMutationResult
 
@@ -3002,10 +3198,10 @@ Request body for PUT cert (update).
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `id` | string | yes | ID of the certificate to update. |
-| `name` | string | no | New name. |
-| `description` | string | no | New description. |
-| `type` | array of string | no | New certificate type list (JSON field name `type`). Must not contain `crl`. |
+| `id` | string | yes | ID of the certificate to update (1-32 chars, GTA-enforced). |
+| `name` | string | no | New name (1-255 chars). |
+| `description` | string | no | New description (at most 512 chars). |
+| `type` | array of string | no | New certificate type list (JSON field name `type`); 1-7 items, each one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `ascend_npu` — `crl` cannot be set on update. |
 | `content` | string | no | Certificate content — GTA rejects this on update. |
 | `is_default` | boolean | no | Whether to set as default certificate. |
 
@@ -3023,9 +3219,9 @@ Policy create request body.
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `name` | string | yes |  |
-| `content_type` | string | yes |  |
-| `content` | string | yes |  |
+| `name` | string | yes | Policy name, unique per user (1-255 chars; `<>\"'&\|\\/*?` and backtick are forbidden). |
+| `content_type` | string | yes | Encoding of `content`; only `base64` is supported. |
+| `content` | string | yes | Base64-encoded Rego policy text; must decode to valid UTF-8 within the configured size limit. |
 
 ### CreateResourceRequest
 
@@ -3033,11 +3229,11 @@ Request body for `POST /rbs/v0/{uri}` — create a resource.
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `policy_id` | string | yes |  |
-| `content_type` | string | no |  |
-| `export_mode` | string | no |  |
-| `additional_info` | string | no |  |
-| `content` | string | no |  |
+| `policy_id` | string | yes | UUID of the caller-owned policy that governs reads of this resource. |
+| `content_type` | string | no | Content type label; one of `jwt`, `json`, `text`, `binary`, `jwk`, `jwe` (fixed whitelist). |
+| `export_mode` | string | no | Export mode on read; only `jwe` is accepted (plaintext export is rejected); defaults to `jwe`. |
+| `additional_info` | string | no | Free-form description of the resource; when present, 1-512 chars (empty string rejected). |
+| `content` | string | no | Base64-encoded content, stored via the backend when it supports PUT. Optional for backends that generate the object themselves (e.g. CA) or require it to pre-exist. |
 
 ### CrlMutationResult
 
@@ -3072,12 +3268,12 @@ Request body for POST attestation policy (create).
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `name` | string | yes | Policy name (non-empty). |
-| `attester_type` | array of string | yes | Attester type list (non-empty array). |
-| `content_type` | string | yes | Content encoding (required): "jwt" or "text". |
-| `content` | string | yes | Policy content (non-empty). |
+| `name` | string | yes | Policy name (1-255 chars; GTA rejects the special characters `< > " ' & \| \ / * ?` and backtick). |
+| `attester_type` | array of string | yes | Attester type list (1-9 items, each at most 255 chars); supported values: `all`, `tpm`, `tpm_boot`, `tpm_ima`, `virt_cca`, `ascend_npu`, `itrustee`, `cca`, `dice`. |
+| `content_type` | string | yes | Content encoding (required): `jwt` or `text` (GTA-enforced). |
+| `content` | string | yes | Policy content (base64-encoded); the decoded size is bounded by GTA's `policy_content_size_limit` (shipped default 500 KB). |
 | `is_default` | boolean | no | Whether to set as default policy. |
-| `description` | string | no | Optional description. |
+| `description` | string | no | Optional description (at most 512 chars). |
 
 ### PolicyDeleteRequest
 
@@ -3086,8 +3282,8 @@ Request body for DELETE policy (batch delete).
 | Property | Type | Required | Description |
 |---|---|---|---|
 | `delete_type` | [PolicyDeleteType](#policydeletetype) | yes | Delete mode. |
-| `ids` | array of string | no | IDs to delete (required when `delete_type` is `Id`). |
-| `attester_type` | string | no | Attester type filter (required when `delete_type` is `AttesterType`). |
+| `ids` | array of string | no | IDs to delete (required when `delete_type` is `Id`; at most 10 IDs, each at most 36 chars). |
+| `attester_type` | string | no | Attester type filter (required when `delete_type` is `AttesterType`; at most 255 chars). |
 
 ### PolicyDeleteType
 
@@ -3101,10 +3297,10 @@ Policy list response.
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `items` | array of [PolicyResponse](#policyresponse) | yes |  |
-| `total_count` | integer(int64) | yes |  |
-| `limit` | integer(int64) | yes |  |
-| `offset` | integer(int64) | yes |  |
+| `items` | array of [PolicyResponse](#policyresponse) | yes | Current page of policies. |
+| `total_count` | integer(int64) | yes | Total matching policies (not only this page). |
+| `limit` | integer(int64) | yes | Effective page size (mirrors the request `limit`). |
+| `offset` | integer(int64) | yes | Effective page offset (mirrors the request `offset`). |
 
 ### PolicyMutation
 
@@ -3130,13 +3326,13 @@ Policy response returned to callers.
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `policy_id` | string | yes |  |
-| `policy_name` | string | yes |  |
-| `policy_version` | integer(int32) | yes |  |
-| `content_type` | string | yes |  |
-| `created_at` | string | yes |  |
-| `updated_at` | string | yes |  |
-| `applied_resources` | array of string | no |  |
+| `policy_id` | string | yes | Policy ID (UUID v4), generated by RBS. |
+| `policy_name` | string | yes | Policy name, unique per user. |
+| `policy_version` | integer(int32) | yes | Monotonic version: starts at 1 and increments on every update (optimistic-lock token). |
+| `content_type` | string | yes | Encoding of the stored policy content (always `base64`). |
+| `created_at` | string | yes | Creation time (RFC 3339). |
+| `updated_at` | string | yes | Last update time (RFC 3339). |
+| `applied_resources` | array of string | no | URIs of resources bound to this policy; only returned by single-policy GET (omitted elsewhere). |
 
 ### PolicyUpdateRequest
 
@@ -3144,12 +3340,12 @@ Request body for PUT attestation policy (update).
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `id` | string | yes | ID of the policy to update. |
-| `name` | string | no | New name. |
-| `description` | string | no | New description. |
-| `attester_type` | array of string | no | New attester type list. |
-| `content_type` | string | no | New content encoding. |
-| `content` | string | no | New policy content. |
+| `id` | string | yes | ID of the policy to update (1-36 chars, GTA-enforced). |
+| `name` | string | no | New name (1-255 chars; GTA rejects the special characters `< > " ' & \| \ / * ?` and backtick). |
+| `description` | string | no | New description (at most 512 chars). |
+| `attester_type` | array of string | no | New attester type list (1-9 items, each at most 255 chars). |
+| `content_type` | string | no | New content encoding: `jwt` or `text`. |
+| `content` | string | no | New policy content (base64-encoded; decoded size limited as on create). |
 | `is_default` | boolean | no | Whether to set as default policy. |
 
 ### RbcEvidenceItem
@@ -3182,7 +3378,7 @@ One node or attestation unit inside the evidence bundle.
 | `node_id` | string | no | Optional node or workload identifier. |
 | `nonce_type` | string | no | Optional hint for nonce interpretation (backend-specific). |
 | `token_fmt` | string | no | Optional desired token format hint (backend-specific). |
-| `attester_data` | [AttesterData](#attesterdata) | no |  |
+| `attester_data` | [AttesterData](#attesterdata) | no | Attester-supplied metadata for this measurement. |
 | `evidences` | array of [RbcEvidenceItem](#rbcevidenceitem) | no | Collected attestation artifacts for this measurement. |
 
 ### RbsVersion
@@ -3217,11 +3413,11 @@ Request body for POST ref_value (create).
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `name` | string | yes | Baseline name (non-empty). |
-| `attester_type` | string | yes | Attester type (non-empty). |
-| `content` | string | yes | Baseline content — JWT or base64-encoded payload (non-empty). |
-| `content_type` | string | no | Content encoding: "jwt" (default) or "base64". When absent, GTA defaults to jwt. |
-| `description` | string | no | Optional description. |
+| `name` | string | yes | Baseline name (1-255 chars, GTA-enforced). |
+| `attester_type` | string | yes | Attester type; one of `tpm`, `tpm_ima`, `virt_cca`, `ascend_npu`, `cca` (GTA-enforced). |
+| `content` | string | yes | Baseline content — JWT or base64-encoded payload; at most 100 MiB (GTA-enforced). |
+| `content_type` | string | no | Content encoding: `jwt` (default when omitted) or `base64`. |
+| `description` | string | no | Optional description (at most 512 chars, GTA-enforced). |
 
 ### RefValueDeleteRequest
 
@@ -3230,8 +3426,8 @@ Request body for DELETE ref_value (batch delete).
 | Property | Type | Required | Description |
 |---|---|---|---|
 | `delete_type` | [AttestationDeleteType](#attestationdeletetype) | yes | Delete mode. |
-| `ids` | array of string | no | IDs to delete (required when `delete_type` is `Id`). |
-| `attester_type` | string | no | Attester type filter (required when `delete_type` is `Type`). |
+| `ids` | array of string | no | IDs to delete (required when `delete_type` is `Id`; 1-10 IDs, each 1-36 chars). |
+| `attester_type` | string | no | Attester type filter (required when `delete_type` is `Type`); one of `tpm`, `tpm_ima`, `virt_cca`, `ascend_npu`, `cca`. |
 
 ### RefValueListResponse
 
@@ -3268,12 +3464,12 @@ Request body for PUT ref_value (update).
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `id` | string | yes | ID of the ref_value to update. |
-| `name` | string | no | New name. |
-| `description` | string | no | New description. |
-| `attester_type` | string | no | New attester_type. |
-| `content` | string | no | New content. |
-| `content_type` | string | no | New content encoding. |
+| `id` | string | yes | ID of the ref_value to update (1-36 chars, GTA-enforced). |
+| `name` | string | no | New name (1-255 chars). |
+| `description` | string | no | New description (at most 512 chars). |
+| `attester_type` | string | no | New attester_type; one of `tpm`, `tpm_ima`, `virt_cca`, `ascend_npu`, `cca`. |
+| `content` | string | no | New content (at most 100 MiB). |
+| `content_type` | string | no | New content encoding: `jwt` or `base64`. |
 
 ### ResourceContentResponse
 
@@ -3283,8 +3479,8 @@ Resource content returned by GET and POST .../retrieve.
 |---|---|---|---|
 | `uri` | string | yes | Canonical resource URI for the returned object. |
 | `content` | string | yes | Base64-encoded JWE ciphertext. |
-| `content_type` | string | no | Original MIME type hint for decoding after JWE decryption. |
-| `export_mode` | string | yes | Export mode (currently always "jwe"). |
+| `content_type` | string | no | Content type label (`jwt`, `json`, `text`, `binary`, `jwk`, `jwe`) for decoding the decrypted content. |
+| `export_mode` | string | yes | Export mode; always `jwe`. |
 
 ### ResourceInfoResponse
 
@@ -3292,13 +3488,13 @@ Resource metadata returned by GET .../info (no secret material).
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `uri` | string | yes |  |
-| `user_id` | string | yes |  |
-| `policy_id` | string | yes |  |
-| `created_at` | string | yes |  |
-| `updated_at` | string | yes |  |
-| `content_type` | string | no |  |
-| `export_mode` | string | yes |  |
+| `uri` | string | yes | Canonical resource URI. |
+| `user_id` | string | yes | Username of the resource owner. |
+| `policy_id` | string | yes | UUID of the policy bound to this resource. |
+| `created_at` | string | yes | Creation time (RFC 3339). |
+| `updated_at` | string | yes | Last update time (RFC 3339). |
+| `content_type` | string | no | Content type label (`jwt`, `json`, `text`, `binary`, `jwk`, `jwe`), if set. |
+| `export_mode` | string | yes | Export mode of the resource; always `jwe`. |
 
 ### ResourceResponse
 
@@ -3306,17 +3502,17 @@ Resource metadata returned after create or update.
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `uri` | string | yes |  |
-| `provider_name` | string | yes |  |
-| `repository_name` | string | yes |  |
-| `resource_type` | string | yes |  |
-| `resource_name` | string | yes |  |
-| `created_at` | string | yes |  |
-| `updated_at` | string | yes |  |
-| `content_type` | string | no |  |
-| `export_mode` | string | yes |  |
-| `policy_id` | string | yes |  |
-| `additional_info` | string | no |  |
+| `uri` | string | yes | Canonical resource URI: `/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}`. |
+| `provider_name` | string | yes | Backend provider name (first URI segment). |
+| `repository_name` | string | yes | Backend repository name (second URI segment). |
+| `resource_type` | string | yes | Resource type (third URI segment), e.g. `secret`, `cert`, `key`. |
+| `resource_name` | string | yes | Resource name (fourth URI segment). |
+| `created_at` | string | yes | Creation time (RFC 3339). |
+| `updated_at` | string | yes | Last update time (RFC 3339). |
+| `content_type` | string | no | Content type label (`jwt`, `json`, `text`, `binary`, `jwk`, `jwe`), if set. |
+| `export_mode` | string | yes | Export mode of the resource; always `jwe`. |
+| `policy_id` | string | yes | UUID of the policy bound to this resource. |
+| `additional_info` | string | no | Free-form description (1-512 chars), if set. |
 
 ### Role
 
@@ -3326,13 +3522,13 @@ Type: string — enum: `"admin"`, `"user"`
 
 ### UpdatePolicyRequest
 
-Policy update request body.
+Policy update request body. All fields are required (full replacement).
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `name` | string | yes |  |
-| `content_type` | string | yes |  |
-| `content` | string | yes |  |
+| `name` | string | yes | New policy name, unique per user (1-255 chars; `<>\"'&\|\\/*?` and backtick are forbidden). |
+| `content_type` | string | yes | New encoding of `content`; only `base64` is supported. |
+| `content` | string | yes | New base64-encoded Rego policy text; must decode to valid UTF-8 within the configured size limit. |
 
 ### UpdateResourceRequest
 
@@ -3340,11 +3536,11 @@ Request body for `PUT /rbs/v0/{uri}` — update or create a resource.
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `policy_id` | string | no |  |
-| `content_type` | string | no |  |
-| `export_mode` | string | no |  |
-| `additional_info` | string | no |  |
-| `content` | string | no |  |
+| `policy_id` | string | no | New policy binding (must be caller-owned); omitted keeps the current binding. Required when the upsert creates a new resource. |
+| `content_type` | string | no | New content type label (`jwt`, `json`, `text`, `binary`, `jwk`, `jwe`); omitted keeps the current value. |
+| `export_mode` | string | no | New export mode; only `jwe` is accepted; omitted keeps the current value. |
+| `additional_info` | string | no | New description (when present, 1-512 chars); omitted keeps the current value. |
+| `content` | string | no | Base64-encoded replacement content; omitted leaves the backend content unchanged. |
 
 ### UserCreateRequest
 
@@ -3353,9 +3549,9 @@ Request body for POST /rbs/v0/users (create user).
 | Property | Type | Required | Description |
 |---|---|---|---|
 | `username` | string | yes | Login or unique handle. Immutable. |
-| `role` | [Role](#role) | no |  |
+| `role` | [Role](#role) | no | Optional role; only `user` is allowed via API (admin is pre-configured). |
 | `enabled` | boolean | no | Whether the account is enabled. |
-| `auth_type` | [AuthType](#authtype) | yes | Authentication type. |
+| `auth_type` | [AuthType](#authtype) | yes | Authentication method; currently only `jwt` is supported. |
 | `public_key` | string | no | Base64-encoded PEM public key (mutually exclusive with `jwk`). |
 | `jwk` | any | no | JWK public key JSON object (mutually exclusive with `public_key`). |
 
@@ -3389,9 +3585,9 @@ Request body for PUT /rbs/v0/users/{username} (update user).
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `role` | [Role](#role) | no |  |
+| `role` | [Role](#role) | no | New role; only the target's current role is accepted — any other value is rejected with 403. |
 | `enabled` | boolean | no | Whether the account can authenticate. |
-| `auth_type` | [AuthType](#authtype) | no |  |
+| `auth_type` | [AuthType](#authtype) | no | New authentication method; currently only `jwt` is supported. |
 | `public_key` | string | no | Base64-encoded PEM public key (mutually exclusive with `jwk`). |
 | `jwk` | any | no | JWK public key JSON object (mutually exclusive with `public_key`). |
 

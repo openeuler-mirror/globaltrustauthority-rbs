@@ -18,8 +18,10 @@ paths:
       tags:
       - Attestation
       summary: Submit attestation evidence and obtain token
+      description: Submit the RBC evidence bundle to the attestation backend; on success an attest token is returned for resource reads (`GET .../{resource}` and `POST .../retrieve`). The token is replayable until it expires. No authentication required.
       operationId: postAttest
       requestBody:
+        description: Evidence bundle including the nonce obtained from `GET /rbs/v0/challenge`; `attester_data.runtime_data.tee-pubkey` (JWK) is used to JWE-encrypt returned resources.
         content:
           application/json:
             schema:
@@ -63,17 +65,18 @@ paths:
       tags:
       - Attestation
       summary: List certificates (default provider)
+      description: 'Uses the configured default attestation provider. List certificates and CRLs: `ids` returns up to 10 full records (pagination ignored); otherwise paged summaries filtered by `cert_type`. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).'
       operationId: listCertsDefault
       parameters:
       - name: ids
         in: query
-        description: Comma-separated certificate IDs.
+        description: Comma-separated certificate IDs (at most 100, GTA-enforced).
         required: false
         schema:
           type: string
       - name: cert_type
         in: query
-        description: Filter by certificate type (query param `cert_type`, JSON field `type`).
+        description: Filter by certificate type; one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `crl`, `ascend_npu` (query param `cert_type`, JSON field `type`).
         required: false
         schema:
           type: string
@@ -144,8 +147,10 @@ paths:
       tags:
       - Attestation
       summary: Update a certificate (default provider)
+      description: Uses the configured default attestation provider. Update a certificate/CRL record identified by in-body `id`; other fields are optional pass-through. GTA rejects `content` changes on update. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
       operationId: updateCertDefault
       requestBody:
+        description: ID of the certificate to update plus optional new field values; `content` changes are rejected by GTA.
         content:
           application/json:
             schema:
@@ -200,8 +205,10 @@ paths:
       tags:
       - Attestation
       summary: Create a certificate (default provider)
+      description: Uses the configured default attestation provider. Create a certificate or CRL record (`crl_content` required when `type` contains `crl`, otherwise `content`). Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
       operationId: createCertDefault
       requestBody:
+        description: 'Certificate or CRL record: when `type` contains `crl`, `crl_content` is required; otherwise `content` is required.'
         content:
           application/json:
             schema:
@@ -256,8 +263,10 @@ paths:
       tags:
       - Attestation
       summary: Batch delete certificates (default provider)
+      description: 'Uses the configured default attestation provider. Delete certificates/CRLs by mode: `id` (ID list), `all`, or `type` (cert type filter). Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).'
       operationId: deleteCertsDefault
       requestBody:
+        description: Delete mode (`id` / `all` / `type`) with the matching `ids` or cert type filter.
         content:
           application/json:
             schema:
@@ -309,11 +318,12 @@ paths:
       tags:
       - Attestation
       summary: Get a single certificate (default provider)
+      description: Uses the configured default attestation provider. Fetch one certificate or CRL by ID. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
       operationId: getCertDefault
       parameters:
       - name: id
         in: path
-        description: Certificate or CRL ID
+        description: Certificate or CRL ID (1-32 chars, GTA-enforced)
         required: true
         schema:
           type: string
@@ -360,11 +370,12 @@ paths:
       tags:
       - Attestation
       summary: Delete a single certificate (default provider)
+      description: Uses the configured default attestation provider. Delete one certificate or CRL by ID. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
       operationId: deleteCertDefault
       parameters:
       - name: id
         in: path
-        description: Certificate or CRL ID
+        description: Certificate or CRL ID (1-32 chars, GTA-enforced)
         required: true
         schema:
           type: string
@@ -408,17 +419,18 @@ paths:
       tags:
       - Attestation
       summary: List attestation policies (default provider)
+      description: 'Uses the configured default attestation provider. List GTA attestation policies: `ids` returns up to 10 full records (pagination ignored); otherwise paged summaries filtered by `attester_type`. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).'
       operationId: listAttestationPoliciesDefault
       parameters:
       - name: ids
         in: query
-        description: Comma-separated policy IDs.
+        description: Comma-separated policy IDs (at most 10, GTA-enforced).
         required: false
         schema:
           type: string
       - name: attester_type
         in: query
-        description: Filter by attester_type.
+        description: Filter by attester_type (e.g. `tpm`, `tpm_ima`, `itrustee`, `dice`).
         required: false
         schema:
           type: string
@@ -489,8 +501,10 @@ paths:
       tags:
       - Attestation
       summary: Update an attestation policy (default provider)
+      description: Uses the configured default attestation provider. Update a GTA attestation policy identified by in-body `id`; other fields are optional pass-through. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
       operationId: updateAttestationPolicyDefault
       requestBody:
+        description: ID of the policy to update plus optional new field values.
         content:
           application/json:
             schema:
@@ -545,8 +559,10 @@ paths:
       tags:
       - Attestation
       summary: Create an attestation policy (default provider)
+      description: Uses the configured default attestation provider. Create a GTA attestation policy (`name`, `attester_type`, `content_type`, `content` required). Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
       operationId: createAttestationPolicyDefault
       requestBody:
+        description: 'Policy definition: name, attester type list, content encoding (`jwt` or `text`), and content.'
         content:
           application/json:
             schema:
@@ -601,8 +617,10 @@ paths:
       tags:
       - Attestation
       summary: Batch delete attestation policies (default provider)
+      description: 'Uses the configured default attestation provider. Delete GTA attestation policies by mode: `id` (ID list), `all`, or `attester_type` filter. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).'
       operationId: deleteAttestationPoliciesDefault
       requestBody:
+        description: Delete mode (`id` / `all` / `attester_type`) with the matching `ids` or `attester_type` filter.
         content:
           application/json:
             schema:
@@ -654,11 +672,12 @@ paths:
       tags:
       - Attestation
       summary: Get a single attestation policy (default provider)
+      description: Uses the configured default attestation provider. Fetch one GTA attestation policy by ID (full record). Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
       operationId: getAttestationPolicyDefault
       parameters:
       - name: id
         in: path
-        description: Policy ID
+        description: Policy ID (1-36 chars, GTA-enforced)
         required: true
         schema:
           type: string
@@ -705,11 +724,12 @@ paths:
       tags:
       - Attestation
       summary: Delete a single attestation policy (default provider)
+      description: Uses the configured default attestation provider. Delete one GTA attestation policy by ID. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
       operationId: deleteAttestationPolicyDefault
       parameters:
       - name: id
         in: path
-        description: Policy ID
+        description: Policy ID (1-36 chars, GTA-enforced)
         required: true
         schema:
           type: string
@@ -753,17 +773,18 @@ paths:
       tags:
       - Attestation
       summary: List reference value baselines (default provider)
+      description: 'Uses the configured default attestation provider. List reference value baselines: `ids` returns up to 10 full records (pagination ignored); otherwise paged summaries filtered by `attester_type`. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).'
       operationId: listRefValuesDefault
       parameters:
       - name: ids
         in: query
-        description: Comma-separated ref_value IDs (1-10); when present, pagination is ignored.
+        description: Comma-separated ref_value IDs (1-10, each 1-36 chars); when present, pagination is ignored.
         required: false
         schema:
           type: string
       - name: attester_type
         in: query
-        description: Filter by attester_type (e.g. tpm, tpm_ima).
+        description: Filter by attester_type; one of `tpm`, `tpm_ima`, `virt_cca`, `ascend_npu`, `cca`.
         required: false
         schema:
           type: string
@@ -834,8 +855,10 @@ paths:
       tags:
       - Attestation
       summary: Update a reference value baseline (default provider)
+      description: Uses the configured default attestation provider. Update a reference value baseline identified by in-body `id`; other fields are optional pass-through. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
       operationId: updateRefValueDefault
       requestBody:
+        description: ID of the baseline to update plus optional new field values.
         content:
           application/json:
             schema:
@@ -890,8 +913,10 @@ paths:
       tags:
       - Attestation
       summary: Create a reference value baseline (default provider)
+      description: Uses the configured default attestation provider. Create a reference value baseline (`name`, `attester_type`, `content` required; `content_type` defaults to `jwt`). Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
       operationId: createRefValueDefault
       requestBody:
+        description: 'Baseline definition: name, attester type, content (JWT or base64), optional encoding (defaults to `jwt`) and description.'
         content:
           application/json:
             schema:
@@ -946,8 +971,10 @@ paths:
       tags:
       - Attestation
       summary: Batch delete reference value baselines (default provider)
+      description: 'Uses the configured default attestation provider. Delete reference value baselines by mode: `id` (ID list), `all`, or `type` (`attester_type` filter). Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).'
       operationId: deleteRefValuesDefault
       requestBody:
+        description: Delete mode (`id` / `all` / `type`) with the matching `ids` or `attester_type` filter.
         content:
           application/json:
             schema:
@@ -999,11 +1026,12 @@ paths:
       tags:
       - Attestation
       summary: Get a single reference value baseline (default provider)
+      description: Uses the configured default attestation provider. Fetch one reference value baseline by ID (full record). Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
       operationId: getRefValueDefault
       parameters:
       - name: id
         in: path
-        description: Ref_value ID
+        description: Ref_value ID (1-36 chars, GTA-enforced)
         required: true
         schema:
           type: string
@@ -1050,11 +1078,12 @@ paths:
       tags:
       - Attestation
       summary: Delete a single reference value baseline (default provider)
+      description: Uses the configured default attestation provider. Delete one reference value baseline by ID. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
       operationId: deleteRefValueDefault
       parameters:
       - name: id
         in: path
-        description: Ref_value ID
+        description: Ref_value ID (1-36 chars, GTA-enforced)
         required: true
         schema:
           type: string
@@ -1098,23 +1127,24 @@ paths:
       tags:
       - Attestation
       summary: List certificates
+      description: List certificates and CRLs. With `ids`, up to 10 full records are returned and pagination is ignored; otherwise paged summaries, filterable by `cert_type`. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
       operationId: listCerts
       parameters:
       - name: as_provider
         in: path
-        description: Attestation provider name
+        description: Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`)
         required: true
         schema:
           type: string
       - name: ids
         in: query
-        description: Comma-separated certificate IDs.
+        description: Comma-separated certificate IDs (at most 100, GTA-enforced).
         required: false
         schema:
           type: string
       - name: cert_type
         in: query
-        description: Filter by certificate type (query param `cert_type`, JSON field `type`).
+        description: Filter by certificate type; one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `crl`, `ascend_npu` (query param `cert_type`, JSON field `type`).
         required: false
         schema:
           type: string
@@ -1185,15 +1215,17 @@ paths:
       tags:
       - Attestation
       summary: Update a certificate
+      description: Update a certificate/CRL record identified by in-body `id`; all other fields are optional pass-through. GTA rejects `content` changes on update. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
       operationId: updateCert
       parameters:
       - name: as_provider
         in: path
-        description: Attestation provider name
+        description: Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`)
         required: true
         schema:
           type: string
       requestBody:
+        description: ID of the certificate to update plus optional new field values; `content` changes are rejected by GTA.
         content:
           application/json:
             schema:
@@ -1248,15 +1280,17 @@ paths:
       tags:
       - Attestation
       summary: Create a certificate
+      description: 'Create a certificate or CRL record: when `type` contains `crl`, `crl_content` is required; otherwise `content` is required. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).'
       operationId: createCert
       parameters:
       - name: as_provider
         in: path
-        description: Attestation provider name
+        description: Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`)
         required: true
         schema:
           type: string
       requestBody:
+        description: 'Certificate or CRL record: when `type` contains `crl`, `crl_content` is required; otherwise `content` is required.'
         content:
           application/json:
             schema:
@@ -1311,15 +1345,17 @@ paths:
       tags:
       - Attestation
       summary: Batch delete certificates
+      description: 'Delete certificates/CRLs by mode: `id` (ID list), `all`, or `type` (cert type filter). Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).'
       operationId: deleteCerts
       parameters:
       - name: as_provider
         in: path
-        description: Attestation provider name
+        description: Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`)
         required: true
         schema:
           type: string
       requestBody:
+        description: Delete mode (`id` / `all` / `type`) with the matching `ids` or cert type filter.
         content:
           application/json:
             schema:
@@ -1371,17 +1407,18 @@ paths:
       tags:
       - Attestation
       summary: Get a single certificate
+      description: Fetch one certificate or CRL by ID. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
       operationId: getCert
       parameters:
       - name: as_provider
         in: path
-        description: Attestation provider name
+        description: Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`)
         required: true
         schema:
           type: string
       - name: id
         in: path
-        description: Certificate or CRL ID
+        description: Certificate or CRL ID (1-32 chars, GTA-enforced)
         required: true
         schema:
           type: string
@@ -1428,17 +1465,18 @@ paths:
       tags:
       - Attestation
       summary: Delete a single certificate
+      description: Delete one certificate or CRL by ID. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
       operationId: deleteCert
       parameters:
       - name: as_provider
         in: path
-        description: Attestation provider name
+        description: Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`)
         required: true
         schema:
           type: string
       - name: id
         in: path
-        description: Certificate or CRL ID
+        description: Certificate or CRL ID (1-32 chars, GTA-enforced)
         required: true
         schema:
           type: string
@@ -1482,23 +1520,24 @@ paths:
       tags:
       - Attestation
       summary: List attestation policies
+      description: List GTA attestation policies. With `ids`, up to 10 full records are returned and pagination is ignored; otherwise paged summaries, filterable by `attester_type`. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
       operationId: listAttestationPolicies
       parameters:
       - name: as_provider
         in: path
-        description: Attestation provider name
+        description: Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`)
         required: true
         schema:
           type: string
       - name: ids
         in: query
-        description: Comma-separated policy IDs.
+        description: Comma-separated policy IDs (at most 10, GTA-enforced).
         required: false
         schema:
           type: string
       - name: attester_type
         in: query
-        description: Filter by attester_type.
+        description: Filter by attester_type (e.g. `tpm`, `tpm_ima`, `itrustee`, `dice`).
         required: false
         schema:
           type: string
@@ -1569,15 +1608,17 @@ paths:
       tags:
       - Attestation
       summary: Update an attestation policy
+      description: Update a GTA attestation policy identified by in-body `id`; all other fields are optional pass-through. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
       operationId: updateAttestationPolicy
       parameters:
       - name: as_provider
         in: path
-        description: Attestation provider name
+        description: Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`)
         required: true
         schema:
           type: string
       requestBody:
+        description: ID of the policy to update plus optional new field values.
         content:
           application/json:
             schema:
@@ -1632,15 +1673,17 @@ paths:
       tags:
       - Attestation
       summary: Create an attestation policy
+      description: 'Create a GTA attestation policy: `name`, `attester_type` (non-empty list), `content_type` (`jwt` or `text`), and `content` are required. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).'
       operationId: createAttestationPolicy
       parameters:
       - name: as_provider
         in: path
-        description: Attestation provider name
+        description: Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`)
         required: true
         schema:
           type: string
       requestBody:
+        description: 'Policy definition: name, attester type list, content encoding (`jwt` or `text`), and content.'
         content:
           application/json:
             schema:
@@ -1695,15 +1738,17 @@ paths:
       tags:
       - Attestation
       summary: Batch delete attestation policies
+      description: 'Delete GTA attestation policies by mode: `id` (ID list), `all`, or `attester_type` filter. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).'
       operationId: deleteAttestationPolicies
       parameters:
       - name: as_provider
         in: path
-        description: Attestation provider name
+        description: Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`)
         required: true
         schema:
           type: string
       requestBody:
+        description: Delete mode (`id` / `all` / `attester_type`) with the matching `ids` or `attester_type` filter.
         content:
           application/json:
             schema:
@@ -1755,17 +1800,18 @@ paths:
       tags:
       - Attestation
       summary: Get a single attestation policy
+      description: Fetch one GTA attestation policy by ID (full record). Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
       operationId: getAttestationPolicy
       parameters:
       - name: as_provider
         in: path
-        description: Attestation provider name
+        description: Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`)
         required: true
         schema:
           type: string
       - name: id
         in: path
-        description: Policy ID
+        description: Policy ID (1-36 chars, GTA-enforced)
         required: true
         schema:
           type: string
@@ -1812,17 +1858,18 @@ paths:
       tags:
       - Attestation
       summary: Delete a single attestation policy
+      description: Delete one GTA attestation policy by ID. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
       operationId: deleteAttestationPolicy
       parameters:
       - name: as_provider
         in: path
-        description: Attestation provider name
+        description: Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`)
         required: true
         schema:
           type: string
       - name: id
         in: path
-        description: Policy ID
+        description: Policy ID (1-36 chars, GTA-enforced)
         required: true
         schema:
           type: string
@@ -1866,23 +1913,24 @@ paths:
       tags:
       - Attestation
       summary: List reference value baselines
+      description: List reference value baselines (trusted measurements compared against attestation evidence). With `ids`, up to 10 full records are returned and pagination is ignored; otherwise paged summaries, filterable by `attester_type`. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
       operationId: listRefValues
       parameters:
       - name: as_provider
         in: path
-        description: Attestation provider name
+        description: Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`)
         required: true
         schema:
           type: string
       - name: ids
         in: query
-        description: Comma-separated ref_value IDs (1-10); when present, pagination is ignored.
+        description: Comma-separated ref_value IDs (1-10, each 1-36 chars); when present, pagination is ignored.
         required: false
         schema:
           type: string
       - name: attester_type
         in: query
-        description: Filter by attester_type (e.g. tpm, tpm_ima).
+        description: Filter by attester_type; one of `tpm`, `tpm_ima`, `virt_cca`, `ascend_npu`, `cca`.
         required: false
         schema:
           type: string
@@ -1953,15 +2001,17 @@ paths:
       tags:
       - Attestation
       summary: Update a reference value baseline
+      description: Update a reference value baseline identified by in-body `id`; all other fields are optional pass-through. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
       operationId: updateRefValue
       parameters:
       - name: as_provider
         in: path
-        description: Attestation provider name
+        description: Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`)
         required: true
         schema:
           type: string
       requestBody:
+        description: ID of the baseline to update plus optional new field values.
         content:
           application/json:
             schema:
@@ -2016,15 +2066,17 @@ paths:
       tags:
       - Attestation
       summary: Create a reference value baseline
+      description: 'Create a reference value baseline: `name`, `attester_type`, and `content` are required; `content_type` defaults to `jwt` when omitted. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).'
       operationId: createRefValue
       parameters:
       - name: as_provider
         in: path
-        description: Attestation provider name
+        description: Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`)
         required: true
         schema:
           type: string
       requestBody:
+        description: 'Baseline definition: name, attester type, content (JWT or base64), optional encoding (defaults to `jwt`) and description.'
         content:
           application/json:
             schema:
@@ -2079,15 +2131,17 @@ paths:
       tags:
       - Attestation
       summary: Batch delete reference value baselines
+      description: 'Delete reference value baselines by mode: `id` (ID list), `all`, or `type` (`attester_type` filter). Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).'
       operationId: deleteRefValues
       parameters:
       - name: as_provider
         in: path
-        description: Attestation provider name
+        description: Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`)
         required: true
         schema:
           type: string
       requestBody:
+        description: Delete mode (`id` / `all` / `type`) with the matching `ids` or `attester_type` filter.
         content:
           application/json:
             schema:
@@ -2139,17 +2193,18 @@ paths:
       tags:
       - Attestation
       summary: Get a single reference value baseline
+      description: Fetch one reference value baseline by ID (full record). Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
       operationId: getRefValue
       parameters:
       - name: as_provider
         in: path
-        description: Attestation provider name
+        description: Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`)
         required: true
         schema:
           type: string
       - name: id
         in: path
-        description: Ref_value ID
+        description: Ref_value ID (1-36 chars, GTA-enforced)
         required: true
         schema:
           type: string
@@ -2196,17 +2251,18 @@ paths:
       tags:
       - Attestation
       summary: Delete a single reference value baseline
+      description: Delete one reference value baseline by ID. Admin Bearer only; RBS proxies to GTA (503 when unreachable, other GTA statuses forwarded as-is).
       operationId: deleteRefValue
       parameters:
       - name: as_provider
         in: path
-        description: Attestation provider name
+        description: Attestation provider name; must be configured under `attestation.backends` in `rbs.yaml` (e.g. `gta`)
         required: true
         schema:
           type: string
       - name: id
         in: path
-        description: Ref_value ID
+        description: Ref_value ID (1-36 chars, GTA-enforced)
         required: true
         schema:
           type: string
@@ -2250,6 +2306,7 @@ paths:
       tags:
       - Attestation
       summary: Obtain an attestation challenge (nonce)
+      description: Obtain a one-time attestation challenge (nonce) from the attestation backend (GTA). Echo the nonce verbatim in `rbc_evidences.measurements[].nonce` when calling `POST /rbs/v0/attest` or `POST .../retrieve`. No authentication required.
       operationId: getAuthChallenge
       parameters:
       - name: as_provider
@@ -2290,11 +2347,12 @@ paths:
       tags:
       - Policy
       summary: List policies
+      description: List the caller's own policies with optional `ids` filter and pagination; policies are user-scoped and other users' policies are never returned. When `ids` is present, only those are returned and pagination is ignored.
       operationId: listPolicies
       parameters:
       - name: ids
         in: query
-        description: Comma-separated policy IDs.
+        description: Comma-separated policy IDs (UUIDs); when present, only these are returned and pagination is ignored.
         required: false
         schema:
           type: string
@@ -2349,8 +2407,10 @@ paths:
       tags:
       - Policy
       summary: Create a policy
+      description: Create a policy owned by the caller. `content` must be base64-encoded Rego that decodes to valid UTF-8 within the configured size limit; the name must be unique per user. 409 on duplicate name or when the per-user policy quota is reached.
       operationId: createPolicy
       requestBody:
+        description: Policy name, content encoding (`base64`), and base64-encoded Rego content.
         content:
           application/json:
             schema:
@@ -2399,6 +2459,7 @@ paths:
       tags:
       - Policy
       summary: Batch delete policies
+      description: Delete up to 10 policies in a single transaction. All IDs must exist and belong to the caller; rejected with 409 (nothing deleted) when any listed policy is still referenced by a resource.
       operationId: batchDeletePolicies
       parameters:
       - name: ids
@@ -2453,6 +2514,7 @@ paths:
       tags:
       - Policy
       summary: Get policy detail
+      description: 'Fetch a single policy including `applied_resources` (URIs of resources bound to it). User-scoped: 403 when the policy belongs to another user.'
       operationId: getPolicy
       parameters:
       - name: policy_id
@@ -2498,6 +2560,7 @@ paths:
       tags:
       - Policy
       summary: Update a policy
+      description: 'Replace a policy (name, content_type, and content are all required — full replacement, not a patch). The version increments on every update; a concurrent update loses the race and fails with 409 (optimistic locking). User-scoped: 403 when owned by another user.'
       operationId: updatePolicy
       parameters:
       - name: policy_id
@@ -2507,6 +2570,7 @@ paths:
         schema:
           type: string
       requestBody:
+        description: 'Full replacement values: new name, content encoding (`base64`), and base64-encoded Rego content.'
         content:
           application/json:
             schema:
@@ -2561,6 +2625,7 @@ paths:
       tags:
       - Policy
       summary: Delete a policy
+      description: Delete one policy owned by the caller. Rejected with 409 while any resource still references the policy — delete or rebind those resources first.
       operationId: deletePolicy
       parameters:
       - name: policy_id
@@ -2609,6 +2674,7 @@ paths:
       tags:
       - Admin
       summary: List users (admin only)
+      description: List users with pagination and optional `role` / `enabled` filters, ordered by username. Requires an enabled admin Bearer token.
       operationId: listUsers
       parameters:
       - name: limit
@@ -2672,8 +2738,10 @@ paths:
       tags:
       - Admin
       summary: Create a user (admin only)
+      description: Create a user with authentication key material. Only the `user` role can be assigned here — the `admin` role is pre-configured and rejected (400). Exactly one of `public_key` / `jwk` is required (they are mutually exclusive). `username` is immutable after creation; 409 when it already exists or the configured `max_users` quota is reached.
       operationId: createUser
       requestBody:
+        description: 'New user record: username, optional role/enabled, auth type, and exactly one of `public_key` or `jwk`.'
         content:
           application/json:
             schema:
@@ -2723,6 +2791,7 @@ paths:
       tags:
       - Admin
       summary: Get a user (admin or self)
+      description: Fetch one user by username. Admins may fetch any user; non-admin callers may only fetch themselves (403 otherwise).
       operationId: getUser
       parameters:
       - name: username
@@ -2768,6 +2837,7 @@ paths:
       tags:
       - Admin
       summary: Update a user (admin or self)
+      description: 'Update a user; at least one field is required and `username` itself is immutable (path parameter only). Non-admin self-updates may only change key material (`public_key` / `jwk`) and `auth_type` — a changed `role` or `enabled: false` is rejected with 403. The `admin` role is not API-assignable, and the built-in Administrator''s `role` / `enabled` cannot be changed.'
       operationId: updateUser
       parameters:
       - name: username
@@ -2777,6 +2847,7 @@ paths:
         schema:
           type: string
       requestBody:
+        description: Fields to update; at least one required. `public_key` and `jwk` are mutually exclusive.
         content:
           application/json:
             schema:
@@ -2825,6 +2896,7 @@ paths:
       tags:
       - Admin
       summary: Delete a user (admin only)
+      description: Delete a user. Admin only; self-deletion is rejected with 403. Blocked with 409 while the user still owns policies or resources — delete those first.
       operationId: deleteUser
       parameters:
       - name: username
@@ -2867,32 +2939,39 @@ paths:
       tags:
       - Resource
       summary: Get resource content
+      description: Read resource content with owner Bearer or attest token authorization; the bound Rego policy is evaluated and `hsm`/`ca` content requires an attest token. The content is always JWE-encrypted to the caller's key (`enc-pubkey` Bearer claim or `tee-pubkey` attest claim) and base64-encoded. Missing and denied reads are collapsed into the same 404.
       operationId: getResource
       parameters:
       - name: res_provider
         in: path
-        description: Resource provider name
+        description: Backend provider name; must be configured under `resource.backends` in `rbs.yaml` (e.g. `vault`, `ca`, `hsm`); reserved names (`admin`, `attestation`, `resource`, `health`) are rejected
         required: true
         schema:
           type: string
       - name: repository_name
         in: path
-        description: Repository name
+        description: Repository name (1-32 chars; only letters, digits, `_` and `-`)
         required: true
         schema:
           type: string
+          maxLength: 32
+          minLength: 1
+          pattern: ^[A-Za-z0-9_-]+$
       - name: resource_type
         in: path
-        description: Resource type (secret, cert, etc.)
+        description: Resource type; must be in the provider's configured `allowed_resource_types` (e.g. `secret`, `cert`, `key`)
         required: true
         schema:
           type: string
       - name: resource_name
         in: path
-        description: Resource name
+        description: Resource name (1-32 chars; only letters, digits, `_`, `-` and `.`)
         required: true
         schema:
           type: string
+          maxLength: 32
+          minLength: 1
+          pattern: ^[A-Za-z0-9_.-]+$
       responses:
         '200':
           description: Resource content (base64-encoded JWE)
@@ -2931,33 +3010,41 @@ paths:
       tags:
       - Resource
       summary: Update or create resource
+      description: Upsert a resource owned by the caller. Omitted optional fields keep their current values; an explicit `policy_id` rebinds the resource (must be caller-owned) while omitting it keeps the current binding — a new resource created via this path requires `policy_id`. Returns 201 when created, 200 when updated, and 409 on a concurrent update (optimistic locking).
       operationId: updateResource
       parameters:
       - name: res_provider
         in: path
-        description: Resource provider name
+        description: Backend provider name; must be configured under `resource.backends` in `rbs.yaml` (e.g. `vault`, `ca`, `hsm`); reserved names (`admin`, `attestation`, `resource`, `health`) are rejected
         required: true
         schema:
           type: string
       - name: repository_name
         in: path
-        description: Repository name
+        description: Repository name (1-32 chars; only letters, digits, `_` and `-`)
         required: true
         schema:
           type: string
+          maxLength: 32
+          minLength: 1
+          pattern: ^[A-Za-z0-9_-]+$
       - name: resource_type
         in: path
-        description: Resource type (secret, cert, etc.)
+        description: Resource type; must be in the provider's configured `allowed_resource_types` (e.g. `secret`, `cert`, `key`)
         required: true
         schema:
           type: string
       - name: resource_name
         in: path
-        description: Resource name
+        description: Resource name (1-32 chars; only letters, digits, `_`, `-` and `.`)
         required: true
         schema:
           type: string
+          maxLength: 32
+          minLength: 1
+          pattern: ^[A-Za-z0-9_.-]+$
       requestBody:
+        description: Fields to change; omitted optional fields keep their current values. `policy_id` is required when the upsert creates a new resource.
         content:
           application/json:
             schema:
@@ -3006,33 +3093,41 @@ paths:
       tags:
       - Resource
       summary: Create resource
+      description: Register a resource owned by the caller. `policy_id` must reference one of the caller's policies and governs reads of this resource. `content` (base64) is stored via the backend when it supports PUT; for CHECK backends the object must already exist; metadata-only backends (e.g. CA) need no content. 409 on duplicate URI or per-user resource quota.
       operationId: createResource
       parameters:
       - name: res_provider
         in: path
-        description: Resource provider name
+        description: Backend provider name; must be configured under `resource.backends` in `rbs.yaml` (e.g. `vault`, `ca`, `hsm`); reserved names (`admin`, `attestation`, `resource`, `health`) are rejected
         required: true
         schema:
           type: string
       - name: repository_name
         in: path
-        description: Repository name
+        description: Repository name (1-32 chars; only letters, digits, `_` and `-`)
         required: true
         schema:
           type: string
+          maxLength: 32
+          minLength: 1
+          pattern: ^[A-Za-z0-9_-]+$
       - name: resource_type
         in: path
-        description: Resource type (secret, cert, etc.)
+        description: Resource type; must be in the provider's configured `allowed_resource_types` (e.g. `secret`, `cert`, `key`)
         required: true
         schema:
           type: string
       - name: resource_name
         in: path
-        description: Resource name
+        description: Resource name (1-32 chars; only letters, digits, `_`, `-` and `.`)
         required: true
         schema:
           type: string
+          maxLength: 32
+          minLength: 1
+          pattern: ^[A-Za-z0-9_.-]+$
       requestBody:
+        description: Policy binding (required) plus optional content_type, export_mode, additional_info, and base64-encoded content.
         content:
           application/json:
             schema:
@@ -3075,32 +3170,39 @@ paths:
       tags:
       - Resource
       summary: Delete resource
+      description: Delete a resource owned by the caller. The backend object is removed first (when the backend supports DELETE), then the DB record.
       operationId: deleteResource
       parameters:
       - name: res_provider
         in: path
-        description: Resource provider name
+        description: Backend provider name; must be configured under `resource.backends` in `rbs.yaml` (e.g. `vault`, `ca`, `hsm`); reserved names (`admin`, `attestation`, `resource`, `health`) are rejected
         required: true
         schema:
           type: string
       - name: repository_name
         in: path
-        description: Repository name
+        description: Repository name (1-32 chars; only letters, digits, `_` and `-`)
         required: true
         schema:
           type: string
+          maxLength: 32
+          minLength: 1
+          pattern: ^[A-Za-z0-9_-]+$
       - name: resource_type
         in: path
-        description: Resource type (secret, cert, etc.)
+        description: Resource type; must be in the provider's configured `allowed_resource_types` (e.g. `secret`, `cert`, `key`)
         required: true
         schema:
           type: string
       - name: resource_name
         in: path
-        description: Resource name
+        description: Resource name (1-32 chars; only letters, digits, `_`, `-` and `.`)
         required: true
         schema:
           type: string
+          maxLength: 32
+          minLength: 1
+          pattern: ^[A-Za-z0-9_.-]+$
       responses:
         '204':
           description: Resource deleted
@@ -3135,32 +3237,39 @@ paths:
       tags:
       - Resource
       summary: Get resource metadata
+      description: Read resource metadata only — no secret content and no backend fetch. Owner Bearer or attest token plus the bound Rego policy check; missing and denied reads are collapsed into the same 404.
       operationId: getResourceInfo
       parameters:
       - name: res_provider
         in: path
-        description: Resource provider name
+        description: Backend provider name; must be configured under `resource.backends` in `rbs.yaml` (e.g. `vault`, `ca`, `hsm`); reserved names (`admin`, `attestation`, `resource`, `health`) are rejected
         required: true
         schema:
           type: string
       - name: repository_name
         in: path
-        description: Repository name
+        description: Repository name (1-32 chars; only letters, digits, `_` and `-`)
         required: true
         schema:
           type: string
+          maxLength: 32
+          minLength: 1
+          pattern: ^[A-Za-z0-9_-]+$
       - name: resource_type
         in: path
-        description: Resource type (secret, cert, etc.)
+        description: Resource type; must be in the provider's configured `allowed_resource_types` (e.g. `secret`, `cert`, `key`)
         required: true
         schema:
           type: string
       - name: resource_name
         in: path
-        description: Resource name
+        description: Resource name (1-32 chars; only letters, digits, `_`, `-` and `.`)
         required: true
         schema:
           type: string
+          maxLength: 32
+          minLength: 1
+          pattern: ^[A-Za-z0-9_.-]+$
       responses:
         '200':
           description: Resource metadata
@@ -3211,28 +3320,41 @@ paths:
       parameters:
       - name: res_provider
         in: path
-        description: Resource provider name
+        description: Backend provider name; must be configured under `resource.backends` in `rbs.yaml` (e.g. `vault`, `ca`, `hsm`); reserved names (`admin`, `attestation`, `resource`, `health`) are rejected
         required: true
         schema:
           type: string
       - name: repository_name
         in: path
-        description: Repository name
+        description: Repository name (1-32 chars; only letters, digits, `_` and `-`)
         required: true
         schema:
           type: string
+          maxLength: 32
+          minLength: 1
+          pattern: ^[A-Za-z0-9_-]+$
       - name: resource_type
         in: path
-        description: Resource type (secret, cert, etc.)
+        description: Resource type; must be in the provider's configured `allowed_resource_types` (e.g. `secret`, `cert`, `key`)
         required: true
         schema:
           type: string
       - name: resource_name
         in: path
-        description: Resource name
+        description: Resource name (1-32 chars; only letters, digits, `_`, `-` and `.`)
         required: true
         schema:
           type: string
+          maxLength: 32
+          minLength: 1
+          pattern: ^[A-Za-z0-9_.-]+$
+      requestBody:
+        description: Evidence bundle (same shape as `POST /rbs/v0/attest`) including the nonce from `GET /rbs/v0/challenge`; the token's `tee-pubkey` claim is used to JWE-encrypt the returned content.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttestRequest'
+        required: true
       responses:
         '200':
           description: Resource content (base64-encoded JWE)
@@ -3271,6 +3393,7 @@ paths:
       tags:
       - System
       summary: Get service name, API version, and build metadata
+      description: Return the service name, API contract version, and build metadata (version, git hash, build time). No authentication required.
       operationId: rbsVersion
       responses:
         '200':
@@ -3441,7 +3564,7 @@ components:
             for POST /rbs/v0/attest and POST .../retrieve.
     AuthType:
       type: string
-      description: Authentication type. Add new types here.
+      description: Authentication method for the user; currently only `jwt` is supported.
       enum:
       - jwt
     BuildMetadata:
@@ -3473,20 +3596,20 @@ components:
       properties:
         name:
           type: string
-          description: Certificate name (non-empty).
+          description: Certificate name (1-255 chars, GTA-enforced).
           example: cert1
           minLength: 1
         type:
           type: array
           items:
             type: string
-          description: Certificate type list (JSON field name `type`).
+          description: Certificate type list (JSON field name `type`); 1-7 items, each one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `crl`, `ascend_npu`; `crl` must be the only entry.
           example: '["tpm"]'
         description:
           type:
           - string
           - 'null'
-          description: Optional description.
+          description: Optional description (at most 512 chars).
         content:
           type:
           - string
@@ -3496,7 +3619,7 @@ components:
           type:
           - string
           - 'null'
-          description: CRL content; required when `cert_type` contains `crl`.
+          description: CRL content; required when `cert_type` contains `crl` (which must then be the only entry).
         is_default:
           type:
           - boolean
@@ -3521,12 +3644,12 @@ components:
           - 'null'
           items:
             type: string
-          description: IDs to delete (required when `delete_type` is `Id`).
+          description: IDs to delete (required when `delete_type` is `Id`; at most 10 IDs).
         type:
           type:
           - string
           - 'null'
-          description: Cert type filter (required when `delete_type` is `Type`; JSON field name `type`).
+          description: Cert type filter (required when `delete_type` is `Type`; JSON field name `type`); one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `crl`, `ascend_npu`.
           example: refvalue
     CertListResponse:
       type: object
@@ -3693,32 +3816,33 @@ components:
         Request body for PUT cert (update).
 
         `id` is required (collection-level operation, id in body not path).
-        GTA rejects `content` on update — the field is passed through so GTA
-        can return the appropriate error.
+        At least one of `name`/`description`/`cert_type`/`is_default` must be
+        present (GTA rejects empty updates). GTA rejects `content` on update —
+        the field is passed through so GTA can return the appropriate error.
       required:
       - id
       properties:
         id:
           type: string
-          description: ID of the certificate to update.
+          description: ID of the certificate to update (1-32 chars, GTA-enforced).
           example: C1
         name:
           type:
           - string
           - 'null'
-          description: New name.
+          description: New name (1-255 chars).
         description:
           type:
           - string
           - 'null'
-          description: New description.
+          description: New description (at most 512 chars).
         type:
           type:
           - array
           - 'null'
           items:
             type: string
-          description: New certificate type list (JSON field name `type`). Must not contain `crl`.
+          description: New certificate type list (JSON field name `type`); 1-7 items, each one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `ascend_npu` — `crl` cannot be set on update.
         content:
           type:
           - string
@@ -3748,14 +3872,17 @@ components:
       properties:
         name:
           type: string
+          description: Policy name, unique per user (1-255 chars; `<>\"'&|\\/*?` and backtick are forbidden).
           maxLength: 255
           minLength: 1
           pattern: ^[^<>"'&|\\/*?`]*$
         content_type:
           type: string
+          description: Encoding of `content`; only `base64` is supported.
           pattern: ^base64$
         content:
           type: string
+          description: Base64-encoded Rego policy text; must decode to valid UTF-8 within the configured size limit.
           minLength: 1
     CreateResourceRequest:
       type: object
@@ -3765,24 +3892,29 @@ components:
       properties:
         policy_id:
           type: string
+          description: UUID of the caller-owned policy that governs reads of this resource.
           maxLength: 36
           minLength: 1
         content_type:
           type:
           - string
           - 'null'
+          description: Content type label; one of `jwt`, `json`, `text`, `binary`, `jwk`, `jwe` (fixed whitelist).
         export_mode:
           type:
           - string
           - 'null'
+          description: Export mode on read; only `jwe` is accepted (plaintext export is rejected); defaults to `jwe`.
         additional_info:
           type:
           - string
           - 'null'
+          description: Free-form description of the resource; when present, 1-512 chars (empty string rejected).
         content:
           type:
           - string
           - 'null'
+          description: Base64-encoded content, stored via the backend when it supports PUT. Optional for backends that generate the object themselves (e.g. CA) or require it to pre-exist.
     CrlMutationResult:
       type: object
       description: |-
@@ -3847,24 +3979,24 @@ components:
       properties:
         name:
           type: string
-          description: Policy name (non-empty).
+          description: Policy name (1-255 chars; GTA rejects the special characters `< > " ' & | \ / * ?` and backtick).
           example: policy1
           minLength: 1
         attester_type:
           type: array
           items:
             type: string
-          description: Attester type list (non-empty array).
+          description: 'Attester type list (1-9 items, each at most 255 chars); supported values: `all`, `tpm`, `tpm_boot`, `tpm_ima`, `virt_cca`, `ascend_npu`, `itrustee`, `cca`, `dice`.'
           example: '["tpm"]'
           minItems: 1
         content_type:
           type: string
-          description: 'Content encoding (required): "jwt" or "text".'
+          description: 'Content encoding (required): `jwt` or `text` (GTA-enforced).'
           example: jwt
           minLength: 1
         content:
           type: string
-          description: Policy content (non-empty).
+          description: Policy content (base64-encoded); the decoded size is bounded by GTA's `policy_content_size_limit` (shipped default 500 KB).
           example: eyJhbGciOiJSUzI1NiJ9...
           minLength: 1
         is_default:
@@ -3876,7 +4008,7 @@ components:
           type:
           - string
           - 'null'
-          description: Optional description.
+          description: Optional description (at most 512 chars).
     PolicyDeleteRequest:
       type: object
       description: |-
@@ -3896,12 +4028,12 @@ components:
           - 'null'
           items:
             type: string
-          description: IDs to delete (required when `delete_type` is `Id`).
+          description: IDs to delete (required when `delete_type` is `Id`; at most 10 IDs, each at most 36 chars).
         attester_type:
           type:
           - string
           - 'null'
-          description: Attester type filter (required when `delete_type` is `AttesterType`).
+          description: Attester type filter (required when `delete_type` is `AttesterType`; at most 255 chars).
           example: tpm
     PolicyDeleteType:
       type: string
@@ -3926,15 +4058,19 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/PolicyResponse'
+          description: Current page of policies.
         total_count:
           type: integer
           format: int64
+          description: Total matching policies (not only this page).
         limit:
           type: integer
           format: int64
+          description: Effective page size (mirrors the request `limit`).
         offset:
           type: integer
           format: int64
+          description: Effective page offset (mirrors the request `offset`).
     PolicyMutation:
       type: object
       description: Inner mutation result for policy create/update.
@@ -3982,23 +4118,30 @@ components:
       properties:
         policy_id:
           type: string
+          description: Policy ID (UUID v4), generated by RBS.
         policy_name:
           type: string
+          description: Policy name, unique per user.
         policy_version:
           type: integer
           format: int32
+          description: 'Monotonic version: starts at 1 and increments on every update (optimistic-lock token).'
         content_type:
           type: string
+          description: Encoding of the stored policy content (always `base64`).
         created_at:
           type: string
+          description: Creation time (RFC 3339).
         updated_at:
           type: string
+          description: Last update time (RFC 3339).
         applied_resources:
           type:
           - array
           - 'null'
           items:
             type: string
+          description: URIs of resources bound to this policy; only returned by single-policy GET (omitted elsewhere).
     PolicyUpdateRequest:
       type: object
       description: |-
@@ -4010,35 +4153,35 @@ components:
       properties:
         id:
           type: string
-          description: ID of the policy to update.
+          description: ID of the policy to update (1-36 chars, GTA-enforced).
           example: P1
         name:
           type:
           - string
           - 'null'
-          description: New name.
+          description: New name (1-255 chars; GTA rejects the special characters `< > " ' & | \ / * ?` and backtick).
         description:
           type:
           - string
           - 'null'
-          description: New description.
+          description: New description (at most 512 chars).
         attester_type:
           type:
           - array
           - 'null'
           items:
             type: string
-          description: New attester type list.
+          description: New attester type list (1-9 items, each at most 255 chars).
         content_type:
           type:
           - string
           - 'null'
-          description: New content encoding.
+          description: 'New content encoding: `jwt` or `text`.'
         content:
           type:
           - string
           - 'null'
-          description: New policy content.
+          description: New policy content (base64-encoded; decoded size limited as on create).
         is_default:
           type:
           - boolean
@@ -4217,30 +4360,30 @@ components:
       properties:
         name:
           type: string
-          description: Baseline name (non-empty).
+          description: Baseline name (1-255 chars, GTA-enforced).
           example: tpm-baseline
           minLength: 1
         attester_type:
           type: string
-          description: Attester type (non-empty).
+          description: Attester type; one of `tpm`, `tpm_ima`, `virt_cca`, `ascend_npu`, `cca` (GTA-enforced).
           example: tpm
           minLength: 1
         content:
           type: string
-          description: Baseline content — JWT or base64-encoded payload (non-empty).
+          description: Baseline content — JWT or base64-encoded payload; at most 100 MiB (GTA-enforced).
           example: eyJhbGciOiJSUzI1NiJ9...
           minLength: 1
         content_type:
           type:
           - string
           - 'null'
-          description: 'Content encoding: "jwt" (default) or "base64". When absent, GTA defaults to jwt.'
+          description: 'Content encoding: `jwt` (default when omitted) or `base64`.'
           example: jwt
         description:
           type:
           - string
           - 'null'
-          description: Optional description.
+          description: Optional description (at most 512 chars, GTA-enforced).
           example: TPM reference baseline
     RefValueDeleteRequest:
       type: object
@@ -4261,12 +4404,12 @@ components:
           - 'null'
           items:
             type: string
-          description: IDs to delete (required when `delete_type` is `Id`).
+          description: IDs to delete (required when `delete_type` is `Id`; 1-10 IDs, each 1-36 chars).
         attester_type:
           type:
           - string
           - 'null'
-          description: Attester type filter (required when `delete_type` is `Type`).
+          description: Attester type filter (required when `delete_type` is `Type`); one of `tpm`, `tpm_ima`, `virt_cca`, `ascend_npu`, `cca`.
           example: tpm
     RefValueListResponse:
       type: object
@@ -4347,36 +4490,36 @@ components:
       properties:
         id:
           type: string
-          description: ID of the ref_value to update.
+          description: ID of the ref_value to update (1-36 chars, GTA-enforced).
           example: rv-001
         name:
           type:
           - string
           - 'null'
-          description: New name.
+          description: New name (1-255 chars).
           example: updated-baseline
         description:
           type:
           - string
           - 'null'
-          description: New description.
+          description: New description (at most 512 chars).
         attester_type:
           type:
           - string
           - 'null'
-          description: New attester_type.
+          description: New attester_type; one of `tpm`, `tpm_ima`, `virt_cca`, `ascend_npu`, `cca`.
           example: tpm
         content:
           type:
           - string
           - 'null'
-          description: New content.
+          description: New content (at most 100 MiB).
           example: eyJhbGciOiJSUzI1NiJ9...
         content_type:
           type:
           - string
           - 'null'
-          description: New content encoding.
+          description: 'New content encoding: `jwt` or `base64`.'
           example: base64
     ResourceContentResponse:
       type: object
@@ -4399,10 +4542,10 @@ components:
           type:
           - string
           - 'null'
-          description: Original MIME type hint for decoding after JWE decryption.
+          description: Content type label (`jwt`, `json`, `text`, `binary`, `jwk`, `jwe`) for decoding the decrypted content.
         export_mode:
           type: string
-          description: Export mode (currently always "jwe").
+          description: Export mode; always `jwe`.
     ResourceInfoResponse:
       type: object
       description: Resource metadata returned by GET .../info (no secret material).
@@ -4416,20 +4559,27 @@ components:
       properties:
         uri:
           type: string
+          description: Canonical resource URI.
         user_id:
           type: string
+          description: Username of the resource owner.
         policy_id:
           type: string
+          description: UUID of the policy bound to this resource.
         created_at:
           type: string
+          description: Creation time (RFC 3339).
         updated_at:
           type: string
+          description: Last update time (RFC 3339).
         content_type:
           type:
           - string
           - 'null'
+          description: Content type label (`jwt`, `json`, `text`, `binary`, `jwk`, `jwe`), if set.
         export_mode:
           type: string
+          description: Export mode of the resource; always `jwe`.
     ResourceResponse:
       type: object
       description: Resource metadata returned after create or update.
@@ -4446,30 +4596,41 @@ components:
       properties:
         uri:
           type: string
+          description: 'Canonical resource URI: `/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}`.'
         provider_name:
           type: string
+          description: Backend provider name (first URI segment).
         repository_name:
           type: string
+          description: Backend repository name (second URI segment).
         resource_type:
           type: string
+          description: Resource type (third URI segment), e.g. `secret`, `cert`, `key`.
         resource_name:
           type: string
+          description: Resource name (fourth URI segment).
         created_at:
           type: string
+          description: Creation time (RFC 3339).
         updated_at:
           type: string
+          description: Last update time (RFC 3339).
         content_type:
           type:
           - string
           - 'null'
+          description: Content type label (`jwt`, `json`, `text`, `binary`, `jwk`, `jwe`), if set.
         export_mode:
           type: string
+          description: Export mode of the resource; always `jwe`.
         policy_id:
           type: string
+          description: UUID of the policy bound to this resource.
         additional_info:
           type:
           - string
           - 'null'
+          description: Free-form description (1-512 chars), if set.
     Role:
       type: string
       description: User role. `Admin` is pre-configured and cannot be created via the API.
@@ -4478,7 +4639,7 @@ components:
       - user
     UpdatePolicyRequest:
       type: object
-      description: Policy update request body.
+      description: Policy update request body. All fields are required (full replacement).
       required:
       - name
       - content_type
@@ -4486,14 +4647,17 @@ components:
       properties:
         name:
           type: string
+          description: New policy name, unique per user (1-255 chars; `<>\"'&|\\/*?` and backtick are forbidden).
           maxLength: 255
           minLength: 1
           pattern: ^[^<>"'&|\\/*?`]*$
         content_type:
           type: string
+          description: New encoding of `content`; only `base64` is supported.
           pattern: ^base64$
         content:
           type: string
+          description: New base64-encoded Rego policy text; must decode to valid UTF-8 within the configured size limit.
           minLength: 1
     UpdateResourceRequest:
       type: object
@@ -4509,24 +4673,29 @@ components:
           type:
           - string
           - 'null'
+          description: New policy binding (must be caller-owned); omitted keeps the current binding. Required when the upsert creates a new resource.
           maxLength: 36
           minLength: 1
         content_type:
           type:
           - string
           - 'null'
+          description: New content type label (`jwt`, `json`, `text`, `binary`, `jwk`, `jwe`); omitted keeps the current value.
         export_mode:
           type:
           - string
           - 'null'
+          description: New export mode; only `jwe` is accepted; omitted keeps the current value.
         additional_info:
           type:
           - string
           - 'null'
+          description: New description (when present, 1-512 chars); omitted keeps the current value.
         content:
           type:
           - string
           - 'null'
+          description: Base64-encoded replacement content; omitted leaves the backend content unchanged.
     UserCreateRequest:
       type: object
       description: Request body for POST /rbs/v0/users (create user).
@@ -4552,7 +4721,7 @@ components:
           description: Whether the account is enabled.
         auth_type:
           $ref: '#/components/schemas/AuthType'
-          description: Authentication type.
+          description: Authentication method; currently only `jwt` is supported.
         public_key:
           type:
           - string
@@ -4628,7 +4797,7 @@ components:
           - type: 'null'
           - $ref: '#/components/schemas/Role'
             description: |-
-              New role (admin only).
+              New role; only the target's current role is accepted — any other value is rejected with 403.
 
               The `admin` role is pre-configured and not API-assignable: assigning it
               to a non-built-in target is rejected with `admin role is pre-configured
@@ -4651,7 +4820,7 @@ components:
           oneOf:
           - type: 'null'
           - $ref: '#/components/schemas/AuthType'
-            description: Authentication type.
+            description: New authentication method; currently only `jwt` is supported.
         public_key:
           type:
           - string

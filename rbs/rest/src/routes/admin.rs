@@ -43,6 +43,7 @@ fn error_response(e: impl ToString, status: u16) -> HttpResponse {
     path = "/rbs/v0/users",
     operation_id = "listUsers",
     summary = "List users (admin only)",
+    description = "List users with pagination and optional `role` / `enabled` filters, ordered by username. Requires an enabled admin Bearer token.",
     tags = ["Admin"],
     security(("bearerAuth" = [])),
     params(UserListQuery),
@@ -86,9 +87,10 @@ pub async fn list_users(
     path = "/rbs/v0/users",
     operation_id = "createUser",
     summary = "Create a user (admin only)",
+    description = "Create a user with authentication key material. Only the `user` role can be assigned here — the `admin` role is pre-configured and rejected (400). Exactly one of `public_key` / `jwk` is required (they are mutually exclusive). `username` is immutable after creation; 409 when it already exists or the configured `max_users` quota is reached.",
     tags = ["Admin"],
     security(("bearerAuth" = [])),
-    request_body = UserCreateRequest,
+    request_body(content = UserCreateRequest, description = "New user record: username, optional role/enabled, auth type, and exactly one of `public_key` or `jwk`."),
     responses(
         (status = 201, description = "User created", body = UserResponse),
         (status = 400, description = "Invalid request", body = ErrorBody),
@@ -121,6 +123,7 @@ pub async fn create_user(
     path = "/rbs/v0/users/{username}",
     operation_id = "getUser",
     summary = "Get a user (admin or self)",
+    description = "Fetch one user by username. Admins may fetch any user; non-admin callers may only fetch themselves (403 otherwise).",
     tags = ["Admin"],
     security(("bearerAuth" = [])),
     params(
@@ -167,12 +170,13 @@ pub async fn get_user(
     path = "/rbs/v0/users/{username}",
     operation_id = "updateUser",
     summary = "Update a user (admin or self)",
+    description = "Update a user; at least one field is required and `username` itself is immutable (path parameter only). Non-admin self-updates may only change key material (`public_key` / `jwk`) and `auth_type` — a changed `role` or `enabled: false` is rejected with 403. The `admin` role is not API-assignable, and the built-in Administrator's `role` / `enabled` cannot be changed.",
     tags = ["Admin"],
     security(("bearerAuth" = [])),
     params(
         ("username" = String, Path, description = "Username"),
     ),
-    request_body = UserUpdateRequest,
+    request_body(content = UserUpdateRequest, description = "Fields to update; at least one required. `public_key` and `jwk` are mutually exclusive."),
     responses(
         (status = 200, description = "User updated", body = UserResponse),
         (status = 400, description = "Invalid request", body = ErrorBody),
@@ -212,6 +216,7 @@ pub async fn update_user(
     path = "/rbs/v0/users/{username}",
     operation_id = "deleteUser",
     summary = "Delete a user (admin only)",
+    description = "Delete a user. Admin only; self-deletion is rejected with 403. Blocked with 409 while the user still owns policies or resources — delete those first.",
     tags = ["Admin"],
     security(("bearerAuth" = [])),
     params(

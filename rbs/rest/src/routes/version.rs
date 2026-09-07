@@ -23,6 +23,7 @@ use std::sync::Arc;
     path = "/rbs/version",
     operation_id = "rbsVersion",
     summary = "Get service name, API version, and build metadata",
+    description = "Return the service name, API contract version, and build metadata (version, git hash, build time). No authentication required.",
     tags = ["System"],
     security(()),
     responses(

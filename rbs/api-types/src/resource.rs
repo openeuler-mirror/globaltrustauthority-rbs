@@ -34,15 +34,20 @@ pub const BEARER_ENC_PUBKEY_KEY: &str = "enc-pubkey";
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema, validator::Validate)]
 #[serde(rename_all = "snake_case")]
 pub struct CreateResourceRequest {
+    /// UUID of the caller-owned policy that governs reads of this resource.
     #[validate(length(min = 1, max = 36))]
     #[schema(min_length = 1, max_length = 36)]
     pub policy_id: String,
+    /// Content type label; one of `jwt`, `json`, `text`, `binary`, `jwk`, `jwe` (fixed whitelist).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content_type: Option<String>,
+    /// Export mode on read; only `jwe` is accepted (plaintext export is rejected); defaults to `jwe`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub export_mode: Option<String>,
+    /// Free-form description of the resource; when present, 1-512 chars (empty string rejected).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub additional_info: Option<String>,
+    /// Base64-encoded content, stored via the backend when it supports PUT. Optional for backends that generate the object themselves (e.g. CA) or require it to pre-exist.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
 }
@@ -58,16 +63,21 @@ pub struct CreateResourceRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema, validator::Validate)]
 #[serde(rename_all = "snake_case")]
 pub struct UpdateResourceRequest {
+    /// New policy binding (must be caller-owned); omitted keeps the current binding. Required when the upsert creates a new resource.
     #[validate(length(min = 1, max = 36))]
     #[schema(min_length = 1, max_length = 36)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub policy_id: Option<String>,
+    /// New content type label (`jwt`, `json`, `text`, `binary`, `jwk`, `jwe`); omitted keeps the current value.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content_type: Option<String>,
+    /// New export mode; only `jwe` is accepted; omitted keeps the current value.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub export_mode: Option<String>,
+    /// New description (when present, 1-512 chars); omitted keeps the current value.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub additional_info: Option<String>,
+    /// Base64-encoded replacement content; omitted leaves the backend content unchanged.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
 }
@@ -78,17 +88,28 @@ pub struct UpdateResourceRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct ResourceResponse {
+    /// Canonical resource URI: `/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}`.
     pub uri: String,
+    /// Backend provider name (first URI segment).
     pub provider_name: String,
+    /// Backend repository name (second URI segment).
     pub repository_name: String,
+    /// Resource type (third URI segment), e.g. `secret`, `cert`, `key`.
     pub resource_type: String,
+    /// Resource name (fourth URI segment).
     pub resource_name: String,
+    /// Creation time (RFC 3339).
     pub created_at: String,
+    /// Last update time (RFC 3339).
     pub updated_at: String,
+    /// Content type label (`jwt`, `json`, `text`, `binary`, `jwk`, `jwe`), if set.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content_type: Option<String>,
+    /// Export mode of the resource; always `jwe`.
     pub export_mode: String,
+    /// UUID of the policy bound to this resource.
     pub policy_id: String,
+    /// Free-form description (1-512 chars), if set.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub additional_info: Option<String>,
 }
@@ -105,10 +126,10 @@ pub struct ResourceContentResponse {
     pub uri: String,
     /// Base64-encoded JWE ciphertext.
     pub content: String,
-    /// Original MIME type hint for decoding after JWE decryption.
+    /// Content type label (`jwt`, `json`, `text`, `binary`, `jwk`, `jwe`) for decoding the decrypted content.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content_type: Option<String>,
-    /// Export mode (currently always "jwe").
+    /// Export mode; always `jwe`.
     pub export_mode: String,
 }
 
@@ -118,13 +139,20 @@ pub struct ResourceContentResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct ResourceInfoResponse {
+    /// Canonical resource URI.
     pub uri: String,
+    /// Username of the resource owner.
     pub user_id: String,
+    /// UUID of the policy bound to this resource.
     pub policy_id: String,
+    /// Creation time (RFC 3339).
     pub created_at: String,
+    /// Last update time (RFC 3339).
     pub updated_at: String,
+    /// Content type label (`jwt`, `json`, `text`, `binary`, `jwk`, `jwe`), if set.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content_type: Option<String>,
+    /// Export mode of the resource; always `jwe`.
     pub export_mode: String,
 }
 

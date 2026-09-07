@@ -54,6 +54,7 @@ fn validate_path_id(policy_id: &str) -> Result<(), HttpResponse> {
     path = "/rbs/v0/resource/policy",
     operation_id = "listPolicies",
     summary = "List policies",
+    description = "List the caller's own policies with optional `ids` filter and pagination; policies are user-scoped and other users' policies are never returned. When `ids` is present, only those are returned and pagination is ignored.",
     tags = ["Policy"],
     security(("bearerAuth" = [])),
     params(PolicyListQuery),
@@ -101,9 +102,10 @@ pub async fn list_policies(
     path = "/rbs/v0/resource/policy",
     operation_id = "createPolicy",
     summary = "Create a policy",
+    description = "Create a policy owned by the caller. `content` must be base64-encoded Rego that decodes to valid UTF-8 within the configured size limit; the name must be unique per user. 409 on duplicate name or when the per-user policy quota is reached.",
     tags = ["Policy"],
     security(("bearerAuth" = [])),
-    request_body = CreatePolicyRequest,
+    request_body(content = CreatePolicyRequest, description = "Policy name, content encoding (`base64`), and base64-encoded Rego content."),
     responses(
         (status = 201, description = "Policy created", body = PolicyResponse),
         (status = 400, description = "Bad request", body = ErrorBody),
@@ -138,6 +140,7 @@ pub async fn create_policy(
     path = "/rbs/v0/resource/policy/{policy_id}",
     operation_id = "getPolicy",
     summary = "Get policy detail",
+    description = "Fetch a single policy including `applied_resources` (URIs of resources bound to it). User-scoped: 403 when the policy belongs to another user.",
     tags = ["Policy"],
     security(("bearerAuth" = [])),
     params(
@@ -173,12 +176,13 @@ pub async fn get_policy(
     path = "/rbs/v0/resource/policy/{policy_id}",
     operation_id = "updatePolicy",
     summary = "Update a policy",
+    description = "Replace a policy (name, content_type, and content are all required — full replacement, not a patch). The version increments on every update; a concurrent update loses the race and fails with 409 (optimistic locking). User-scoped: 403 when owned by another user.",
     tags = ["Policy"],
     security(("bearerAuth" = [])),
     params(
         ("policy_id" = String, Path, description = "Policy ID"),
     ),
-    request_body = UpdatePolicyRequest,
+    request_body(content = UpdatePolicyRequest, description = "Full replacement values: new name, content encoding (`base64`), and base64-encoded Rego content."),
     responses(
         (status = 200, description = "Policy updated", body = PolicyResponse),
         (status = 400, description = "Bad request", body = ErrorBody),
@@ -217,6 +221,7 @@ pub async fn update_policy(
     path = "/rbs/v0/resource/policy/{policy_id}",
     operation_id = "deletePolicy",
     summary = "Delete a policy",
+    description = "Delete one policy owned by the caller. Rejected with 409 while any resource still references the policy — delete or rebind those resources first.",
     tags = ["Policy"],
     security(("bearerAuth" = [])),
     params(
@@ -254,6 +259,7 @@ pub async fn delete_policy(
     path = "/rbs/v0/resource/policy",
     operation_id = "batchDeletePolicies",
     summary = "Batch delete policies",
+    description = "Delete up to 10 policies in a single transaction. All IDs must exist and belong to the caller; rejected with 409 (nothing deleted) when any listed policy is still referenced by a resource.",
     tags = ["Policy"],
     security(("bearerAuth" = [])),
     params(

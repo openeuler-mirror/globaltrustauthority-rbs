@@ -34,7 +34,8 @@ pub enum Role {
     User,
 }
 
-/// Authentication type. Add new types here.
+// Add new variants here as authentication methods grow.
+/// Authentication method for the user; currently only `jwt` is supported.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum AuthType {
@@ -61,7 +62,7 @@ pub struct UserCreateRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
 
-    /// Authentication type.
+    /// Authentication method; currently only `jwt` is supported.
     pub auth_type: AuthType,
 
     /// Base64-encoded PEM public key (mutually exclusive with `jwk`).
@@ -100,7 +101,7 @@ impl UserCreateRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, Validate, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct UserUpdateRequest {
-    /// New role (admin only).
+    /// New role; only the target's current role is accepted — any other value is rejected with 403.
     ///
     /// The `admin` role is pre-configured and not API-assignable: assigning it
     /// to a non-built-in target is rejected with `admin role is pre-configured
@@ -120,7 +121,7 @@ pub struct UserUpdateRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
 
-    /// Authentication type.
+    /// New authentication method; currently only `jwt` is supported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auth_type: Option<AuthType>,
 
