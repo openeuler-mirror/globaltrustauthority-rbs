@@ -23,14 +23,15 @@
 //!
 //! # Handle ownership
 //!
-//! `RbcClient`, `RbcSession`, and `RbcResource` are opaque handles created only
-//! by RBC. Callers must not allocate, copy, cast between handle types, or
-//! dereference them. Each non-NULL handle must be released exactly once with its
-//! matching function:
+//! `RbcClient`, `RbcSession`, `RbcResource`, and `RbcBuffer` are opaque handles
+//! created only by RBC. Callers must not allocate, copy, cast between handle
+//! types, or dereference them. Each non-NULL handle must be released exactly
+//! once with its matching function:
 //!
 //! - `RbcClient *` with `rbc_client_free`
 //! - `RbcSession *` with `rbc_session_free`
 //! - `RbcResource *` with `rbc_resource_free`
+//! - `RbcBuffer *` with `rbc_buffer_free`
 //!
 //! After a free call returns, the handle and all borrowed pointers obtained from
 //! it are invalid and must not be used again. Passing a pointer not returned by
@@ -41,16 +42,15 @@
 //!
 //! - Functions with a `char **` out-parameter allocate a nul-terminated string;
 //!   free exactly once with `rbc_string_free`.
-//! - Functions with a `uint8_t **` out-parameter allocate a byte buffer;
-//!   free exactly once with `rbc_buffer_free(ptr, len)` — `len` must be the
-//!   value the producing call wrote into its `size_t *out_len`.
+//! - Functions with an `RbcBuffer **` out-parameter create an opaque byte
+//!   buffer handle. Borrow its bytes with `rbc_buffer_data` and its length with
+//!   `rbc_buffer_len`; release exactly once with `rbc_buffer_free`.
 //! - Functions returning `const char *` or `const uint8_t *` from an
 //!   `RbcResource *` lend a pointer owned by the resource. It is valid
 //!   until `rbc_resource_free` is called on that resource.
 //!
-//! Do not pass non-RBC allocations to `rbc_string_free` or `rbc_buffer_free`,
-//! and do not pass an adjusted pointer or a different length to
-//! `rbc_buffer_free`.
+//! Do not pass non-RBC allocations or adjusted pointers to any RBC release
+//! function.
 
 pub mod client;
 pub mod error;
@@ -59,7 +59,7 @@ pub mod session;
 pub(crate) mod utils;
 
 use std::ffi::{c_char, CString};
-use std::slice;
+use std::ptr;
 
 pub use error::{rbc_last_error_clear, rbc_last_error_message, RbcErrorCode};
 pub(crate) use utils::{cstr_to_str, opt_cstr_to_str, require_non_null};
@@ -87,6 +87,15 @@ pub struct RbcSession {
 /// cbindgen:opaque
 pub struct RbcResource {
     _priv: std::marker::PhantomData<()>,
+}
+
+/// cbindgen:opaque
+pub struct RbcBuffer {
+    _priv: std::marker::PhantomData<()>,
+}
+
+struct RbcBufferInner {
+    data: zeroize::Zeroizing<Vec<u8>>,
 }
 
 // ─── Handle cast helpers ────────────────────────────────────────────────
@@ -117,7 +126,22 @@ unsafe fn drop_session(h: *mut RbcSession) {
     drop(Box::from_raw(h as *mut Session));
 }
 
-// ─── Memory-release helpers ─────────────────────────────────────────────
+// ─── Buffer handle helpers ──────────────────────────────────────────────
+
+#[inline]
+fn box_bytes_into_handle(data: zeroize::Zeroizing<Vec<u8>>) -> *mut RbcBuffer {
+    Box::into_raw(Box::new(RbcBufferInner { data })) as *mut RbcBuffer
+}
+
+#[inline]
+unsafe fn buffer_ref<'a>(h: *const RbcBuffer) -> &'a RbcBufferInner {
+    &*(h as *const RbcBufferInner)
+}
+
+#[inline]
+unsafe fn drop_buffer(h: *mut RbcBuffer) {
+    drop(Box::from_raw(h as *mut RbcBufferInner));
+}
 
 /// Free a nul-terminated string returned by an RBC function.
 #[export_name = "RbcStringFree"]
@@ -127,16 +151,37 @@ pub extern "C" fn rbc_string_free(s: *mut c_char) {
     }
 }
 
-/// Free a byte buffer returned by an RBC function. `len` MUST be the value
-/// the producing call wrote into its `*out_len` parameter.
+/// Borrow the bytes in an opaque buffer. Returns NULL for a NULL or empty
+/// buffer. The pointer is valid until `RbcBufferFree` is called for
+/// `buffer`.
+#[export_name = "RbcBufferData"]
+pub extern "C" fn rbc_buffer_data(buffer: *const RbcBuffer) -> *const u8 {
+    if buffer.is_null() {
+        return ptr::null();
+    }
+    let buffer = unsafe { buffer_ref(buffer) };
+    if buffer.data.is_empty() {
+        ptr::null()
+    } else {
+        buffer.data.as_ptr()
+    }
+}
+
+/// Return the number of bytes in an opaque buffer.
+#[export_name = "RbcBufferLen"]
+pub extern "C" fn rbc_buffer_len(buffer: *const RbcBuffer) -> usize {
+    if buffer.is_null() {
+        return 0;
+    }
+    let buffer = unsafe { buffer_ref(buffer) };
+    buffer.data.len()
+}
+
+/// Free an opaque byte buffer returned by an RBC function.
 #[export_name = "RbcBufferFree"]
-pub extern "C" fn rbc_buffer_free(buf: *mut u8, len: usize) {
-    if !buf.is_null() && len > 0 {
-        unsafe {
-            let s = slice::from_raw_parts_mut(buf, len);
-            zeroize::Zeroize::zeroize(s);
-            drop(Box::from_raw(s as *mut [u8]));
-        }
+pub extern "C" fn rbc_buffer_free(buffer: *mut RbcBuffer) {
+    if !buffer.is_null() {
+        unsafe { drop_buffer(buffer) };
     }
 }
 
@@ -157,13 +202,39 @@ mod tests {
     }
 
     #[test]
-    fn buffer_free_null_does_not_panic() {
-        rbc_buffer_free(ptr::null_mut(), 42);
+    fn buffer_data_null_returns_null() {
+        assert!(rbc_buffer_data(ptr::null()).is_null());
     }
 
     #[test]
-    fn buffer_free_zero_len_does_not_panic() {
-        let mut dummy: u8 = 0;
-        rbc_buffer_free(&mut dummy as *mut u8, 0);
+    fn buffer_len_null_returns_zero() {
+        assert_eq!(rbc_buffer_len(ptr::null()), 0);
+    }
+
+    #[test]
+    fn buffer_data_and_len_return_owned_content() {
+        let expected = b"secret buffer";
+        let buffer = box_bytes_into_handle(zeroize::Zeroizing::new(expected.to_vec()));
+
+        assert_eq!(rbc_buffer_len(buffer), expected.len());
+        let data = rbc_buffer_data(buffer);
+        assert!(!data.is_null());
+        let actual = unsafe { std::slice::from_raw_parts(data, expected.len()) };
+        assert_eq!(actual, expected);
+
+        rbc_buffer_free(buffer);
+    }
+
+    #[test]
+    fn buffer_empty_content_can_be_freed() {
+        let buffer = box_bytes_into_handle(zeroize::Zeroizing::new(Vec::new()));
+        assert_eq!(rbc_buffer_len(buffer), 0);
+        assert!(rbc_buffer_data(buffer).is_null());
+        rbc_buffer_free(buffer);
+    }
+
+    #[test]
+    fn buffer_free_null_does_not_panic() {
+        rbc_buffer_free(ptr::null_mut());
     }
 }

@@ -242,6 +242,7 @@ The C API is declared in `rbc/include/rbc.h` and targets C99+. Link against `lib
 typedef struct RbcClient   RbcClient;
 typedef struct RbcSession  RbcSession;
 typedef struct RbcResource RbcResource;
+typedef struct RbcBuffer   RbcBuffer;
 ```
 
 Handles are opaque RBC-owned pointers. Never dereference, stack-allocate, copy, or cast them between handle types; only pass pointers between RBC functions.
@@ -253,6 +254,7 @@ Each non-NULL handle must be released exactly once with its matching function:
 | `RbcClient *` | `RbcClientFree` |
 | `RbcSession *` | `RbcSessionFree` |
 | `RbcResource *` | `RbcResourceFree` |
+| `RbcBuffer *` | `RbcBufferFree` |
 
 After a free call returns, the handle and all borrowed pointers obtained from it are invalid. Passing a pointer not returned by RBC, freeing a handle twice, freeing it with the wrong function, or using it after free is undefined behavior.
 
@@ -261,11 +263,11 @@ After a free call returns, the handle and all borrowed pointers obtained from it
 | Return type | Ownership | How to release |
 |-------------|-----------|----------------|
 | `char **` out-param | Caller owns | `RbcStringFree(ptr)` |
-| `uint8_t **` out-param | Caller owns | `RbcBufferFree(ptr, len)` — `len` must be the value written by the call |
+| `RbcBuffer **` out-param | Caller owns opaque handle | `RbcBufferFree(buffer)` |
 | `const char *` from resource accessor | Borrowed | Do **not** free; valid until `RbcResourceFree` |
 | `const uint8_t *` from `RbcResourceGetContent` | Borrowed | Do **not** free; valid until `RbcResourceFree` |
 
-Only pass unmodified RBC-returned pointers to `RbcStringFree` and `RbcBufferFree`. Do not pass non-RBC allocations, adjusted pointers, or a different `len` value to `RbcBufferFree`.
+`RbcBufferData(buffer)` and `RbcBufferLen(buffer)` return a borrowed data view. The data pointer is valid until `RbcBufferFree(buffer)`. Do not pass non-RBC allocations, copied handles, or adjusted pointers to RBC release functions.
 
 > **Thread safety**: All handles must be used only on the thread that created them. The error slot used by `RbcLastErrorMessage` is thread-local.
 
@@ -793,12 +795,14 @@ int main(int argc, char **argv) {
     printf("content:      %.*s\n", (int)n, (const char *)content);
 
     /* 8. Optionally decrypt JWE-encrypted content */
-    // uint8_t *pt = NULL; size_t pt_len = 0;
+    // RbcBuffer *pt = NULL;
     // rc = RbcSessionDecryptContent(session, (const char *)content,
-    //                               NULL, NULL, 0, &pt, &pt_len);
+    //                               NULL, NULL, 0, &pt);
     // if (rc != RBC_ERROR_CODE_OK) die("RbcSessionDecryptContent", rc);
-    // printf("plaintext: %.*s\n", (int)pt_len, (const char *)pt);
-    // RbcBufferFree(pt, pt_len);
+    // const uint8_t *pt_data = RbcBufferData(pt);
+    // size_t pt_len = RbcBufferLen(pt);
+    // printf("plaintext: %.*s\n", (int)pt_len, (const char *)pt_data);
+    // RbcBufferFree(pt);
 
     /* 9. Release all handles in reverse order */
     RbcResourceFree(res);

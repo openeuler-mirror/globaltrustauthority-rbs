@@ -41,6 +41,8 @@ typedef enum {
   RBC_ERROR_CODE_INTERNAL = 17,
 } RbcErrorCode;
 
+typedef struct RbcBuffer RbcBuffer;
+
 typedef struct RbcClient RbcClient;
 
 typedef struct RbcResource RbcResource;
@@ -57,10 +59,21 @@ extern "C" {
 void RbcStringFree(char *s);
 
 /**
- * Free a byte buffer returned by an RBC function. `len` MUST be the value
- * the producing call wrote into its `*out_len` parameter.
+ * Borrow the bytes in an opaque buffer. Returns NULL for a NULL or empty
+ * buffer. The pointer is valid until `RbcBufferFree` is called for
+ * `buffer`.
  */
-void RbcBufferFree(uint8_t *buf, size_t len);
+const uint8_t *RbcBufferData(const RbcBuffer *buffer);
+
+/**
+ * Return the number of bytes in an opaque buffer.
+ */
+size_t RbcBufferLen(const RbcBuffer *buffer);
+
+/**
+ * Free an opaque byte buffer returned by an RBC function.
+ */
+void RbcBufferFree(RbcBuffer *buffer);
 
 /**
  * Create a client from a YAML config file on disk.
@@ -177,8 +190,9 @@ RbcErrorCode RbcSessionGetResourceByEvidence(RbcSession *session,
  * that collected evidence. Pass NULL to fall back to the session's ephemeral
  * key.
  *
- * On success `*out_plaintext` is a newly allocated buffer of `*out_len` bytes
- * owned by the caller; release with `RbcBufferFree(buf, len)`.
+ * On success `*out_buffer` is an opaque buffer handle owned by the caller.
+ * Borrow its bytes with `RbcBufferData`, get its length with `RbcBufferLen`,
+ * and release it with `RbcBufferFree`.
  * `passphrase` / `passphrase_len` — pass a non-NULL pointer and byte length when
  * `private_key_pem` is encrypted; pass NULL / 0 otherwise. Caller is responsible
  * for zeroizing the passphrase buffer after this call returns.
@@ -188,8 +202,7 @@ RbcErrorCode RbcSessionDecryptContent(RbcSession *session,
                                       const char *private_key_pem,
                                       const uint8_t *passphrase,
                                       size_t passphrase_len,
-                                      uint8_t **out_plaintext,
-                                      size_t *out_len);
+                                      RbcBuffer **out_buffer);
 
 #ifdef __cplusplus
 }  // extern "C"
