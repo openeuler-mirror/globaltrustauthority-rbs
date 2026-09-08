@@ -31,7 +31,7 @@ pub const POLICY_CONTENT_TYPE_WHITELIST: &[&str] = &["base64"];
 #[serde(rename_all = "snake_case")]
 pub struct CreatePolicyRequest {
     /// Policy name, unique per user (1-255 chars; `<>\"'&|\\/*?` and backtick are forbidden).
-    #[validate(length(min = 1, max = POLICY_NAME_MAX_LEN), custom(function = "validate_policy_name"))]
+    #[validate(length(min = 1, max = POLICY_NAME_MAX_LEN, message = "length must be between 1 and 255 characters"), custom(function = "validate_policy_name"))]
     #[schema(min_length = 1, max_length = 255, pattern = "^[^<>\"'&|\\\\/*?`]*$")]
     pub name: String,
 
@@ -41,7 +41,7 @@ pub struct CreatePolicyRequest {
     pub content_type: String,
 
     /// Base64-encoded Rego policy text; must decode to valid UTF-8 within the configured size limit.
-    #[validate(length(min = 1))]
+    #[validate(length(min = 1, message = "must not be empty"))]
     #[schema(min_length = 1)]
     pub content: String,
 }
@@ -51,7 +51,7 @@ pub struct CreatePolicyRequest {
 #[serde(rename_all = "snake_case")]
 pub struct UpdatePolicyRequest {
     /// New policy name, unique per user (1-255 chars; `<>\"'&|\\/*?` and backtick are forbidden).
-    #[validate(length(min = 1, max = POLICY_NAME_MAX_LEN), custom(function = "validate_policy_name"))]
+    #[validate(length(min = 1, max = POLICY_NAME_MAX_LEN, message = "length must be between 1 and 255 characters"), custom(function = "validate_policy_name"))]
     #[schema(min_length = 1, max_length = 255, pattern = "^[^<>\"'&|\\\\/*?`]*$")]
     pub name: String,
 
@@ -61,7 +61,7 @@ pub struct UpdatePolicyRequest {
     pub content_type: String,
 
     /// New base64-encoded Rego policy text; must decode to valid UTF-8 within the configured size limit.
-    #[validate(length(min = 1))]
+    #[validate(length(min = 1, message = "must not be empty"))]
     #[schema(min_length = 1)]
     pub content: String,
 }
@@ -108,17 +108,17 @@ pub struct PolicyListResponse {
 #[into_params(parameter_in = Query)]
 pub struct PolicyListQuery {
     /// Comma-separated policy IDs (UUIDs); when present, only these are returned and pagination is ignored.
-    #[validate(length(min = 1, max = POLICY_IDS_QUERY_MAX_LEN))]
+    #[validate(length(min = 1, max = POLICY_IDS_QUERY_MAX_LEN, message = "length must be between 1 and 4096 characters"))]
     #[param(min_length = 1, max_length = 4096)]
     pub ids: Option<String>,
 
     /// Page size (1..100, default 10).
-    #[validate(range(min = 1, max = 100))]
+    #[validate(range(min = 1, max = 100, message = "must be between 1 and 100"))]
     #[param(minimum = 1, maximum = 100)]
     pub limit: Option<i64>,
 
     /// Offset (0..100000, default 0).
-    #[validate(range(min = 0, max = 100_000))]
+    #[validate(range(min = 0, max = 100_000, message = "must be between 0 and 100000"))]
     #[param(minimum = 0, maximum = 100_000)]
     pub offset: Option<i64>,
 }
@@ -136,7 +136,7 @@ pub struct BatchDeleteQuery {
 fn validate_policy_name(name: &str) -> Result<(), validator::ValidationError> {
     if let Some(c) = name.chars().find(|c| POLICY_NAME_BLACKLIST.contains(c)) {
         let mut err = validator::ValidationError::new("invalid_policy_name");
-        err.message = Some(format!("policy name contains forbidden character: '{}'", c).into());
+        err.message = Some(format!("contains forbidden character: '{}'", c).into());
         return Err(err);
     }
     Ok(())
@@ -145,7 +145,7 @@ fn validate_policy_name(name: &str) -> Result<(), validator::ValidationError> {
 fn validate_content_type(content_type: &str) -> Result<(), validator::ValidationError> {
     if !POLICY_CONTENT_TYPE_WHITELIST.contains(&content_type) {
         let mut err = validator::ValidationError::new("invalid_content_type");
-        err.message = Some(format!("content_type must be one of: {}", POLICY_CONTENT_TYPE_WHITELIST.join(", ")).into());
+        err.message = Some(format!("must be one of: {}", POLICY_CONTENT_TYPE_WHITELIST.join(", ")).into());
         return Err(err);
     }
     Ok(())
@@ -157,7 +157,7 @@ pub fn validate_policy_id(id: &str) -> Result<(), String> {
     if id.is_empty() || id.len() > POLICY_ID_MAX_LEN as usize {
         Err(format!("policy_id length must be 1..{}, got {}", POLICY_ID_MAX_LEN, id.len()))
     } else if uuid::Uuid::parse_str(id).is_err() {
-        Err(format!("policy_id must be a valid UUID, got '{}'", id))
+        Err("policy_id must be a valid UUID".to_string())
     } else {
         Ok(())
     }

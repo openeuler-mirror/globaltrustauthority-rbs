@@ -15,7 +15,7 @@ pub enum PolicyError {
     #[error("policy count exceeded: max {max}, current {current}")]
     CountExceed { max: usize, current: usize },
 
-    #[error("unsupported content type: {content_type}")]
+    #[error("unsupported content type, must be one of: base64")]
     UnsupportedContentType { content_type: String },
 
     #[error("failed to decode policy content: {reason}")]

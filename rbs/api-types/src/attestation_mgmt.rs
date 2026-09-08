@@ -108,12 +108,12 @@ pub struct RefValueListQuery {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attester_type: Option<String>,
     /// Page size (1-10, default 10). Ignored when `ids` is present.
-    #[validate(range(min = 1, max = 10))]
+    #[validate(range(min = 1, max = 10, message = "must be between 1 and 10"))]
     #[param(minimum = 1, maximum = 10)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<i64>,
     /// Page offset (0-100000, default 0). Ignored when `ids` is present.
-    #[validate(range(min = 0, max = 100_000))]
+    #[validate(range(min = 0, max = 100_000, message = "must be between 0 and 100000"))]
     #[param(minimum = 0, maximum = 100_000)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub offset: Option<i64>,
@@ -144,15 +144,15 @@ pub struct RefValueListResponse {
 #[serde(rename_all = "snake_case")]
 pub struct RefValueCreateRequest {
     /// Baseline name (1-255 chars, GTA-enforced).
-    #[validate(length(min = 1))]
+    #[validate(length(min = 1, message = "must not be empty"))]
     #[schema(example = "tpm-baseline", min_length = 1)]
     pub name: String,
     /// Attester type; one of `tpm`, `tpm_ima`, `virt_cca`, `ascend_npu`, `cca` (GTA-enforced).
-    #[validate(length(min = 1))]
+    #[validate(length(min = 1, message = "must not be empty"))]
     #[schema(example = "tpm", min_length = 1)]
     pub attester_type: String,
     /// Baseline content — JWT or base64-encoded payload; at most 100 MiB (GTA-enforced).
-    #[validate(length(min = 1))]
+    #[validate(length(min = 1, message = "must not be empty"))]
     #[schema(example = "eyJhbGciOiJSUzI1NiJ9...", min_length = 1)]
     pub content: String,
     /// Content encoding: `jwt` (default when omitted) or `base64`.
@@ -429,12 +429,12 @@ pub struct CertListQuery {
     #[serde(skip_serializing_if = "Option::is_none", rename = "cert_type")]
     pub cert_type: Option<String>,
     /// Page size (1-10, default 10).
-    #[validate(range(min = 1, max = 10))]
+    #[validate(range(min = 1, max = 10, message = "must be between 1 and 10"))]
     #[param(minimum = 1, maximum = 10)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<i64>,
     /// Page offset (0-100000, default 0).
-    #[validate(range(min = 0, max = 100_000))]
+    #[validate(range(min = 0, max = 100_000, message = "must be between 0 and 100000"))]
     #[param(minimum = 0, maximum = 100_000)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub offset: Option<i64>,
@@ -466,7 +466,7 @@ pub struct CertListResponse {
 #[serde(rename_all = "snake_case")]
 pub struct CertCreateRequest {
     /// Certificate name (1-255 chars, GTA-enforced).
-    #[validate(length(min = 1))]
+    #[validate(length(min = 1, message = "must not be empty"))]
     #[schema(example = "cert1", min_length = 1)]
     pub name: String,
     /// Certificate type list (JSON field name `type`); 1-7 items, each one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `crl`, `ascend_npu`; `crl` must be the only entry.
@@ -631,12 +631,12 @@ pub struct PolicyListQuery {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attester_type: Option<String>,
     /// Page size (1-10, default 10).
-    #[validate(range(min = 1, max = 10))]
+    #[validate(range(min = 1, max = 10, message = "must be between 1 and 10"))]
     #[param(minimum = 1, maximum = 10)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<i64>,
     /// Page offset (0-100000, default 0).
-    #[validate(range(min = 0, max = 100_000))]
+    #[validate(range(min = 0, max = 100_000, message = "must be between 0 and 100000"))]
     #[param(minimum = 0, maximum = 100_000)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub offset: Option<i64>,
@@ -664,19 +664,19 @@ pub struct AttestationPolicyListResponse {
 #[serde(rename_all = "snake_case")]
 pub struct PolicyCreateRequest {
     /// Policy name (1-255 chars; GTA rejects the special characters `< > " ' & | \ / * ?` and backtick).
-    #[validate(length(min = 1))]
+    #[validate(length(min = 1, message = "must not be empty"))]
     #[schema(example = "policy1", min_length = 1)]
     pub name: String,
     /// Attester type list (1-9 items, each at most 255 chars); supported values: `all`, `tpm`, `tpm_boot`, `tpm_ima`, `virt_cca`, `ascend_npu`, `itrustee`, `cca`, `dice`.
-    #[validate(length(min = 1))]
+    #[validate(length(min = 1, message = "must contain at least 1 item"))]
     #[schema(example = "[\"tpm\"]", min_items = 1)]
     pub attester_type: Vec<String>,
     /// Content encoding (required): `jwt` or `text` (GTA-enforced).
-    #[validate(length(min = 1))]
+    #[validate(length(min = 1, message = "must not be empty"))]
     #[schema(example = "jwt", min_length = 1)]
     pub content_type: String,
     /// Policy content (base64-encoded); the decoded size is bounded by GTA's `policy_content_size_limit` (shipped default 500 KB).
-    #[validate(length(min = 1))]
+    #[validate(length(min = 1, message = "must not be empty"))]
     #[schema(example = "eyJhbGciOiJSUzI1NiJ9...", min_length = 1)]
     pub content: String,
     /// Whether to set as default policy.

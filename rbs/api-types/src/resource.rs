@@ -35,7 +35,7 @@ pub const BEARER_ENC_PUBKEY_KEY: &str = "enc-pubkey";
 #[serde(rename_all = "snake_case")]
 pub struct CreateResourceRequest {
     /// UUID of the caller-owned policy that governs reads of this resource.
-    #[validate(length(min = 1, max = 36))]
+    #[validate(length(min = 1, max = 36, message = "length must be between 1 and 36 characters"))]
     #[schema(min_length = 1, max_length = 36)]
     pub policy_id: String,
     /// Content type label; one of `jwt`, `json`, `text`, `binary`, `jwk`, `jwe` (fixed whitelist).
@@ -64,7 +64,7 @@ pub struct CreateResourceRequest {
 #[serde(rename_all = "snake_case")]
 pub struct UpdateResourceRequest {
     /// New policy binding (must be caller-owned); omitted keeps the current binding. Required when the upsert creates a new resource.
-    #[validate(length(min = 1, max = 36))]
+    #[validate(length(min = 1, max = 36, message = "length must be between 1 and 36 characters"))]
     #[schema(min_length = 1, max_length = 36)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub policy_id: Option<String>,
