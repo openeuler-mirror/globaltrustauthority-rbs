@@ -19,8 +19,8 @@ use std::ffi::{c_char, CString};
 use super::error::{record, set_last_error, RbcErrorCode};
 use super::resource::{box_resource_into_handle, wrap_resource};
 use super::{
-    box_session_into_handle, client_ref, drop_session, require_non_null, session_ref, RbcBuffer, RbcClient,
-    RbcResource, RbcSession,
+    box_session_into_handle, client_ref, drop_session, require_non_null, session_ref, take_handle, RbcBuffer,
+    RbcClient, RbcResource, RbcSession,
 };
 use super::{cstr_to_str, opt_cstr_to_str};
 use crate::error::RbcError;
@@ -64,9 +64,11 @@ pub extern "C" fn rbc_session_new(
     }
 }
 
-/// Free a session. The embedded ephemeral key is zeroized on drop.
+/// Free a session and set the caller's handle variable to NULL. Both `session`
+/// and `*session` may be NULL. The embedded ephemeral key is zeroized on drop.
 #[export_name = "RbcSessionFree"]
-pub extern "C" fn rbc_session_free(session: *mut RbcSession) {
+pub extern "C" fn rbc_session_free(session: *mut *mut RbcSession) {
+    let session = unsafe { take_handle(session) };
     if !session.is_null() {
         unsafe { drop_session(session) };
     }
@@ -281,8 +283,10 @@ pub extern "C" fn rbc_session_decrypt_content(
 
 #[cfg(test)]
 mod tests {
-    use super::super::client::{rbc_client_free, rbc_client_new_from_yaml};
-    use super::super::{rbc_buffer_data, rbc_buffer_free, rbc_buffer_len, rbc_string_free, RbcBuffer, RbcClient};
+    use super::super::client::{rbc_client_free as ffi_client_free, rbc_client_new_from_yaml};
+    use super::super::{
+        rbc_buffer_data, rbc_buffer_free as ffi_buffer_free, rbc_buffer_len, rbc_string_free, RbcBuffer, RbcClient,
+    };
     use super::*;
     use crate::client::RbsRestClient;
     use crate::error::RbcError;
@@ -297,6 +301,21 @@ mod tests {
     use std::ptr;
     use std::rc::Rc;
     use std::sync::Arc;
+
+    fn rbc_client_free(mut client: *mut RbcClient) {
+        ffi_client_free(&mut client);
+        assert!(client.is_null());
+    }
+
+    fn rbc_session_free(mut session: *mut RbcSession) {
+        super::rbc_session_free(&mut session);
+        assert!(session.is_null());
+    }
+
+    fn rbc_buffer_free(mut buffer: *mut RbcBuffer) {
+        ffi_buffer_free(&mut buffer);
+        assert!(buffer.is_null());
+    }
 
     // ── Mock providers ──────────────────────────────────────────────────────
 
@@ -406,7 +425,23 @@ mod tests {
 
     #[test]
     fn session_free_null_does_not_panic() {
-        rbc_session_free(ptr::null_mut());
+        super::rbc_session_free(ptr::null_mut());
+    }
+
+    #[test]
+    fn session_free_sets_handle_to_null_and_is_repeatable() {
+        let client = make_mock_client_handle();
+        let mut session = unsafe { make_mock_session_handle(client) };
+
+        super::rbc_session_free(&mut session);
+        assert!(session.is_null());
+        super::rbc_session_free(&mut session);
+        assert!(session.is_null());
+
+        let mut token: *mut c_char = ptr::null_mut();
+        assert_eq!(rbc_session_attest(session, ptr::null(), &mut token), RbcErrorCode::InvalidArg);
+
+        rbc_client_free(client);
     }
 
     // ── rbc_session_collect_evidence ──────────────────────────────────────

@@ -26,17 +26,17 @@
 //! `RbcClient`, `RbcSession`, `RbcResource`, and `RbcBuffer` are opaque handles
 //! created only by RBC. Callers must not allocate, copy, cast between handle
 //! types, or dereference them. Each non-NULL handle must be released exactly
-//! once with its matching function:
+//! once by passing the address of its caller-owned variable to the matching
+//! function:
 //!
-//! - `RbcClient *` with `rbc_client_free`
-//! - `RbcSession *` with `rbc_session_free`
-//! - `RbcResource *` with `rbc_resource_free`
-//! - `RbcBuffer *` with `rbc_buffer_free`
+//! - `RbcClient *` with `rbc_client_free(&client)`
+//! - `RbcSession *` with `rbc_session_free(&session)`
+//! - `RbcResource *` with `rbc_resource_free(&resource)`
+//! - `RbcBuffer *` with `rbc_buffer_free(&buffer)`
 //!
-//! After a free call returns, the handle and all borrowed pointers obtained from
-//! it are invalid and must not be used again. Passing a pointer not returned by
-//! RBC, freeing a handle twice, freeing it with the wrong function, or using it
-//! after free is undefined behavior.
+//! A release function sets that caller-owned variable to NULL before dropping
+//! the object. Any copied aliases and all borrowed pointers obtained from the
+//! handle remain invalid and must not be used after release.
 //!
 //! # Memory ownership
 //!
@@ -143,6 +143,18 @@ unsafe fn drop_buffer(h: *mut RbcBuffer) {
     drop(Box::from_raw(h as *mut RbcBufferInner));
 }
 
+/// Replace a caller-owned handle variable with NULL and return its old value.
+///
+/// `slot` must be either NULL or point to writable storage containing a handle
+/// of the matching type returned by RBC.
+#[inline]
+unsafe fn take_handle<T>(slot: *mut *mut T) -> *mut T {
+    if slot.is_null() {
+        return ptr::null_mut();
+    }
+    ptr::replace(slot, ptr::null_mut())
+}
+
 /// Free a nul-terminated string returned by an RBC function.
 #[export_name = "RbcStringFree"]
 pub extern "C" fn rbc_string_free(s: *mut c_char) {
@@ -177,9 +189,11 @@ pub extern "C" fn rbc_buffer_len(buffer: *const RbcBuffer) -> usize {
     buffer.data.len()
 }
 
-/// Free an opaque byte buffer returned by an RBC function.
+/// Free an opaque byte buffer and set the caller's handle variable to NULL.
+/// Both `buffer` and `*buffer` may be NULL.
 #[export_name = "RbcBufferFree"]
-pub extern "C" fn rbc_buffer_free(buffer: *mut RbcBuffer) {
+pub extern "C" fn rbc_buffer_free(buffer: *mut *mut RbcBuffer) {
+    let buffer = unsafe { take_handle(buffer) };
     if !buffer.is_null() {
         unsafe { drop_buffer(buffer) };
     }
@@ -214,7 +228,7 @@ mod tests {
     #[test]
     fn buffer_data_and_len_return_owned_content() {
         let expected = b"secret buffer";
-        let buffer = box_bytes_into_handle(zeroize::Zeroizing::new(expected.to_vec()));
+        let mut buffer = box_bytes_into_handle(zeroize::Zeroizing::new(expected.to_vec()));
 
         assert_eq!(rbc_buffer_len(buffer), expected.len());
         let data = rbc_buffer_data(buffer);
@@ -222,19 +236,30 @@ mod tests {
         let actual = unsafe { std::slice::from_raw_parts(data, expected.len()) };
         assert_eq!(actual, expected);
 
-        rbc_buffer_free(buffer);
+        rbc_buffer_free(&mut buffer);
+        assert!(buffer.is_null());
+        assert_eq!(rbc_buffer_len(buffer), 0);
+        assert!(rbc_buffer_data(buffer).is_null());
     }
 
     #[test]
     fn buffer_empty_content_can_be_freed() {
-        let buffer = box_bytes_into_handle(zeroize::Zeroizing::new(Vec::new()));
+        let mut buffer = box_bytes_into_handle(zeroize::Zeroizing::new(Vec::new()));
         assert_eq!(rbc_buffer_len(buffer), 0);
         assert!(rbc_buffer_data(buffer).is_null());
-        rbc_buffer_free(buffer);
+        rbc_buffer_free(&mut buffer);
+        assert!(buffer.is_null());
     }
 
     #[test]
     fn buffer_free_null_does_not_panic() {
         rbc_buffer_free(ptr::null_mut());
+    }
+
+    #[test]
+    fn buffer_free_accepts_null_handle_and_keeps_it_null() {
+        let mut buffer: *mut RbcBuffer = ptr::null_mut();
+        rbc_buffer_free(&mut buffer);
+        assert!(buffer.is_null());
     }
 }

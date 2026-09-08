@@ -73,14 +73,14 @@ int main(int argc, char **argv) {
      *   const uint8_t *pt_data = RbcBufferData(pt);
      *   size_t pt_len = RbcBufferLen(pt);
      *   ...
-     *   RbcBufferFree(pt);
+     *   RbcBufferFree(&pt);
      */
 
-    RbcResourceFree(res);
+    RbcResourceFree(&res);
     RbcStringFree(token);
     RbcStringFree(evidence);
-    RbcSessionFree(session);
+    RbcSessionFree(&session);
     RbcStringFree(nonce);
-    RbcClientFree(client);
+    RbcClientFree(&client);
     return 0;
 }

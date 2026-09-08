@@ -71,9 +71,10 @@ const uint8_t *RbcBufferData(const RbcBuffer *buffer);
 size_t RbcBufferLen(const RbcBuffer *buffer);
 
 /**
- * Free an opaque byte buffer returned by an RBC function.
+ * Free an opaque byte buffer and set the caller's handle variable to NULL.
+ * Both `buffer` and `*buffer` may be NULL.
  */
-void RbcBufferFree(RbcBuffer *buffer);
+void RbcBufferFree(RbcBuffer **buffer);
 
 /**
  * Create a client from a YAML config file on disk.
@@ -86,9 +87,10 @@ RbcErrorCode RbcClientNewFromFile(const char *config_path, RbcClient **out_clien
 RbcErrorCode RbcClientNewFromYaml(const char *yaml, RbcClient **out_client);
 
 /**
- * Destroy a client handle.
+ * Destroy a client handle and set the caller's handle variable to NULL.
+ * Both `client` and `*client` may be NULL.
  */
-void RbcClientFree(RbcClient *client);
+void RbcClientFree(RbcClient **client);
 
 /**
  * Fetch an authentication challenge. On success `*out_nonce` is a newly
@@ -129,10 +131,11 @@ const char *RbcResourceGetContentType(const RbcResource *resource);
 const uint8_t *RbcResourceGetContent(const RbcResource *resource, size_t *out_len);
 
 /**
- * Destroy a resource handle (invalidates all borrowed pointers obtained
- * from accessors).
+ * Destroy a resource handle, set the caller's handle variable to NULL, and
+ * invalidate all borrowed pointers obtained from accessors. Both `resource`
+ * and `*resource` may be NULL.
  */
-void RbcResourceFree(RbcResource *resource);
+void RbcResourceFree(RbcResource **resource);
 
 /**
  * Begin a new session. `attester_data_json` may be NULL. If non-NULL it must
@@ -145,9 +148,10 @@ RbcErrorCode RbcSessionNew(RbcClient *client,
                            RbcSession **out_session);
 
 /**
- * Free a session. The embedded ephemeral key is zeroized on drop.
+ * Free a session and set the caller's handle variable to NULL. Both `session`
+ * and `*session` may be NULL. The embedded ephemeral key is zeroized on drop.
  */
-void RbcSessionFree(RbcSession *session);
+void RbcSessionFree(RbcSession **session);
 
 /**
  * Collect evidence for `nonce`. On success `*out_evidence_json` is a newly

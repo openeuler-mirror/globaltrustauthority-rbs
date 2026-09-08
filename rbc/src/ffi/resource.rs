@@ -16,7 +16,7 @@ use std::ffi::{c_char, CString};
 use std::ptr;
 
 use super::error::set_last_error;
-use super::{RbcErrorCode, RbcResource};
+use super::{take_handle, RbcErrorCode, RbcResource};
 use crate::sdk::Resource;
 
 // ─── Concrete resource context ──────────────────────────────────────────
@@ -100,10 +100,12 @@ pub extern "C" fn rbc_resource_get_content(resource: *const RbcResource, out_len
     }
 }
 
-/// Destroy a resource handle (invalidates all borrowed pointers obtained
-/// from accessors).
+/// Destroy a resource handle, set the caller's handle variable to NULL, and
+/// invalidate all borrowed pointers obtained from accessors. Both `resource`
+/// and `*resource` may be NULL.
 #[export_name = "RbcResourceFree"]
-pub extern "C" fn rbc_resource_free(resource: *mut RbcResource) {
+pub extern "C" fn rbc_resource_free(resource: *mut *mut RbcResource) {
+    let resource = unsafe { take_handle(resource) };
     if !resource.is_null() {
         unsafe { drop_resource(resource) };
     }
@@ -133,12 +135,13 @@ mod tests {
 
     #[test]
     fn resource_get_uri_returns_correct_string() {
-        let h = make_resource_handle("rbs://test/uri", vec![1, 2, 3], None);
+        let mut h = make_resource_handle("rbs://test/uri", vec![1, 2, 3], None);
         let ptr = rbc_resource_get_uri(h);
         assert!(!ptr.is_null());
         let s = unsafe { CStr::from_ptr(ptr) }.to_str().unwrap();
         assert_eq!(s, "rbs://test/uri");
-        rbc_resource_free(h);
+        rbc_resource_free(&mut h);
+        assert!(h.is_null());
     }
 
     // ── rbc_resource_get_content_type ─────────────────────────────────────
@@ -150,19 +153,19 @@ mod tests {
 
     #[test]
     fn resource_get_content_type_returns_null_when_absent() {
-        let h = make_resource_handle("rbs://x", vec![], None);
+        let mut h = make_resource_handle("rbs://x", vec![], None);
         assert!(rbc_resource_get_content_type(h).is_null());
-        rbc_resource_free(h);
+        rbc_resource_free(&mut h);
     }
 
     #[test]
     fn resource_get_content_type_returns_value_when_present() {
-        let h = make_resource_handle("rbs://x", vec![], Some("application/octet-stream"));
+        let mut h = make_resource_handle("rbs://x", vec![], Some("application/octet-stream"));
         let ptr = rbc_resource_get_content_type(h);
         assert!(!ptr.is_null());
         let ct = unsafe { CStr::from_ptr(ptr) }.to_str().unwrap();
         assert_eq!(ct, "application/octet-stream");
-        rbc_resource_free(h);
+        rbc_resource_free(&mut h);
     }
 
     // ── rbc_resource_get_content ──────────────────────────────────────────
@@ -175,22 +178,22 @@ mod tests {
 
     #[test]
     fn resource_get_content_null_out_len_returns_null() {
-        let h = make_resource_handle("rbs://x", vec![9, 8, 7], None);
+        let mut h = make_resource_handle("rbs://x", vec![9, 8, 7], None);
         assert!(rbc_resource_get_content(h, ptr::null_mut()).is_null());
-        rbc_resource_free(h);
+        rbc_resource_free(&mut h);
     }
 
     #[test]
     fn resource_get_content_returns_bytes_and_length() {
         let payload = vec![10u8, 20, 30, 40];
-        let h = make_resource_handle("rbs://x", payload.clone(), None);
+        let mut h = make_resource_handle("rbs://x", payload.clone(), None);
         let mut len: usize = 0;
         let ptr = rbc_resource_get_content(h, &mut len);
         assert!(!ptr.is_null());
         assert_eq!(len, 4);
         let got = unsafe { std::slice::from_raw_parts(ptr, len) };
         assert_eq!(got, payload.as_slice());
-        rbc_resource_free(h);
+        rbc_resource_free(&mut h);
     }
 
     // ── rbc_resource_free ─────────────────────────────────────────────────
@@ -198,5 +201,16 @@ mod tests {
     #[test]
     fn resource_free_null_does_not_panic() {
         rbc_resource_free(ptr::null_mut());
+    }
+
+    #[test]
+    fn resource_free_sets_handle_to_null_and_is_repeatable() {
+        let mut resource = make_resource_handle("rbs://x", vec![], None);
+
+        rbc_resource_free(&mut resource);
+        assert!(resource.is_null());
+        rbc_resource_free(&mut resource);
+        assert!(resource.is_null());
+        assert!(rbc_resource_get_uri(resource).is_null());
     }
 }

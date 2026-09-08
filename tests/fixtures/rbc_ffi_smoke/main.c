@@ -66,12 +66,12 @@ int main(int argc, char **argv) {
     printf("{\"nonce_present\":%s,\"token_segments\":%d,\"plaintext_matches\":%s}\n",
            nonce[0] == '\0' ? "false" : "true", token_segments, matches ? "true" : "false");
 
-    RbcBufferFree(plaintext_buffer);
-    RbcResourceFree(resource);
+    RbcBufferFree(&plaintext_buffer);
+    RbcResourceFree(&resource);
     RbcStringFree(token);
     RbcStringFree(evidence);
-    RbcSessionFree(session);
+    RbcSessionFree(&session);
     RbcStringFree(nonce);
-    RbcClientFree(client);
+    RbcClientFree(&client);
     return valid_flow ? 0 : 4;
 }
