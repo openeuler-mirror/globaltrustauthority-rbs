@@ -32,7 +32,7 @@ pub struct RbsRestClient {
 
 impl RbsRestClient {
     pub fn new(base_url: &str, tls: Option<&TlsConfig>, timeout_secs: Option<u64>) -> Result<Self, RbcError> {
-        let mut builder = HttpClient::builder();
+        let mut builder = HttpClient::builder().use_rustls_tls().min_tls_version(reqwest::tls::Version::TLS_1_3);
 
         if let Some(tls_cfg) = tls {
             if let Some(ca_path) = &tls_cfg.ca_cert {

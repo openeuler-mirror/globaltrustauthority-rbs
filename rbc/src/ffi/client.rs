@@ -17,7 +17,7 @@ use std::ffi::{c_char, CString};
 use rbs_api_types::AuthChallengeResponse;
 
 use super::error::{record, set_last_error, RbcErrorCode};
-use super::{box_client_into_handle, client_ref, cstr_to_str, drop_client, require_non_null, RbcClient};
+use super::{box_client_into_handle, client_ref, cstr_to_str, drop_client, require_non_null, take_handle, RbcClient};
 use crate::sdk::{Client, Config};
 
 // ─── Client lifecycle ───────────────────────────────────────────────────
@@ -66,9 +66,11 @@ pub extern "C" fn rbc_client_new_from_yaml(yaml: *const c_char, out_client: *mut
     }
 }
 
-/// Destroy a client handle.
+/// Destroy a client handle and set the caller's handle variable to NULL.
+/// Both `client` and `*client` may be NULL.
 #[export_name = "RbcClientFree"]
-pub extern "C" fn rbc_client_free(client: *mut RbcClient) {
+pub extern "C" fn rbc_client_free(client: *mut *mut RbcClient) {
+    let client = unsafe { take_handle(client) };
     if !client.is_null() {
         unsafe { drop_client(client) };
     }
@@ -161,7 +163,8 @@ mod tests {
         let code = rbc_client_new_from_yaml(yaml.as_ptr(), &mut out);
         assert_eq!(code, RbcErrorCode::Ok);
         assert!(!out.is_null());
-        rbc_client_free(out);
+        rbc_client_free(&mut out);
+        assert!(out.is_null());
     }
 
     // ── rbc_client_free ───────────────────────────────────────────────────
@@ -169,6 +172,19 @@ mod tests {
     #[test]
     fn client_free_null_does_not_panic() {
         rbc_client_free(ptr::null_mut());
+    }
+
+    #[test]
+    fn client_free_sets_handle_to_null_and_is_repeatable() {
+        let mut client = make_no_provider_client_handle();
+
+        rbc_client_free(&mut client);
+        assert!(client.is_null());
+        rbc_client_free(&mut client);
+        assert!(client.is_null());
+
+        let mut nonce: *mut c_char = ptr::null_mut();
+        assert_eq!(rbc_get_auth_challenge(client, &mut nonce), RbcErrorCode::InvalidArg);
     }
 
     // ── rbc_get_auth_challenge ────────────────────────────────────────────
@@ -182,9 +198,9 @@ mod tests {
 
     #[test]
     fn get_auth_challenge_null_out_returns_invalid_arg() {
-        let client = make_no_provider_client_handle();
+        let mut client = make_no_provider_client_handle();
         let code = rbc_get_auth_challenge(client, ptr::null_mut());
         assert_eq!(code, RbcErrorCode::InvalidArg);
-        rbc_client_free(client);
+        rbc_client_free(&mut client);
     }
 }

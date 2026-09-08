@@ -31,8 +31,7 @@ int main(int argc, char **argv) {
     char *nonce = NULL;
     char *evidence = NULL;
     char *token = NULL;
-    uint8_t *plaintext = NULL;
-    size_t plaintext_len = 0;
+    RbcBuffer *plaintext_buffer = NULL;
     RbcErrorCode code;
 
     code = RbcClientNewFromFile(argv[1], &client);
@@ -54,10 +53,12 @@ int main(int argc, char **argv) {
     if (jwe == NULL) return 3;
     memcpy(jwe, encrypted, encrypted_len);
     jwe[encrypted_len] = '\0';
-    code = RbcSessionDecryptContent(session, jwe, NULL, NULL, 0, &plaintext, &plaintext_len);
+    code = RbcSessionDecryptContent(session, jwe, NULL, NULL, 0, &plaintext_buffer);
     free(jwe);
     if (code != RBC_ERROR_CODE_OK) fail("RbcSessionDecryptContent", code);
 
+    const uint8_t *plaintext = RbcBufferData(plaintext_buffer);
+    size_t plaintext_len = RbcBufferLen(plaintext_buffer);
     size_t expected_len = strlen(argv[3]);
     int matches = plaintext_len == expected_len && memcmp(plaintext, argv[3], expected_len) == 0;
     int token_segments = token_segment_count(token);
@@ -65,12 +66,12 @@ int main(int argc, char **argv) {
     printf("{\"nonce_present\":%s,\"token_segments\":%d,\"plaintext_matches\":%s}\n",
            nonce[0] == '\0' ? "false" : "true", token_segments, matches ? "true" : "false");
 
-    RbcBufferFree(plaintext, plaintext_len);
-    RbcResourceFree(resource);
+    RbcBufferFree(&plaintext_buffer);
+    RbcResourceFree(&resource);
     RbcStringFree(token);
     RbcStringFree(evidence);
-    RbcSessionFree(session);
+    RbcSessionFree(&session);
     RbcStringFree(nonce);
-    RbcClientFree(client);
+    RbcClientFree(&client);
     return valid_flow ? 0 : 4;
 }

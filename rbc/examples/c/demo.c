@@ -66,18 +66,21 @@ int main(int argc, char **argv) {
     printf("content (%zu bytes): %.*s\n", n, (int)n, (const char *)content);
 
     /* If the content is a JWE envelope, decrypt it here:
-     *   uint8_t *pt = NULL; size_t pt_len = 0;
+     *   RbcBuffer *pt = NULL;
      *   rc = RbcSessionDecryptContent(session, (const char *)content, NULL, NULL, 0,
-     *                                 &pt, &pt_len);
+     *                                 &pt);
      *   ...
-     *   RbcBufferFree(pt, pt_len);
+     *   const uint8_t *pt_data = RbcBufferData(pt);
+     *   size_t pt_len = RbcBufferLen(pt);
+     *   ...
+     *   RbcBufferFree(&pt);
      */
 
-    RbcResourceFree(res);
+    RbcResourceFree(&res);
     RbcStringFree(token);
     RbcStringFree(evidence);
-    RbcSessionFree(session);
+    RbcSessionFree(&session);
     RbcStringFree(nonce);
-    RbcClientFree(client);
+    RbcClientFree(&client);
     return 0;
 }

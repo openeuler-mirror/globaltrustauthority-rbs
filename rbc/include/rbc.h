@@ -41,6 +41,8 @@ typedef enum {
   RBC_ERROR_CODE_INTERNAL = 17,
 } RbcErrorCode;
 
+typedef struct RbcBuffer RbcBuffer;
+
 typedef struct RbcClient RbcClient;
 
 typedef struct RbcResource RbcResource;
@@ -57,10 +59,22 @@ extern "C" {
 void RbcStringFree(char *s);
 
 /**
- * Free a byte buffer returned by an RBC function. `len` MUST be the value
- * the producing call wrote into its `*out_len` parameter.
+ * Borrow the bytes in an opaque buffer. Returns NULL for a NULL or empty
+ * buffer. The pointer is valid until `RbcBufferFree` is called for
+ * `buffer`.
  */
-void RbcBufferFree(uint8_t *buf, size_t len);
+const uint8_t *RbcBufferData(const RbcBuffer *buffer);
+
+/**
+ * Return the number of bytes in an opaque buffer.
+ */
+size_t RbcBufferLen(const RbcBuffer *buffer);
+
+/**
+ * Free an opaque byte buffer and set the caller's handle variable to NULL.
+ * Both `buffer` and `*buffer` may be NULL.
+ */
+void RbcBufferFree(RbcBuffer **buffer);
 
 /**
  * Create a client from a YAML config file on disk.
@@ -73,9 +87,10 @@ RbcErrorCode RbcClientNewFromFile(const char *config_path, RbcClient **out_clien
 RbcErrorCode RbcClientNewFromYaml(const char *yaml, RbcClient **out_client);
 
 /**
- * Destroy a client handle.
+ * Destroy a client handle and set the caller's handle variable to NULL.
+ * Both `client` and `*client` may be NULL.
  */
-void RbcClientFree(RbcClient *client);
+void RbcClientFree(RbcClient **client);
 
 /**
  * Fetch an authentication challenge. On success `*out_nonce` is a newly
@@ -116,10 +131,11 @@ const char *RbcResourceGetContentType(const RbcResource *resource);
 const uint8_t *RbcResourceGetContent(const RbcResource *resource, size_t *out_len);
 
 /**
- * Destroy a resource handle (invalidates all borrowed pointers obtained
- * from accessors).
+ * Destroy a resource handle, set the caller's handle variable to NULL, and
+ * invalidate all borrowed pointers obtained from accessors. Both `resource`
+ * and `*resource` may be NULL.
  */
-void RbcResourceFree(RbcResource *resource);
+void RbcResourceFree(RbcResource **resource);
 
 /**
  * Begin a new session. `attester_data_json` may be NULL. If non-NULL it must
@@ -132,9 +148,10 @@ RbcErrorCode RbcSessionNew(RbcClient *client,
                            RbcSession **out_session);
 
 /**
- * Free a session. The embedded ephemeral key is zeroized on drop.
+ * Free a session and set the caller's handle variable to NULL. Both `session`
+ * and `*session` may be NULL. The embedded ephemeral key is zeroized on drop.
  */
-void RbcSessionFree(RbcSession *session);
+void RbcSessionFree(RbcSession **session);
 
 /**
  * Collect evidence for `nonce`. On success `*out_evidence_json` is a newly
@@ -177,19 +194,21 @@ RbcErrorCode RbcSessionGetResourceByEvidence(RbcSession *session,
  * that collected evidence. Pass NULL to fall back to the session's ephemeral
  * key.
  *
- * On success `*out_plaintext` is a newly allocated buffer of `*out_len` bytes
- * owned by the caller; release with `RbcBufferFree(buf, len)`.
+ * On success `*out_buffer` is an opaque buffer handle owned by the caller.
+ * Borrow its bytes with `RbcBufferData`, get its length with `RbcBufferLen`,
+ * and release it with `RbcBufferFree`.
  * `passphrase` / `passphrase_len` — pass a non-NULL pointer and byte length when
- * `private_key_pem` is encrypted; pass NULL / 0 otherwise. Caller is responsible
- * for zeroizing the passphrase buffer after this call returns.
+ * `private_key_pem` is encrypted; pass NULL / 0 otherwise. The length is in
+ * bytes and must not exceed 1024. When non-NULL, `passphrase` must point to at
+ * least `passphrase_len` readable bytes. Caller is responsible for zeroizing
+ * the passphrase buffer after this call returns.
  */
 RbcErrorCode RbcSessionDecryptContent(RbcSession *session,
                                       const char *jwe,
                                       const char *private_key_pem,
                                       const uint8_t *passphrase,
                                       size_t passphrase_len,
-                                      uint8_t **out_plaintext,
-                                      size_t *out_len);
+                                      RbcBuffer **out_buffer);
 
 #ifdef __cplusplus
 }  // extern "C"

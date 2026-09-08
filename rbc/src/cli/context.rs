@@ -18,6 +18,8 @@ use crate::client::{RbsRestClient, TlsConfig};
 use crate::sdk::{Client, Config, ProviderRawConfig, ProviderType};
 use crate::tools::tee_key::KeyType;
 
+const DEFAULT_BASE_URL: &str = "https://127.0.0.1:6666";
+
 #[derive(Debug, Clone)]
 pub struct ClientCommandContext {
     pub base_url: String,
@@ -71,10 +73,7 @@ pub fn build_client_context(
     inputs: &ClientRuntimeInputs,
     command: &ClientAction,
 ) -> Result<ClientCommandContext, CliError> {
-    let base_url = inputs
-        .base_url
-        .clone()
-        .ok_or_else(|| CliError::InvalidArgument("missing RBS base URL; pass --base-url".to_string()))?;
+    let base_url = inputs.base_url.clone().unwrap_or_else(|| DEFAULT_BASE_URL.to_string());
 
     let agent_config = command_agent_config(command).to_string();
     let (evidence_provider, token_provider) = command_providers(command, &agent_config);
@@ -155,7 +154,7 @@ impl Default for ClientCommandContext {
     fn default() -> Self {
         build_client_context(
             &ClientRuntimeInputs {
-                base_url: Some("http://localhost:8080".to_string()),
+                base_url: None,
                 cert_path: None,
                 timeout_secs: Some(30),
                 key_algorithm: Some(KeyType::Rsa),

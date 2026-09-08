@@ -19,12 +19,14 @@ use std::ffi::{c_char, CString};
 use super::error::{record, set_last_error, RbcErrorCode};
 use super::resource::{box_resource_into_handle, wrap_resource};
 use super::{
-    box_session_into_handle, client_ref, drop_session, require_non_null, session_ref, RbcClient, RbcResource,
-    RbcSession,
+    box_session_into_handle, client_ref, drop_session, require_non_null, session_ref, take_handle, RbcBuffer,
+    RbcClient, RbcResource, RbcSession,
 };
 use super::{cstr_to_str, opt_cstr_to_str};
 use crate::error::RbcError;
 use crate::sdk::GetResourceRequest;
+
+const PASSPHRASE_MAX_LEN: usize = 1024;
 
 // ─── Session lifecycle ──────────────────────────────────────────────────
 
@@ -62,9 +64,11 @@ pub extern "C" fn rbc_session_new(
     }
 }
 
-/// Free a session. The embedded ephemeral key is zeroized on drop.
+/// Free a session and set the caller's handle variable to NULL. Both `session`
+/// and `*session` may be NULL. The embedded ephemeral key is zeroized on drop.
 #[export_name = "RbcSessionFree"]
-pub extern "C" fn rbc_session_free(session: *mut RbcSession) {
+pub extern "C" fn rbc_session_free(session: *mut *mut RbcSession) {
+    let session = unsafe { take_handle(session) };
     if !session.is_null() {
         unsafe { drop_session(session) };
     }
@@ -220,11 +224,14 @@ pub extern "C" fn rbc_session_get_resource_by_evidence(
 /// that collected evidence. Pass NULL to fall back to the session's ephemeral
 /// key.
 ///
-/// On success `*out_plaintext` is a newly allocated buffer of `*out_len` bytes
-/// owned by the caller; release with `RbcBufferFree(buf, len)`.
+/// On success `*out_buffer` is an opaque buffer handle owned by the caller.
+/// Borrow its bytes with `RbcBufferData`, get its length with `RbcBufferLen`,
+/// and release it with `RbcBufferFree`.
 /// `passphrase` / `passphrase_len` — pass a non-NULL pointer and byte length when
-/// `private_key_pem` is encrypted; pass NULL / 0 otherwise. Caller is responsible
-/// for zeroizing the passphrase buffer after this call returns.
+/// `private_key_pem` is encrypted; pass NULL / 0 otherwise. The length is in
+/// bytes and must not exceed 1024. When non-NULL, `passphrase` must point to at
+/// least `passphrase_len` readable bytes. Caller is responsible for zeroizing
+/// the passphrase buffer after this call returns.
 #[export_name = "RbcSessionDecryptContent"]
 pub extern "C" fn rbc_session_decrypt_content(
     session: *mut RbcSession,
@@ -232,10 +239,12 @@ pub extern "C" fn rbc_session_decrypt_content(
     private_key_pem: *const c_char,
     passphrase: *const u8,
     passphrase_len: usize,
-    out_plaintext: *mut *mut u8,
-    out_len: *mut usize,
+    out_buffer: *mut *mut RbcBuffer,
 ) -> RbcErrorCode {
-    require_non_null!(session, out_plaintext, out_len);
+    require_non_null!(session, out_buffer);
+    unsafe {
+        *out_buffer = std::ptr::null_mut();
+    }
     let jwe_s = match cstr_to_str(jwe, "jwe") {
         Ok(s) => s,
         Err(e) => return e,
@@ -244,7 +253,15 @@ pub extern "C" fn rbc_session_decrypt_content(
         Ok(o) => o,
         Err(e) => return e,
     };
+    if passphrase_len > PASSPHRASE_MAX_LEN {
+        set_last_error(format!("passphrase must not exceed {PASSPHRASE_MAX_LEN} bytes"));
+        return RbcErrorCode::InvalidArg;
+    }
     let pw_opt: Option<&[u8]> = if passphrase.is_null() {
+        if passphrase_len != 0 {
+            set_last_error("passphrase_len must be zero when passphrase is NULL".to_string());
+            return RbcErrorCode::InvalidArg;
+        }
         None
     } else {
         Some(unsafe { std::slice::from_raw_parts(passphrase, passphrase_len) })
@@ -252,19 +269,11 @@ pub extern "C" fn rbc_session_decrypt_content(
     let session = unsafe { session_ref(session) };
     match session.decrypt_content(jwe_s, pem_opt, pw_opt) {
         Ok(bytes) => {
-            // Extract inner Vec without triggering Zeroizing::drop; memory
-            // ownership transfers to C and is released (with zeroing) by RbcBufferFree.
-            let inner: Vec<u8> = unsafe {
-                let mut md = std::mem::ManuallyDrop::new(bytes);
-                std::ptr::read(&mut **md)
-            };
-            let mut boxed: Box<[u8]> = inner.into_boxed_slice();
-            let len = boxed.len();
-            let ptr = boxed.as_mut_ptr();
-            std::mem::forget(boxed);
+            // Move the zeroizing buffer into an opaque handle until
+            // RbcBufferFree is called.
+            let buffer = super::box_bytes_into_handle(bytes);
             unsafe {
-                *out_plaintext = ptr;
-                *out_len = len;
+                *out_buffer = buffer;
             }
             RbcErrorCode::Ok
         },
@@ -274,8 +283,10 @@ pub extern "C" fn rbc_session_decrypt_content(
 
 #[cfg(test)]
 mod tests {
-    use super::super::client::{rbc_client_free, rbc_client_new_from_yaml};
-    use super::super::{rbc_buffer_free, rbc_string_free, RbcClient};
+    use super::super::client::{rbc_client_free as ffi_client_free, rbc_client_new_from_yaml};
+    use super::super::{
+        rbc_buffer_data, rbc_buffer_free as ffi_buffer_free, rbc_buffer_len, rbc_string_free, RbcBuffer, RbcClient,
+    };
     use super::*;
     use crate::client::RbsRestClient;
     use crate::error::RbcError;
@@ -290,6 +301,21 @@ mod tests {
     use std::ptr;
     use std::rc::Rc;
     use std::sync::Arc;
+
+    fn rbc_client_free(mut client: *mut RbcClient) {
+        ffi_client_free(&mut client);
+        assert!(client.is_null());
+    }
+
+    fn rbc_session_free(mut session: *mut RbcSession) {
+        super::rbc_session_free(&mut session);
+        assert!(session.is_null());
+    }
+
+    fn rbc_buffer_free(mut buffer: *mut RbcBuffer) {
+        ffi_buffer_free(&mut buffer);
+        assert!(buffer.is_null());
+    }
 
     // ── Mock providers ──────────────────────────────────────────────────────
 
@@ -399,7 +425,23 @@ mod tests {
 
     #[test]
     fn session_free_null_does_not_panic() {
-        rbc_session_free(ptr::null_mut());
+        super::rbc_session_free(ptr::null_mut());
+    }
+
+    #[test]
+    fn session_free_sets_handle_to_null_and_is_repeatable() {
+        let client = make_mock_client_handle();
+        let mut session = unsafe { make_mock_session_handle(client) };
+
+        super::rbc_session_free(&mut session);
+        assert!(session.is_null());
+        super::rbc_session_free(&mut session);
+        assert!(session.is_null());
+
+        let mut token: *mut c_char = ptr::null_mut();
+        assert_eq!(rbc_session_attest(session, ptr::null(), &mut token), RbcErrorCode::InvalidArg);
+
+        rbc_client_free(client);
     }
 
     // ── rbc_session_collect_evidence ──────────────────────────────────────
@@ -561,35 +603,71 @@ mod tests {
     #[test]
     fn decrypt_content_null_session_returns_invalid_arg() {
         let jwe = CString::new("a.b.c.d.e").unwrap();
-        let mut out: *mut u8 = ptr::null_mut();
-        let mut len: usize = 0;
-        let code =
-            rbc_session_decrypt_content(ptr::null_mut(), jwe.as_ptr(), ptr::null(), ptr::null(), 0, &mut out, &mut len);
+        let mut out: *mut RbcBuffer = ptr::null_mut();
+        let code = rbc_session_decrypt_content(ptr::null_mut(), jwe.as_ptr(), ptr::null(), ptr::null(), 0, &mut out);
         assert_eq!(code, RbcErrorCode::InvalidArg);
     }
 
     #[test]
-    fn decrypt_content_null_out_plaintext_returns_invalid_arg() {
+    fn decrypt_content_null_out_buffer_returns_invalid_arg() {
         let client = make_mock_client_handle();
         let session = unsafe { make_mock_session_handle(client) };
         let jwe = CString::new("a.b.c.d.e").unwrap();
-        let mut len: usize = 0;
-        let code =
-            rbc_session_decrypt_content(session, jwe.as_ptr(), ptr::null(), ptr::null(), 0, ptr::null_mut(), &mut len);
+        let code = rbc_session_decrypt_content(session, jwe.as_ptr(), ptr::null(), ptr::null(), 0, ptr::null_mut());
         assert_eq!(code, RbcErrorCode::InvalidArg);
         rbc_session_free(session);
         rbc_client_free(client);
     }
 
     #[test]
-    fn decrypt_content_null_out_len_returns_invalid_arg() {
+    fn decrypt_content_failure_clears_out_buffer() {
+        let client = make_mock_client_handle();
+        let session = unsafe { make_mock_session_handle(client) };
+        let invalid_jwe = CString::new("not-a-jwe").unwrap();
+        let mut out = usize::MAX as *mut RbcBuffer;
+
+        let code = rbc_session_decrypt_content(session, invalid_jwe.as_ptr(), ptr::null(), ptr::null(), 0, &mut out);
+
+        assert_ne!(code, RbcErrorCode::Ok);
+        assert!(out.is_null());
+        rbc_session_free(session);
+        rbc_client_free(client);
+    }
+
+    #[test]
+    fn decrypt_content_null_passphrase_with_nonzero_len_returns_invalid_arg() {
         let client = make_mock_client_handle();
         let session = unsafe { make_mock_session_handle(client) };
         let jwe = CString::new("a.b.c.d.e").unwrap();
-        let mut out: *mut u8 = ptr::null_mut();
-        let code =
-            rbc_session_decrypt_content(session, jwe.as_ptr(), ptr::null(), ptr::null(), 0, &mut out, ptr::null_mut());
+        let mut buffer: *mut RbcBuffer = ptr::null_mut();
+
+        let code = rbc_session_decrypt_content(session, jwe.as_ptr(), ptr::null(), ptr::null(), 1, &mut buffer);
+
         assert_eq!(code, RbcErrorCode::InvalidArg);
+        assert!(buffer.is_null());
+        rbc_session_free(session);
+        rbc_client_free(client);
+    }
+
+    #[test]
+    fn decrypt_content_passphrase_over_max_len_returns_invalid_arg() {
+        let client = make_mock_client_handle();
+        let session = unsafe { make_mock_session_handle(client) };
+        let jwe = CString::new("a.b.c.d.e").unwrap();
+        let passphrase = [b'p'];
+        let mut buffer: *mut RbcBuffer = ptr::null_mut();
+
+        let code = rbc_session_decrypt_content(
+            session,
+            jwe.as_ptr(),
+            ptr::null(),
+            passphrase.as_ptr(),
+            PASSPHRASE_MAX_LEN + 1,
+            &mut buffer,
+        );
+
+        assert_eq!(code, RbcErrorCode::InvalidArg);
+        assert!(buffer.is_null());
         rbc_session_free(session);
         rbc_client_free(client);
     }
@@ -607,24 +685,18 @@ mod tests {
         let jwe = pubkey.encrypt_jwe(plaintext).unwrap();
         let jwe_c = CString::new(jwe).unwrap();
 
-        let mut out_ptr: *mut u8 = ptr::null_mut();
-        let mut out_len: usize = 0;
-        let code = rbc_session_decrypt_content(
-            session,
-            jwe_c.as_ptr(),
-            ptr::null(),
-            ptr::null(),
-            0,
-            &mut out_ptr,
-            &mut out_len,
-        );
+        let mut buffer: *mut RbcBuffer = ptr::null_mut();
+        let code = rbc_session_decrypt_content(session, jwe_c.as_ptr(), ptr::null(), ptr::null(), 0, &mut buffer);
         assert_eq!(code, RbcErrorCode::Ok);
-        assert!(!out_ptr.is_null());
+        assert!(!buffer.is_null());
+        let out_len = rbc_buffer_len(buffer);
+        let out_ptr = rbc_buffer_data(buffer);
         assert_eq!(out_len, plaintext.len());
+        assert!(!out_ptr.is_null());
         let got = unsafe { std::slice::from_raw_parts(out_ptr, out_len) };
         assert_eq!(got, plaintext.as_ref());
 
-        rbc_buffer_free(out_ptr, out_len);
+        rbc_buffer_free(buffer);
         rbc_session_free(session);
         rbc_client_free(client);
     }
@@ -659,24 +731,25 @@ mod tests {
         let pem_c = CString::new(enc_pem_str).unwrap();
         let passphrase = b"ffi-passphrase";
 
-        let mut out_ptr: *mut u8 = ptr::null_mut();
-        let mut out_len: usize = 0;
+        let mut buffer: *mut RbcBuffer = ptr::null_mut();
         let code = rbc_session_decrypt_content(
             session,
             jwe_c.as_ptr(),
             pem_c.as_ptr(),
             passphrase.as_ptr(),
             passphrase.len(),
-            &mut out_ptr,
-            &mut out_len,
+            &mut buffer,
         );
         assert_eq!(code, RbcErrorCode::Ok);
+        assert!(!buffer.is_null());
+        let out_ptr = rbc_buffer_data(buffer);
+        let out_len = rbc_buffer_len(buffer);
         assert!(!out_ptr.is_null());
         assert_eq!(out_len, plaintext.len());
         let got = unsafe { std::slice::from_raw_parts(out_ptr, out_len) };
         assert_eq!(got, plaintext.as_ref());
 
-        rbc_buffer_free(out_ptr, out_len);
+        rbc_buffer_free(buffer);
         rbc_session_free(session);
         rbc_client_free(client);
     }

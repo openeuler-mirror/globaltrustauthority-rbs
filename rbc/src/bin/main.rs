@@ -184,7 +184,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_context_requires_base_url_without_config_or_override() {
+    fn resolve_context_uses_default_https_base_url_without_config_or_override() {
         let args = GlobalArgs {
             base_url: None,
             cert: None,
@@ -198,14 +198,15 @@ mod tests {
             verbose: false,
         };
 
-        let err = resolve_context(
+        let context = resolve_context(
             &args,
             &ClientAction::Challenge(rbc::cli::ChallengeArgs {
                 agent: rbc::cli::AgentConfigArgs { agent_config: "/tmp/agent.yaml".to_string() },
             }),
         )
-        .expect_err("missing base url should fail");
-        assert!(err.to_string().contains("missing RBS base URL"));
+        .expect("missing base URL should use the HTTPS default");
+
+        assert_eq!(context.base_url, "https://127.0.0.1:6666");
     }
 
     #[test]

@@ -67,7 +67,7 @@ rbc/
 |-------------|---------|------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | Rust toolchain | ≥ 1.75 | Install via [rustup](https://rustup.rs)                                                                                                                    |
 | libclang | any | Required by cbindgen at build time                                                                                                                         |
-| openssl-devel | ≥ 3.0.x | Required by reqwest TLS backend; must be a version with all known CVEs patched, prefer a ≥ 3.0 LTS release actively maintained by your OS vendor.          |
+| OpenSSL | vendored | Used by RBC cryptographic operations. The Reqwest TLS backend uses Rustls and does not require a system `openssl-devel` package. |
 | attestation_agent | — | Required at runtime for the `native` evidence and token provider, refer to [global-trust-authority](https://gitcode.com/openeuler/global-trust-authority). |
 
 ### 4.2 Build
@@ -161,9 +161,11 @@ let client = Client::new(config)?;
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `base_url` | string | **required** | Base URL of the RBS server |
-| `ca_cert` | string | — | Path to a custom CA certificate (PEM) for TLS verification |
+| `base_url` | string | **required** | Base URL of the RBS server. Use `https://` for TLS; `http://` is supported only when explicitly configured. |
+| `ca_cert` | string | — | Path to a custom CA certificate (PEM) for TLS verification. Required when the server certificate chain is not rooted in the system trust store. |
 | `timeout_secs` | integer | — | Timeout in seconds for evidence collection, token acquisition, and RBS HTTP requests |
+
+HTTPS connections use Rustls and require TLS 1.3 or later. The default trust store is the system trust store. To connect to a private or self-signed RBS CA, configure `ca_cert` (or pass `--cert` to `rbc-cli`).
 
 ### 5.3 `evidence_provider` List
 
@@ -244,30 +246,34 @@ The C API is declared in `rbc/include/rbc.h` and targets C99+. Link against `lib
 typedef struct RbcClient   RbcClient;
 typedef struct RbcSession  RbcSession;
 typedef struct RbcResource RbcResource;
+typedef struct RbcBuffer   RbcBuffer;
 ```
 
-Handles are opaque RBC-owned pointers. Never dereference, stack-allocate, copy, or cast them between handle types; only pass pointers between RBC functions.
+Handles are opaque RBC-owned pointers. Never dereference or stack-allocate them, cast them between handle types, or duplicate them into a second owning variable; only pass them to RBC functions.
 
 Each non-NULL handle must be released exactly once with its matching function:
 
 | Handle | Release function |
 |--------|------------------|
-| `RbcClient *` | `RbcClientFree` |
-| `RbcSession *` | `RbcSessionFree` |
-| `RbcResource *` | `RbcResourceFree` |
+| `RbcClient *` | `RbcClientFree(&client)` |
+| `RbcSession *` | `RbcSessionFree(&session)` |
+| `RbcResource *` | `RbcResourceFree(&resource)` |
+| `RbcBuffer *` | `RbcBufferFree(&buffer)` |
 
-After a free call returns, the handle and all borrowed pointers obtained from it are invalid. Passing a pointer not returned by RBC, freeing a handle twice, freeing it with the wrong function, or using it after free is undefined behavior.
+Release functions accept the address of the caller's handle variable and set that variable to `NULL` before dropping the object. Calling the matching release function again with the same variable is therefore a no-op. Any copied aliases and all borrowed pointers obtained from the handle remain invalid after release; using them is undefined behavior.
 
 #### 6.2.2 Memory Ownership Rules
 
 | Return type | Ownership | How to release |
 |-------------|-----------|----------------|
 | `char **` out-param | Caller owns | `RbcStringFree(ptr)` |
-| `uint8_t **` out-param | Caller owns | `RbcBufferFree(ptr, len)` — `len` must be the value written by the call |
-| `const char *` from resource accessor | Borrowed | Do **not** free; valid until `RbcResourceFree` |
-| `const uint8_t *` from `RbcResourceGetContent` | Borrowed | Do **not** free; valid until `RbcResourceFree` |
+| `RbcBuffer **` out-param | Caller owns opaque handle | `RbcBufferFree(&buffer)` |
+| `const char *` from resource accessor | Borrowed | Do **not** free; valid until `RbcResourceFree(&resource)` |
+| `const uint8_t *` from `RbcResourceGetContent` | Borrowed | Do **not** free; valid until `RbcResourceFree(&resource)` |
 
-Only pass unmodified RBC-returned pointers to `RbcStringFree` and `RbcBufferFree`. Do not pass non-RBC allocations, adjusted pointers, or a different `len` value to `RbcBufferFree`.
+`RbcBufferData(buffer)` and `RbcBufferLen(buffer)` return a borrowed data view. The data pointer is valid until `RbcBufferFree(&buffer)`. Pass only the address of the owning handle variable to a release function; never pass a non-owning alias, a non-RBC allocation, or an adjusted pointer.
+
+For `RbcSessionDecryptContent`, `passphrase_len` is a byte length capped at 1024. A non-NULL `passphrase` must point to at least that many readable bytes; pass `NULL` only with a zero length.
 
 > **Thread safety**: All handles must be used only on the thread that created them. The error slot used by `RbcLastErrorMessage` is thread-local.
 
@@ -335,7 +341,7 @@ Common global options:
 
 | Option | Required | Default | Meaning / Notes |
 |---|---|---|---|
-| `-b`, `--base-url <BASE_URL>` | Yes | none | Base URL of the target RBS service. |
+| `-b`, `--base-url <BASE_URL>` | No | `https://127.0.0.1:6666` | Base URL of the target RBS service. The default uses HTTPS. |
 | `--cert <CERT>` | No | unset | CA certificate file used to verify the RBS server. |
 | `--timeout-secs <TIMEOUT_SECS>` | No | unset | Request timeout in seconds. |
 | `--key-algorithm <KEY_ALGORITHM>` | No | unset | Key algorithm used for TEE key generation: `rsa`, `ec`, or `sm2`. `sm2` supports key generation/loading and signing only; the JWE resource envelope does not support SM2. |
@@ -343,6 +349,8 @@ Common global options:
 | `-f`, `--format <FORMAT>` | No | `text` | Output format: `text` or `json`. |
 | `-o`, `--output-file <OUTPUT_FILE>` | No | unset | Write command output to a file. |
 | `--noout` | No | `false` | Do not print command output to stdout. |
+
+`rbc-cli` uses Rustls for HTTPS and requires TLS 1.3 or later. It trusts the system trust store by default. For a private or self-signed CA, pass `--cert <CA_PEM>`; use HTTP only by explicitly passing an `http://...` value to `--base-url`.
 
 Command-specific options:
 
@@ -795,20 +803,22 @@ int main(int argc, char **argv) {
     printf("content:      %.*s\n", (int)n, (const char *)content);
 
     /* 8. Optionally decrypt JWE-encrypted content */
-    // uint8_t *pt = NULL; size_t pt_len = 0;
+    // RbcBuffer *pt = NULL;
     // rc = RbcSessionDecryptContent(session, (const char *)content,
-    //                               NULL, NULL, 0, &pt, &pt_len);
+    //                               NULL, NULL, 0, &pt);
     // if (rc != RBC_ERROR_CODE_OK) die("RbcSessionDecryptContent", rc);
-    // printf("plaintext: %.*s\n", (int)pt_len, (const char *)pt);
-    // RbcBufferFree(pt, pt_len);
+    // const uint8_t *pt_data = RbcBufferData(pt);
+    // size_t pt_len = RbcBufferLen(pt);
+    // printf("plaintext: %.*s\n", (int)pt_len, (const char *)pt_data);
+    // RbcBufferFree(&pt);
 
     /* 9. Release all handles in reverse order */
-    RbcResourceFree(res);
+    RbcResourceFree(&res);
     RbcStringFree(token);
     RbcStringFree(evidence);
-    RbcSessionFree(session);   /* ephemeral key is zeroized here */
+    RbcSessionFree(&session);  /* zeroized and set to NULL */
     RbcStringFree(nonce);
-    RbcClientFree(client);
+    RbcClientFree(&client);
     return 0;
 }
 ```
