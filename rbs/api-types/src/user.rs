@@ -49,7 +49,7 @@ pub enum AuthType {
 #[serde(rename_all = "snake_case")]
 pub struct UserCreateRequest {
     /// Login or unique handle. Immutable.
-    #[validate(length(min = 1, max = 36), custom(function = "validate_username_chars"))] // USERNAME_MAX_LEN
+    #[validate(length(min = 1, max = 36, message = "length must be between 1 and 36 characters"), custom(function = "validate_username_chars"))] // USERNAME_MAX_LEN
     #[schema(min_length = 1, max_length = 36, pattern = "^[a-zA-Z0-9_-]+$")]
     pub username: String,
 
@@ -183,13 +183,13 @@ pub struct UserResponse {
 #[into_params(parameter_in = Query)]
 pub struct UserListQuery {
     /// Page size (1..100, default 10).
-    #[validate(range(min = 1, max = 100))]
+    #[validate(range(min = 1, max = 100, message = "must be between 1 and 100"))]
     #[param(minimum = 1, maximum = 100)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<i64>,
 
     /// Offset (0..100000, default 0).
-    #[validate(range(min = 0, max = 100_000))]
+    #[validate(range(min = 0, max = 100_000, message = "must be between 0 and 100000"))]
     #[param(minimum = 0, maximum = 100_000)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub offset: Option<i64>,
@@ -222,7 +222,7 @@ pub struct UserListResponse {
 fn validate_create_role(role: &Role) -> Result<(), validator::ValidationError> {
     if *role == Role::Admin {
         let mut err = validator::ValidationError::new("invalid_role");
-        err.message = Some("role must be 'user' (admin is pre-configured)".into());
+        err.message = Some("must be 'user' (admin is pre-configured)".into());
         Err(err)
     } else {
         Ok(())
@@ -249,7 +249,7 @@ fn validate_username_chars(username: &str) -> Result<(), validator::ValidationEr
         Ok(())
     } else {
         let mut err = validator::ValidationError::new("invalid_username");
-        err.message = Some("username must only contain [a-zA-Z0-9_-]".into());
+        err.message = Some("must only contain [a-zA-Z0-9_-]".into());
         Err(err)
     }
 }
