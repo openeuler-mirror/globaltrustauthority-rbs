@@ -340,7 +340,7 @@ sequenceDiagram
     participant PC as PolicyClient
     participant Backend as resource backend
 
-    Client->>REST: GET /rbs/v0/{uri}<br/>Authorization: Attest &lt;attest-token&gt;
+    Client->>REST: GET /rbs/v0/{uri}<br/>Authorization: Attest #60;attest-token#62;
     REST->>Auth: validate Attest token and extract AuthContext
     Auth-->>REST: claims + TEE pubkey
     REST->>RS: get_content(ctx, uri)
@@ -362,11 +362,11 @@ sequenceDiagram
 
 Passport `get_content` (Attest GET) reads the TEE encryption pubkey from **nested** claims only: `attester_data.runtime_data.tee-pubkey`. Top-level `tee-pubkey` is **not** accepted on this path.
 
-Authorization failures on the Attest read paths (`get_content` / `get_info` / `retrieve`) are split by cause: a completed policy decision against the caller (`policy_matched != true`, or Bearer owner mismatch) collapses to **404** with the shared body "resource not found or access denied" — byte-identical to what a genuinely missing resource returns on the same paths, so unauthorized callers cannot distinguish "missing" from "denied" (anti-enumeration; the folding itself is public — API docs name both causes; which case occurred is logged at `warn` with the policy id). A policy that **cannot be evaluated** (broken Rego, safe-mode rejection) is a server-side fault and surfaces as **500** with a generic message — the Rego detail goes to the error log only. Management paths (create/update/delete) keep a plain "resource not found" 404 because denial there is a distinct 403.
+Authorization failures on the Attest read paths (`get_content` / `get_info` / `retrieve`) are split by cause: a completed policy decision against the caller (`policy_matched != true`, or Bearer owner mismatch) collapses to **404** with the shared body "resource not found or access denied" — byte-identical to what a genuinely missing resource returns on the same paths, so unauthorized callers cannot distinguish "missing" from "denied" (anti-enumeration; the folding itself is public — API docs name both causes; the denied case is logged at `warn` with the policy id). A policy that **cannot be evaluated** (broken Rego, safe-mode rejection) is a server-side fault and surfaces as **500** with a generic message — the Rego detail goes to the error log only. Management paths (create/update/delete) keep a plain "resource not found" 404 because denial there is a distinct 403.
 
 ### 8.3b Resource Retrieval (Bearer Owner GET Path)
 
-Operational path for resource owners using `rbs-cli` or other operator tooling — **not** a RATS Passport flow. Middleware validates a Bearer JWT; authorization uses embedded `admin_policy.rego` (owner / `UserScoped` check), **not** the resource-bound Rego policy (which is used only on the Attest path).
+Operational path for resource owners using `rbs-cli` or other operator tooling — **not** a RATS Passport flow. Middleware validates a Bearer JWT (including account-lockout enforcement); authorization uses embedded `admin_policy.rego` (owner / `UserScoped` check), **not** the resource-bound Rego policy (which is fetched on this path but used only on the Attest path). `admin_policy.rego` denies Bearer GET of `hsm`/`ca` content — those backends require an attest token, and the deny folds into the same 404 as any other authorization failure.
 
 ```mermaid
 sequenceDiagram
@@ -376,17 +376,25 @@ sequenceDiagram
     participant RS as ResourceService
     participant AuthZ as AuthzChecker
     participant DB as ResourceRepository
+    participant PC as PolicyClient
     participant Backend as resource backend
 
-    Client->>REST: GET /rbs/v0/{uri}<br/>Authorization: Bearer &lt;bearer-jwt&gt;
-    REST->>Auth: validate Bearer JWT (iss, aud, exp, sub, per-user key; role extracted)
+    Client->>REST: GET /rbs/v0/{uri}<br/>Authorization: Bearer #60;bearer-jwt#62;
+    REST->>Auth: validate Bearer JWT (iss, aud, exp, sub, per-user key#59; lockout#59; role extracted)
     Auth-->>REST: Bearer context (enc_pubkey claim)
     REST->>RS: get_content(ctx, uri)
+    RS->>RS: validate URI
     RS->>DB: find_by_uri(uri)
     DB-->>RS: resource metadata
-    RS->>AuthZ: check_resource_get(ctx, owner, admin_policy.rego)
-    AuthZ->>AuthZ: evaluate owner / UserScoped via admin_policy.rego
-    AuthZ-->>RS: allow
+    RS->>PC: get_policy_content(policy_id)
+    PC-->>RS: resource-bound Rego (fetched#59; not used for Bearer decision)
+    RS->>AuthZ: check_resource_get(ctx, owner, rego, res_provider)
+    alt res_provider is not hsm or ca
+        AuthZ->>AuthZ: evaluate admin_policy.rego (owner / UserScoped)
+        AuthZ-->>RS: allow
+    else res_provider is hsm or ca
+        AuthZ-->>RS: deny (folded to 404#59; attest token required)
+    end
     RS->>Backend: get_resource_content(uri)
     Backend-->>RS: raw key / secret material
     RS->>RS: JWE encrypt with enc_pubkey from Bearer claims
@@ -412,7 +420,7 @@ sequenceDiagram
     participant DB as ResourceRepository
     participant Backend as resource backend
 
-    Client->>REST: POST /rbs/v0/{uri}/retrieve<br/>(AttestRequest body; no Authorization header)
+    Client->>REST: POST /rbs/v0/{uri}/retrieve<br/>(AttestRequest body#59; no Authorization header)
     Note over REST: middleware skips auth for /retrieve
     REST->>AM: attest(inline evidence)
     AM->>Provider: attest()
@@ -437,9 +445,9 @@ sequenceDiagram
     Backend-->>RS: raw content
     RS->>RS: JWE encrypt
     RS-->>REST: ResourceContentResponse
-    REST-->>Client: 200 JSON (JWE only; no attest token returned)
-    Note over Client,REST: attestation backend failure → 502
-    Note over RS: policy not matched → 404 (anti-enumeration); Rego evaluation failure → 500
+    REST-->>Client: 200 JSON (JWE only#59; no attest token returned)
+    Note over Client,REST: GTA non-2xx → status forwarded verbatim#59; GTA unreachable or timed out → 503
+    Note over RS: policy not matched → 404 (anti-enumeration)#59; Rego evaluation failure → 500
 ```
 
 Background-Check `retrieve` accepts the TEE encryption pubkey from nested `attester_data.runtime_data.tee-pubkey` **or** `attester_data`-top-level `tee-pubkey` (`claims["attester_data"]["tee-pubkey"]`) in attest token claims (Passport GET accepts nested only — §8.3).
@@ -455,19 +463,20 @@ sequenceDiagram
     participant AuthZ as AuthzFacade
     participant Repo as PolicyRepository
 
-    User->>REST: POST /rbs/v0/resource/policy<br/>Authorization: Bearer &lt;bearer-jwt&gt;
-    REST->>Auth: validate Bearer JWT + role
+    User->>REST: POST /rbs/v0/resource/policy<br/>Authorization: Bearer #60;bearer-jwt#62;
+    REST->>Auth: validate Bearer JWT (role extracted)
     Auth-->>REST: user context (admin or user role)
     REST->>PS: create(ctx, request)
-    PS->>AuthZ: check admin/user permission (UserScoped or AdminOnly)
-    PS->>PS: PolicyValidator
+    PS->>AuthZ: check user permission (UserScoped via admin_policy.rego)
+    PS->>PS: PolicyValidator (name, quota, content size)
+    PS->>PS: generate policy_id
     PS->>Repo: persist policy
-    Repo-->>PS: policy_id
+    Repo-->>PS: ok
     PS-->>REST: PolicyResponse
     REST-->>User: 201 JSON
 ```
 
-Policy list, get, update, delete, and batch delete (`DELETE /rbs/v0/resource/policy?ids=...`) follow the same Bearer + `AuthzFacade` pattern. `AdminOnly` actions (for example `POST /rbs/v0/users`) require an administrator role; policy CRUD uses `UserScoped` or `AdminOnly` depending on the action — distinct from the operator Bearer owner GET path in §8.3b.
+Policy list, get, update, delete, and batch delete (`DELETE /rbs/v0/resource/policy?ids=...`) follow the same Bearer + `AuthzFacade` pattern. `AdminOnly` actions (for example `POST /rbs/v0/users`) require an administrator role (bound by `admin_policy.rego` to the bootstrap `Administrator` subject); all policy CRUD actions use `UserScoped` — distinct from the operator Bearer owner GET path in §8.3b.
 
 ### 8.6 User and Administrator Lifecycle
 
@@ -477,8 +486,9 @@ sequenceDiagram
     participant AdminM as AdminManager
     participant Admin as rbs-cli (admin)
     participant REST as rbs-rest
-    participant Auth as auth / authorization
-    participant Repo as user repository
+    participant Auth as auth middleware
+    participant AuthZ as AuthzFacade
+    participant Repo as t_user_info (SeaORM)
 
     Main->>AdminM: bootstrap_admin()
     AdminM->>Repo: check whether users exist
@@ -488,19 +498,26 @@ sequenceDiagram
         AdminM-->>Main: skip bootstrap
     end
 
-    Admin->>REST: POST /rbs/v0/users<br/>Authorization: Bearer &lt;bearer-jwt&gt;
-    REST->>Auth: validate administrator identity and permission
-    Auth-->>REST: allow
+    Admin->>REST: POST /rbs/v0/users<br/>Authorization: Bearer #60;bearer-jwt#62;
+    REST->>Auth: validate Bearer JWT (identity, lockout)
+    Auth-->>REST: bearer context
     REST->>AdminM: create_user(request)
-    AdminM->>Repo: persist user, public key, and role
+    AdminM->>AuthZ: require AdminOnly (admin_policy.rego)
+    AuthZ-->>AdminM: allow
+    AdminM->>AdminM: validate request and key material
+    AdminM->>Repo: insert user, public key, and role (quota and duplicate checks)
     Repo-->>AdminM: user record
     AdminM-->>REST: UserResponse
     REST-->>Admin: 201 JSON
 
     Admin->>REST: GET /rbs/v0/users/{username}
-    REST->>Auth: validate admin or self access
+    REST->>Auth: validate Bearer JWT (identity, lockout)
+    Auth-->>REST: bearer context
     REST->>AdminM: get_user(username)
-    AdminM->>Repo: load user and public key
+    AdminM->>AuthZ: require enabled bearer (UserScoped)
+    AuthZ-->>AdminM: allow
+    AdminM->>AdminM: admin or self check
+    AdminM->>Repo: load user record
     Repo-->>AdminM: user record
     AdminM-->>REST: UserResponse
     REST-->>Admin: 200 JSON
@@ -519,19 +536,19 @@ sequenceDiagram
     participant REST as RBS REST API
 
     App->>SDK: Client::new(Config)
-    App->>SDK: Session::new(attester_data)
+    App->>SDK: Client::new_session(attester_data)
     SDK->>REST: GET /rbs/v0/challenge
     REST-->>SDK: nonce
     SDK->>EP: collect_evidence(challenge)
     EP-->>SDK: evidence JSON
     SDK->>TP: get_token(evidence)
-    TP->>REST: POST /rbs/v0/attest
+    TP->>REST: POST /rbs/v0/attest (rbs token provider)
     REST-->>TP: attest token
     TP-->>SDK: token
-    SDK->>REST: GET /rbs/v0/{uri}<br/>Authorization: Attest &lt;attest-token&gt;
+    SDK->>REST: GET /rbs/v0/{uri}<br/>Authorization: Attest #60;attest-token#62;
     REST-->>SDK: JWE-encrypted content
     SDK->>SDK: decrypt_content(JWE, ephemeral key)
-    SDK-->>App: Resource (plaintext, zeroized on Drop)
+    SDK-->>App: plaintext content (zeroized on Drop)
 ```
 
 This flow summarizes the **Passport Model** client path (§8.2 → §8.3). For the **Background-Check Model**, clients call `POST /rbs/v0/{uri}/retrieve` with inline evidence instead of a prior attest token (§8.4). Operators may retrieve owned resources with Bearer JWT and `admin_policy.rego` (§8.3b) without a TEE attestation flow.

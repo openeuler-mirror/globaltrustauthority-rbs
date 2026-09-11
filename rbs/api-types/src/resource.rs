@@ -21,8 +21,10 @@ use super::auth::AttestRequest;
 
 // ── Token claim key name constants ──────────────────────────────────────────
 
-/// Key name for TEE public key in AttestToken claims (nested under
-/// `attester_data.runtime_data` or at root level).
+/// Key name for the TEE encryption public key in AttestToken claims.
+/// Passport reads (`get_content`) accept it only nested under
+/// `attester_data.runtime_data`; `retrieve` additionally accepts it at the
+/// `attester_data` top level.
 pub const ATTEST_TEE_PUBKEY_KEY: &str = "tee-pubkey";
 
 /// Key name for encryption public key in BearerToken claims (at root level).
