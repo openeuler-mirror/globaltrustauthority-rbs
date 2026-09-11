@@ -78,8 +78,9 @@ async fn find_resource_by_uri_not_found_returns_none() {
 #[tokio::test]
 async fn list_by_user_empty() {
     let (repo, _db) = setup().await;
-    let items = repo.list_by_user("user1").await.unwrap();
+    let (items, total) = repo.list_by_user("user1", 0, 10).await.unwrap();
     assert!(items.is_empty());
+    assert_eq!(total, 0);
 }
 
 #[tokio::test]
@@ -88,10 +89,55 @@ async fn list_by_user_filters_by_user() {
     repo.insert(&make_entity("/rbs/v0/vault/default/secret/a", "u1", "p1")).await.unwrap();
     repo.insert(&make_entity("/rbs/v0/vault/default/secret/b", "u1", "p2")).await.unwrap();
     repo.insert(&make_entity("/rbs/v0/vault/default/secret/c", "u2", "p3")).await.unwrap();
-    let items = repo.list_by_user("u1").await.unwrap();
+    let (items, total) = repo.list_by_user("u1", 0, 10).await.unwrap();
     assert_eq!(items.len(), 2);
-    let items2 = repo.list_by_user("u3").await.unwrap();
+    assert_eq!(total, 2);
+    let (items2, total2) = repo.list_by_user("u3", 0, 10).await.unwrap();
     assert!(items2.is_empty());
+    assert_eq!(total2, 0);
+}
+
+#[tokio::test]
+async fn list_by_user_pagination_offset_and_limit() {
+    let (repo, _db) = setup().await;
+    for i in 0..5 {
+        // Same created_at for all rows: pagination must stay deterministic
+        // via the composite-primary-key tie-breaker.
+        let mut e = make_entity(&format!("/rbs/v0/vault/default/secret/r{i}"), "u1", "p1");
+        e.created_at = 1000;
+        e.updated_at = 1000;
+        repo.insert(&e).await.unwrap();
+    }
+    let (page1, total) = repo.list_by_user("u1", 0, 2).await.unwrap();
+    assert_eq!(page1.len(), 2);
+    assert_eq!(total, 5);
+    let (page2, _) = repo.list_by_user("u1", 2, 2).await.unwrap();
+    assert_eq!(page2.len(), 2);
+    let (page3, _) = repo.list_by_user("u1", 4, 2).await.unwrap();
+    assert_eq!(page3.len(), 1);
+    // Full concatenation covers every row exactly once (no overlap/gap).
+    let all: Vec<&str> = page1.iter().chain(page2.iter()).chain(page3.iter())
+        .map(|e| e.res_name.as_str()).collect();
+    let mut sorted = all.clone();
+    sorted.sort_unstable();
+    assert_eq!(all.len(), 5);
+    assert_eq!(sorted, vec!["r0", "r1", "r2", "r3", "r4"]);
+}
+
+#[tokio::test]
+async fn list_by_user_orders_created_at_desc() {
+    let (repo, _db) = setup().await;
+    let mut older = make_entity("/rbs/v0/vault/default/secret/older", "u1", "p1");
+    older.created_at = 100;
+    older.updated_at = 100;
+    let mut newer = make_entity("/rbs/v0/vault/default/secret/newer", "u1", "p1");
+    newer.created_at = 200;
+    newer.updated_at = 200;
+    repo.insert(&older).await.unwrap();
+    repo.insert(&newer).await.unwrap();
+    let (items, _) = repo.list_by_user("u1", 0, 10).await.unwrap();
+    assert_eq!(items[0].res_name, "newer");
+    assert_eq!(items[1].res_name, "older");
 }
 
 // ── SQL-12: find_by_policy_id ─────────────────────────────────────────

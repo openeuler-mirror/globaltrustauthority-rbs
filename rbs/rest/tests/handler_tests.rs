@@ -204,6 +204,33 @@ async fn resource_get_info_no_token_returns_401() {
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 }
 
+#[actix_web::test]
+async fn resource_list_no_token_returns_401() {
+    let app = app_ok().await;
+    let req = test::TestRequest::get().uri("/rbs/v0/resource").to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+/// GET /resource with an Attest token → 401: the user-dimension list is
+/// Bearer-only (Attest tokens carry no user subject), enforced by the
+/// middleware before the handler runs.
+#[actix_web::test]
+async fn resource_list_with_attest_token_returns_401() {
+    let app = app_ok().await;
+    let req = test::TestRequest::get()
+        .uri("/rbs/v0/resource")
+        .insert_header(("Authorization", "Attest valid-attest-token"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    let err = extract_error(resp).await;
+    assert!(
+        err.contains("AttestToken not allowed"),
+        "expected AttestToken rejection, got: {err}"
+    );
+}
+
 // ===========================================================================
 // Route-wiring tests — verify routes reach handlers (not 404, not 401 with token)
 // ===========================================================================
@@ -387,6 +414,55 @@ async fn resource_get_info_wired() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_route_wired!(resp);
+}
+
+/// GET /resource — user-scoped resource list wired (must not fall through to
+/// the wildcard resource GET, which 400s on the 1-segment URI).
+#[actix_web::test]
+async fn resource_list_wired() {
+    let app = app_ok().await;
+    let req = test::TestRequest::get()
+        .uri("/rbs/v0/resource")
+        .insert_header(("Authorization", "Bearer valid-token"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_route_wired!(resp);
+}
+
+/// GET /resource?limit=...&offset=... — pagination query wired.
+#[actix_web::test]
+async fn resource_list_with_pagination_wired() {
+    let app = app_ok().await;
+    let req = test::TestRequest::get()
+        .uri("/rbs/v0/resource?limit=5&offset=10")
+        .insert_header(("Authorization", "Bearer valid-token"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_route_wired!(resp);
+}
+
+/// GET /resource?limit=0 — out-of-range pagination → 400 (validation runs
+/// before any authz/repo call, so the status is deterministic).
+#[actix_web::test]
+async fn resource_list_invalid_limit_returns_400() {
+    let app = app_ok().await;
+    let req = test::TestRequest::get()
+        .uri("/rbs/v0/resource?limit=0")
+        .insert_header(("Authorization", "Bearer valid-token"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+#[actix_web::test]
+async fn resource_list_limit_over_max_returns_400() {
+    let app = app_ok().await;
+    let req = test::TestRequest::get()
+        .uri("/rbs/v0/resource?limit=101")
+        .insert_header(("Authorization", "Bearer valid-token"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 }
 
 /// POST /{uri}/retrieve with Attest token — retrieve wired.

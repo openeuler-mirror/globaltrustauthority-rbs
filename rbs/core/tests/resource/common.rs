@@ -39,6 +39,7 @@ pub(crate) struct MockResourceRepository {
     pub find_by_uri_result: Mutex<MockResult<Option<ResourceEntity>>>,
     pub update_result: Mutex<MockResult<u64>>,
     pub delete_result: Mutex<MockResult<u64>>,
+    pub list_result: Mutex<MockResult<(Vec<ResourceEntity>, u64)>>,
 }
 
 impl MockResourceRepository {
@@ -48,6 +49,7 @@ impl MockResourceRepository {
             find_by_uri_result: Mutex::new(Ok(None)),
             update_result: Mutex::new(Ok(1)),
             delete_result: Mutex::new(Ok(1)),
+            list_result: Mutex::new(Ok((vec![], 0))),
         }
     }
 }
@@ -66,8 +68,10 @@ impl ResourceRepository for MockResourceRepository {
     async fn delete(&self, _uri: &str, _username: &str) -> MockResult<u64> {
         self.delete_result.lock().unwrap().clone()
     }
-    async fn list_by_user(&self, _username: &str) -> MockResult<Vec<ResourceEntity>> {
-        Ok(vec![])
+    async fn list_by_user(
+        &self, _username: &str, _offset: i64, _limit: i64,
+    ) -> MockResult<(Vec<ResourceEntity>, u64)> {
+        self.list_result.lock().unwrap().clone()
     }
     async fn find_by_policy_id(&self, _policy_id: &str) -> MockResult<Vec<ResourceEntity>> {
         Ok(vec![])

@@ -12,9 +12,19 @@ use super::error::ResourceError;
 use super::repository::ResourceRepository;
 use super::validator::{ParsedUri, ResourceValidator};
 use super::{
-    CreateResourceRequest, ResourceContentResponse, ResourceResponse,
+    CreateResourceRequest, ResourceContentResponse, ResourceListResponse, ResourceResponse,
     UpdateResourceRequest, ATTEST_TEE_PUBKEY_KEY, BEARER_ENC_PUBKEY_KEY,
 };
+
+/// Resource list query parameters (internal, not HTTP-facing).
+///
+/// The REST layer resolves the HTTP query's `limit`/`offset` defaults before
+/// building this struct (mirrors `PolicyQuery`).
+#[derive(Debug, Clone)]
+pub struct ResourceQuery {
+    pub offset: i64,
+    pub limit: i64,
+}
 
 /// Build a ResourceDesc (addressing) from parsed URI segments.
 fn build_resource_desc(parsed: &ParsedUri) -> rbs_api_types::ResourceDesc {
@@ -574,6 +584,52 @@ impl ResourceService {
             content_type: entity.content_type, export_mode: entity.export_mode,
             policy_id: entity.policy_id,
             additional_info: entity.res_info,
+        })
+    }
+
+    // ── GET /resource (user-scoped list) ───────────────────────────────
+
+    /// List the caller's resources (metadata only, `created_at` descending).
+    ///
+    /// User-scoped by construction: the query is filtered on `ctx.sub()`, so
+    /// other users' resources are never returned. Bearer-only at the HTTP
+    /// layer — Attest tokens carry no user subject and are rejected by the
+    /// middleware on `/rbs/v0/resource`. Unlike the single-resource read
+    /// paths, a denied list returns 403 (not the anti-enumeration 404
+    /// collapse): the caller's own inventory leaks nothing about other users.
+    pub async fn list(
+        &self, ctx: &AuthContext, query: &ResourceQuery,
+    ) -> Result<ResourceListResponse, ResourceError> {
+        log::info!("Resource list requested: user={}, offset={}, limit={}", ctx.sub(), query.offset, query.limit);
+
+        // step 1: permission check — no owner field: the user filter below
+        // is applied by construction (mirrors the policy list path).
+        self.authz.check_action(ctx, Action::List, RequiredRole::UserScoped).await.map_err(|_| {
+            log::error!("Resource list denied: permission denied for user '{}'", ctx.sub());
+            ResourceError::PermissionDenied
+        })?;
+
+        // step 2: execute — user-filtered pagination in the repository.
+        let username = ctx.sub();
+        let (entities, total) = self.repo.list_by_user(username, query.offset, query.limit).await?;
+
+        let items: Vec<ResourceResponse> = entities.into_iter().map(|e| ResourceResponse {
+            uri: format!("/rbs/v0/{}/{}/{}/{}", e.provider_name, e.repo_name, e.res_type, e.res_name),
+            provider_name: e.provider_name,
+            repository_name: e.repo_name,
+            resource_type: e.res_type,
+            resource_name: e.res_name,
+            created_at: millis_to_rfc3339(e.created_at),
+            updated_at: millis_to_rfc3339(e.updated_at),
+            content_type: e.content_type,
+            export_mode: e.export_mode,
+            policy_id: e.policy_id,
+            additional_info: e.res_info,
+        }).collect();
+
+        log::info!("Resource list completed: count={}, total={}, user='{}'", items.len(), total, username);
+        Ok(ResourceListResponse {
+            items, total_count: total as i64, limit: query.limit, offset: query.offset,
         })
     }
 

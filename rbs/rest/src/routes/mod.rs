@@ -168,6 +168,14 @@ pub fn config(cfg: &mut web::ServiceConfig) {
                 .route(web::delete().to(attestation_mgmt::delete_attestation_policy_default))
                 .default_service(web::to(not_found)),
         )
+        // Resource collection route (user-scoped list; MUST be before the
+        // wildcard routes so `/rbs/v0/resource` is not captured as a resource
+        // URI — `resource` is a reserved provider name, so it can never be one)
+        .service(
+            web::resource("/resource")
+                .route(web::get().to(resource::list_resources))
+                .default_service(web::to(not_found)),
+        )
         // Resource routes (wildcard - must be last)
         .service(
             web::resource("/{uri:.+}/info")

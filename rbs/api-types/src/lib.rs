@@ -89,7 +89,8 @@ pub use error::{ErrorBody, RbsError};
 // Re-export types from resource module
 pub use resource::{
     CreateResourceRequest, GetResourceOptions, ResourceContentResponse,
-    ResourceDesc, ResourceInfoResponse, ResourceResponse, ResourceRetrieveRequest,
+    ResourceDesc, ResourceInfoResponse, ResourceListQuery, ResourceListResponse,
+    ResourceResponse, ResourceRetrieveRequest,
     UpdateResourceRequest, ATTEST_TEE_PUBKEY_KEY, BEARER_ENC_PUBKEY_KEY,
 };
 

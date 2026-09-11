@@ -161,6 +161,7 @@ In CI (`CI=true`), the script will fail if documentation is out of sync.
 - Challenge: `GET /rbs/v0/challenge`
 - Attestation: `POST /rbs/v0/attest`
 - Attestation management (Bearer + admin): `/rbs/v0/attestation/{as_provider}/{type}` and `/rbs/v0/attestation/{type}` (default provider) — ref_value/cert/policy CRUD (6 ops each, with `/{id}` for single get/delete); RBS proxies to GTA with `User-Id` + `main_api_key`
+- Resource list (Bearer only): `GET /rbs/v0/resource` — current user's resource details, metadata only (no content), `created_at` descending, `limit`/`offset` pagination
 - Resource content (wildcard): `/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}` — GET/PUT/POST/DELETE for CRUD; `GET .../info` for metadata; `POST .../retrieve` for inline-evidence JWE retrieval
 - Policy admin (Bearer only): `/rbs/v0/resource/policy` (+ `/{policy_id}`); batch delete: `DELETE /rbs/v0/resource/policy?ids=...`
 - Admin users (Bearer only): `/rbs/v0/users` (+ `/{username}`)

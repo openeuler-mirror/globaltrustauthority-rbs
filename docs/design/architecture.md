@@ -630,6 +630,7 @@ flowchart LR
 | `GET /rbs/version` | Public |
 | `POST /rbs/v0/{uri}/retrieve` | Public middleware; handler inline attestation; ignores `Authorization` |
 | Resource `GET` / `GET .../info` | **Attest** or **Bearer** |
+| `GET /rbs/v0/resource` (resource list) | **Bearer** only — user-dimension query keyed on the Bearer `sub`; Attest tokens carry no user subject |
 | Policy, user, resource CRUD (non-GET) | **Bearer** only |
 | Attestation management (`/attestation/...`) | **Bearer** + admin (inline `require_admin`) |
 | All other routes | Middleware auth (Bearer and/or Attest per path) |
@@ -717,7 +718,7 @@ Fixed `/rbs/v0` routes register **before** wildcard resource routes in `rbs/rest
 flowchart TD
     subgraph v0_scope ["/rbs/v0 — routes/mod.rs"]
         F1["Fixed: /challenge, /attest"]
-        F2["Fixed: /resource/policy*"]
+        F2["Fixed: /resource, /resource/policy*"]
         F3["Fixed: /users*"]
         W["Wildcard /{uri:.+}<br/>(+ /info, /retrieve)"]
         F1 --> F2 --> F3 --> W
@@ -729,7 +730,7 @@ flowchart TD
 
 | Class | Mount | Paths | Actix pattern | Validation |
 |-------|-------|-------|---------------|------------|
-| **Fixed v0** | `routes/mod.rs` under `/rbs/v0` | `/challenge`, `/attest`, `/attestation/{as_provider}/{type}[/{id}]`, `/attestation/{type}[/{id}]`, `/resource/policy[/{policy_id}]`, `/users[/{username}]` | Exact routes | Attestation management routes registered before wildcard; `attestation` prefix excluded from `is_resource_get_path` to prevent Attest token bypass |
+| **Fixed v0** | `routes/mod.rs` under `/rbs/v0` | `/challenge`, `/attest`, `/attestation/{as_provider}/{type}[/{id}]`, `/attestation/{type}[/{id}]`, `/resource` (user-scoped resource list), `/resource/policy[/{policy_id}]`, `/users[/{username}]` | Exact routes | Attestation management routes registered before wildcard; `attestation` prefix excluded from `is_resource_get_path` to prevent Attest token bypass; the `/resource` list path is excluded too (Bearer-only — Attest tokens carry no user subject) |
 | **Wildcard v0** | Same file, **last** | `/rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}` (+ `GET .../info`, `POST .../retrieve`, CRUD) | `/{uri:.+}` | Four-segment shape enforced in `rbs/core`; reserved `res_provider` values (`admin`, `attestation`, `resource`, `health`) rejected to avoid shadowing system paths |
 | **Version** | `server/http.rs` on `/rbs` | `GET /rbs/version` | Exact route | Not under `v0` |
 
@@ -743,6 +744,7 @@ Full token matrix: [§10](#10-security-architecture). Summary:
 | `/challenge`, `/attest` | Public middleware | Forwards to attestation provider (GTA) |
 | `POST .../retrieve` | Public middleware; handler inline | Inline evidence validation and token parsing; ignores `Authorization` header |
 | Resource `GET` / `GET .../info` | **Attest** or **Bearer** | — |
+| `GET /rbs/v0/resource` (resource list) | **Bearer** only | User-scoped by construction — the query is filtered on the Bearer `sub`; returns metadata only (no content), `created_at` descending with `limit`/`offset` pagination |
 | Attestation management (`/attestation/...`) | **Bearer** + admin | Inline `require_admin` checks `role == "admin"`; 3 resources (ref_value/cert/policy) × 6 operations; RBS proxies to GTA with `User-Id` (always, when non-empty) + `API-Key: main_api_key` (only when `attestation.backends.<provider>.rest.credentials.api_key_auth` is enabled; default `false`, in which case the key is neither validated nor sent) |
 | Resource POST/PUT/DELETE, users, policies | **Bearer** only | — |
 
