@@ -32,7 +32,7 @@ use rbs_core::resource::repository::{ResourceEntity, ResourceRepository};
 use rbs_core::resource::{
     CreateResourceRequest, UpdateResourceRequest,
 };
-use rbs_core::resource::service::ResourceService;
+use rbs_core::resource::service::{ResourceQuery, ResourceService};
 use rbs_core::resource::validator::ResourceValidator;
 use rbs_core::resource::ResourceConfig;
 
@@ -49,7 +49,7 @@ struct MockResourceRepository {
     find_by_uri_result: Mutex<MockResult<Option<ResourceEntity>>>,
     update_result: Mutex<MockResult<u64>>,
     delete_result: Mutex<MockResult<u64>>,
-    list_by_user_result: Mutex<MockResult<Vec<ResourceEntity>>>,
+    list_by_user_result: Mutex<MockResult<(Vec<ResourceEntity>, u64)>>,
     count_by_user_result: Mutex<MockResult<usize>>,
     create_with_limit_check_result: Mutex<MockResult<()>>,
     find_by_policy_id_result: Mutex<MockResult<Vec<ResourceEntity>>>,
@@ -67,7 +67,7 @@ impl MockResourceRepository {
             find_by_uri_result: Mutex::new(Ok(None)),
             update_result: Mutex::new(Ok(1)),
             delete_result: Mutex::new(Ok(1)),
-            list_by_user_result: Mutex::new(Ok(vec![])),
+            list_by_user_result: Mutex::new(Ok((vec![], 0))),
             count_by_user_result: Mutex::new(Ok(0)),
             create_with_limit_check_result: Mutex::new(Ok(())),
             find_by_policy_id_result: Mutex::new(Ok(vec![])),
@@ -110,7 +110,9 @@ impl ResourceRepository for MockResourceRepository {
         self.delete_result.lock().unwrap().clone()
     }
 
-    async fn list_by_user(&self, _username: &str) -> MockResult<Vec<ResourceEntity>> {
+    async fn list_by_user(
+        &self, _username: &str, _offset: i64, _limit: i64,
+    ) -> MockResult<(Vec<ResourceEntity>, u64)> {
         self.list_by_user_result.lock().unwrap().clone()
     }
 
@@ -1419,6 +1421,124 @@ async fn test_get_info_policy_evaluation_failed() {
     match result {
         Err(ResourceError::PolicyEvaluationFailed) => {}
         other => panic!("Expected PolicyEvaluationFailed, got {:?}", other),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests – GET /resource (user-scoped list)
+// ---------------------------------------------------------------------------
+
+/// UT-RS-024: list success -> Ok(ResourceListResponse) with metadata mapping
+/// and pagination echo.
+#[tokio::test]
+async fn test_list_success() {
+    let svc = make_service(
+        |repo| {
+            *repo.list_by_user_result.lock().unwrap() = Ok((vec![make_entity()], 1));
+        },
+        |_| {},
+        |_| {},
+    );
+
+    let result = svc
+        .list(&bearer_ctx(TEST_USER), &ResourceQuery { offset: 0, limit: 10 })
+        .await;
+    match &result {
+        Ok(resp) => {
+            assert_eq!(resp.total_count, 1);
+            assert_eq!(resp.limit, 10);
+            assert_eq!(resp.offset, 0);
+            assert_eq!(resp.items.len(), 1);
+            let item = &resp.items[0];
+            assert_eq!(item.uri, TEST_URI);
+            assert_eq!(item.provider_name, "vault");
+            assert_eq!(item.repository_name, "default");
+            assert_eq!(item.resource_type, "secret");
+            assert_eq!(item.resource_name, "mykey");
+            assert_eq!(item.policy_id, TEST_POLICY_ID);
+            assert_eq!(item.export_mode, "jwe");
+        }
+        Err(e) => panic!("Expected Ok(ResourceListResponse), got Err({:?})", e),
+    }
+}
+
+/// UT-RS-024a: list empty -> Ok with empty items and total_count 0.
+#[tokio::test]
+async fn test_list_empty() {
+    let svc = make_service(
+        |repo| {
+            *repo.list_by_user_result.lock().unwrap() = Ok((vec![], 0));
+        },
+        |_| {},
+        |_| {},
+    );
+
+    let result = svc
+        .list(&bearer_ctx(TEST_USER), &ResourceQuery { offset: 0, limit: 10 })
+        .await;
+    match &result {
+        Ok(resp) => {
+            assert!(resp.items.is_empty());
+            assert_eq!(resp.total_count, 0);
+        }
+        Err(e) => panic!("Expected Ok(ResourceListResponse), got Err({:?})", e),
+    }
+}
+
+/// UT-RS-024b: list authz denied -> Err(PermissionDenied) (403, not the
+/// anti-enumeration 404 used by single-resource reads).
+#[tokio::test]
+async fn test_list_permission_denied() {
+    let svc = make_service_with_authz(
+        |authz| { *authz.deny_all.lock().unwrap() = true; },
+        |_| {},
+        |_| {},
+        |_| {},
+    );
+
+    let result = svc
+        .list(&bearer_ctx(TEST_USER), &ResourceQuery { offset: 0, limit: 10 })
+        .await;
+    match result {
+        Err(ResourceError::PermissionDenied) => {}
+        other => panic!("Expected PermissionDenied, got {:?}", other),
+    }
+}
+
+/// UT-RS-024c: list with an Attest context -> Err(PermissionDenied): Attest
+/// tokens carry no user subject, so the authz check rejects them (the REST
+/// middleware also rejects them before the handler runs).
+#[tokio::test]
+async fn test_list_attest_token_denied() {
+    let svc = make_service(|_| {}, |_| {}, |_| {});
+
+    let result = svc
+        .list(&attest_ctx(), &ResourceQuery { offset: 0, limit: 10 })
+        .await;
+    match result {
+        Err(ResourceError::PermissionDenied) => {}
+        other => panic!("Expected PermissionDenied, got {:?}", other),
+    }
+}
+
+/// UT-RS-024d: list repo failure -> Err(BackendError) propagates.
+#[tokio::test]
+async fn test_list_repo_error() {
+    let svc = make_service(
+        |repo| {
+            *repo.list_by_user_result.lock().unwrap() =
+                Err(ResourceError::BackendError { detail: "db down".to_string() });
+        },
+        |_| {},
+        |_| {},
+    );
+
+    let result = svc
+        .list(&bearer_ctx(TEST_USER), &ResourceQuery { offset: 0, limit: 10 })
+        .await;
+    match result {
+        Err(ResourceError::BackendError { .. }) => {}
+        other => panic!("Expected BackendError, got {:?}", other),
     }
 }
 

@@ -15,9 +15,10 @@
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, http::StatusCode};
 use rbs_api_types::{
     CreateResourceRequest, ErrorBody, ResourceContentResponse,
-    ResourceResponse, UpdateResourceRequest,
+    ResourceListQuery, ResourceListResponse, ResourceResponse, UpdateResourceRequest,
 };
 use rbs_core::auth::{Auth, TokenType};
+use rbs_core::resource::service::ResourceQuery;
 use rbs_core::RbsCore;
 use std::sync::Arc;
 use validator::Validate;
@@ -249,6 +250,44 @@ pub async fn get_resource_info(
     match core.resource().get_info(&ctx, &uri).await {
         Ok(resp) => {
             log::info!("Resource get_info succeeded: uri='{}', user='{}'", uri, ctx.sub());
+            HttpResponse::Ok().json(resp)
+        }
+        Err(e) => error_response(e.to_string(), e.http_status()),
+    }
+}
+
+/// `GET /rbs/v0/resource`: List the caller's resources.
+#[utoipa::path(
+    get,
+    path = "/rbs/v0/resource",
+    operation_id = "listResources",
+    summary = "List the caller's resources",
+    description = "List all resources owned by the calling user (resource details by user dimension), newest first, with pagination. Metadata only — secret content stays on the per-resource GET and `POST .../retrieve` paths (JWE). Bearer token only (Attest tokens carry no user subject); the list is strictly user-scoped and other users' resources are never returned.",
+    tags = ["Resource"],
+    security(("bearerAuth" = [])),
+    params(ResourceListQuery),
+    responses(
+        (status = 200, description = "Resource list", body = ResourceListResponse),
+        (status = 401, description = "Unauthorized", body = ErrorBody),
+        (status = 403, description = "Forbidden", body = ErrorBody),
+        (status = 500, description = "Internal error", body = ErrorBody),
+    )
+)]
+pub async fn list_resources(
+    core: web::Data<Arc<RbsCore>>, req: HttpRequest, query: web::Query<ResourceListQuery>,
+) -> HttpResponse {
+    let ctx = match require_auth(&req) { Ok(c) => c, Err(r) => return r };
+    log::info!("Resource list HTTP request received: user='{}'", ctx.sub());
+    let query = query.into_inner();
+    if let Err(e) = Validate::validate(&query) {
+        log::error!("Resource list validation error: {}", e);
+        return HttpResponse::BadRequest().json(ErrorBody::new(e.to_string()));
+    }
+    let limit = query.limit.unwrap_or(10);
+    let offset = query.offset.unwrap_or(0);
+    match core.resource().list(&ctx, &ResourceQuery { offset, limit }).await {
+        Ok(resp) => {
+            log::info!("Resource list succeeded: user='{}', total_count={}", ctx.sub(), resp.total_count);
             HttpResponse::Ok().json(resp)
         }
         Err(e) => error_response(e.to_string(), e.http_status()),

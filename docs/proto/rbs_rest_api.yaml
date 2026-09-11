@@ -2354,6 +2354,59 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
       security:
       - {}
+  /rbs/v0/resource:
+    get:
+      tags:
+      - Resource
+      summary: List the caller's resources
+      description: List all resources owned by the calling user (resource details by user dimension), newest first, with pagination. Metadata only — secret content stays on the per-resource GET and `POST .../retrieve` paths (JWE). Bearer token only (Attest tokens carry no user subject); the list is strictly user-scoped and other users' resources are never returned.
+      operationId: listResources
+      parameters:
+      - name: limit
+        in: query
+        description: Page size (1..100, default 10).
+        required: false
+        schema:
+          type: integer
+          format: int64
+          maximum: 100
+          minimum: 1
+      - name: offset
+        in: query
+        description: Offset (0..100000, default 0).
+        required: false
+        schema:
+          type: integer
+          format: int64
+          maximum: 100000
+          minimum: 0
+      responses:
+        '200':
+          description: Resource list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceListResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+      security:
+      - bearerAuth: []
   /rbs/v0/resource/policy:
     get:
       tags:
@@ -4601,6 +4654,37 @@ components:
         export_mode:
           type: string
           description: Export mode of the resource; always `jwe`.
+    ResourceListResponse:
+      type: object
+      description: |-
+        Response body for `GET /rbs/v0/resource` — the caller's resources.
+
+        Items carry the same metadata shape as single-resource reads; secret
+        content is never included (content stays on the per-resource
+        GET / `POST .../retrieve` paths behind JWE).
+      required:
+      - items
+      - total_count
+      - limit
+      - offset
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResourceResponse'
+          description: Current page of the caller's resources (`created_at` descending).
+        total_count:
+          type: integer
+          format: int64
+          description: Total matching resources (not only this page).
+        limit:
+          type: integer
+          format: int64
+          description: Effective page size (mirrors the request `limit`).
+        offset:
+          type: integer
+          format: int64
+          description: Effective page offset (mirrors the request `offset`).
     ResourceResponse:
       type: object
       description: Resource metadata returned after create or update.

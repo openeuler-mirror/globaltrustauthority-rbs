@@ -53,6 +53,7 @@ fn is_public_path(path: &str) -> bool {
 /// - GET /rbs/v0/{uri}/info
 ///
 /// Excluded (BearerToken only):
+/// - /rbs/v0/resource (user-scoped resource list; Attest tokens carry no user subject)
 /// - /rbs/v0/resource/policy
 /// - /rbs/v0/resource/policy/{policy_id}
 fn is_resource_get_path(path: &str, method: &actix_web::http::Method) -> bool {
@@ -71,6 +72,13 @@ fn is_resource_get_path(path: &str, method: &actix_web::http::Method) -> bool {
 
     // Empty path is not valid
     if relative.is_empty() {
+        return false;
+    }
+
+    // Exclude the resource collection list route (BearerToken only)
+    // Exact match: /rbs/v0/resource — the user-dimension query is keyed on the
+    // Bearer `sub` claim, which Attest tokens do not carry.
+    if relative == "resource" {
         return false;
     }
 

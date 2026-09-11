@@ -137,23 +137,42 @@ impl ResourceRepository for SeaOrmResourceRepository {
         Ok(result.rows_affected)
     }
 
-    async fn list_by_user(&self, username: &str) -> Result<Vec<ResourceEntity>, ResourceError> {
-        use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
+    async fn list_by_user(
+        &self, username: &str, offset: i64, limit: i64,
+    ) -> Result<(Vec<ResourceEntity>, u64), ResourceError> {
+        use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
+        let total = entity::Entity::find()
+            .filter(entity::Column::Username.eq(username))
+            .count(self.db.as_ref())
+            .await
+            .map_err(|e| {
+                log::error!("resource db list_by_user count error: {e}");
+                ResourceError::BackendError { detail: e.to_string() }
+            })?;
+        // Deterministic order: created_at DESC for the listing, with the
+        // composite primary key as a tie-breaker so same-millisecond rows
+        // cannot shuffle between pages.
         let models = entity::Entity::find()
             .filter(entity::Column::Username.eq(username))
             .order_by_desc(entity::Column::CreatedAt)
+            .order_by_desc(entity::Column::ProviderName)
+            .order_by_desc(entity::Column::RepoName)
+            .order_by_desc(entity::Column::ResType)
+            .order_by_desc(entity::Column::ResName)
+            .limit(limit as u64)
+            .offset(offset as u64)
             .all(self.db.as_ref())
             .await
             .map_err(|e| {
                 log::error!("resource db list_by_user error: {e}");
                 ResourceError::BackendError { detail: e.to_string() }
             })?;
-        Ok(models.into_iter().map(|m| ResourceEntity {
+        Ok((models.into_iter().map(|m| ResourceEntity {
             username: m.username, provider_name: m.provider_name, repo_name: m.repo_name,
             res_type: m.res_type, res_name: m.res_name, res_info: m.res_info,
             created_at: m.created_at, updated_at: m.updated_at,
             content_type: m.content_type, export_mode: m.export_mode, policy_id: m.policy_id,
-        }).collect())
+        }).collect(), total))
     }
 
     async fn find_by_policy_id(&self, policy_id: &str) -> Result<Vec<ResourceEntity>, ResourceError> {
@@ -300,7 +319,9 @@ pub trait ResourceRepository: Send + Sync {
     async fn find_by_uri(&self, uri: &str) -> Result<Option<ResourceEntity>, ResourceError>;
     async fn update(&self, uri: &str, entity: &ResourceEntity, old_update_time: i64) -> Result<u64, ResourceError>;
     async fn delete(&self, uri: &str, username: &str) -> Result<u64, ResourceError>;
-    async fn list_by_user(&self, username: &str) -> Result<Vec<ResourceEntity>, ResourceError>;
+    async fn list_by_user(
+        &self, username: &str, offset: i64, limit: i64,
+    ) -> Result<(Vec<ResourceEntity>, u64), ResourceError>;
     async fn count_by_user(&self, username: &str) -> Result<usize, ResourceError>;
     async fn create_with_user_limit_check(
         &self, uri: &str, entity: &ResourceEntity, max_per_user: usize,

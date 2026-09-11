@@ -31,7 +31,8 @@ use rbs_api_types::policy::{POLICY_IDS_QUERY_MAX_LEN, POLICY_NAME_MAX_LEN};
 use rbs_api_types::{
     CertCreateRequest, CertListQuery, CreatePolicyRequest, CreateResourceRequest, PolicyCreateRequest,
     PolicyListQuery as ResourcePolicyListQuery, RefValueCreateRequest, RefValueListQuery,
-    UpdatePolicyRequest, UpdateResourceRequest, UserCreateRequest, UserListQuery, USERNAME_MAX_LEN,
+    ResourceListQuery, UpdatePolicyRequest, UpdateResourceRequest, UserCreateRequest,
+    UserListQuery, USERNAME_MAX_LEN,
 };
 use rbs_api_types::attestation_mgmt::PolicyListQuery as AttestationPolicyListQuery;
 use utoipa::{IntoParams, ToSchema};
@@ -174,6 +175,20 @@ fn resource_policy_list_query_constraints() {
 }
 
 #[test]
+fn resource_list_query_constraints() {
+    let params = params_of::<ResourceListQuery>();
+    expect_query_optional(param(&params, "limit"));
+    expect_query_optional(param(&params, "offset"));
+
+    let limit = param(&params, "limit").get("schema").expect("limit schema");
+    expect_u64(limit, "minimum", 1);
+    expect_u64(limit, "maximum", 100);
+    let offset = param(&params, "offset").get("schema").expect("offset schema");
+    expect_u64(offset, "minimum", 0);
+    expect_u64(offset, "maximum", 100_000);
+}
+
+#[test]
 fn attestation_list_query_constraints() {
     for (name, params) in [
         ("RefValueListQuery", params_of::<RefValueListQuery>()),
@@ -202,6 +217,9 @@ fn query_structs_keep_provider_independent_query_location() {
         expect_query_optional(&p);
     }
     for p in params_of::<ResourcePolicyListQuery>() {
+        expect_query_optional(&p);
+    }
+    for p in params_of::<ResourceListQuery>() {
         expect_query_optional(&p);
     }
 }

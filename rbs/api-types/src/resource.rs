@@ -158,6 +158,42 @@ pub struct ResourceInfoResponse {
     pub export_mode: String,
 }
 
+// ── List (user-scoped collection) ───────────────────────────────────────────
+
+/// Response body for `GET /rbs/v0/resource` — the caller's resources.
+///
+/// Items carry the same metadata shape as single-resource reads; secret
+/// content is never included (content stays on the per-resource
+/// GET / `POST .../retrieve` paths behind JWE).
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct ResourceListResponse {
+    /// Current page of the caller's resources (`created_at` descending).
+    pub items: Vec<ResourceResponse>,
+    /// Total matching resources (not only this page).
+    pub total_count: i64,
+    /// Effective page size (mirrors the request `limit`).
+    pub limit: i64,
+    /// Effective page offset (mirrors the request `offset`).
+    pub offset: i64,
+}
+
+/// Query parameters for `GET /rbs/v0/resource`.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::IntoParams, validator::Validate)]
+#[serde(rename_all = "snake_case")]
+#[into_params(parameter_in = Query)]
+pub struct ResourceListQuery {
+    /// Page size (1..100, default 10).
+    #[validate(range(min = 1, max = 100, message = "must be between 1 and 100"))]
+    #[param(minimum = 1, maximum = 100)]
+    pub limit: Option<i64>,
+
+    /// Offset (0..100000, default 0).
+    #[validate(range(min = 0, max = 100_000, message = "must be between 0 and 100000"))]
+    #[param(minimum = 0, maximum = 100_000)]
+    pub offset: Option<i64>,
+}
+
 // ── Retrieve ────────────────────────────────────────────────────────────────
 
 /// Same shape as AttestRequest; binds evidence to the POST .../retrieve path.

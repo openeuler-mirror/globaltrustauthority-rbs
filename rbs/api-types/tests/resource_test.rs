@@ -14,7 +14,8 @@
 
 use rbs_api_types::{
     CreateResourceRequest, ResourceContentResponse, ResourceInfoResponse,
-    ResourceResponse, ResourceRetrieveRequest, UpdateResourceRequest,
+    ResourceListQuery, ResourceListResponse, ResourceResponse, ResourceRetrieveRequest,
+    UpdateResourceRequest,
 };
 
 #[test]
@@ -131,6 +132,58 @@ fn test_resource_response() {
     assert_eq!(resp.repository_name, "repo1");
     assert_eq!(resp.export_mode, "jwe");
     assert_eq!(resp.policy_id, "pol-001");
+}
+
+#[test]
+fn test_resource_list_response() {
+    let json = serde_json::json!({
+        "items": [{
+            "uri": "/rbs/v0/vault/repo1/secret/mykey",
+            "provider_name": "vault",
+            "repository_name": "repo1",
+            "resource_type": "secret",
+            "resource_name": "mykey",
+            "created_at": "2024-01-01T00:00:00Z",
+            "updated_at": "2024-01-02T00:00:00Z",
+            "content_type": "json",
+            "export_mode": "jwe",
+            "policy_id": "pol-001"
+        }],
+        "total_count": 1,
+        "limit": 10,
+        "offset": 0
+    });
+    let resp: ResourceListResponse = serde_json::from_value(json).unwrap();
+    assert_eq!(resp.items.len(), 1);
+    assert_eq!(resp.items[0].resource_name, "mykey");
+    assert_eq!(resp.total_count, 1);
+    assert_eq!(resp.limit, 10);
+    assert_eq!(resp.offset, 0);
+}
+
+#[test]
+fn test_resource_list_query_defaults_and_validation() {
+    use validator::Validate;
+
+    // All fields optional — empty query is valid and resolves to defaults at the handler.
+    let q: ResourceListQuery = serde_json::from_value(serde_json::json!({})).unwrap();
+    assert!(q.limit.is_none());
+    assert!(q.offset.is_none());
+    assert!(q.validate().is_ok());
+
+    // Bounds mirror PolicyListQuery: limit 1..=100, offset 0..=100000.
+    let bad_limit: ResourceListQuery =
+        serde_json::from_value(serde_json::json!({"limit": 0})).unwrap();
+    assert!(bad_limit.validate().is_err(), "limit=0 must fail");
+    let bad_limit: ResourceListQuery =
+        serde_json::from_value(serde_json::json!({"limit": 101})).unwrap();
+    assert!(bad_limit.validate().is_err(), "limit=101 must fail");
+    let bad_offset: ResourceListQuery =
+        serde_json::from_value(serde_json::json!({"offset": -1})).unwrap();
+    assert!(bad_offset.validate().is_err(), "offset=-1 must fail");
+    let ok: ResourceListQuery =
+        serde_json::from_value(serde_json::json!({"limit": 100, "offset": 100000})).unwrap();
+    assert!(ok.validate().is_ok(), "limit=100/offset=100000 must pass");
 }
 
 // ── T6: tagged enum serde round-trip & defaults ──

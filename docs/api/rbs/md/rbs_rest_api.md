@@ -59,6 +59,7 @@ License: [Mulan Permissive Software License, Version 2](http://license.coscl.org
 | GET | [`/rbs/v0/attestation/{as_provider}/ref_value/{id}`](#get-rbsv0attestationas_providerref_valueid) | Get a single reference value baseline |
 | DELETE | [`/rbs/v0/attestation/{as_provider}/ref_value/{id}`](#delete-rbsv0attestationas_providerref_valueid) | Delete a single reference value baseline |
 | GET | [`/rbs/v0/challenge`](#get-rbsv0challenge) | Obtain an attestation challenge (nonce) |
+| GET | [`/rbs/v0/resource`](#get-rbsv0resource) | List the caller's resources |
 | GET | [`/rbs/v0/resource/policy`](#get-rbsv0resourcepolicy) | List policies |
 | POST | [`/rbs/v0/resource/policy`](#post-rbsv0resourcepolicy) | Create a policy |
 | DELETE | [`/rbs/v0/resource/policy`](#delete-rbsv0resourcepolicy) | Batch delete policies |
@@ -642,6 +643,57 @@ Security: **bearerAuth**
 ## Resource
 
 Resource CRUD — `GET/POST/PUT/DELETE /rbs/v0/{provider}/{repo}/{type}/{name}`. Supports AttestToken and BearerToken.
+
+### GET /rbs/v0/resource
+
+**List the caller's resources**
+
+List all resources owned by the calling user (resource details by user dimension), newest first, with pagination. Metadata only — secret content stays on the per-resource GET and `POST .../retrieve` paths (JWE). Bearer token only (Attest tokens carry no user subject); the list is strictly user-scoped and other users' resources are never returned.
+
+Operation ID: `listResources`
+
+Security: **bearerAuth**
+
+#### Parameters
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `limit` | query | integer(int64) | no | Page size (1..100, default 10). |
+| `offset` | query | integer(int64) | no | Offset (0..100000, default 0). |
+
+#### Responses
+
+| Status | Description | Content |
+|---|---|---|
+| 200 | Resource list | [ResourceListResponse](#resourcelistresponse) |
+| 401 | Unauthorized | [ErrorBody](#errorbody) |
+| 403 | Forbidden | [ErrorBody](#errorbody) |
+| 500 | Internal error | [ErrorBody](#errorbody) |
+
+Example response (200):
+
+```json
+{
+  "items": [
+    {
+      "uri": "string",
+      "provider_name": "string",
+      "repository_name": "string",
+      "resource_type": "string",
+      "resource_name": "string",
+      "created_at": "string",
+      "updated_at": "string",
+      "content_type": "string",
+      "export_mode": "string",
+      "policy_id": "string",
+      "additional_info": "string"
+    }
+  ],
+  "total_count": 0,
+  "limit": 0,
+  "offset": 0
+}
+```
 
 ### GET /rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}
 
@@ -3498,6 +3550,17 @@ Resource metadata returned by GET .../info (no secret material).
 | `updated_at` | string | yes | Last update time (RFC 3339). |
 | `content_type` | string | no | Content type label (`jwt`, `json`, `text`, `binary`, `jwk`, `jwe`), if set. |
 | `export_mode` | string | yes | Export mode of the resource; always `jwe`. |
+
+### ResourceListResponse
+
+Response body for `GET /rbs/v0/resource` — the caller's resources.
+
+| Property | Type | Required | Description |
+|---|---|---|---|
+| `items` | array of [ResourceResponse](#resourceresponse) | yes | Current page of the caller's resources (`created_at` descending). |
+| `total_count` | integer(int64) | yes | Total matching resources (not only this page). |
+| `limit` | integer(int64) | yes | Effective page size (mirrors the request `limit`). |
+| `offset` | integer(int64) | yes | Effective page offset (mirrors the request `offset`). |
 
 ### ResourceResponse
 

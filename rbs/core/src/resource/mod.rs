@@ -23,8 +23,9 @@ pub use config::ResourceConfig;
 pub use error::ResourceError;
 pub use repository::{ResourceEntity, ResourceRepository, SeaOrmResourceRepository};
 pub use rbs_api_types::{
-    CreateResourceRequest, ResourceContentResponse, ResourceInfoResponse, ResourceResponse,
-    UpdateResourceRequest, ATTEST_TEE_PUBKEY_KEY, BEARER_ENC_PUBKEY_KEY,
+    CreateResourceRequest, ResourceContentResponse, ResourceInfoResponse, ResourceListQuery,
+    ResourceListResponse, ResourceResponse, UpdateResourceRequest, ATTEST_TEE_PUBKEY_KEY,
+    BEARER_ENC_PUBKEY_KEY,
 };
 pub use service::ResourceService;
 pub use validator::{ParsedUri, ResourceValidator};

@@ -159,6 +159,54 @@ async fn test_res_get_004_missing_pubkey_jwe_failed() {
 }
 
 // ===========================================================================
+// RUST_GTA_RBS_TP_RES_List_001 — 查询当前用户所有资源
+// ===========================================================================
+
+/// test_point_id: RUST_GTA_RBS_TP_RES_List_001
+/// List returns the caller's resources as metadata items with pagination echo;
+/// the item URI is rebuilt from the entity's addressing columns.
+#[tokio::test]
+async fn test_res_list_001_returns_user_resources() {
+    let repo = {
+        let r = MockResourceRepository::new();
+        *r.list_result.lock().unwrap() = Ok((vec![make_entity()], 1));
+        r
+    };
+    let svc = make_service(repo, MockPolicyClient::new(), MockAuthzChecker::new(), MockResourceBackend::new());
+    let ctx = bearer_ctx(TEST_USER);
+
+    let result = svc.list(&ctx, &rbs_core::resource::service::ResourceQuery { offset: 0, limit: 10 }).await;
+    assert!(result.is_ok(), "list should succeed, got {:?}", result.as_ref().err());
+    let resp = result.unwrap();
+    assert_eq!(resp.total_count, 1);
+    assert_eq!(resp.limit, 10);
+    assert_eq!(resp.offset, 0);
+    assert_eq!(resp.items.len(), 1);
+    assert_eq!(resp.items[0].uri, TEST_URI);
+    assert_eq!(resp.items[0].policy_id, "pol-001");
+}
+
+// ===========================================================================
+// RUST_GTA_RBS_TP_RES_List_002 — 查询当前用户所有资源-鉴权拒绝
+// ===========================================================================
+
+/// test_point_id: RUST_GTA_RBS_TP_RES_List_002
+/// An authz denial on the list action maps to PermissionDenied (403) — unlike
+/// single-resource reads, the caller's own inventory does not use the
+/// anti-enumeration 404 collapse.
+#[tokio::test]
+async fn test_res_list_002_authz_denied_returns_403() {
+    let repo = MockResourceRepository::new();
+    let authz = MockAuthzChecker::denying();
+    let svc = make_service(repo, MockPolicyClient::new(), authz, MockResourceBackend::new());
+    let ctx = bearer_ctx(TEST_USER);
+
+    let result = svc.list(&ctx, &rbs_core::resource::service::ResourceQuery { offset: 0, limit: 10 }).await;
+    assert!(matches!(result, Err(ResourceError::PermissionDenied)),
+        "authz denial should map to PermissionDenied, got {:?}", result.as_ref().err());
+}
+
+// ===========================================================================
 // RUST_GTA_RBS_TP_RES_Update_001 — 更新已有资源
 // ===========================================================================
 
