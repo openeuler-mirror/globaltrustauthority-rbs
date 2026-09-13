@@ -24,7 +24,7 @@ use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryF
 use serde_json::Value;
 
 use crate::auth::{Action, AuthContext, AuthzError, AuthzFacade, RequiredRole};
-use crate::infra::rdb::get_connection_from_pool;
+use crate::infra::rdb::{get_connection_from_pool, is_unique_violation};
 
 use super::entity::{
     ActiveModel as UserActiveModel, Column as UserColumn, DbAuthType, DbRole, Entity as UserEntity, Model as UserModel,
@@ -57,6 +57,12 @@ impl AdminManager {
     }
 
     /// Bootstrap: if no users exist, create the Administrator from config.
+    ///
+    /// The "count then insert" sequence is intentionally not wrapped in a
+    /// transaction: the unique constraint on `username` is the authoritative
+    /// guard. If another process bootstraps concurrently, the losing insert
+    /// surfaces as `ResourceConflict` (see [`insert_bootstrap_admin`]), which
+    /// callers treat as "already bootstrapped" rather than a startup failure.
     pub async fn bootstrap_admin(&self) -> Result<()> {
         let db = get_connection_from_pool().map_err(|e| {
             log::error!("Failed to get DB connection during admin bootstrap: {}", e);
@@ -76,26 +82,9 @@ impl AdminManager {
 
         let (auth_value, auth_alg) = self.read_admin_key()?;
         let user_id = generate_uuid();
-        let now = now_epoch_millis();
+        let model = new_admin_model(user_id.clone(), auth_value, auth_alg);
 
-        let model = UserActiveModel {
-            user_id: Set(user_id.clone()),
-            username: Set(ADMIN_USERNAME.to_string()),
-            role: Set(DbRole::Admin),
-            auth_type: Set(DbAuthType::Jwt),
-            auth_value: Set(auth_value),
-            auth_alg: Set(auth_alg),
-            status: Set(UserStatus::Enabled),
-            created_at: Set(now),
-            updated_at: Set(now),
-            ..Default::default()
-        };
-
-        model.insert(&*db).await.map_err(|e| {
-            log::error!("Failed to insert admin user during bootstrap: {}", e);
-            RbsError::InternalUnexpected { context: format!("Failed to create admin user: {}", e) }
-        })?;
-
+        insert_bootstrap_admin(&*db, model).await?;
         log::info!("Admin user '{}' (id={}) bootstrapped successfully", ADMIN_USERNAME, user_id);
         Ok(())
     }
@@ -862,6 +851,48 @@ fn internal_err(e: impl std::fmt::Display) -> RbsError {
     RbsError::InternalUnexpected { context: e.to_string() }
 }
 
+/// Build the `Administrator` row from a freshly generated id and the
+/// configured key material.
+fn new_admin_model(user_id: String, auth_value: String, auth_alg: String) -> UserActiveModel {
+    let now = now_epoch_millis();
+    UserActiveModel {
+        user_id: Set(user_id),
+        username: Set(ADMIN_USERNAME.to_string()),
+        role: Set(DbRole::Admin),
+        auth_type: Set(DbAuthType::Jwt),
+        auth_value: Set(auth_value),
+        auth_alg: Set(auth_alg),
+        status: Set(UserStatus::Enabled),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+}
+
+/// Insert the bootstrap admin row, mapping a unique-constraint violation on
+/// `username` to `ResourceConflict`.
+///
+/// When two processes pass the "no users exist" check concurrently, exactly
+/// one insert wins; the loser sees the primary-key collision here. Returning
+/// `ResourceConflict` (instead of `InternalUnexpected`) lets callers such as
+/// the `rbs` binary log "already bootstrapped" and continue startup.
+///
+/// Extracted from `bootstrap_admin` so the error mapping can be tested
+/// against an in-memory SQLite database without the global connection pool.
+async fn insert_bootstrap_admin(db: &sea_orm::DatabaseConnection, model: UserActiveModel) -> Result<()> {
+    model.insert(db).await.map(|_| ()).map_err(|e| {
+        if is_unique_violation(&e) {
+            log::info!(
+                "Admin bootstrap: '{}' was created concurrently by another process, treating as already bootstrapped",
+                ADMIN_USERNAME
+            );
+            return RbsError::ResourceConflict;
+        }
+        log::error!("Failed to insert admin user during bootstrap: {}", e);
+        RbsError::InternalUnexpected { context: format!("Failed to create admin user: {}", e) }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1341,5 +1372,61 @@ mod tests {
             disabled_err, nonexistent_err,
             "disabled-user and nonexistent-user errors must be indistinguishable"
         );
+    }
+
+    // ── Bootstrap admin insert tests (SQLite in-memory) ──
+
+    #[tokio::test]
+    async fn insert_bootstrap_admin_into_empty_db_succeeds() {
+        let db = sea_orm::Database::connect("sqlite::memory:").await.expect("connect");
+        crate::rdb::execute_sql_file_path(&db, "../rdb_sql/sqlite_rbs.sql").await.expect("migrate");
+
+        let model = new_admin_model(
+            generate_uuid(),
+            generate_test_public_key(),
+            "RS256".to_string(),
+        );
+        insert_bootstrap_admin(&db, model).await.expect("insert bootstrap admin");
+
+        let stored = UserEntity::find().one(&db).await.expect("query").expect("admin row");
+        assert_eq!(stored.username, "Administrator");
+        assert!(matches!(stored.role, DbRole::Admin));
+        assert!(matches!(stored.status, UserStatus::Enabled));
+    }
+
+    /// The TOCTOU guard: after the "no users exist" check passes, a concurrent
+    /// bootstrap that wins the race must turn the loser's insert into
+    /// `ResourceConflict` — the variant the `rbs` binary handles as
+    /// "already bootstrapped" — not into `InternalUnexpected` (startup failure).
+    #[tokio::test]
+    async fn insert_bootstrap_admin_duplicate_maps_to_resource_conflict() {
+        let db = sea_orm::Database::connect("sqlite::memory:").await.expect("connect");
+        crate::rdb::execute_sql_file_path(&db, "../rdb_sql/sqlite_rbs.sql").await.expect("migrate");
+
+        // Winner: first insert after the shared count==0 observation.
+        let winner = new_admin_model(
+            generate_uuid(),
+            generate_test_public_key(),
+            "RS256".to_string(),
+        );
+        insert_bootstrap_admin(&db, winner).await.expect("winner insert succeeds");
+
+        // Loser: a concurrent process that observed the same empty user table
+        // now collides on the `username` primary key.
+        let loser = new_admin_model(
+            generate_uuid(),
+            generate_test_public_key(),
+            "RS256".to_string(),
+        );
+        let err = insert_bootstrap_admin(&db, loser).await.expect_err("duplicate insert must fail");
+        assert!(
+            matches!(err, RbsError::ResourceConflict),
+            "expected ResourceConflict for concurrent bootstrap, got {:?}",
+            err
+        );
+
+        // Exactly the winner's row remains.
+        let count = UserEntity::find().count(&db).await.expect("count");
+        assert_eq!(count, 1);
     }
 }

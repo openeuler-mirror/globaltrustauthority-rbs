@@ -194,7 +194,7 @@ pub fn run(cli: &CertCli, global: &GlobalOptions) -> Result<Box<dyn Formatter>, 
         .token
         .as_deref()
         .ok_or_else(|| CliError::InvalidArgument("missing required bearer token".to_string()))?;
-    let service = CertClient::new(AdminClient::new(&global.base_url, token, &global.cert)?, None);
+    let service = CertClient::new(AdminClient::new(&global.base_url, token, &global.cert)?, None)?;
     runtime.block_on(execute_cert_command(cli, &service))
 }
 

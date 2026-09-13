@@ -39,7 +39,11 @@ cd %{_project_root}
 install -D -m 755 target/release/rbs %{buildroot}%{_bindir}/rbs
 
 # Install configuration files
-install -D -m 644 rbs/conf/rbs.yaml %{buildroot}%{_sysconfdir}/rbs/rbs.yaml
+# 640 (not 644): rbs.yaml carries DB URLs, GTA credentials, and key paths —
+# it must not be world-readable. The service runs as root (see rbs.service),
+# which reads it as the owner; admins who switch to a non-root service user
+# should chgrp the file to that user's group (640 already permits group read).
+install -D -m 640 rbs/conf/rbs.yaml %{buildroot}%{_sysconfdir}/rbs/rbs.yaml
 # SQLite bootstrap SQL (must match storage.sql_file_path after sed below)
 install -D -m 644 rbs/rdb_sql/sqlite_rbs.sql %{buildroot}%{_datadir}/rbs/sqlite_rbs.sql
 # Packaged defaults: use /var/lib/rbs for DB and /usr/share for schema (rbs user cannot write /root).

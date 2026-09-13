@@ -29,7 +29,7 @@ fn unusable_admin_client() -> AdminClient {
 }
 
 fn ref_value_client(server: &MockServer) -> RefValueClient {
-    RefValueClient::new(admin_client(&server.uri()), None)
+    RefValueClient::new(admin_client(&server.uri()), None).expect("ref value client should be created")
 }
 
 #[tokio::test]
@@ -157,7 +157,7 @@ async fn ref_value_client_uses_collection_endpoint_for_list_create_update_and_de
 
 #[tokio::test]
 async fn ref_value_operations_report_url_build_failure() {
-    let client = RefValueClient::new(unusable_admin_client(), None);
+    let client = RefValueClient::new(unusable_admin_client(), None).expect("default as_provider should be valid");
     let request = RefValueCreateRequest {
         name: "rv_name_1".to_string(),
         description: None,
@@ -168,4 +168,24 @@ async fn ref_value_operations_report_url_build_failure() {
 
     let err = client.create_ref_value(&request).await.expect_err("unusable ref value URL should fail");
     assert_eq!(err.to_string(), "base URL cannot be used to build ref value path");
+}
+
+/// The provider name is a URL path segment: values that would change path
+/// semantics are rejected at construction time, before any request is built.
+#[test]
+fn ref_value_constructor_rejects_ambiguous_as_provider() {
+    for provider in ["../admin", "a/b", "..", ".", "ops?debug", "ops#frag", "%2e%2e", " "] {
+        assert!(
+            RefValueClient::new(unusable_admin_client(), Some(provider.to_string())).is_err(),
+            "{provider:?} should be rejected as as_provider"
+        );
+    }
+}
+
+#[test]
+fn ref_value_constructor_accepts_valid_as_provider_and_default() {
+    RefValueClient::new(unusable_admin_client(), None).expect("default provider should be valid");
+    RefValueClient::new(unusable_admin_client(), Some("gta".to_string())).expect("named provider should be valid");
+    RefValueClient::new(unusable_admin_client(), Some("custom-provider_1".to_string()))
+        .expect("custom provider should be valid");
 }

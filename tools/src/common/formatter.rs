@@ -9,11 +9,10 @@
  * PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
-use std::fs;
-
 use chrono::Timelike;
 use serde::Serialize;
 
+use crate::common::output::write_private_file;
 use crate::config::{GlobalOptions, OutputFormat};
 use crate::error::CliError;
 
@@ -72,7 +71,7 @@ pub fn emit_output(output: &dyn Formatter, global: &GlobalOptions) -> Result<(),
     };
 
     if let Some(output_file) = &global.output_file {
-        fs::write(output_file, &rendered)?;
+        write_private_file(output_file, &rendered)?;
         if global.quiet {
             return Ok(());
         }

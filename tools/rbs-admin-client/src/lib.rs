@@ -114,13 +114,40 @@ where
             url = %url_text,
             status = %status,
             body_len = body.len(),
-            error_body = %flatten_error_body(&body),
+            error_body = %truncate_for_log(&flatten_error_body(&body)),
             "admin request returned error"
         );
         Err(http_error(status, &body))
     }
 }
 
+/// Cap for error-body excerpts written to logs.
+///
+/// Upstream error bodies are untrusted content (they may echo internal
+/// paths, endpoints, or other operators' data), so only a bounded excerpt
+/// is ever written to the log; the full body is never persisted.
+const LOG_BODY_MAX_BYTES: usize = 1024;
+
+/// Truncate an error-body excerpt for logging.
+///
+/// Same policy as the service-side GTA client (`rbs/core/src/attestation/
+/// gta/client.rs`): truncation is char-boundary safe and annotated with the
+/// original length so operators can tell a capped excerpt from a short body.
+fn truncate_for_log(body: &str) -> std::borrow::Cow<'_, str> {
+    if body.len() <= LOG_BODY_MAX_BYTES {
+        return std::borrow::Cow::Borrowed(body);
+    }
+    let mut end = LOG_BODY_MAX_BYTES;
+    while end > 0 && !body.is_char_boundary(end) {
+        end -= 1;
+    }
+    std::borrow::Cow::Owned(format!("{}...[truncated; {} bytes total]", &body[..end], body.len()))
+}
+
+/// Extract the human-readable message from an error body for logging:
+/// JSON bodies contribute only their `message` / `error` / `detail` field;
+/// non-JSON bodies are whitespace-normalized. The result is still capped by
+/// [`truncate_for_log`] before it reaches a log line.
 fn flatten_error_body(body: &str) -> String {
     let message = serde_json::from_str::<serde_json::Value>(body)
         .ok()
@@ -183,5 +210,57 @@ mod tests {
         for value in ["../admin", "ops/user", "ops?debug=true", "ops#fragment", "ops\\user", "%2e%2e"] {
             assert!(validate_path_segment(value, "username").is_err(), "{value} should fail");
         }
+    }
+
+    // ── Error-body log truncation (parity with the service-side GTA client) ──
+
+    /// Bodies within the cap are logged verbatim (no marker appended).
+    #[test]
+    fn truncate_for_log_keeps_short_bodies_verbatim() {
+        assert_eq!(truncate_for_log("short"), "short");
+        let exactly_cap = "y".repeat(LOG_BODY_MAX_BYTES);
+        assert_eq!(truncate_for_log(&exactly_cap).as_ref(), exactly_cap);
+    }
+
+    /// Bodies beyond the cap are cut at LOG_BODY_MAX_BYTES and annotated.
+    #[test]
+    fn truncate_for_log_caps_long_bodies_with_marker() {
+        let body = "x".repeat(5 * LOG_BODY_MAX_BYTES);
+        let truncated = truncate_for_log(&body);
+        assert!(truncated.starts_with(&"x".repeat(LOG_BODY_MAX_BYTES)));
+        assert!(truncated.contains(&format!("[truncated; {} bytes total]", body.len())));
+        assert!(truncated.len() < LOG_BODY_MAX_BYTES + 128);
+    }
+
+    /// Truncation lands on a UTF-8 char boundary even when the cap splits a
+    /// multi-byte character (slicing at a non-boundary would panic).
+    #[test]
+    fn truncate_for_log_is_char_boundary_safe() {
+        // '€' is 3 bytes; with a 1024-byte cap the cut lands mid-character.
+        let body = "€".repeat(2000);
+        let truncated = truncate_for_log(&body);
+        assert!(truncated.starts_with('€'));
+        assert!(truncated.ends_with(']'));
+    }
+
+    /// The warn-log view of an error body is flattened first (JSON message
+    /// field only, whitespace normalized) and then capped — a huge non-JSON
+    /// upstream body can never be persisted to the log in full.
+    #[test]
+    fn error_body_log_view_is_flattened_then_capped() {
+        // Non-JSON body: flatten keeps it verbatim, truncation must cap it.
+        let huge = "S".repeat(4 * LOG_BODY_MAX_BYTES);
+        let flattened = flatten_error_body(&huge);
+        let view = truncate_for_log(&flattened);
+        assert!(view.contains(&format!("[truncated; {} bytes total]", huge.len())));
+        assert!(view.len() < LOG_BODY_MAX_BYTES + 128);
+
+        // JSON body: only the message field is logged, then capped.
+        let msg = "m".repeat(3 * LOG_BODY_MAX_BYTES);
+        let json_body = format!(r#"{{"message":"{msg}","internal_detail":"{msg}"}}"#);
+        let flattened = flatten_error_body(&json_body);
+        let view = truncate_for_log(&flattened);
+        assert!(view.contains(&format!("[truncated; {} bytes total]", msg.len())));
+        assert!(view.len() < LOG_BODY_MAX_BYTES + 128);
     }
 }

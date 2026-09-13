@@ -139,9 +139,13 @@ pub async fn auth_middleware(
         Some(header) if header.starts_with("Attest ") => {
             if !attest_allowed {
                 log::warn!("Authentication failed for path '{}': AttestToken not allowed for this endpoint", path);
+                // The response message stays unified with all other
+                // authentication failures so the HTTP response does not
+                // disclose this endpoint's token-type policy; the specific
+                // reason lives in the server-side log line above only.
                 let res = req.into_response(
                     actix_web::HttpResponse::Unauthorized().json(ErrorBody {
-                        error: "AttestToken not allowed for this endpoint".to_string(),
+                        error: "Authentication failed".to_string(),
                     }),
                 );
                 return Ok(res.map_body(|_, b| BoxBody::new(b)));

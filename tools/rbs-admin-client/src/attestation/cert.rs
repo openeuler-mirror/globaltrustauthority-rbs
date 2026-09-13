@@ -43,9 +43,15 @@ pub struct CertClient {
 }
 
 impl CertClient {
-    pub fn new(client: AdminClient, as_provider: Option<String>) -> Self {
+    /// Create a cert client scoped to an attestation provider.
+    ///
+    /// The provider name becomes a URL path segment
+    /// (`/rbs/v0/attestation/{as_provider}/cert`), so it is validated as a
+    /// single path segment — the same rule applied to item IDs.
+    pub fn new(client: AdminClient, as_provider: Option<String>) -> Result<Self, RbsAdminClientError> {
         let as_provider = as_provider.unwrap_or_else(|| DEFAULT_AS_PROVIDER.to_string());
-        Self { client, as_provider }
+        validate_path_segment(&as_provider, "as_provider")?;
+        Ok(Self { client, as_provider })
     }
 
     fn box_url(&self) -> Result<Url, RbsAdminClientError> {

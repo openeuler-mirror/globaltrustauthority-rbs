@@ -41,7 +41,8 @@
 //! # Memory ownership
 //!
 //! - Functions with a `char **` out-parameter allocate a nul-terminated string;
-//!   free exactly once with `rbc_string_free`.
+//!   free exactly once with `rbc_string_free`. The string bytes (including
+//!   the NUL terminator) are zeroized before the allocation is released.
 //! - Functions with an `RbcBuffer **` out-parameter create an opaque byte
 //!   buffer handle. Borrow its bytes with `rbc_buffer_data` and its length with
 //!   `rbc_buffer_len`; release exactly once with `rbc_buffer_free`.
@@ -58,8 +59,10 @@ pub mod resource;
 pub mod session;
 pub(crate) mod utils;
 
-use std::ffi::{c_char, CString};
+use std::ffi::{c_char, CString, CStr};
 use std::ptr;
+
+use zeroize::Zeroize;
 
 pub use error::{rbc_last_error_clear, rbc_last_error_message, RbcErrorCode};
 pub(crate) use utils::{cstr_to_str, opt_cstr_to_str, require_non_null};
@@ -75,21 +78,38 @@ use crate::sdk::{Client, Session};
 // a Box<ConcreteType> cast to *mut rbc_*_t.
 
 /// cbindgen:opaque
+///
+/// Opaque client handle. Single-threaded: the handle may only be used (and
+/// released) from the thread that created it; passing it to another thread,
+/// or using it concurrently from multiple threads, is undefined behavior.
 pub struct RbcClient {
     _priv: std::marker::PhantomData<()>,
 }
 
 /// cbindgen:opaque
+///
+/// Opaque session handle. Single-threaded: the handle may only be used (and
+/// released) from the thread that created it; passing it to another thread,
+/// or using it concurrently from multiple threads, is undefined behavior.
 pub struct RbcSession {
     _priv: std::marker::PhantomData<()>,
 }
 
 /// cbindgen:opaque
+///
+/// Opaque resource handle. Single-threaded: the handle may only be used (and
+/// released) from the thread that created it; passing it to another thread,
+/// or using it concurrently from multiple threads, is undefined behavior.
 pub struct RbcResource {
     _priv: std::marker::PhantomData<()>,
 }
 
 /// cbindgen:opaque
+///
+/// Opaque byte-buffer handle. Single-threaded: the handle may only be used
+/// (and released) from the thread that obtained it; passing it to another
+/// thread, or using it concurrently from multiple threads, is undefined
+/// behavior.
 pub struct RbcBuffer {
     _priv: std::marker::PhantomData<()>,
 }
@@ -156,16 +176,40 @@ unsafe fn take_handle<T>(slot: *mut *mut T) -> *mut T {
 }
 
 /// Free a nul-terminated string returned by an RBC function.
+///
+/// The string bytes (including the NUL terminator) are zeroized in place
+/// before the allocation is released, so sensitive material carried in RBC
+/// strings (attest tokens, evidence JSON, nonces) does not remain in freed
+/// heap memory.
 #[export_name = "RbcStringFree"]
 pub extern "C" fn rbc_string_free(s: *mut c_char) {
     if !s.is_null() {
-        unsafe { drop(CString::from_raw(s)) };
+        unsafe {
+            zero_c_string(s);
+            drop(CString::from_raw(s));
+        }
     }
+}
+
+/// Zero a NUL-terminated string in place (contents plus terminator) and
+/// return the number of bytes cleared.
+///
+/// # Safety
+///
+/// `s` must point to a writable, NUL-terminated allocation that remains
+/// valid for the duration of the call.
+unsafe fn zero_c_string(s: *mut c_char) -> usize {
+    let len = CStr::from_ptr(s).to_bytes_with_nul().len();
+    std::slice::from_raw_parts_mut(s.cast::<u8>(), len).zeroize();
+    len
 }
 
 /// Borrow the bytes in an opaque buffer. Returns NULL for a NULL or empty
 /// buffer. The pointer is valid until `RbcBufferFree` is called for
 /// `buffer`.
+///
+/// Single-threaded handle: `buffer` must be used only from the thread that
+/// obtained it.
 #[export_name = "RbcBufferData"]
 pub extern "C" fn rbc_buffer_data(buffer: *const RbcBuffer) -> *const u8 {
     if buffer.is_null() {
@@ -180,6 +224,9 @@ pub extern "C" fn rbc_buffer_data(buffer: *const RbcBuffer) -> *const u8 {
 }
 
 /// Return the number of bytes in an opaque buffer.
+///
+/// Single-threaded handle: `buffer` must be used only from the thread that
+/// obtained it.
 #[export_name = "RbcBufferLen"]
 pub extern "C" fn rbc_buffer_len(buffer: *const RbcBuffer) -> usize {
     if buffer.is_null() {
@@ -190,7 +237,11 @@ pub extern "C" fn rbc_buffer_len(buffer: *const RbcBuffer) -> usize {
 }
 
 /// Free an opaque byte buffer and set the caller's handle variable to NULL.
-/// Both `buffer` and `*buffer` may be NULL.
+/// Both `buffer` and `*buffer` may be NULL. The buffer contents are zeroized
+/// before the allocation is released.
+///
+/// Single-threaded handle: `buffer` must be released from the thread that
+/// obtained it.
 #[export_name = "RbcBufferFree"]
 pub extern "C" fn rbc_buffer_free(buffer: *mut *mut RbcBuffer) {
     let buffer = unsafe { take_handle(buffer) };
@@ -213,6 +264,21 @@ mod tests {
     fn string_free_allocated_string_does_not_panic() {
         let raw = std::ffi::CString::new("test-string-to-free").unwrap().into_raw();
         rbc_string_free(raw);
+    }
+
+    #[test]
+    fn zero_c_string_clears_contents_and_terminator_in_place() {
+        let secret = "secret-attest-token";
+        let raw = std::ffi::CString::new(secret).unwrap().into_raw();
+
+        let len = unsafe { zero_c_string(raw) };
+        assert_eq!(len, secret.len() + 1, "contents plus NUL must be zeroed");
+
+        // Read back before releasing — the buffer is still owned at this point.
+        let bytes = unsafe { std::slice::from_raw_parts(raw.cast::<u8>(), len) };
+        assert!(bytes.iter().all(|&b| b == 0), "all bytes must be zeroed in place");
+
+        unsafe { drop(std::ffi::CString::from_raw(raw)) };
     }
 
     #[test]

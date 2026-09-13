@@ -167,7 +167,7 @@ pub fn run(cli: &RefValueCli, global: &GlobalOptions) -> Result<Box<dyn Formatte
         .token
         .as_deref()
         .ok_or_else(|| CliError::InvalidArgument("missing required bearer token".to_string()))?;
-    let service = RefValueClient::new(AdminClient::new(&global.base_url, token, &global.cert)?, None);
+    let service = RefValueClient::new(AdminClient::new(&global.base_url, token, &global.cert)?, None)?;
     runtime.block_on(execute_ref_value_command(cli, &service))
 }
 

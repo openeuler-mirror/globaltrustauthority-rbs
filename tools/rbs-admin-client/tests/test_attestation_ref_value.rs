@@ -23,7 +23,7 @@ fn unusable_admin_client() -> AdminClient {
 
 #[tokio::test]
 async fn ref_value_operations_report_url_build_failure() {
-    let client = RefValueClient::new(unusable_admin_client(), None);
+    let client = RefValueClient::new(unusable_admin_client(), None).expect("default as_provider should be valid");
     let create = RefValueCreateRequest {
         name: "rv-1".to_string(),
         description: Some("demo".to_string()),

@@ -23,6 +23,9 @@ use crate::sdk::{Client, Config};
 // ─── Client lifecycle ───────────────────────────────────────────────────
 
 /// Create a client from a YAML config file on disk.
+///
+/// The returned handle is single-threaded: use it only from the thread that
+/// created it. See the `RbcClient` type documentation for the full contract.
 #[export_name = "RbcClientNewFromFile"]
 pub extern "C" fn rbc_client_new_from_file(
     config_path: *const c_char,
@@ -43,6 +46,9 @@ pub extern "C" fn rbc_client_new_from_file(
 }
 
 /// Create a client from an in-memory YAML string.
+///
+/// The returned handle is single-threaded: use it only from the thread that
+/// created it. See the `RbcClient` type documentation for the full contract.
 #[export_name = "RbcClientNewFromYaml"]
 pub extern "C" fn rbc_client_new_from_yaml(yaml: *const c_char, out_client: *mut *mut RbcClient) -> RbcErrorCode {
     require_non_null!(out_client);
@@ -81,6 +87,9 @@ pub extern "C" fn rbc_client_free(client: *mut *mut RbcClient) {
 /// Fetch an authentication challenge. On success `*out_nonce` is a newly
 /// allocated nul-terminated string owned by the caller; free with
 /// `RbcStringFree`.
+///
+/// Single-threaded handle: `client` must be used only from the thread that
+/// created it.
 #[export_name = "RbcGetAuthChallenge"]
 pub extern "C" fn rbc_get_auth_challenge(client: *mut RbcClient, out_nonce: *mut *mut c_char) -> RbcErrorCode {
     require_non_null!(client, out_nonce);

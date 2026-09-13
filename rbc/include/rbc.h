@@ -41,12 +41,37 @@ typedef enum {
   RBC_ERROR_CODE_INTERNAL = 17,
 } RbcErrorCode;
 
+/**
+ *
+ * Opaque byte-buffer handle. Single-threaded: the handle may only be used
+ * (and released) from the thread that obtained it; passing it to another
+ * thread, or using it concurrently from multiple threads, is undefined
+ * behavior.
+ */
 typedef struct RbcBuffer RbcBuffer;
 
+/**
+ *
+ * Opaque client handle. Single-threaded: the handle may only be used (and
+ * released) from the thread that created it; passing it to another thread,
+ * or using it concurrently from multiple threads, is undefined behavior.
+ */
 typedef struct RbcClient RbcClient;
 
+/**
+ *
+ * Opaque resource handle. Single-threaded: the handle may only be used (and
+ * released) from the thread that created it; passing it to another thread,
+ * or using it concurrently from multiple threads, is undefined behavior.
+ */
 typedef struct RbcResource RbcResource;
 
+/**
+ *
+ * Opaque session handle. Single-threaded: the handle may only be used (and
+ * released) from the thread that created it; passing it to another thread,
+ * or using it concurrently from multiple threads, is undefined behavior.
+ */
 typedef struct RbcSession RbcSession;
 
 #ifdef __cplusplus
@@ -55,6 +80,11 @@ extern "C" {
 
 /**
  * Free a nul-terminated string returned by an RBC function.
+ *
+ * The string bytes (including the NUL terminator) are zeroized in place
+ * before the allocation is released, so sensitive material carried in RBC
+ * strings (attest tokens, evidence JSON, nonces) does not remain in freed
+ * heap memory.
  */
 void RbcStringFree(char *s);
 
@@ -62,27 +92,43 @@ void RbcStringFree(char *s);
  * Borrow the bytes in an opaque buffer. Returns NULL for a NULL or empty
  * buffer. The pointer is valid until `RbcBufferFree` is called for
  * `buffer`.
+ *
+ * Single-threaded handle: `buffer` must be used only from the thread that
+ * obtained it.
  */
 const uint8_t *RbcBufferData(const RbcBuffer *buffer);
 
 /**
  * Return the number of bytes in an opaque buffer.
+ *
+ * Single-threaded handle: `buffer` must be used only from the thread that
+ * obtained it.
  */
 size_t RbcBufferLen(const RbcBuffer *buffer);
 
 /**
  * Free an opaque byte buffer and set the caller's handle variable to NULL.
- * Both `buffer` and `*buffer` may be NULL.
+ * Both `buffer` and `*buffer` may be NULL. The buffer contents are zeroized
+ * before the allocation is released.
+ *
+ * Single-threaded handle: `buffer` must be released from the thread that
+ * obtained it.
  */
 void RbcBufferFree(RbcBuffer **buffer);
 
 /**
  * Create a client from a YAML config file on disk.
+ *
+ * The returned handle is single-threaded: use it only from the thread that
+ * created it. See the `RbcClient` type documentation for the full contract.
  */
 RbcErrorCode RbcClientNewFromFile(const char *config_path, RbcClient **out_client);
 
 /**
  * Create a client from an in-memory YAML string.
+ *
+ * The returned handle is single-threaded: use it only from the thread that
+ * created it. See the `RbcClient` type documentation for the full contract.
  */
 RbcErrorCode RbcClientNewFromYaml(const char *yaml, RbcClient **out_client);
 
@@ -96,6 +142,9 @@ void RbcClientFree(RbcClient **client);
  * Fetch an authentication challenge. On success `*out_nonce` is a newly
  * allocated nul-terminated string owned by the caller; free with
  * `RbcStringFree`.
+ *
+ * Single-threaded handle: `client` must be used only from the thread that
+ * created it.
  */
 RbcErrorCode RbcGetAuthChallenge(RbcClient *client, char **out_nonce);
 
@@ -116,17 +165,26 @@ void RbcLastErrorClear(void);
 
 /**
  * Borrow the URI. Valid until `RbcResourceFree`.
+ *
+ * Single-threaded handle: `resource` must be used only from the thread that
+ * obtained it.
  */
 const char *RbcResourceGetUri(const RbcResource *resource);
 
 /**
  * Borrow the content-type (may be NULL). Valid until `RbcResourceFree`.
+ *
+ * Single-threaded handle: `resource` must be used only from the thread that
+ * obtained it.
  */
 const char *RbcResourceGetContentType(const RbcResource *resource);
 
 /**
  * Borrow the raw content bytes. Writes the length into `*out_len`. Valid
  * until `RbcResourceFree`.
+ *
+ * Single-threaded handle: `resource` must be used only from the thread that
+ * obtained it.
  */
 const uint8_t *RbcResourceGetContent(const RbcResource *resource, size_t *out_len);
 
@@ -134,6 +192,9 @@ const uint8_t *RbcResourceGetContent(const RbcResource *resource, size_t *out_le
  * Destroy a resource handle, set the caller's handle variable to NULL, and
  * invalidate all borrowed pointers obtained from accessors. Both `resource`
  * and `*resource` may be NULL.
+ *
+ * Single-threaded handle: `resource` must be released from the thread that
+ * obtained it.
  */
 void RbcResourceFree(RbcResource **resource);
 
@@ -142,6 +203,9 @@ void RbcResourceFree(RbcResource **resource);
  * be a JSON object matching `AttesterData` (per `rbs_api.yaml`); if its
  * `runtime_data.tee-pubkey` is present the caller is responsible for the
  * matching private key (pass it to `RbcSessionDecryptContent`).
+ *
+ * The returned handle is single-threaded: use it only from the thread that
+ * created it. See the `RbcSession` type documentation for the full contract.
  */
 RbcErrorCode RbcSessionNew(RbcClient *client,
                            const char *attester_data_json,
@@ -156,6 +220,9 @@ void RbcSessionFree(RbcSession **session);
 /**
  * Collect evidence for `nonce`. On success `*out_evidence_json` is a newly
  * allocated JSON-encoded nul-terminated string owned by the caller.
+ *
+ * Single-threaded handle: `session` must be used only from the thread that
+ * created it.
  */
 RbcErrorCode RbcSessionCollectEvidence(RbcSession *session,
                                        const char *nonce,
@@ -166,11 +233,17 @@ RbcErrorCode RbcSessionCollectEvidence(RbcSession *session,
  * which case the session's TokenProvider must be able to produce a token
  * without one). On success `*out_token` is a newly allocated nul-terminated
  * string owned by the caller.
+ *
+ * Single-threaded handle: `session` must be used only from the thread that
+ * created it.
  */
 RbcErrorCode RbcSessionAttest(RbcSession *session, const char *evidence_json, char **out_token);
 
 /**
  * Fetch a resource using a previously-obtained attest token.
+ *
+ * Single-threaded handle: `session` must be used only from the thread that
+ * created it.
  */
 RbcErrorCode RbcSessionGetResourceByToken(RbcSession *session,
                                           const char *uri,
@@ -179,6 +252,9 @@ RbcErrorCode RbcSessionGetResourceByToken(RbcSession *session,
 
 /**
  * Fetch a resource using an evidence bundle (pull-by-evidence mode).
+ *
+ * Single-threaded handle: `session` must be used only from the thread that
+ * created it.
  */
 RbcErrorCode RbcSessionGetResourceByEvidence(RbcSession *session,
                                              const char *uri,
@@ -197,6 +273,9 @@ RbcErrorCode RbcSessionGetResourceByEvidence(RbcSession *session,
  * On success `*out_buffer` is an opaque buffer handle owned by the caller.
  * Borrow its bytes with `RbcBufferData`, get its length with `RbcBufferLen`,
  * and release it with `RbcBufferFree`.
+ *
+ * Single-threaded handle: `session` must be used only from the thread that
+ * created it, and `*out_buffer` must likewise be used only from that thread.
  * `passphrase` / `passphrase_len` — pass a non-NULL pointer and byte length when
  * `private_key_pem` is encrypted; pass NULL / 0 otherwise. The length is in
  * bytes and must not exceed 1024. When non-NULL, `passphrase` must point to at

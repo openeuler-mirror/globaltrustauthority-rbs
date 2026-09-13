@@ -279,3 +279,62 @@ async fn test_claims_required_029_no_role_defaults_empty() {
     assert!(result.is_ok());
     assert_eq!(result.unwrap().role, "");
 }
+
+// ===========================================================================
+// Bearer ES512 path (josekit) — regression coverage for the shared
+// `validate_josekit_exp` helper (see common.rs): exp presence and expiry are
+// enforced explicitly, identical to the Attest ES512 path.
+// ===========================================================================
+
+/// Valid ES512 bearer token is accepted (happy path for the josekit branch).
+#[tokio::test]
+async fn test_bearer_es512_valid_token_accepted() {
+    let (pub_pem, priv_pem) = generate_ec_p521_keypair();
+    let verifier = make_bearer_verifier(&pub_pem, ISSUER, AUDIENCE, Arc::new(LockoutTracker::new()));
+    let claims = json!({
+        "sub": "testuser",
+        "iss": ISSUER,
+        "aud": AUDIENCE,
+        "exp": now_secs() + 3600,
+    });
+    let token = sign_es512_jwt(&priv_pem, claims);
+    let result = verifier.verify(&token).await;
+    assert!(result.is_ok(), "valid ES512 bearer token must verify: {:?}", result.err());
+}
+
+/// Expired ES512 bearer token is rejected with TokenExpired — by the shared
+/// `validate_josekit_exp` check, identical to the Attest ES512 path.
+#[tokio::test]
+async fn test_bearer_es512_expired_token_rejected() {
+    let (pub_pem, priv_pem) = generate_ec_p521_keypair();
+    let verifier = make_bearer_verifier(&pub_pem, ISSUER, AUDIENCE, Arc::new(LockoutTracker::new()));
+    let claims = json!({
+        "sub": "testuser",
+        "iss": ISSUER,
+        "aud": AUDIENCE,
+        "exp": now_secs() - 3600,
+    });
+    let token = sign_es512_jwt(&priv_pem, claims);
+    let result = verifier.verify(&token).await;
+    assert!(matches!(result, Err(AuthError::TokenExpired)), "got {:?}", result.err());
+}
+
+/// ES512 bearer token without an exp claim is rejected (shared
+/// `validate_josekit_exp` presence check, before josekit validation).
+#[tokio::test]
+async fn test_bearer_es512_missing_exp_rejected() {
+    let (pub_pem, priv_pem) = generate_ec_p521_keypair();
+    let verifier = make_bearer_verifier(&pub_pem, ISSUER, AUDIENCE, Arc::new(LockoutTracker::new()));
+    let claims = json!({
+        "sub": "testuser",
+        "iss": ISSUER,
+        "aud": AUDIENCE,
+    });
+    let token = sign_es512_jwt(&priv_pem, claims);
+    let result = verifier.verify(&token).await;
+    assert!(
+        matches!(&result, Err(AuthError::TokenInvalid { reason }) if reason.contains("missing exp")),
+        "got {:?}",
+        result.err()
+    );
+}

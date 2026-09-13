@@ -93,7 +93,9 @@ def test_list_resources_rejects_attest_token(rbs_api: Any) -> None:
     with httpx.Client(trust_env=False) as client:
         response = _list(client, rbs_api, headers=attest_headers(rbs_api))
     error = assert_error(response, 401)
-    assert "attesttoken not allowed" in error.lower()
+    # The message is the unified auth failure text: it must not disclose this
+    # endpoint's token-type policy (reason stays in the server log only).
+    assert error == "Authentication failed"
 
 
 @pytest.mark.parametrize("field,value", [("limit", 0), ("limit", 101), ("offset", -1), ("offset", 100001)], ids=["limit-below", "limit-above", "offset-below", "offset-above"])

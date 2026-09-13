@@ -89,7 +89,7 @@ fn emit_output(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let rendered = output.render(format)?;
     if let Some(path) = output_file {
-        std::fs::write(path, &rendered)?;
+        write_private_file(path, &rendered)?;
         if !quiet {
             eprintln!("output written to {path}");
         }
@@ -99,6 +99,40 @@ fn emit_output(
         println!("{rendered}");
     }
     Ok(())
+}
+
+/// Write CLI output with owner-only permissions (0o600).
+///
+/// Output can carry sensitive material (attest tokens, decrypted resource
+/// content), so new files are created with mode 0o600 and pre-existing files
+/// are tightened to 0o600 as well — reusing an output path must not keep a
+/// wider mode from an earlier creation. The process umask can only remove
+/// permission bits, never widen them.
+fn write_private_file(path: &str, contents: &str) -> Result<(), std::io::Error> {
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)?;
+        file.write_all(contents.as_bytes())?;
+
+        // `mode()` only applies at creation; tighten pre-existing files.
+        let perms = std::fs::metadata(path)?.permissions();
+        if perms.mode() & 0o777 != 0o600 {
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+        }
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(path, contents)
+    }
 }
 
 fn resolve_context(
@@ -180,6 +214,26 @@ mod tests {
 
         let written = std::fs::read_to_string(&path).expect("read output");
         assert_eq!(written, "nonce-value");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn emit_output_file_is_owner_only_and_tightens_preexisting_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let path = std::env::temp_dir().join(format!("rbc-cli-private-{}.txt", std::process::id()));
+        // Seed a pre-existing wide file to prove the rewrite tightens it.
+        std::fs::write(&path, "old").expect("seed wide file");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666)).expect("widen permissions");
+
+        let output = ClientOutput::Auth(rbs_api_types::AuthChallengeResponse { nonce: "secret-nonce".to_string() });
+        emit_output(&output, &OutputFormat::Text, Some(path.to_str().expect("utf8 path")), false, false)
+            .expect("emit output");
+
+        let mode = std::fs::metadata(&path).expect("stat output").permissions().mode();
+        assert_eq!(mode & 0o777, 0o600, "rbc-cli output file must be owner-only");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "secret-nonce");
         let _ = std::fs::remove_file(path);
     }
 

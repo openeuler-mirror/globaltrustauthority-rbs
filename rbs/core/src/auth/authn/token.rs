@@ -27,7 +27,7 @@ use std::fs;
 
 use crate::auth::authn::common::{
     create_decoding_key, decode_token_header, is_es512, is_sm2, map_josekit_error, map_jwt_error,
-    to_jsonwebtoken_alg, validate_algorithm, validate_jwt_claims,
+    to_jsonwebtoken_alg, validate_algorithm, validate_jwt_claims, validate_josekit_exp,
 };
 use crate::auth::authn::sm2;
 use crate::auth::authn::TokenVerifier;
@@ -222,19 +222,20 @@ impl AttestTokenVerifier {
                 map_josekit_error(&e, Some(&self.config.issuer))
             })?;
 
-        // Validate claims
+        // Validate exp explicitly (see `validate_josekit_exp`) so an expired token
+        // returns TokenExpired and a missing exp is rejected outright — identical
+        // to the Bearer ES512 path; then the remaining claims (iss, aud, nbf)
+        // with the same pinned clock read.
+        let now = validate_josekit_exp("AttestToken", &payload)?;
+
         let mut validator = JwtPayloadValidator::new();
+        validator.set_base_time(now);
         validator.set_issuer(&self.config.issuer);
         if let Some(ref aud) = self.config.audience {
             validator.set_audience(aud);
         }
 
-        // Ensure required claims exist
-        if payload.claim("exp").is_none() {
-            return Err(AuthError::TokenInvalid {
-                reason: "missing exp claim".to_string(),
-            });
-        }
+        // Ensure required claims exist (exp is already handled above)
         if payload.claim("iss").is_none() {
             return Err(AuthError::TokenInvalid {
                 reason: "missing iss claim".to_string(),

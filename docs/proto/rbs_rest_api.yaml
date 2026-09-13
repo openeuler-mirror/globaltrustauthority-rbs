@@ -3715,7 +3715,7 @@ components:
           - 'null'
           items:
             type: string
-          description: IDs to delete (required when `delete_type` is `Id`; at most 10 IDs).
+          description: IDs to delete (required when `delete_type` is `Id`; at most 10 IDs, GTA-enforced).
         type:
           type:
           - string
@@ -4099,7 +4099,7 @@ components:
           - 'null'
           items:
             type: string
-          description: IDs to delete (required when `delete_type` is `Id`; at most 10 IDs, each at most 36 chars).
+          description: IDs to delete (required when `delete_type` is `Id`; at most 10 IDs, each at most 36 chars, GTA-enforced).
         attester_type:
           type:
           - string
@@ -4478,7 +4478,7 @@ components:
           - 'null'
           items:
             type: string
-          description: IDs to delete (required when `delete_type` is `Id`; 1-10 IDs, each 1-36 chars).
+          description: IDs to delete (required when `delete_type` is `Id`; 1-10 IDs, each 1-36 chars, GTA-enforced).
         attester_type:
           type:
           - string

@@ -249,6 +249,25 @@ async fn update_with_version_conflict_returns_zero() {
     assert_eq!(affected, 0);
 }
 
+/// Ownership guard: an entity carrying a different `username` must not
+/// update another user's row, even when the policy_id and expected version
+/// both match — the WHERE clause scopes the update to the owner.
+#[tokio::test]
+async fn update_with_version_wrong_user_returns_zero_and_keeps_row() {
+    let (repo, _db) = setup().await;
+    repo.insert(&make_entity("p1", "user1", "original")).await.unwrap();
+
+    let attacker = make_entity("p1", "attacker", "hijacked");
+    let affected = repo.update_with_version("p1", 1, attacker).await.unwrap();
+    assert_eq!(affected, 0, "cross-user update must affect zero rows");
+
+    // The owner's row is untouched: same name, same version.
+    let row = repo.find_by_id("p1").await.unwrap().unwrap();
+    assert_eq!(row.policy_name, "original");
+    assert_eq!(row.policy_version, 1);
+    assert_eq!(row.username, "user1");
+}
+
 // ── delete_by_ids_txn ─────────────────────────────────────────────────
 
 #[tokio::test]

@@ -24,7 +24,7 @@ fn unusable_admin_client() -> AdminClient {
 
 #[tokio::test]
 async fn policy_operations_report_url_build_failure() {
-    let client = PolicyClient::new(unusable_admin_client(), None);
+    let client = PolicyClient::new(unusable_admin_client(), None).expect("default as_provider should be valid");
     let create = AttestationPolicyCreateRequest {
         name: "policy-1".to_string(),
         description: Some("demo".to_string()),

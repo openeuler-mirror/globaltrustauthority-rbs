@@ -34,6 +34,9 @@ const PASSPHRASE_MAX_LEN: usize = 1024;
 /// be a JSON object matching `AttesterData` (per `rbs_api.yaml`); if its
 /// `runtime_data.tee-pubkey` is present the caller is responsible for the
 /// matching private key (pass it to `RbcSessionDecryptContent`).
+///
+/// The returned handle is single-threaded: use it only from the thread that
+/// created it. See the `RbcSession` type documentation for the full contract.
 #[export_name = "RbcSessionNew"]
 pub extern "C" fn rbc_session_new(
     client: *mut RbcClient,
@@ -78,6 +81,9 @@ pub extern "C" fn rbc_session_free(session: *mut *mut RbcSession) {
 
 /// Collect evidence for `nonce`. On success `*out_evidence_json` is a newly
 /// allocated JSON-encoded nul-terminated string owned by the caller.
+///
+/// Single-threaded handle: `session` must be used only from the thread that
+/// created it.
 #[export_name = "RbcSessionCollectEvidence"]
 pub extern "C" fn rbc_session_collect_evidence(
     session: *mut RbcSession,
@@ -113,6 +119,9 @@ pub extern "C" fn rbc_session_collect_evidence(
 /// which case the session's TokenProvider must be able to produce a token
 /// without one). On success `*out_token` is a newly allocated nul-terminated
 /// string owned by the caller.
+///
+/// Single-threaded handle: `session` must be used only from the thread that
+/// created it.
 #[export_name = "RbcSessionAttest"]
 pub extern "C" fn rbc_session_attest(
     session: *mut RbcSession,
@@ -148,6 +157,9 @@ pub extern "C" fn rbc_session_attest(
 }
 
 /// Fetch a resource using a previously-obtained attest token.
+///
+/// Single-threaded handle: `session` must be used only from the thread that
+/// created it.
 #[export_name = "RbcSessionGetResourceByToken"]
 pub extern "C" fn rbc_session_get_resource_by_token(
     session: *mut RbcSession,
@@ -178,6 +190,9 @@ pub extern "C" fn rbc_session_get_resource_by_token(
 }
 
 /// Fetch a resource using an evidence bundle (pull-by-evidence mode).
+///
+/// Single-threaded handle: `session` must be used only from the thread that
+/// created it.
 #[export_name = "RbcSessionGetResourceByEvidence"]
 pub extern "C" fn rbc_session_get_resource_by_evidence(
     session: *mut RbcSession,
@@ -227,6 +242,9 @@ pub extern "C" fn rbc_session_get_resource_by_evidence(
 /// On success `*out_buffer` is an opaque buffer handle owned by the caller.
 /// Borrow its bytes with `RbcBufferData`, get its length with `RbcBufferLen`,
 /// and release it with `RbcBufferFree`.
+///
+/// Single-threaded handle: `session` must be used only from the thread that
+/// created it, and `*out_buffer` must likewise be used only from that thread.
 /// `passphrase` / `passphrase_len` — pass a non-NULL pointer and byte length when
 /// `private_key_pem` is encrypted; pass NULL / 0 otherwise. The length is in
 /// bytes and must not exceed 1024. When non-NULL, `passphrase` must point to at

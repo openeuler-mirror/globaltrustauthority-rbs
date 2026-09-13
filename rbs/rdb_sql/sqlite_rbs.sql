@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS t_res_info (
     content_type TEXT,
     export_mode TEXT NOT NULL DEFAULT 'jwe',
     policy_id TEXT NOT NULL,
-    PRIMARY KEY (username, provider_name, repo_name, res_type, res_name)
+    PRIMARY KEY (provider_name, repo_name, res_type, res_name)
 );
 
 CREATE INDEX IF NOT EXISTS idx_res_info_username ON t_res_info(username);

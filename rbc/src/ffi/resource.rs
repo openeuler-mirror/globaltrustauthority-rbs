@@ -64,6 +64,9 @@ pub(super) fn wrap_resource(r: Resource) -> Result<ResourceCtx, RbcErrorCode> {
 // ─── Resource accessors ─────────────────────────────────────────────────
 
 /// Borrow the URI. Valid until `RbcResourceFree`.
+///
+/// Single-threaded handle: `resource` must be used only from the thread that
+/// obtained it.
 #[export_name = "RbcResourceGetUri"]
 pub extern "C" fn rbc_resource_get_uri(resource: *const RbcResource) -> *const c_char {
     if resource.is_null() {
@@ -73,6 +76,9 @@ pub extern "C" fn rbc_resource_get_uri(resource: *const RbcResource) -> *const c
 }
 
 /// Borrow the content-type (may be NULL). Valid until `RbcResourceFree`.
+///
+/// Single-threaded handle: `resource` must be used only from the thread that
+/// obtained it.
 #[export_name = "RbcResourceGetContentType"]
 pub extern "C" fn rbc_resource_get_content_type(resource: *const RbcResource) -> *const c_char {
     if resource.is_null() {
@@ -88,6 +94,9 @@ pub extern "C" fn rbc_resource_get_content_type(resource: *const RbcResource) ->
 
 /// Borrow the raw content bytes. Writes the length into `*out_len`. Valid
 /// until `RbcResourceFree`.
+///
+/// Single-threaded handle: `resource` must be used only from the thread that
+/// obtained it.
 #[export_name = "RbcResourceGetContent"]
 pub extern "C" fn rbc_resource_get_content(resource: *const RbcResource, out_len: *mut usize) -> *const u8 {
     if resource.is_null() || out_len.is_null() {
@@ -103,6 +112,9 @@ pub extern "C" fn rbc_resource_get_content(resource: *const RbcResource, out_len
 /// Destroy a resource handle, set the caller's handle variable to NULL, and
 /// invalidate all borrowed pointers obtained from accessors. Both `resource`
 /// and `*resource` may be NULL.
+///
+/// Single-threaded handle: `resource` must be released from the thread that
+/// obtained it.
 #[export_name = "RbcResourceFree"]
 pub extern "C" fn rbc_resource_free(resource: *mut *mut RbcResource) {
     let resource = unsafe { take_handle(resource) };

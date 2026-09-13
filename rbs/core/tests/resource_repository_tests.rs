@@ -59,9 +59,30 @@ async fn insert_resource_duplicate_returns_error() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(
-        matches!(&err, ResourceError::BackendError { .. }),
-        "expected BackendError, got {:?}", err
+        matches!(&err, ResourceError::AlreadyExists { uri } if uri == "/rbs/v0/vault/default/secret/mykey"),
+        "expected AlreadyExists, got {:?}", err
     );
+}
+
+/// SQL-09b: the URI primary key is global — a different username does NOT
+/// get a second row for the same URI. This is the storage-layer guard that
+/// closes the cross-user race (per-user locks never serialize different
+/// users), and it also holds for imports/DB writes that bypass the service.
+#[tokio::test]
+async fn insert_resource_same_uri_different_user_rejected() {
+    let (repo, _db) = setup().await;
+    repo.insert(&make_entity("/rbs/v0/vault/default/secret/mykey", "alice", "pol-1")).await.unwrap();
+
+    let result = repo.insert(&make_entity("/rbs/v0/vault/default/secret/mykey", "bob", "pol-2")).await;
+    assert!(
+        matches!(&result.unwrap_err(), ResourceError::AlreadyExists { uri } if uri == "/rbs/v0/vault/default/secret/mykey"),
+        "cross-user duplicate URI must be AlreadyExists"
+    );
+
+    // The original row is untouched — still alice's.
+    let found = repo.find_by_uri("/rbs/v0/vault/default/secret/mykey").await.unwrap().unwrap();
+    assert_eq!(found.username, "alice");
+    assert_eq!(found.policy_id, "pol-1");
 }
 
 // ── SQL-10: find_by_uri ───────────────────────────────────────────────
@@ -314,4 +335,102 @@ async fn create_with_user_limit_check_duplicate_rejected() {
     repo.create_with_user_limit_check(uri, &entity, 10).await.unwrap();
     let result = repo.create_with_user_limit_check(uri, &entity, 10).await;
     assert!(matches!(result, Err(ResourceError::AlreadyExists { .. })), "got {:?}", result);
+}
+
+/// SQL-CC-04: a different user cannot create the same URI — the dup-check is
+/// cross-user by design (URI is globally unique), so this exercises the
+/// serial path where the existing row belongs to someone else.
+#[tokio::test]
+async fn create_with_user_limit_check_cross_user_same_uri_rejected() {
+    use sea_orm::{ConnectionTrait, Statement};
+
+    let (repo, db) = setup_concurrency().await;
+    // Second owning user for the per-user lock to match.
+    let backend = db.get_database_backend();
+    db.execute(Statement::from_sql_and_values(
+        backend,
+        "INSERT INTO t_user_info (user_id, username, role, auth_type, auth_value, auth_alg, status, created_at, updated_at) \
+         VALUES (?, ?, 'user', 'jwt', 'pubkey', 'EdDSA', 1, 1, 1)",
+        ["uid-second".into(), "second-user".into()],
+    ))
+    .await
+    .expect("insert second user");
+
+    let uri = "/rbs/v0/vault/repo1/secret/shared";
+    repo.create_with_user_limit_check(uri, &make_entity(uri, "concurrent-user", "pol-1"), 10)
+        .await
+        .expect("first user creates the URI");
+
+    let result = repo
+        .create_with_user_limit_check(uri, &make_entity(uri, "second-user", "pol-2"), 10)
+        .await;
+    assert!(
+        matches!(&result, Err(ResourceError::AlreadyExists { uri: u }) if u == uri),
+        "cross-user duplicate must be AlreadyExists, got {:?}",
+        result
+    );
+
+    // The row still belongs to the first user.
+    let found = repo.find_by_uri(uri).await.unwrap().unwrap();
+    assert_eq!(found.username, "concurrent-user");
+}
+
+/// SQL-CC-05: concurrent cross-user creates of the SAME URI — the race the
+/// 4-column PK closes. Per-user locks serialize same-user work but never
+/// different users; exactly one create may win, the loser must get
+/// `AlreadyExists` (from the dup-check or the PK violation), never a
+/// duplicate row or an internal error.
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn create_with_user_limit_check_concurrent_cross_user_single_winner() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc as StdArc;
+    use sea_orm::{ConnectionTrait, Statement};
+
+    let (repo, db) = setup_concurrency().await;
+    let backend = db.get_database_backend();
+    for (uid, user) in [("uid-a", "user-a"), ("uid-b", "user-b"), ("uid-c", "user-c")] {
+        db.execute(Statement::from_sql_and_values(
+            backend,
+            "INSERT INTO t_user_info (user_id, username, role, auth_type, auth_value, auth_alg, status, created_at, updated_at) \
+             VALUES (?, ?, 'user', 'jwt', 'pubkey', 'EdDSA', 1, 1, 1)",
+            [uid.into(), user.into()],
+        ))
+        .await
+        .expect("insert user");
+    }
+
+    let repo = StdArc::new(repo);
+    let uri = "/rbs/v0/vault/repo1/secret/race";
+    let success = StdArc::new(AtomicUsize::new(0));
+    let conflict = StdArc::new(AtomicUsize::new(0));
+
+    let users = ["user-a", "user-b", "user-c"];
+    let mut handles = Vec::new();
+    for user in users {
+        let repo = repo.clone();
+        let success = success.clone();
+        let conflict = conflict.clone();
+        let uri = uri.to_string();
+        handles.push(tokio::spawn(async move {
+            let entity = make_entity(&uri, user, "pol-1");
+            match repo.create_with_user_limit_check(&uri, &entity, 10).await {
+                Ok(()) => { success.fetch_add(1, Ordering::SeqCst); }
+                Err(ResourceError::AlreadyExists { .. }) => { conflict.fetch_add(1, Ordering::SeqCst); }
+                Err(e) => panic!("unexpected error: {:?}", e),
+            }
+        }));
+    }
+    for h in handles {
+        h.await.unwrap();
+    }
+
+    assert_eq!(success.load(Ordering::SeqCst), 1, "exactly one winner");
+    assert_eq!(conflict.load(Ordering::SeqCst), users.len() - 1, "losers get AlreadyExists");
+    // Exactly one row exists for the URI, findable deterministically.
+    assert!(repo.find_by_uri(uri).await.unwrap().is_some());
+    let total_rows: i64 = repo
+        .count_by_user("user-a").await.unwrap() as i64
+        + repo.count_by_user("user-b").await.unwrap() as i64
+        + repo.count_by_user("user-c").await.unwrap() as i64;
+    assert_eq!(total_rows, 1, "exactly one row persisted across all users");
 }
