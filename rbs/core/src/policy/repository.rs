@@ -2,19 +2,7 @@ use log;
 use std::sync::Arc;
 use sea_orm::*;
 use super::error::PolicyError;
-
-/// Detect whether a `sea_orm::DbErr` is a unique-constraint violation
-/// (SQLite UNIQUE, sqlx code 2067). INSERT path collisions arrive as
-/// `DbErr::Exec`; the `Query` branch is kept for safety.
-fn is_unique_violation(e: &sea_orm::DbErr) -> bool {
-    use sea_orm::RuntimeErr;
-    let db_err = match e {
-        sea_orm::DbErr::Exec(RuntimeErr::SqlxError(sea_orm::sqlx::Error::Database(db)))
-        | sea_orm::DbErr::Query(RuntimeErr::SqlxError(sea_orm::sqlx::Error::Database(db))) => db,
-        _ => return false,
-    };
-    db_err.is_unique_violation()
-}
+use crate::infra::rdb::is_unique_violation;
 
 /// Policy entity as stored in the database.
 #[derive(Debug, Clone)]
@@ -41,6 +29,10 @@ pub trait PolicyRepository: Send + Sync {
     async fn find_by_ids_and_user(&self, policy_ids: &[String], username: &str) -> Result<Vec<PolicyEntity>, PolicyError>;
     async fn list_by_user(&self, username: &str, offset: i64, limit: i64) -> Result<(Vec<PolicyEntity>, u64), PolicyError>;
     async fn count_by_user(&self, username: &str) -> Result<usize, PolicyError>;
+    /// Update by ID with optimistic version lock. Ownership-scoped: only the
+    /// row whose `username` equals `entity.username` is updated, so a caller
+    /// that skips the service-level ownership check still cannot touch
+    /// another user's row (`rows_affected == 0`).
     async fn update_with_version(&self, policy_id: &str, expected_version: i32, entity: PolicyEntity) -> Result<u64, PolicyError>;
     /// Delete by IDs and user within a transaction.
     async fn delete_by_ids_txn(&self, conn: &sea_orm::DatabaseTransaction, policy_ids: &[String], username: &str) -> Result<u64, PolicyError>;
@@ -198,6 +190,11 @@ impl PolicyRepository for SeaOrmPolicyRepository {
             .col_expr(entity::Column::PolicyVersion, Expr::col(entity::Column::PolicyVersion).add(1))
             .filter(entity::Column::PolicyId.eq(policy_id))
             .filter(entity::Column::PolicyVersion.eq(expected_version))
+            // Ownership guard: only the row owned by `entity.username` is
+            // updatable, matching `find_by_ids_and_user` / `delete_by_ids_txn`.
+            // The service checks ownership before calling, but the WHERE
+            // clause keeps the guarantee at the storage layer too.
+            .filter(entity::Column::Username.eq(entity.username.clone()))
             .exec(self.db.as_ref())
             .await
             .map_err(|e| {

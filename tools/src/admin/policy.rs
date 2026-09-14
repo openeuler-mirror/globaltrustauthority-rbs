@@ -176,7 +176,7 @@ pub fn run(cli: &PolicyCli, global: &GlobalOptions) -> Result<Box<dyn Formatter>
         .token
         .as_deref()
         .ok_or_else(|| CliError::InvalidArgument("missing required bearer token".to_string()))?;
-    let service = PolicyClient::new(AdminClient::new(&global.base_url, token, &global.cert)?, None);
+    let service = PolicyClient::new(AdminClient::new(&global.base_url, token, &global.cert)?, None)?;
     runtime.block_on(execute_policy_command(cli, &service))
 }
 

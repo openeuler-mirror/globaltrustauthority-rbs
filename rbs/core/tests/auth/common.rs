@@ -100,6 +100,35 @@ pub(crate) fn sign_ps256_jwt(priv_pem: &str, claims: Value) -> String {
     jsonwebtoken::encode(&header, &claims, &encoding_key).unwrap()
 }
 
+/// P-521 EC keypair (PEMs) for the ES512 josekit verification paths.
+pub(crate) fn generate_ec_p521_keypair() -> (String, String) {
+    use openssl::ec::{EcGroup, EcKey};
+    use openssl::nid::Nid;
+    use openssl::pkey::PKey;
+
+    let group = EcGroup::from_curve_name(Nid::SECP521R1).expect("P-521 curve");
+    let ec_key = EcKey::generate(&group).expect("generate EC key");
+    let priv_pem = String::from_utf8(ec_key.private_key_to_pem().unwrap()).unwrap();
+    let pkey = PKey::from_ec_key(ec_key).expect("wrap EC key");
+    let pub_pem = String::from_utf8(pkey.public_key_to_pem().unwrap()).unwrap();
+    (pub_pem, priv_pem)
+}
+
+/// Sign a JWT with ES512 (josekit) for the ES512 verification paths.
+pub(crate) fn sign_es512_jwt(priv_pem: &str, claims: Value) -> String {
+    use josekit::jws::{ES512, JwsHeader};
+    use josekit::jwt::{self, JwtPayload};
+
+    let mut header = JwsHeader::new();
+    header.set_token_type("JWT");
+    header.set_algorithm("ES512");
+
+    let map: serde_json::Map<String, serde_json::Value> = serde_json::from_value(claims).unwrap();
+    let payload = JwtPayload::from_map(map).unwrap();
+    let signer = ES512.signer_from_pem(priv_pem.as_bytes()).expect("ES512 signer from PEM");
+    jwt::encode_with_signer(&payload, &header, &signer).expect("sign ES512 JWT")
+}
+
 pub(crate) fn now_secs() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

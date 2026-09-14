@@ -1320,7 +1320,7 @@ Schema: [CertDeleteRequest](#certdeleterequest)
 | Property | Type | Required | Description |
 |---|---|---|---|
 | `delete_type` | [AttestationDeleteType](#attestationdeletetype) | yes | Delete mode. |
-| `ids` | array of string | no | IDs to delete (required when `delete_type` is `Id`; at most 10 IDs). |
+| `ids` | array of string | no | IDs to delete (required when `delete_type` is `Id`; at most 10 IDs, GTA-enforced). |
 | `type` | string | no | Cert type filter (required when `delete_type` is `Type`; JSON field name `type`); one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `crl`, `ascend_npu`. |
 
 Example request:
@@ -1643,7 +1643,7 @@ Schema: [PolicyDeleteRequest](#policydeleterequest)
 | Property | Type | Required | Description |
 |---|---|---|---|
 | `delete_type` | [PolicyDeleteType](#policydeletetype) | yes | Delete mode. |
-| `ids` | array of string | no | IDs to delete (required when `delete_type` is `Id`; at most 10 IDs, each at most 36 chars). |
+| `ids` | array of string | no | IDs to delete (required when `delete_type` is `Id`; at most 10 IDs, each at most 36 chars, GTA-enforced). |
 | `attester_type` | string | no | Attester type filter (required when `delete_type` is `AttesterType`; at most 255 chars). |
 
 Example request:
@@ -1948,7 +1948,7 @@ Schema: [RefValueDeleteRequest](#refvaluedeleterequest)
 | Property | Type | Required | Description |
 |---|---|---|---|
 | `delete_type` | [AttestationDeleteType](#attestationdeletetype) | yes | Delete mode. |
-| `ids` | array of string | no | IDs to delete (required when `delete_type` is `Id`; 1-10 IDs, each 1-36 chars). |
+| `ids` | array of string | no | IDs to delete (required when `delete_type` is `Id`; 1-10 IDs, each 1-36 chars, GTA-enforced). |
 | `attester_type` | string | no | Attester type filter (required when `delete_type` is `Type`); one of `tpm`, `tpm_ima`, `virt_cca`, `ascend_npu`, `cca`. |
 
 Example request:
@@ -2282,7 +2282,7 @@ Schema: [CertDeleteRequest](#certdeleterequest)
 | Property | Type | Required | Description |
 |---|---|---|---|
 | `delete_type` | [AttestationDeleteType](#attestationdeletetype) | yes | Delete mode. |
-| `ids` | array of string | no | IDs to delete (required when `delete_type` is `Id`; at most 10 IDs). |
+| `ids` | array of string | no | IDs to delete (required when `delete_type` is `Id`; at most 10 IDs, GTA-enforced). |
 | `type` | string | no | Cert type filter (required when `delete_type` is `Type`; JSON field name `type`); one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `crl`, `ascend_npu`. |
 
 Example request:
@@ -2626,7 +2626,7 @@ Schema: [PolicyDeleteRequest](#policydeleterequest)
 | Property | Type | Required | Description |
 |---|---|---|---|
 | `delete_type` | [PolicyDeleteType](#policydeletetype) | yes | Delete mode. |
-| `ids` | array of string | no | IDs to delete (required when `delete_type` is `Id`; at most 10 IDs, each at most 36 chars). |
+| `ids` | array of string | no | IDs to delete (required when `delete_type` is `Id`; at most 10 IDs, each at most 36 chars, GTA-enforced). |
 | `attester_type` | string | no | Attester type filter (required when `delete_type` is `AttesterType`; at most 255 chars). |
 
 Example request:
@@ -2952,7 +2952,7 @@ Schema: [RefValueDeleteRequest](#refvaluedeleterequest)
 | Property | Type | Required | Description |
 |---|---|---|---|
 | `delete_type` | [AttestationDeleteType](#attestationdeletetype) | yes | Delete mode. |
-| `ids` | array of string | no | IDs to delete (required when `delete_type` is `Id`; 1-10 IDs, each 1-36 chars). |
+| `ids` | array of string | no | IDs to delete (required when `delete_type` is `Id`; 1-10 IDs, each 1-36 chars, GTA-enforced). |
 | `attester_type` | string | no | Attester type filter (required when `delete_type` is `Type`); one of `tpm`, `tpm_ima`, `virt_cca`, `ascend_npu`, `cca`. |
 
 Example request:
@@ -3194,7 +3194,7 @@ Request body for DELETE cert (batch delete).
 | Property | Type | Required | Description |
 |---|---|---|---|
 | `delete_type` | [AttestationDeleteType](#attestationdeletetype) | yes | Delete mode. |
-| `ids` | array of string | no | IDs to delete (required when `delete_type` is `Id`; at most 10 IDs). |
+| `ids` | array of string | no | IDs to delete (required when `delete_type` is `Id`; at most 10 IDs, GTA-enforced). |
 | `type` | string | no | Cert type filter (required when `delete_type` is `Type`; JSON field name `type`); one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `crl`, `ascend_npu`. |
 
 ### CertListResponse
@@ -3337,7 +3337,7 @@ Request body for DELETE policy (batch delete).
 | Property | Type | Required | Description |
 |---|---|---|---|
 | `delete_type` | [PolicyDeleteType](#policydeletetype) | yes | Delete mode. |
-| `ids` | array of string | no | IDs to delete (required when `delete_type` is `Id`; at most 10 IDs, each at most 36 chars). |
+| `ids` | array of string | no | IDs to delete (required when `delete_type` is `Id`; at most 10 IDs, each at most 36 chars, GTA-enforced). |
 | `attester_type` | string | no | Attester type filter (required when `delete_type` is `AttesterType`; at most 255 chars). |
 
 ### PolicyDeleteType
@@ -3481,7 +3481,7 @@ Request body for DELETE ref_value (batch delete).
 | Property | Type | Required | Description |
 |---|---|---|---|
 | `delete_type` | [AttestationDeleteType](#attestationdeletetype) | yes | Delete mode. |
-| `ids` | array of string | no | IDs to delete (required when `delete_type` is `Id`; 1-10 IDs, each 1-36 chars). |
+| `ids` | array of string | no | IDs to delete (required when `delete_type` is `Id`; 1-10 IDs, each 1-36 chars, GTA-enforced). |
 | `attester_type` | string | no | Attester type filter (required when `delete_type` is `Type`); one of `tpm`, `tpm_ima`, `virt_cca`, `ascend_npu`, `cca`. |
 
 ### RefValueListResponse

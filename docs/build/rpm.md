@@ -112,7 +112,7 @@ Every path below is created by the specs or by install-time scriptlets. Nothing 
 | `/usr/bin/rbs` | `root:root` | `0755` | `rbs` spec `%files` | Daemon binary |
 | `/usr/bin/rbc` | `root:root` | `0755` | `rbc` spec `%files` | Client binary |
 | `/usr/bin/rbs-cli` | `root:root` | `0755` | `rbs-cli` spec `%files` | Admin + client CLI |
-| `/etc/rbs/rbs.yaml` | `root:root` | `0644` | `rbs` spec `%files %config(noreplace)` | Edits survive upgrade; see [7. Upgrade](#7-upgrade) |
+| `/etc/rbs/rbs.yaml` | `root:root` | `0640` | `rbs` spec `%files %config(noreplace)` | Carries DB URLs / GTA credentials / key paths — not world-readable. Edits survive upgrade; see [7. Upgrade](#7-upgrade) |
 | `/etc/rbc/rbc.yaml` | `root:root` | `0644` | `rbc` spec `%files %config(noreplace)` | Edits survive upgrade |
 | `/usr/lib/systemd/system/rbs.service` | `root:root` | `0644` | `rbs` spec `%files` | Unit source of truth; do not edit in place |
 | `/usr/share/rbs/sqlite_rbs.sql` | `root:root` | `0644` | `rbs` spec `%files` | SQLite bootstrap from `rbs/conf/sqlite_rbs.sql`; read at startup per `storage.sql_file_path` |

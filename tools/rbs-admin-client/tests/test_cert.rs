@@ -25,12 +25,12 @@ fn unusable_admin_client() -> AdminClient {
 }
 
 fn cert_client(server: &MockServer) -> CertClient {
-    CertClient::new(AdminClient::new(&server.uri(), "test-token", &None).expect("admin client should be created"), None)
+    CertClient::new(AdminClient::new(&server.uri(), "test-token", &None).expect("admin client should be created"), None).expect("cert client should be created")
 }
 
 #[tokio::test]
 async fn cert_operations_report_url_build_failure() {
-    let client = CertClient::new(unusable_admin_client(), None);
+    let client = CertClient::new(unusable_admin_client(), None).expect("default as_provider should be valid");
     let create = CertCreateRequest {
         name: "cert-1".to_string(),
         description: Some("demo cert".to_string()),
@@ -114,4 +114,24 @@ async fn cert_client_uses_pagination_for_list_and_item_endpoint_for_get() {
 
     let cert = client.get_cert("cert-1").await.expect("get should succeed");
     assert_eq!(cert.certs[0].cert_id.as_deref(), Some("cert-1"));
+}
+
+/// The provider name is a URL path segment: values that would change path
+/// semantics are rejected at construction time, before any request is built.
+#[test]
+fn cert_constructor_rejects_ambiguous_as_provider() {
+    for provider in ["../admin", "a/b", "..", ".", "ops?debug", "ops#frag", "%2e%2e", " "] {
+        assert!(
+            CertClient::new(unusable_admin_client(), Some(provider.to_string())).is_err(),
+            "{provider:?} should be rejected as as_provider"
+        );
+    }
+}
+
+#[test]
+fn cert_constructor_accepts_valid_as_provider_and_default() {
+    CertClient::new(unusable_admin_client(), None).expect("default provider should be valid");
+    CertClient::new(unusable_admin_client(), Some("gta".to_string())).expect("named provider should be valid");
+    CertClient::new(unusable_admin_client(), Some("custom-provider_1".to_string()))
+        .expect("custom provider should be valid");
 }

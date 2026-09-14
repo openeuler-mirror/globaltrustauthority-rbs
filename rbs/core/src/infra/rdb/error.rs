@@ -38,3 +38,21 @@ impl From<sea_orm::DbErr> for DbError {
         DbError::Other(err.to_string())
     }
 }
+
+/// Detect whether a `sea_orm::DbErr` is a unique-constraint violation
+/// (SQLite UNIQUE, sqlx code 2067). INSERT path collisions arrive as
+/// `DbErr::Exec`; the `Query` branch is kept for safety.
+///
+/// Shared by repositories that rely on a UNIQUE constraint as the
+/// authoritative duplicate guard (policy name per user, bootstrap admin
+/// username) and map the collision to a domain-specific "already exists"
+/// error instead of a generic internal failure.
+pub fn is_unique_violation(e: &sea_orm::DbErr) -> bool {
+    use sea_orm::RuntimeErr;
+    let db_err = match e {
+        sea_orm::DbErr::Exec(RuntimeErr::SqlxError(sea_orm::sqlx::Error::Database(db)))
+        | sea_orm::DbErr::Query(RuntimeErr::SqlxError(sea_orm::sqlx::Error::Database(db))) => db,
+        _ => return false,
+    };
+    db_err.is_unique_violation()
+}

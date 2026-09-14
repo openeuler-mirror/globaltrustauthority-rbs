@@ -34,7 +34,7 @@ use serde_json::Value;
 
 use crate::auth::authn::common::{
     create_decoding_key, decode_token_header, is_es512, is_sm2, to_jsonwebtoken_alg,
-    validate_algorithm, validate_jwt_claims,
+    validate_algorithm, validate_jwt_claims, validate_josekit_exp,
 };
 use crate::auth::authn::sm2;
 use crate::auth::authn::{LockoutTracker, TokenVerifier, UserKeyProvider};
@@ -166,26 +166,10 @@ impl BearerTokenVerifier {
                 }
             })?;
 
-        // Validate exp explicitly so an expired ES512 token returns TokenExpired,
-        // matching the jsonwebtoken path. josekit's JwtPayloadValidator only checks
-        // exp when present and reports expiry as a generic InvalidClaim, so presence
-        // and expiry are handled here before delegating iss/aud to josekit.
-        let now = std::time::SystemTime::now();
-        match payload.expires_at() {
-            None => {
-                warn!("BearerToken ES512 rejected: missing exp claim");
-                return Err(AuthError::TokenInvalid {
-                    reason: "missing exp claim".to_string(),
-                });
-            }
-            Some(exp) if exp <= now => {
-                warn!("BearerToken ES512 rejected: token expired");
-                return Err(AuthError::TokenExpired);
-            }
-            _ => {}
-        }
+        // Validate exp explicitly (see `validate_josekit_exp`), then the remaining
+        // claims (iss, aud, nbf, iat) with the same pinned clock read.
+        let now = validate_josekit_exp("BearerToken", &payload)?;
 
-        // Validate remaining claims (iss, aud, nbf, iat). exp is already handled.
         let mut validator = JwtPayloadValidator::new();
         validator.set_base_time(now);
         validator.set_issuer(&self.config.issuer);

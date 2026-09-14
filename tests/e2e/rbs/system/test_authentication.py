@@ -40,7 +40,9 @@ def test_attest_token_is_rejected_on_bearer_only_endpoint(rbs_api: Any) -> None:
     with httpx.Client(trust_env=False) as client:
         for path in ("users", "resource/policy"):
             response = client.get(f"{rbs_api.base_url}/rbs/v0/{path}", headers={"Authorization": f"Attest {token}"})
-            assert_error(response, 401, "not allowed")
+            # Unified auth failure text: the response must not disclose the
+            # endpoint's token-type policy (the reason stays in server logs).
+            assert_error(response, 401, "Authentication failed")
 
 
 def test_public_endpoints_ignore_invalid_authorization_header(rbs_api: Any) -> None:

@@ -30,7 +30,7 @@ fn unusable_admin_client() -> AdminClient {
 }
 
 fn policy_client(server: &MockServer) -> PolicyClient {
-    PolicyClient::new(admin_client(&server.uri()), None)
+    PolicyClient::new(admin_client(&server.uri()), None).expect("policy client should be created")
 }
 
 #[tokio::test]
@@ -161,7 +161,7 @@ async fn policy_client_uses_collection_endpoint_for_list_create_update_and_delet
 
 #[tokio::test]
 async fn policy_operations_report_url_build_failure() {
-    let client = PolicyClient::new(unusable_admin_client(), None);
+    let client = PolicyClient::new(unusable_admin_client(), None).expect("default as_provider should be valid");
     let request = AttestationPolicyCreateRequest {
         name: "policy_name_1".to_string(),
         description: None,
@@ -173,4 +173,24 @@ async fn policy_operations_report_url_build_failure() {
 
     let err = client.create_policy(&request).await.expect_err("unusable policy URL should fail");
     assert_eq!(err.to_string(), "base URL cannot be used to build policy path");
+}
+
+/// The provider name is a URL path segment: values that would change path
+/// semantics are rejected at construction time, before any request is built.
+#[test]
+fn policy_constructor_rejects_ambiguous_as_provider() {
+    for provider in ["../admin", "a/b", "..", ".", "ops?debug", "ops#frag", "%2e%2e", " "] {
+        assert!(
+            PolicyClient::new(unusable_admin_client(), Some(provider.to_string())).is_err(),
+            "{provider:?} should be rejected as as_provider"
+        );
+    }
+}
+
+#[test]
+fn policy_constructor_accepts_valid_as_provider_and_default() {
+    PolicyClient::new(unusable_admin_client(), None).expect("default provider should be valid");
+    PolicyClient::new(unusable_admin_client(), Some("gta".to_string())).expect("named provider should be valid");
+    PolicyClient::new(unusable_admin_client(), Some("custom-provider_1".to_string()))
+        .expect("custom provider should be valid");
 }

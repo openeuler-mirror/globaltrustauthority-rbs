@@ -226,8 +226,8 @@ async fn resource_list_with_attest_token_returns_401() {
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
     let err = extract_error(resp).await;
     assert!(
-        err.contains("AttestToken not allowed"),
-        "expected AttestToken rejection, got: {err}"
+        err.contains("Authentication failed"),
+        "Attest rejection must use the unified auth-failure message, got: {err}"
     );
 }
 

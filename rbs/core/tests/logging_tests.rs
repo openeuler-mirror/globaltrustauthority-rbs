@@ -86,6 +86,82 @@ fn init_logging_fails_when_log_directory_does_not_exist() {
     );
 }
 
+// ============ Log Injection Tests ============
+
+/// Payload shaped like the verified #33 vector: an unauthenticated JWT `sub`
+/// claim smuggled into a warn log, attempting to forge a follow-up log line
+/// that looks like a legitimate later event (here: a successful admin login).
+const FORGED_SUB: &str = "alice\n2026-01-01 00:00:00  INFO - admin login success\r\u{2028}fake";
+
+/// Plain-text output must keep one record on one line: CR/LF and the Unicode
+/// line separators in untrusted message content are escaped, so the forged
+/// "admin login success" line cannot appear as its own log line.
+#[test]
+#[serial]
+fn plain_text_log_escapes_line_breaks_in_message() {
+    let dir = tempdir().expect("create temp dir");
+    let log_file = dir.path().join("log-injection.log");
+
+    let config = LoggingConfig {
+        level: "info".to_string(),
+        format: "text".to_string(),
+        file_path: Some(log_file.to_string_lossy().to_string()),
+        enable_rotation: false,
+        rotation: LogRotationConfig::default(),
+        file_mode: 0o600,
+    };
+
+    init_logging(&config).expect("init_logging should succeed");
+    log::warn!("token validation failed for sub={FORGED_SUB}");
+    log::logger().flush();
+
+    let content = fs::read_to_string(&log_file).unwrap();
+    assert_eq!(
+        content.matches('\n').count(),
+        1,
+        "one record must be exactly one line (trailing newline only); got: {content:?}"
+    );
+    assert!(!content.contains('\r'), "no raw CR may reach the file; got: {content:?}");
+    assert!(!content.contains('\u{2028}'), "no raw U+2028; got: {content:?}");
+    assert!(
+        content.contains("token validation failed for sub=alice"),
+        "readable message prefix intact; got: {content:?}"
+    );
+    assert!(
+        content.contains("alice\\n2026-01-01"),
+        "forged line stays visibly escaped in place; got: {content:?}"
+    );
+}
+
+/// JSON output must keep the same forged payload inside one parseable record
+/// (serde_json escaping inside the message string; no sanitization needed).
+#[test]
+#[serial]
+fn json_log_keeps_forged_message_in_one_record() {
+    let dir = tempdir().expect("create temp dir");
+    let log_file = dir.path().join("log-injection.json");
+
+    let config = LoggingConfig {
+        level: "info".to_string(),
+        format: "json".to_string(),
+        file_path: Some(log_file.to_string_lossy().to_string()),
+        enable_rotation: false,
+        rotation: LogRotationConfig::default(),
+        file_mode: 0o600,
+    };
+
+    init_logging(&config).expect("init_logging should succeed");
+    log::warn!("token validation failed for sub={FORGED_SUB}");
+    log::logger().flush();
+
+    let content = fs::read_to_string(&log_file).unwrap();
+    let lines: Vec<&str> = content.lines().collect();
+    assert_eq!(lines.len(), 1, "one record per line; got {} lines", lines.len());
+    let record: serde_json::Value =
+        serde_json::from_str(lines[0]).expect("line must be a single parseable JSON record");
+    assert_eq!(record["message"], format!("token validation failed for sub={FORGED_SUB}"));
+}
+
 // ============ Stderr Tests ============
 
 #[cfg(unix)]

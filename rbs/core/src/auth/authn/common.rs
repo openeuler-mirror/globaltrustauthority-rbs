@@ -187,6 +187,37 @@ pub fn validate_jwt_claims(
     Ok(())
 }
 
+/// Explicitly validate `exp` on a josekit-decoded JWT payload (ES512 paths).
+///
+/// josekit's `JwtPayloadValidator` only checks `exp` when the claim is present
+/// and reports expiry as a generic `InvalidClaim`, so presence and expiry are
+/// handled here — matching the jsonwebtoken paths' required-claims behavior —
+/// before iss/aud/nbf are delegated to the validator. The shared
+/// implementation keeps the Bearer and Attest ES512 paths from drifting apart.
+///
+/// Returns the pinned `now` used for the expiry comparison so the caller can
+/// pass the same clock read to `JwtPayloadValidator::set_base_time` (every
+/// time-based check then shares one timestamp).
+pub fn validate_josekit_exp(
+    label: &str,
+    payload: &josekit::jwt::JwtPayload,
+) -> Result<std::time::SystemTime, AuthError> {
+    let now = std::time::SystemTime::now();
+    match payload.expires_at() {
+        None => {
+            log::warn!("{} ES512 rejected: missing exp claim", label);
+            Err(AuthError::TokenInvalid {
+                reason: "missing exp claim".to_string(),
+            })
+        }
+        Some(exp) if exp <= now => {
+            log::warn!("{} ES512 rejected: token expired", label);
+            Err(AuthError::TokenExpired)
+        }
+        _ => Ok(now),
+    }
+}
+
 /// Map jsonwebtoken errors to AuthError with detailed messages.
 pub fn map_jwt_error(
     error: &jsonwebtoken::errors::Error,

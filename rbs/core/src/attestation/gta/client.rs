@@ -82,6 +82,28 @@ pub(super) struct GtaToken {
 
 // ── GtaError ────────────────────────────────────────────────────────────────
 
+/// Maximum number of upstream error-body bytes included in a single log
+/// line. The full body is still forwarded to the API client via
+/// [`RbsError::AttestationProviderError`]; only log output is truncated so
+/// upstream internals (e.g. Java stack traces, database errors) do not land
+/// verbatim in error-level logs. Matches the Vault adapter's minimum body
+/// cap granularity.
+const LOG_BODY_MAX_BYTES: usize = 1024;
+
+/// Truncate an upstream error body for logging.
+///
+/// Truncation is char-boundary safe and annotated with the original length.
+fn truncate_for_log(body: &str) -> std::borrow::Cow<'_, str> {
+    if body.len() <= LOG_BODY_MAX_BYTES {
+        return std::borrow::Cow::Borrowed(body);
+    }
+    let mut end = LOG_BODY_MAX_BYTES;
+    while end > 0 && !body.is_char_boundary(end) {
+        end -= 1;
+    }
+    std::borrow::Cow::Owned(format!("{}...[truncated; {} bytes total]", &body[..end], body.len()))
+}
+
 /// GTA REST API errors.
 #[derive(Debug)]
 pub(super) enum GtaError {
@@ -105,7 +127,9 @@ impl From<GtaError> for RbsError {
                 RbsError::ProviderTimeout
             }
             GtaError::ServerError { status, body } => {
-                log::error!("Attestation provider server error ({}): {}", status, body);
+                // Log a capped view; the full body still reaches the API
+                // client through AttestationProviderError below.
+                log::error!("Attestation provider server error ({}): {}", status, truncate_for_log(&body));
                 RbsError::AttestationProviderError { status, body }
             }
             GtaError::ParseError(context) => {
@@ -431,5 +455,50 @@ mod tests {
         .into();
         assert_eq!(err.http_status(), 500);
         assert_eq!(err.external_message(), "attestation provider error: HTTP 500");
+    }
+
+    /// Bodies within the cap are logged verbatim (no marker appended).
+    #[test]
+    fn truncate_for_log_keeps_short_bodies_verbatim() {
+        assert_eq!(truncate_for_log("short"), "short");
+        let exactly_cap = "y".repeat(LOG_BODY_MAX_BYTES);
+        assert_eq!(truncate_for_log(&exactly_cap).as_ref(), exactly_cap);
+    }
+
+    /// Bodies beyond the cap are cut at LOG_BODY_MAX_BYTES and annotated.
+    #[test]
+    fn truncate_for_log_caps_long_bodies_with_marker() {
+        let body = "x".repeat(5 * LOG_BODY_MAX_BYTES);
+        let truncated = truncate_for_log(&body);
+        assert!(truncated.starts_with(&"x".repeat(LOG_BODY_MAX_BYTES)));
+        assert!(truncated.contains(&format!("[truncated; {} bytes total]", body.len())));
+        assert!(truncated.len() < LOG_BODY_MAX_BYTES + 128);
+    }
+
+    /// Truncation lands on a UTF-8 char boundary even when the cap splits a
+    /// multi-byte character (slicing at a non-boundary would panic).
+    #[test]
+    fn truncate_for_log_is_char_boundary_safe() {
+        // '€' is 3 bytes; with a 1024-byte cap the cut lands mid-character.
+        let body = "€".repeat(2000);
+        let truncated = truncate_for_log(&body);
+        assert!(truncated.starts_with('€'));
+        assert!(truncated.ends_with(']'));
+    }
+
+    /// The log view is capped while the client-facing passthrough body stays
+    /// complete — truncation applies to logging only.
+    #[test]
+    fn long_error_body_is_truncated_in_logs_but_forwarded_in_full() {
+        let long_body = "S".repeat(4 * LOG_BODY_MAX_BYTES);
+        let err: RbsError = GtaError::ServerError { status: 502, body: long_body.clone() }.into();
+        match err {
+            RbsError::AttestationProviderError { status, body } => {
+                assert_eq!(status, 502);
+                assert_eq!(body.len(), long_body.len(), "passthrough body must remain complete");
+            },
+            other => panic!("expected AttestationProviderError, got {:?}", other),
+        }
+        assert!(truncate_for_log(&long_body).len() < LOG_BODY_MAX_BYTES + 128);
     }
 }

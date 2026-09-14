@@ -494,6 +494,10 @@ sequenceDiagram
     AdminM->>Repo: check whether users exist
     alt no users
         AdminM->>Repo: create preconfigured administrator
+        opt concurrent bootstrap won the race
+            AdminM-->>Main: ResourceConflict (username unique violation)
+            Main-->>Main: log "already bootstrapped", continue startup
+        end
     else users exist
         AdminM-->>Main: skip bootstrap
     end
@@ -523,7 +527,7 @@ sequenceDiagram
     REST-->>Admin: 200 JSON
 ```
 
-The administrator lifecycle begins with `bootstrap_admin()` at service startup. If no users exist in the database, RBS creates the initial administrator from configuration; if users already exist, bootstrap is skipped to avoid overwriting existing admin state. Subsequent user create, read, update, and delete operations enter `AdminManager` through REST admin APIs and access the user repository after authentication, role authorization, and lockout checks.
+The administrator lifecycle begins with `bootstrap_admin()` at service startup. If no users exist in the database, RBS creates the initial administrator from configuration; if users already exist, bootstrap is skipped to avoid overwriting existing admin state. The existence check and the insert are deliberately not wrapped in a transaction — the `username` unique constraint is the authoritative guard: when two processes bootstrap concurrently, the losing insert surfaces as `ResourceConflict`, which the `rbs` binary logs as an already-bootstrapped skip instead of failing startup. Subsequent user create, read, update, and delete operations enter `AdminManager` through REST admin APIs and access the user repository after authentication, role authorization, and lockout checks.
 
 ### 8.7 External Client Resource Access Summary
 

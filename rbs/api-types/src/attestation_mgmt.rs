@@ -233,7 +233,7 @@ pub enum PolicyDeleteType {
 pub struct RefValueDeleteRequest {
     /// Delete mode.
     pub delete_type: AttestationDeleteType,
-    /// IDs to delete (required when `delete_type` is `Id`; 1-10 IDs, each 1-36 chars).
+    /// IDs to delete (required when `delete_type` is `Id`; 1-10 IDs, each 1-36 chars, GTA-enforced).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ids: Option<Vec<String>>,
     /// Attester type filter (required when `delete_type` is `Type`); one of `tpm`, `tpm_ima`, `virt_cca`, `ascend_npu`, `cca`.
@@ -251,7 +251,7 @@ pub struct RefValueDeleteRequest {
 pub struct CertDeleteRequest {
     /// Delete mode.
     pub delete_type: AttestationDeleteType,
-    /// IDs to delete (required when `delete_type` is `Id`; at most 10 IDs).
+    /// IDs to delete (required when `delete_type` is `Id`; at most 10 IDs, GTA-enforced).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ids: Option<Vec<String>>,
     /// Cert type filter (required when `delete_type` is `Type`; JSON field name `type`); one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `crl`, `ascend_npu`.
@@ -269,7 +269,7 @@ pub struct CertDeleteRequest {
 pub struct PolicyDeleteRequest {
     /// Delete mode.
     pub delete_type: PolicyDeleteType,
-    /// IDs to delete (required when `delete_type` is `Id`; at most 10 IDs, each at most 36 chars).
+    /// IDs to delete (required when `delete_type` is `Id`; at most 10 IDs, each at most 36 chars, GTA-enforced).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ids: Option<Vec<String>>,
     /// Attester type filter (required when `delete_type` is `AttesterType`; at most 255 chars).

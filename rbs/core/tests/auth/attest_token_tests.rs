@@ -71,3 +71,60 @@ async fn test_attest_fail_017_malformed_format_rejected() {
     assert!(result.is_err());
     assert!(matches!(result, Err(AuthError::TokenInvalid { .. })));
 }
+
+// ===========================================================================
+// ES512 attest path (josekit) — regression coverage for the shared
+// `validate_josekit_exp` helper (see common.rs): exp presence and expiry are
+// enforced explicitly, identical to the Bearer ES512 path, and the returned
+// pinned clock is fed to set_base_time for the remaining time claims.
+// ===========================================================================
+
+/// Valid ES512 attest token is accepted (happy path for the josekit branch).
+#[tokio::test]
+async fn test_attest_es512_valid_token_accepted() {
+    let (pub_pem, priv_pem) = generate_ec_p521_keypair();
+    let verifier = make_attest_verifier(&pub_pem, "Global Trust Authority", Some("rbs"));
+    let claims = json!({
+        "iss": "Global Trust Authority",
+        "aud": "rbs",
+        "exp": now_secs() + 3600,
+    });
+    let token = sign_es512_jwt(&priv_pem, claims);
+    let result = verifier.verify(&token).await;
+    assert!(result.is_ok(), "valid ES512 attest token must verify: {:?}", result.err());
+}
+
+/// Expired ES512 attest token is rejected with TokenExpired — by the shared
+/// `validate_josekit_exp` check, identical to the Bearer ES512 path.
+#[tokio::test]
+async fn test_attest_es512_expired_token_rejected() {
+    let (pub_pem, priv_pem) = generate_ec_p521_keypair();
+    let verifier = make_attest_verifier(&pub_pem, "Global Trust Authority", Some("rbs"));
+    let claims = json!({
+        "iss": "Global Trust Authority",
+        "aud": "rbs",
+        "exp": now_secs() - 3600,
+    });
+    let token = sign_es512_jwt(&priv_pem, claims);
+    let result = verifier.verify(&token).await;
+    assert!(matches!(result, Err(AuthError::TokenExpired)), "got {:?}", result.err());
+}
+
+/// ES512 attest token without an exp claim is rejected (shared
+/// `validate_josekit_exp` presence check, before josekit validation).
+#[tokio::test]
+async fn test_attest_es512_missing_exp_rejected() {
+    let (pub_pem, priv_pem) = generate_ec_p521_keypair();
+    let verifier = make_attest_verifier(&pub_pem, "Global Trust Authority", Some("rbs"));
+    let claims = json!({
+        "iss": "Global Trust Authority",
+        "aud": "rbs",
+    });
+    let token = sign_es512_jwt(&priv_pem, claims);
+    let result = verifier.verify(&token).await;
+    assert!(
+        matches!(&result, Err(AuthError::TokenInvalid { reason }) if reason.contains("missing exp")),
+        "got {:?}",
+        result.err()
+    );
+}

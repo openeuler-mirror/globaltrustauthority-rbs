@@ -2,6 +2,7 @@ use std::sync::Arc;
 use sea_orm::*;
 use super::error::ResourceError;
 use crate::admin::entity as user_entity;
+use crate::infra::rdb::is_unique_violation;
 
 /// Resource entity stored in t_res_info.
 #[derive(Debug, Clone)]
@@ -62,6 +63,15 @@ impl ResourceRepository for SeaOrmResourceRepository {
         };
         sea_orm::ActiveModelTrait::insert(model, self.db.as_ref()).await
             .map_err(|e| {
+                if is_unique_violation(&e) {
+                    // The 4-column PK (URI) is the authoritative uniqueness guard.
+                    log::error!("resource insert denied: uri '{}/{}/{}/{}' already exists",
+                        entity.provider_name, entity.repo_name, entity.res_type, entity.res_name);
+                    return ResourceError::AlreadyExists {
+                        uri: format!("/rbs/v0/{}/{}/{}/{}",
+                            entity.provider_name, entity.repo_name, entity.res_type, entity.res_name),
+                    };
+                }
                 log::error!("resource db insert error: {e}");
                 ResourceError::BackendError { detail: e.to_string() }
             })?;
@@ -71,6 +81,8 @@ impl ResourceRepository for SeaOrmResourceRepository {
     async fn find_by_uri(&self, uri: &str) -> Result<Option<ResourceEntity>, ResourceError> {
         let (prov, repo, rtype, rname) = parse_uri(uri)?;
         use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+        // `.one()` is deterministic: the 4-column PK guarantees at most one row
+        // per URI regardless of the owning username.
         let model = entity::Entity::find()
             .filter(entity::Column::ProviderName.eq(prov))
             .filter(entity::Column::RepoName.eq(repo))
@@ -216,6 +228,12 @@ impl ResourceRepository for SeaOrmResourceRepository {
     /// writer, busy_timeout) the COUNT sees the latest committed state and cannot
     /// race with a concurrent same-user insert. Different users lock different
     /// rows, so cross-user concurrency is unaffected.
+    ///
+    /// Cross-user same-URI inserts are not serialized by the user-row lock; the
+    /// 4-column primary key on `(provider, repo, type, name)` is the
+    /// authoritative uniqueness guard for those — the in-transaction dup-check
+    /// above is only the fast path for the friendly error, and a racing insert
+    /// that slips past it is rejected by the PK with `AlreadyExists`.
     async fn create_with_user_limit_check(
         &self, uri: &str, entity: &ResourceEntity, max_per_user: usize,
     ) -> Result<(), ResourceError> {
@@ -299,6 +317,13 @@ impl ResourceRepository for SeaOrmResourceRepository {
             policy_id: sea_orm::Set(entity.policy_id.clone()),
         };
         sea_orm::ActiveModelTrait::insert(model, &txn).await.map_err(|e| {
+            if is_unique_violation(&e) {
+                // PK backstop: a cross-user create of the same URI raced past
+                // the dup-check above (per-user locks do not serialize
+                // different users). The 4-column PK rejects it here.
+                log::error!("resource create denied: uri '{}' taken concurrently", uri);
+                return ResourceError::AlreadyExists { uri: uri.to_string() };
+            }
             log::error!("resource db create insert error: {e}");
             ResourceError::BackendError { detail: e.to_string() }
         })?;
@@ -337,7 +362,9 @@ pub(crate) mod entity {
     #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
     #[sea_orm(table_name = "t_res_info")]
     pub struct Model {
-        #[sea_orm(primary_key, auto_increment = false)]
+        // Ownership attribute (creator/owner), not part of the primary key:
+        // the URI (provider/repo/type/res_name) is the row identity and is
+        // globally unique — see the 4-column PK in sqlite_rbs.sql.
         pub username: String,
         #[sea_orm(primary_key, auto_increment = false)]
         pub provider_name: String,
