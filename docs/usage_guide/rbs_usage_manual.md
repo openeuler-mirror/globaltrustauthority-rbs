@@ -35,10 +35,10 @@ command-line tool.
 | Item | Requirement |
 |---|---|
 | OS | Only openEuler 24.03 LTS (`x86_64` / `aarch64`); other distributions and macOS / Windows are not supported |
-| Privileges | The current user has `sudo` |
+| Privileges | The current user can run `sudo` (package install and service management need root) |
 | Build tools | `git`, a Rust toolchain (`cargo`/`rustc`, rustup recommended for a recent version), `gcc`/`g++`, `make`, `rpmbuild` |
 | Deployment host | `systemd` (the only external RPM dependency, normally present) |
-| Verification tools | `curl`, `openssl`, `python3`, `ss` (iproute) |
+| Verification tools | `curl`, `openssl`, `python3`, `ss` (socket statistics, from the `iproute` package) |
 | Disk | The first full build is slow and large; leave ≥ 10 GB each on the repo and `$HOME` filesystems |
 | Ports | `6666` (RBS) and `8080` (GTA, chapter 6) free |
 
@@ -47,7 +47,7 @@ command-line tool.
 | Chapter | Additional dependency |
 |---|---|
 | Chapters 6–8 (GTA) | A deployed GTA server (see chapter 6) |
-| Chapter 9 (OpenBao) | `docker` (install steps in step 0 of 9.1), port `8200` free |
+| Chapter 9 (OpenBao) | `docker` (install steps in [section 9.1](#91-start-openbao-and-pre-create-a-secret)), port `8200` free |
 | Chapter 10 (SoftHSM2) | the `softhsm` package |
 | Chapter 11 (XiPKI) | Java 11, the XiPKI installer ([releases](https://github.com/xipki/xipki)), ports `8082`/`8083`/`8444`/`9092` free |
 
@@ -59,7 +59,7 @@ for c in git cargo rustc gcc g++ make rpmbuild curl openssl python3 systemctl ss
   command -v "$c" >/dev/null 2>&1 && echo "[OK]      $c" || echo "[MISSING] $c"
 done
 
-# 2) Show the Rust version (if too old for Cargo.lock, reinstall via rustup per 0.4)
+# 2) Show the Rust version (must be >= 1.78; if lower, run the rustup commands in 0.4)
 rustc --version
 
 # 3) Check port usage ("all ports free" means pass)
@@ -70,8 +70,11 @@ ss -ltn | grep -E ':(6666|8080|8200|8082|8083|8444|9092) ' || echo "all ports fr
 
 ```bash
 sudo dnf install -y git cargo rust rpm-build rpmdevtools gcc gcc-c++ make curl openssl python3
-# If the distro cargo is too old for the workspace Cargo.lock, use rustup instead:
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh && source "$HOME/.cargo/env"
+
+# If Rust < 1.78, run ONE of the two commands below, then verify:
+rustup update stable    # try this first
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh && source "$HOME/.cargo/env"   # run this if "rustup: command not found"
+rustc --version   # verify: must show >= 1.78
 ```
 
 ---
@@ -197,10 +200,10 @@ verification (in production the latter must be the key GTA's attest tokens are s
 
 ```bash
 openssl genpkey -algorithm Ed25519 -out admin_private.pem
-openssl pkey -in admin_private.pem -pubout -out admin_public.pem
+openssl pkey -in admin_private.pem -pubout -out admin_pub.pem
 
 openssl genpkey -algorithm Ed25519 -out attest_private.pem
-openssl pkey -in attest_private.pem -pubout -out attest_public.pem
+openssl pkey -in attest_private.pem -pubout -out attest_pub.pem
 ```
 
 ### 4.2 Write the minimal configuration
@@ -233,7 +236,7 @@ storage:
 
 auth:
   attest_token:
-    public_key_path: "/etc/rbs/attest_public.pem"
+    public_key_path: "/etc/rbs/attest_pub.pem"
     issuer: "Global Trust Authority"
   bearer_token:
     issuer: "rbs-cli"
@@ -242,7 +245,7 @@ auth:
 admin:
   max_users: 10
   admin_key:
-    public_key_path: "/etc/rbs/admin_public.pem"
+    public_key_path: "/etc/rbs/admin_pub.pem"
 
 policy:
   max_per_user: 10
@@ -265,8 +268,8 @@ attestation:
 ### 4.3 Install the public keys, restart, and verify
 
 ```bash
-sudo install -m 644 admin_public.pem /etc/rbs/admin_public.pem
-sudo install -m 644 attest_public.pem /etc/rbs/attest_public.pem
+sudo install -m 644 admin_pub.pem /etc/rbs/admin_pub.pem
+sudo install -m 644 attest_pub.pem /etc/rbs/attest_pub.pem
 sudo systemctl restart rbs.service
 curl -sS http://127.0.0.1:6666/rbs/version   # a version response means success
 ```
@@ -283,9 +286,9 @@ all commands pass `-b http://127.0.0.1:6666`.
 
 ```bash
 # Sign with the admin private key from section 4 (use an absolute path if you changed directory)
-# The unset clears a stale empty value: an empty RBS_TOKEN makes rbs-cli fail with "value is empty"
-unset RBS_TOKEN
-export RBS_TOKEN="$(rbs-cli token gen --private-key-file admin_private.pem --role admin)"
+# The unset clears a stale empty value: an empty BEARER_TOKEN makes rbs-cli fail with "value is empty"
+unset BEARER_TOKEN
+export BEARER_TOKEN="$(rbs-cli token gen --private-key-file admin_private.pem --role admin)"
 ```
 
 > The token expires after 1 hour by default — just run it again. Other options: `rbs-cli token gen --help`.
@@ -298,7 +301,7 @@ openssl genpkey -algorithm Ed25519 -out alice_private.pem
 openssl pkey -in alice_private.pem -pubout -out alice_public.pem
 
 # 2) Create the user
-rbs-cli -b http://127.0.0.1:6666 -t "$RBS_TOKEN" \
+rbs-cli -b http://127.0.0.1:6666 -t "$BEARER_TOKEN" \
   user create \
   --username alice \
   --role user \
@@ -306,8 +309,8 @@ rbs-cli -b http://127.0.0.1:6666 -t "$RBS_TOKEN" \
   --public-key @alice_public.pem
 
 # 3) Query
-rbs-cli -b http://127.0.0.1:6666 -t "$RBS_TOKEN" user list --limit 20 --offset 0
-rbs-cli -b http://127.0.0.1:6666 -t "$RBS_TOKEN" user get --username alice
+rbs-cli -b http://127.0.0.1:6666 -t "$BEARER_TOKEN" user list --limit 20 --offset 0
+rbs-cli -b http://127.0.0.1:6666 -t "$BEARER_TOKEN" user get --username alice
 ```
 
 ### 5.3 Create and query resource policies
@@ -323,13 +326,13 @@ allow {
 EOF
 
 # 2) Create
-rbs-cli -b http://127.0.0.1:6666 -t "$RBS_TOKEN" \
+rbs-cli -b http://127.0.0.1:6666 -t "$BEARER_TOKEN" \
   res-policy create \
   --name allow-alice \
   --content @policy.rego
 
 # 3) Query
-rbs-cli -b http://127.0.0.1:6666 -t "$RBS_TOKEN" res-policy list
+rbs-cli -b http://127.0.0.1:6666 -t "$BEARER_TOKEN" res-policy list
 ```
 
 ### 5.4 Where to go next
@@ -355,13 +358,12 @@ Chinese at `docs/zh/`):
 
 | GTA doc | Purpose |
 |---|---|
-| [`GTA_Usage_Guidelines.md`](https://atomgit.com/openeuler/global-trust-authority/tree/master/docs/en/GTA_Usage_Guidelines.md) | Overall install-and-use guide: clone, configure, build/install (RPM or Docker). |
-| [`Attestation_Service_Image_Deployment_Guide.md`](https://atomgit.com/openeuler/global-trust-authority/tree/master/docs/en/Attestation_Service_Image_Deployment_Guide.md) | From-scratch server image deployment through endpoint verification. |
-| [`api_documentation.md`](https://atomgit.com/openeuler/global-trust-authority/tree/master/docs/en/api_documentation.md) | GTA REST API (challenge/attest/ref-value/cert/policy, etc.) — the endpoints RBS proxies. |
-| [`attestation_service.md`](https://atomgit.com/openeuler/global-trust-authority/tree/master/docs/en/attestation_service.md) | Server component overview and development notes. |
-| [`key_manager_install.md`](https://atomgit.com/openeuler/global-trust-authority/tree/master/docs/en/key_manager_install.md) | Key manager (OpenBao/KMS) install; needed only with GTA's `service_derived` key mode. |
-| [`Challenge_Request_Challenge_Response_Environment_Preparation.md`](https://atomgit.com/openeuler/global-trust-authority/tree/master/docs/en/Challenge_Request_Challenge_Response_Environment_Preparation.md) | Sample policy/baseline data prep (sections 8.3–8.5's ref-value/policy content). |
-| [`CLI_User_Guide.md`](https://atomgit.com/openeuler/global-trust-authority/tree/master/docs/en/CLI_User_Guide.md) | `attestation_cli` command guide: baseline/policy/cert management plus nonce retrieval and evidence collection (`attestation_cli evidence get`; feeds the attestation flow in chapter 8). |
+| [`server/user_guide.md`](https://atomgit.com/openeuler/global-trust-authority/tree/master/docs/en/server/user_guide.md) | attestation_service (server) install-and-use guide: clone, configure, build/install (RPM or Docker image), functional verification, and the TPM test materials (`attest_req.json` etc. — the sample data behind sections 8.3–8.5's ref-value/policy content). |
+| [`server/developer_guide.md`](https://atomgit.com/openeuler/global-trust-authority/tree/master/docs/en/server/developer_guide.md) | Server component design and the GTA REST API (challenge/attest/ref-value/cert/policy, etc.) — the endpoints RBS proxies. |
+| [`client/user_guide.md`](https://atomgit.com/openeuler/global-trust-authority/tree/master/docs/en/client/user_guide.md) | attestation_agent (client) guide — the agent deployed on each attested node (chapter 7's prerequisite). |
+| [`cli/user_guide.md`](https://atomgit.com/openeuler/global-trust-authority/tree/master/docs/en/cli/user_guide.md) | `attestation_cli` command guide: baseline/policy/cert management plus nonce retrieval and evidence collection (`attestation_cli evidence get`; feeds the attestation flow in chapter 8). |
+| [`keymanager/user_guide.md`](https://atomgit.com/openeuler/global-trust-authority/tree/master/docs/en/keymanager/user_guide.md) | Key manager (OpenBao/KMS) install; needed only with GTA's `service_derived` key mode. |
+| [`architecture.md`](https://atomgit.com/openeuler/global-trust-authority/tree/master/docs/en/architecture.md) | Overall GTA architecture and component interactions. |
 
 Then point RBS at the deployed GTA in `rbs.yaml`:
 
@@ -414,6 +416,24 @@ sudo systemctl restart rbs.service
 curl -sS http://127.0.0.1:6666/rbs/version
 ```
 
+> **Required**: verify GTA's `/attest` service API yourself before continuing to chapters 7–8 —
+> section 8.2's `client get-token --evidence` calls this same interface via RBS and fails
+> otherwise. Use the values from the `attestation.backends.gta` config above (`User-Id` =
+> `credentials.user_id`, URL = `base_url`); the `User-Id` header is mandatory (1–36 chars,
+> alphanumeric/`-`/`_`):
+>
+> ```bash
+> curl -sS -X POST -H "Content-Type: application/json" \
+>   -H "User-Id: rbs-service" \
+>   -d @attest_req.json \
+>   https://<gta-host>:<gta-port>/global-trust-authority/service/v1/attest
+> ```
+>
+> Pass: HTTP `200` with `{"tokens":[{"token":"<JWT>"}]}` (decoded JWT: `"status":"pass"`).
+> `attest_req.json`: evidence body from GTA's TPM test materials — see the
+> functional-verification section of GTA's
+> [server user guide](https://atomgit.com/openeuler/global-trust-authority/tree/master/docs/en/server/user_guide.md).
+
 > The attestation-management commands in sections 8.3–8.5 are proxied by RBS to GTA. They add
 > GTA's `User-Id` header, and (when `api_key_auth: true`) the `API-Key` headers, then return GTA's
 > data through RBS's own endpoints.
@@ -429,8 +449,8 @@ directly; RBS is not in this path).
 Prerequisites:
 
 - GTA integration done (chapter 6)
-- The attestation agent (a GTA-side component — see the
-  [GTA docs](https://atomgit.com/openeuler/global-trust-authority/tree/master/docs)) is installed
+- The attestation agent (a GTA-side component — see the GTA
+  [attestation_agent user guide](https://atomgit.com/openeuler/global-trust-authority/tree/master/docs/en/client/user_guide.md)) is installed
   locally, config defaulting to `/etc/attestation_agent/agent_config.yaml`
 - An attester key pair exists (in production it comes from the real TEE; for local testing, create
   your own. Keep the private key — it decrypts JWE resource payloads later):
@@ -534,7 +554,7 @@ cat > rv.json <<'EOF'
 EOF
 
 # 2) Create the baseline (the CLI Base64-encodes the JSON file automatically)
-rbs-cli -b http://127.0.0.1:6666 -t "$RBS_TOKEN" \
+rbs-cli -b http://127.0.0.1:6666 -t "$BEARER_TOKEN" \
   ref-value create \
   --name tpm-baseline \
   --attester-type tpm_ima \
@@ -542,7 +562,7 @@ rbs-cli -b http://127.0.0.1:6666 -t "$RBS_TOKEN" \
   --content @rv.json
 
 # 3) Query
-rbs-cli -b http://127.0.0.1:6666 -t "$RBS_TOKEN" ref-value list
+rbs-cli -b http://127.0.0.1:6666 -t "$BEARER_TOKEN" ref-value list
 ```
 
 `--attester-type` accepts `tpm`, `tpm_ima`, `virt_cca`, `ascend_npu`, `cca`.
@@ -570,7 +590,7 @@ result = { "policy_matched": attestation_valid }
 EOF
 
 # 2) Create the policy (text content is provided as raw text and Base64-encoded by the CLI)
-rbs-cli -b http://127.0.0.1:6666 -t "$RBS_TOKEN" \
+rbs-cli -b http://127.0.0.1:6666 -t "$BEARER_TOKEN" \
   policy create \
   --name allow-tpm-ima \
   --attester-type tpm_ima \
@@ -578,13 +598,12 @@ rbs-cli -b http://127.0.0.1:6666 -t "$RBS_TOKEN" \
   --content @attest_policy.rego
 
 # 3) Query
-rbs-cli -b http://127.0.0.1:6666 -t "$RBS_TOKEN" policy list
-rbs-cli -b http://127.0.0.1:6666 -t "$RBS_TOKEN" policy get --id <ID>
+rbs-cli -b http://127.0.0.1:6666 -t "$BEARER_TOKEN" policy list
+rbs-cli -b http://127.0.0.1:6666 -t "$BEARER_TOKEN" policy get --id <ID>
 ```
 
-Complete policy samples for each attester type (tpm/tpm_ima/virt_cca/…) are available in the
-GTA document
-[`Challenge_Request_Challenge_Response_Environment_Preparation.md`](https://atomgit.com/openeuler/global-trust-authority/tree/master/docs/en/Challenge_Request_Challenge_Response_Environment_Preparation.md).
+Complete policy samples for each attester type (tpm/tpm_ima/virt_cca/…) are available in the GTA
+[server user guide](https://atomgit.com/openeuler/global-trust-authority/tree/master/docs/en/server/user_guide.md).
 
 ### 8.5 Certificates and CRLs (`cert`)
 
@@ -595,15 +614,15 @@ openssl req -new -x509 -newkey rsa:2048 -nodes -days 365 \
   -keyout /dev/null -out ak-cert.pem -subj "/CN=test-ak"
 
 # Upload a TPM certificate.
-rbs-cli -b http://127.0.0.1:6666 -t "$RBS_TOKEN" \
+rbs-cli -b http://127.0.0.1:6666 -t "$BEARER_TOKEN" \
   cert create \
   --name tpm-ak-cert \
   --type tpm \
   --content @ak-cert.pem
 
 # Query certificates.
-rbs-cli -b http://127.0.0.1:6666 -t "$RBS_TOKEN" cert list
-rbs-cli -b http://127.0.0.1:6666 -t "$RBS_TOKEN" cert get --id <ID>
+rbs-cli -b http://127.0.0.1:6666 -t "$BEARER_TOKEN" cert list
+rbs-cli -b http://127.0.0.1:6666 -t "$BEARER_TOKEN" cert get --id <ID>
 ```
 
 `cert`'s `--type` accepts `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `ascend_npu`, or
@@ -697,21 +716,21 @@ allow { true }
 result = {"policy_matched": allow}
 EOF
 
-rbs-cli -b http://127.0.0.1:6666 -t "$RBS_TOKEN" \
+rbs-cli -b http://127.0.0.1:6666 -t "$BEARER_TOKEN" \
   res-policy create \
   --name vault-policy \
   --content @vault_res_policy.rego
 export POLICY_ID="<the returned policy_id>"
 
 # 2) Register the resource (RBS only checks the secret pre-created in 9.1 exists; writes nothing)
-rbs-cli -b http://127.0.0.1:6666 -t "$RBS_TOKEN" \
+rbs-cli -b http://127.0.0.1:6666 -t "$BEARER_TOKEN" \
   res create \
   --uri vault/default/secret/mykey \
   --policy-id "$POLICY_ID" \
   --content-type json
 
 # 3) Query metadata (reads the RBS DB only; OpenBao is not contacted)
-rbs-cli -b http://127.0.0.1:6666 -t "$RBS_TOKEN" \
+rbs-cli -b http://127.0.0.1:6666 -t "$BEARER_TOKEN" \
   res get-res-info --uri vault/default/secret/mykey
 ```
 
@@ -747,17 +766,17 @@ rbs-cli -b http://127.0.0.1:6666 \
 ```bash
 # 1) Update: changes RBS DB metadata only (e.g. content_type); the secret in OpenBao
 #    is untouched
-rbs-cli -b http://127.0.0.1:6666 -t "$RBS_TOKEN" \
+rbs-cli -b http://127.0.0.1:6666 -t "$BEARER_TOKEN" \
   res update --uri vault/default/secret/mykey \
   --policy-id "$POLICY_ID" --content-type text
 
 # 2) Delete: removes only the RBS DB record; the secret stays in OpenBao and can be
 #    re-registered with another create
-rbs-cli -b http://127.0.0.1:6666 -t "$RBS_TOKEN" \
+rbs-cli -b http://127.0.0.1:6666 -t "$BEARER_TOKEN" \
   res delete --uri vault/default/secret/mykey
 
 # 3) Clean up the resource policy
-rbs-cli -b http://127.0.0.1:6666 -t "$RBS_TOKEN" \
+rbs-cli -b http://127.0.0.1:6666 -t "$BEARER_TOKEN" \
   res-policy delete --id "$POLICY_ID"
 ```
 
@@ -848,7 +867,7 @@ sudo grep -iE 'hsm|slot' /var/log/rbs/rbs.log | tail -5
 ### 10.3 Create a resource policy and write key material
 
 ```bash
-# 1) Create a resource policy (reuses RBS_TOKEN from chapter 5)
+# 1) Create a resource policy (reuses BEARER_TOKEN from chapter 5)
 cat > hsm_res_policy.rego <<'EOF'
 package verification
 
@@ -857,7 +876,7 @@ allow { true }
 result = {"policy_matched": allow}
 EOF
 
-rbs-cli -b http://127.0.0.1:6666 -t "$RBS_TOKEN" \
+rbs-cli -b http://127.0.0.1:6666 -t "$BEARER_TOKEN" \
   res-policy create \
   --name hsm-policy \
   --content @hsm_res_policy.rego
@@ -868,7 +887,7 @@ head -c 32 /dev/urandom | base64 > keymat.b64
 
 # 3) Write into the HSM (creates a CKO_DATA object in the token, label default/key/mykey;
 #    --content also accepts binary files - the CLI Base64-encodes them automatically)
-rbs-cli -b http://127.0.0.1:6666 -t "$RBS_TOKEN" \
+rbs-cli -b http://127.0.0.1:6666 -t "$BEARER_TOKEN" \
   res create \
   --uri hsm/default/key/mykey \
   --policy-id "$POLICY_ID" \
@@ -876,7 +895,7 @@ rbs-cli -b http://127.0.0.1:6666 -t "$RBS_TOKEN" \
   --content @keymat.b64
 
 # 4) Query metadata (reads the RBS DB; the HSM is not contacted)
-rbs-cli -b http://127.0.0.1:6666 -t "$RBS_TOKEN" \
+rbs-cli -b http://127.0.0.1:6666 -t "$BEARER_TOKEN" \
   res get-res-info --uri hsm/default/key/mykey
 ```
 
@@ -915,17 +934,17 @@ head -c 32 /dev/urandom | base64 > newkeymat.b64
 
 # 2) Update: with --content it overwrites the object value in the token; without it only
 #    the RBS DB metadata changes
-rbs-cli -b http://127.0.0.1:6666 -t "$RBS_TOKEN" \
+rbs-cli -b http://127.0.0.1:6666 -t "$BEARER_TOKEN" \
   res update --uri hsm/default/key/mykey \
   --content-type binary --content @newkeymat.b64
 
 # 3) Destroy: actually deletes the PKCS#11 object (label default/key/mykey) in the token
 #    and the RBS DB record; irreversible - double-check before deleting
-rbs-cli -b http://127.0.0.1:6666 -t "$RBS_TOKEN" \
+rbs-cli -b http://127.0.0.1:6666 -t "$BEARER_TOKEN" \
   res delete --uri hsm/default/key/mykey
 
 # 4) Clean up the resource policy
-rbs-cli -b http://127.0.0.1:6666 -t "$RBS_TOKEN" \
+rbs-cli -b http://127.0.0.1:6666 -t "$BEARER_TOKEN" \
   res-policy delete --id "$POLICY_ID"
 ```
 
@@ -1051,7 +1070,7 @@ sudo grep -i "CA backend" /var/log/rbs/rbs.log | tail -3
 ### 11.4 Create a resource policy and register the CA resource
 
 ```bash
-# 1) Create a resource policy (reuses RBS_TOKEN from chapter 5)
+# 1) Create a resource policy (reuses BEARER_TOKEN from chapter 5)
 cat > ca_res_policy.rego <<'EOF'
 package verification
 
@@ -1060,17 +1079,17 @@ allow { true }
 result = {"policy_matched": allow}
 EOF
 
-rbs-cli -b http://127.0.0.1:6666 -t "$RBS_TOKEN" \
+rbs-cli -b http://127.0.0.1:6666 -t "$BEARER_TOKEN" \
   res-policy create --name ca-policy --content @ca_res_policy.rego
 export POLICY_ID="<the returned policy_id>"
 
 # 2) Register the CA resource (metadata only; no request to the CA)
-rbs-cli -b http://127.0.0.1:6666 -t "$RBS_TOKEN" \
+rbs-cli -b http://127.0.0.1:6666 -t "$BEARER_TOKEN" \
   res create --uri ca/default/cert/mycert \
   --policy-id "$POLICY_ID" --content-type binary
 
 # 3) Query metadata (reads the RBS DB; the CA is not contacted)
-rbs-cli -b http://127.0.0.1:6666 -t "$RBS_TOKEN" \
+rbs-cli -b http://127.0.0.1:6666 -t "$BEARER_TOKEN" \
   res get-res-info --uri ca/default/cert/mycert
 ```
 
@@ -1127,17 +1146,17 @@ diff <(openssl x509 -in issued-cert.der -inform der -noout -pubkey) \
 
 ```bash
 # Update (DB metadata only; the CA is untouched)
-rbs-cli -b http://127.0.0.1:6666 -t "$RBS_TOKEN" \
+rbs-cli -b http://127.0.0.1:6666 -t "$BEARER_TOKEN" \
   res update --uri ca/default/cert/mycert \
   --policy-id "$POLICY_ID" --content-type text
 
 # Delete (removes only the DB record; issued certificates remain on the CA - revoke through
 # the CA's own process)
-rbs-cli -b http://127.0.0.1:6666 -t "$RBS_TOKEN" \
+rbs-cli -b http://127.0.0.1:6666 -t "$BEARER_TOKEN" \
   res delete --uri ca/default/cert/mycert
 
 # Clean up the resource policy
-rbs-cli -b http://127.0.0.1:6666 -t "$RBS_TOKEN" \
+rbs-cli -b http://127.0.0.1:6666 -t "$BEARER_TOKEN" \
   res-policy delete --id "$POLICY_ID"
 ```
 

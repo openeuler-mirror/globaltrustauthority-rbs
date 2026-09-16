@@ -41,7 +41,7 @@ Column meanings:
 | `rest.listen_backlog` | `128` | optional | TCP accept queue size, ≤ 65535. |
 | `rest.request_timeout_secs` | `60` | optional | Max time to read a request and write a response, `1..=3600`. Note: **`0` is rejected at startup**, not "no limit". |
 | `rest.shutdown_timeout_secs` | `30` | optional | Graceful-shutdown wait for in-flight requests, `1..=300`. |
-| `rest.https.enabled` | `false` | optional | Enable TLS. If `true`, `cert_file`/`key_file` must be non-empty valid PEM files, or the service refuses to start. |
+| `rest.https.enabled` | `true` | optional | Enable TLS. If `true`, `cert_file`/`key_file` must be non-empty valid PEM files, or the service refuses to start. |
 | `rest.https.cert_file` | — | conditional | Server certificate PEM path; required non-empty when `https.enabled: true`. |
 | `rest.https.key_file` | — | conditional | Server private-key PEM path; required non-empty when `https.enabled: true`. |
 | `rest.rate_limit.enabled` | `false` | optional | Per-IP rate limiting. The rate-limit code is compiled in by default; setting this to `true` enables it. |
