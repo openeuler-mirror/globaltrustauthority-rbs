@@ -120,7 +120,7 @@ name a key present in `backends`, or startup fails.
 | `attestation.backends.<name>.mode` | `rest` | optional | `rest` (GTA REST) or `builtin`. |
 | `.rest.base_url` | — | conditional | GTA base URL; required non-empty for `mode: rest`. |
 | `.rest.timeout_secs` | `30` | optional | Request timeout, ≤ 3600. |
-| `.rest.retries` | `3` | optional | Retry count, ≤ 100. |
+| `.rest.retries` | `3` | optional | Retry count for **runtime attestation calls** (`GET /challenge`, `POST /attest`), ≤ 100: GTA 5xx responses and transport errors (incl. timeouts) are retried with a fixed 5 s interval. Management proxy calls (`/rbs/v0/attestation/...` ref_value/cert/policy CRUD) are **never retried** — writes are not idempotent; failures surface to the caller for manual verification. |
 | `.rest.tls_verify` | `true` | optional | Verify GTA's server certificate (one-way TLS, the default; `false` disables verification — test only). |
 | `.rest.ca_file` | — | optional | Custom CA bundle for one-way TLS verification; empty = system default. |
 | `.rest.client_cert_path` | — | conditional | mTLS client certificate PEM; required together with `client_key_path` when using mTLS (one-way TLS needs neither). |
@@ -184,4 +184,14 @@ Each backend selects its type with `type`: `vault`, `hsm`, or `ca`.
 
 ## 9. Supported JWT algorithms
 
-For both bearer and attest tokens: `PS256`, `PS384`, `PS512`, `ES256`, `ES384`, `ES512`, `EdDSA`.
+For both bearer and attest tokens: `PS256`, `PS384`, `PS512`, `ES256`, `ES384`, `ES512`, `EdDSA`, `SM2`.
+
+Any other `alg` value is rejected with `unsupported algorithm` before signature verification — in particular `RS256`/`RS384`/`RS512` and all HMAC variants (`HS256`/`HS384`/`HS512`) are not accepted.
+
+Verification is dispatched per algorithm family:
+
+| Algorithms | Verification path |
+|---|---|
+| `PS256`, `PS384`, `PS512`, `ES256`, `ES384`, `EdDSA` | `jsonwebtoken` crate |
+| `ES512` | Dedicated `josekit` path |
+| `SM2` | Vendored OpenSSL — SM2 ECDSA over the SM3 digest (GM/T 0003); the GM/T 0009 default user ID `1234567812345678` is pinned because OpenSSL ≥ 3.5 no longer applies it implicitly |

@@ -672,7 +672,7 @@ pub struct CaConfig {
     /// default a profile for p10cr requests).
     #[serde(default)]
     pub cert_profile: String,
-    /// Allowed resource types served by this backend (e.g. ["certificate", "cert"]).
+    /// Allowed resource types served by this backend (only `["cert"]` is valid).
     pub allowed_resource_types: Vec<String>,
     /// Maximum accepted response body size in bytes (default: 1 MiB).
     #[serde(default = "default_max_response_bytes")]

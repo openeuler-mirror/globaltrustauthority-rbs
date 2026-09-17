@@ -454,10 +454,12 @@ rbs-cli -b http://127.0.0.1:6666 \
 - The attest token is then used against resource-bound endpoints.
 - Manually collecting evidence and posting it to the `/attest` endpoint is covered in chapter 8.
 
-**`--attester-pubkey` constraints**: accepts a PEM public key/certificate or a JWK JSON, but
-**only RSA (≥ 4096 bits) and EC P-256/P-384/P-521 are supported** — Ed25519/Ed448, other curves,
-and undersized keys are rejected client-side (e.g. `RSA key is 2048 bits, minimum required is
-4096 bits`). The key is placed into `runtime_data.tee-pubkey` for RBS's JWE **encryption**
+**`--attester-pubkey` constraints**: accepts a PEM public key/certificate or a JWK JSON; in
+**both forms only RSA (≥ 4096 bits) and EC P-256/P-384/P-521 are supported** — Ed25519/Ed448,
+other curves, undersized keys, and **SM2 keys are rejected client-side** (e.g. `RSA key is 2048
+bits, minimum required is 4096 bits`). SM2 keys are for **signing** only and can never receive
+JWE-encrypted content (RBS's envelope targets RSA/EC only), so both the PEM and the JWK input
+paths refuse them. The key is placed into `runtime_data.tee-pubkey` for RBS's JWE **encryption**
 (not signing).
 
 **JWK shapes for `tee-pubkey` / the Bearer token's `enc-pubkey`** (both feed the same
@@ -465,7 +467,7 @@ server-side JWE encryption path):
 
 | Shape | Constraints |
 |---|---|
-| Bare public key (key parameters only — EC: `kty`/`crv`/`x`/`y`, RSA: `kty`/`n`/`e`) | Always accepted |
+| Bare public key (key parameters only — EC: `kty`/`crv`/`x`/`y`, RSA: `kty`/`n`/`e`) | Accepted for RSA/EC on the supported curves; `sm2p256v1` is rejected (no SM2 JWE support) |
 | With metadata | `use` must be `enc`; `alg` must exactly match the algorithm RBS encrypts with (EC: `ECDH-ES+A256KW`, RSA: `RSA-OAEP-256` — `RSA-OAEP-384`/`RSA-OAEP-512` are rejected); if `key_ops` is present, RSA must include `encrypt` and EC `deriveKey` |
 
 Violations return `400 JWE encryption failed: ... Invalid key format: A parameter ...`.

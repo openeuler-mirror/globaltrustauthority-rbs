@@ -25,10 +25,10 @@ RBC handles the full attestation lifecycle: collecting hardware evidence, exchan
 
 - **Dual language interface**: Native Rust API and a C FFI with a cbindgen-generated header (`rbc.h`), usable from C, C++, Go, Python, and other languages via FFI.
 - **Pluggable evidence provider**: currently supports `native` mode (collects TEE evidence locally via `attestation_client`). The `EvidenceProvider` trait is available as an extension point for custom implementations.
-- **Two token provider modes**: `rbs` (attests with RBS to obtain a token) or `native` (reads a pre-existing token from a local agent).
+- **Two token provider modes**: `rbs` (submits the session's evidence to RBS's `/attest` endpoint to obtain a token) or `native` (obtains a token from the local attestation agent, which runs the full challenge → evidence → token attestation flow).
 - **Two resource retrieval modes**: by attestation token (`ByAttestToken`) or direct pull-by-evidence (`ByEvidence`).
-- **Two key management modes**: RBC auto-generates an ephemeral TEE key pair per session, or the caller supplies its own `tee_pubkey` (caller-managed mode).
-- **JWE end-to-end encryption**: resource content is encrypted by RBS using the TEE public key. Supported algorithms: RSA-OAEP-256 (4096-bit) and ECDH-ES+A256KW (P-256/P-384/P-521), content encryption A256GCM.
+- **Two key management modes**: RBC auto-generates an ephemeral TEE key pair per session, or the caller supplies its own `tee-pubkey` (caller-managed mode; the key must be inserted into `attester_data.runtime_data["tee-pubkey"]` as a JWK — RSA/EC only, SM2 keys are rejected because the JWE envelope cannot target them).
+- **JWE end-to-end encryption**: resource content is encrypted by RBS using the TEE public key. Supported algorithms: RSA-OAEP-256 (4096-bit) and ECDH-ES+A256KW (P-256/P-384/P-521), content encryption A256GCM. Auto-generated TEE keys always carry exactly these algorithms; a caller-supplied `tee-pubkey` must either omit `alg` or declare one of these as well — `RSA-OAEP-384`/`RSA-OAEP-512` are rejected by RBS at JWE time, so RBC refuses them up front.
 - **Sensitive data zeroization**: resource content and private keys are zeroed in memory on drop via the `zeroize` crate.
 
 ---
@@ -43,14 +43,14 @@ rbc/
 │   ├── client/                  # RBS REST client (reqwest-based HTTP)
 │   ├── evidence/                # EvidenceProvider trait and implementations
 │   ├── token/                   # TokenProvider trait and implementations
-│   ├── tools/                   # TEE ephemeral key pair (RSA/EC) + JWE encrypt/decrypt        
+│   ├── tools/                   # TEE ephemeral key pair (RSA/EC) + JWE encrypt/decrypt
 │   ├── ffi/                     # C FFI layer (functions exported to rbc.h)
 │   ├── error.rs                 # RbcError unified error type
 │   └── lib.rs                   # Crate root and public re-exports
 ├── include/
 │   └── rbc.h                    # Auto-generated C header (do not edit manually)
-├── examples/                    # Complete C usage example           
-├── tests/                      
+├── examples/                    # Complete C usage example
+├── tests/                       # Integration tests and test data
 ├── conf/
 │   └── rbc.yaml                 # Default configuration template
 ├── build.rs                     # Triggers cbindgen to regenerate rbc.h on every build
@@ -135,7 +135,7 @@ let config = Config::builder()
         rest: {
             let mut m = serde_json::Map::new();
             m.insert("config_path".to_string(),
-                     serde_json::json!("/etc/gta/agent_config.yaml"));
+                     serde_json::json!("/etc/attestation_agent/agent_config.yaml"));
             m
         },
     }])
@@ -183,9 +183,9 @@ Each entry in the list describes one provider. RBC uses the **first entry with `
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `type` | `rbs` \| `native` | **required** | `rbs`: obtains a token by attesting with RBS; `native`: reads a token from a local agent |
+| `type` | `rbs` \| `native` | **required** | `rbs`: submits the session's evidence to RBS (`POST /rbs/v0/attest`) and returns the token; `native`: obtains a token from the local attestation agent, which runs the full challenge → evidence → token attestation flow |
 | `enabled` | bool | `true` | Set to `false` to skip this entry |
-| `config_path` | string | — | *(native mode only)* Path to the local agent config file |
+| `config_path` | string | `/etc/attestation_agent/agent_config.yaml` | Path to the attestation agent config file; used by both provider types (agent credentials such as User-Id / API-Key) |
 
 ### 5.5 Complete `rbc.yaml` Example
 
@@ -208,18 +208,18 @@ rbs:
 evidence_provider:
   - type: native
     enabled: true
-    config_path: /etc/gta/agent_config.yaml
+    config_path: /etc/attestation_agent/agent_config.yaml
 
 # Token providers: first entry with enabled: true is used
 # Toggle enabled flags to switch between providers without removing configuration
 token_provider:
   - type: rbs
     enabled: true
-    config_path: /etc/gta/agent_config.yaml
+    config_path: /etc/attestation_agent/agent_config.yaml
 
   - type: native
     enabled: false
-    config_path: /etc/gta/agent_config.yaml
+    config_path: /etc/attestation_agent/agent_config.yaml
 ```
 
 ---
@@ -320,7 +320,53 @@ void RbcLastErrorClear(void);
 
 #### 6.2.4 Function Reference
 
-For the complete function list and signatures, refer to [`rbc/include/rbc.h`](../../rbc/include/rbc.h). The header is auto-generated on every build and is always in sync with the implementation.
+The complete export set (21 functions), grouped by role. Exact C signatures: [`rbc/include/rbc.h`](../../rbc/include/rbc.h) — the header is auto-generated on every build and is always in sync with the implementation.
+
+**Client lifecycle**
+
+| Function | Purpose |
+|---|---|
+| `RbcClientNewFromFile(config_path, &out_client)` | Create a client from a YAML config file on disk |
+| `RbcClientNewFromYaml(yaml, &out_client)` | Create a client from an in-memory YAML string (same config schema, no disk file) |
+| `RbcGetAuthChallenge(client, &out_nonce)` | Fetch an authentication challenge; caller frees the nonce string with `RbcStringFree` |
+| `RbcClientFree(&client)` | Destroy a client handle |
+
+**Session lifecycle and attestation**
+
+| Function | Purpose |
+|---|---|
+| `RbcSessionNew(client, attester_data_json, &out_session)` | Begin a session; `attester_data_json` may be NULL, and a `runtime_data.tee-pubkey` inside it selects caller-managed key mode |
+| `RbcSessionCollectEvidence(session, nonce, &out_evidence_json)` | Collect evidence for a nonce; caller frees the JSON string |
+| `RbcSessionAttest(session, evidence_json, &out_token)` | Exchange evidence for an attest token; caller frees the token string |
+| `RbcSessionGetResourceByToken(session, uri, token, &out_resource)` | Fetch a resource with a previously-obtained attest token |
+| `RbcSessionGetResourceByEvidence(session, uri, evidence_json, &out_resource)` | Fetch a resource directly from an evidence bundle (pull-by-evidence mode; no separate attest step) |
+| `RbcSessionDecryptContent(session, jwe, private_key_pem, passphrase, passphrase_len, &out_buffer)` | Decrypt a JWE token with the session key or an explicit private key (see §6.2.2) |
+| `RbcSessionFree(&session)` | Destroy a session handle (embedded ephemeral key is zeroized) |
+
+**Resource accessors**
+
+| Function | Purpose |
+|---|---|
+| `RbcResourceGetUri(resource)` | Borrow the URI (valid until `RbcResourceFree`) |
+| `RbcResourceGetContentType(resource)` | Borrow the content type (may be NULL) |
+| `RbcResourceGetContent(resource, &out_len)` | Borrow the raw content bytes |
+| `RbcResourceFree(&resource)` | Destroy a resource handle |
+
+**Buffer and string ownership**
+
+| Function | Purpose |
+|---|---|
+| `RbcBufferLen(buffer)` | Byte length of an opaque buffer |
+| `RbcBufferData(buffer)` | Borrow the buffer's bytes (valid until `RbcBufferFree`) |
+| `RbcBufferFree(&buffer)` | Destroy a buffer handle (contents zeroized) |
+| `RbcStringFree(s)` | Free and zeroize a string returned by an RBC function |
+
+**Error handling**
+
+| Function | Purpose |
+|---|---|
+| `RbcLastErrorMessage()` | Last error message on the current thread (borrowed; do not free) |
+| `RbcLastErrorClear()` | Clear the current thread's error slot |
 
 ---
 
@@ -397,7 +443,7 @@ rbc-cli collect-evidence [OPTIONS] \
 |---|---|---|---|
 | `--agent-config <AGENT_CONFIG>` | No | `/etc/attestation_agent/agent_config.yaml` | Path to the attestation agent config file. |
 | `--nonce <NONCE>` | Yes | none | Nonce to embed in collected evidence. Supports inline input or `@file`. |
-| `--attester-pubkey <ATTESTER_PUBKEY>` | Yes | none | Attester public key used to populate `tee-pubkey` in runtime data. Supports inline input or `@file`. |
+| `--attester-pubkey <ATTESTER_PUBKEY>` | Yes | none | Attester public key used to populate `tee-pubkey` in runtime data. PEM or JWK; RSA (≥ 4096 bits) or EC P-256/P-384/P-521 only — SM2 is rejected (signing-only). Supports inline input or `@file`. |
 | `--attester-data <ATTESTER_DATA>` | No | unset | Attester-data JSON or `@file` path merged into the request. |
 | `--runtime-data <RUNTIME_DATA>` | No | repeatable | Runtime data entry in `key=value` form. Repeat to add multiple entries. |
 
@@ -460,7 +506,7 @@ rbc-cli get-token [OPTIONS] --attester-pubkey <ATTESTER_PUBKEY>
 | Option | Required | Default | Meaning / Notes |
 |---|---|---|---|
 | `--agent-config <AGENT_CONFIG>` | No | `/etc/attestation_agent/agent_config.yaml` | Path to the attestation agent config file. |
-| `--attester-pubkey <ATTESTER_PUBKEY>` | Yes | none | Attester public key used to populate `tee-pubkey` in runtime data. Supports inline input or `@file`. |
+| `--attester-pubkey <ATTESTER_PUBKEY>` | Yes | none | Attester public key used to populate `tee-pubkey` in runtime data. PEM or JWK; RSA (≥ 4096 bits) or EC P-256/P-384/P-521 only — SM2 is rejected (signing-only). Supports inline input or `@file`. |
 | `--attester-data <ATTESTER_DATA>` | No | unset | Attester-data JSON or `@file` path merged into the request. |
 | `--runtime-data <RUNTIME_DATA>` | No | repeatable | Runtime data entry in `key=value` form. Repeat to add multiple entries. |
 | `--evidence <EVIDENCE>` | No | unset | Mutually exclusive with `--attester-pubkey`. |
@@ -709,19 +755,23 @@ use rbs_api_types::AttesterData;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load the TEE-generated public key (JWK) and matching private key (PEM)
     let public_jwk: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string("/path/to/tee_pubkey.jwk")?
+        &std::fs::read_to_string("/path/to/tee-pubkey.jwk")?
     )?;
     let private_key_pem = std::fs::read_to_string("/path/to/tee_private.pem")?;
 
-    // Inject tee_pubkey into attester_data so it is bound to the evidence quote
+    // Inject tee-pubkey into attester_data so it is bound to the evidence quote.
+    // NOTE: the runtime_data key is "tee-pubkey" (hyphen) — Session::create looks
+    // up exactly this key to enter caller-managed key mode.
+    // NOTE: the JWK must be RSA or EC (P-256/P-384/P-521) — SM2 keys are rejected
+    // here because RBS's JWE envelope cannot encrypt to them.
     let mut runtime_data = serde_json::Map::new();
-    runtime_data.insert("tee_pubkey".to_string(), public_jwk);
+    runtime_data.insert("tee-pubkey".to_string(), public_jwk);
     let attester_data = AttesterData { runtime_data: Some(runtime_data) };
 
     let client    = Client::from_config("/etc/rbc/rbc.yaml")?;
     let challenge = client.get_auth_challenge()?;
 
-    // Session detects tee_pubkey in attester_data → enters caller-managed key mode
+    // Session detects tee-pubkey in attester_data → enters caller-managed key mode
     let session  = client.new_session(Some(&attester_data))?;
     let evidence = session.collect_evidence(&challenge)?;
     let token    = session.attest(Some(&evidence))?.token;
@@ -848,7 +898,7 @@ impl EvidenceProvider for MyEvidenceProvider {
     ) -> Result<Value, RbcError> {
         let nonce = &challenge.nonce;
         // Collect hardware evidence bound to `nonce`.
-        // If attester_data.runtime_data contains tee_pubkey, include it in the
+        // If attester_data.runtime_data contains tee-pubkey, include it in the
         // quote so RBS can verify the key binding.
         Ok(serde_json::json!({
             "quote": "<your-tee-quote>",

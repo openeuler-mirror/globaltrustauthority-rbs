@@ -10,7 +10,7 @@ info:
     url: http://license.coscl.org.cn/MulanPSL2
   version: '0'
 servers:
-- url: http://localhost:6666
+- url: http://127.0.0.1:6666
   description: Default local development (see `rbs.yaml` `rest.listen_addr`)
 paths:
   /rbs/v0/attest:
@@ -53,7 +53,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '502':
-          description: 'Attestation backend error, forwarded verbatim: RBS returns GTA''s non-2xx status code (502 shown as an example; statuses such as 400 or 500 are returned as-is) and wraps GTA''s body in the error field.'
+          description: 'Attestation backend error, forwarded verbatim: RBS returns GTA''s non-2xx status code (502 shown as an example; statuses such as 400 or 500 are returned as-is) and wraps GTA''s body in the error field. A GTA 200 response whose token list carries no non-empty token is likewise rejected as 502.'
           content:
             application/json:
               schema:
@@ -3943,7 +3943,7 @@ components:
       properties:
         name:
           type: string
-          description: Policy name, unique per user (1-255 chars; `<>\"'&|\\/*?` and backtick are forbidden).
+          description: Policy name, unique per user (1-255 chars; the characters `< > " ' & | \ / * ?` and `` ` `` are forbidden).
           maxLength: 255
           minLength: 1
           pattern: ^[^<>"'&|\\/*?`]*$
@@ -4050,7 +4050,7 @@ components:
       properties:
         name:
           type: string
-          description: Policy name (1-255 chars; GTA rejects the special characters `< > " ' & | \ / * ?` and backtick).
+          description: Policy name (1-255 chars; GTA rejects the special characters `< > " ' & | \ / * ?` and `` ` ``).
           example: policy1
           minLength: 1
         attester_type:
@@ -4230,7 +4230,7 @@ components:
           type:
           - string
           - 'null'
-          description: New name (1-255 chars; GTA rejects the special characters `< > " ' & | \ / * ?` and backtick).
+          description: New name (1-255 chars; GTA rejects the special characters `< > " ' & | \ / * ?` and `` ` ``).
         description:
           type:
           - string
@@ -4752,7 +4752,7 @@ components:
       properties:
         name:
           type: string
-          description: New policy name, unique per user (1-255 chars; `<>\"'&|\\/*?` and backtick are forbidden).
+          description: New policy name, unique per user (1-255 chars; the characters `< > " ' & | \ / * ?` and `` ` `` are forbidden).
           maxLength: 255
           minLength: 1
           pattern: ^[^<>"'&|\\/*?`]*$

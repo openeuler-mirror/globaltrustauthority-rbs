@@ -30,7 +30,7 @@ pub const POLICY_CONTENT_TYPE_WHITELIST: &[&str] = &["base64"];
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema, validator::Validate)]
 #[serde(rename_all = "snake_case")]
 pub struct CreatePolicyRequest {
-    /// Policy name, unique per user (1-255 chars; `<>\"'&|\\/*?` and backtick are forbidden).
+    /// Policy name, unique per user (1-255 chars; the characters `< > " ' & | \ / * ?` and `` ` `` are forbidden).
     #[validate(length(min = 1, max = POLICY_NAME_MAX_LEN, message = "length must be between 1 and 255 characters"), custom(function = "validate_policy_name"))]
     #[schema(min_length = 1, max_length = 255, pattern = "^[^<>\"'&|\\\\/*?`]*$")]
     pub name: String,
@@ -50,7 +50,7 @@ pub struct CreatePolicyRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema, validator::Validate)]
 #[serde(rename_all = "snake_case")]
 pub struct UpdatePolicyRequest {
-    /// New policy name, unique per user (1-255 chars; `<>\"'&|\\/*?` and backtick are forbidden).
+    /// New policy name, unique per user (1-255 chars; the characters `< > " ' & | \ / * ?` and `` ` `` are forbidden).
     #[validate(length(min = 1, max = POLICY_NAME_MAX_LEN, message = "length must be between 1 and 255 characters"), custom(function = "validate_policy_name"))]
     #[schema(min_length = 1, max_length = 255, pattern = "^[^<>\"'&|\\\\/*?`]*$")]
     pub name: String,

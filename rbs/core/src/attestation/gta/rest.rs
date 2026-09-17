@@ -110,6 +110,27 @@ impl AttestationRestClient {
             attester_data, evidences,
         })
     }
+
+    /// Extract the attest token from a GTA attest response.
+    ///
+    /// GTA answers `POST /attest` with HTTP 200 and a token list. An empty
+    /// list — or an empty token string — means the provider misbehaved:
+    /// return a 502 `AttestationProviderError` instead of propagating an
+    /// empty token, which would only surface later as an opaque
+    /// "invalid token" on the first resource read.
+    pub(self) fn extract_attest_token(resp: &GtaAttestResponse) -> Result<String, RbsError> {
+        resp.tokens
+            .first()
+            .map(|t| t.token.clone())
+            .filter(|t| !t.is_empty())
+            .ok_or_else(|| {
+                log::error!("GTA attest: 200 response carried no usable attestation token");
+                RbsError::AttestationProviderError {
+                    status: 502,
+                    body: "GTA returned 200 but the attestation token list was empty".to_string(),
+                }
+            })
+    }
 }
 
 // ── AttestationProvider impl (runtime + as_* subtype accessors) ────────────
@@ -129,7 +150,7 @@ impl AttestationProvider for AttestationRestClient {
         let gta_req = AttestationRestClient::transform_to_gta_format(&req)?;
         let gta_resp: GtaAttestResponse = self.rest_client
             .post(GTA_ATTEST_PATH, &gta_req).await.map_err(RbsError::from)?;
-        let token = gta_resp.tokens.first().map(|t| t.token.clone()).unwrap_or_default();
+        let token = Self::extract_attest_token(&gta_resp)?;
         log::info!("GTA attest: attestation completed, received {} token(s)", gta_resp.tokens.len());
         Ok(AttestResponse { token })
     }
@@ -392,5 +413,41 @@ mod tests {
         assert_eq!(result.ref_value_id, None);
         let json = serde_json::to_string(&result).unwrap();
         assert!(!json.contains("ref_value_id"));
+    }
+
+    #[test]
+    fn test_extract_attest_token_success() {
+        let resp: GtaAttestResponse = serde_json::from_str(
+            r#"{"service_version":"1.0.0","tokens":[{"node_id":"node-1","token":"jwt-token"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(AttestationRestClient::extract_attest_token(&resp).unwrap(), "jwt-token");
+    }
+
+    #[test]
+    fn test_extract_attest_token_empty_list_rejected_as_502() {
+        let resp: GtaAttestResponse =
+            serde_json::from_str(r#"{"service_version":"1.0.0","tokens":[]}"#).unwrap();
+        let err = AttestationRestClient::extract_attest_token(&resp).unwrap_err();
+        match err {
+            RbsError::AttestationProviderError { status, body } => {
+                assert_eq!(status, 502);
+                assert!(body.contains("token list was empty"));
+            }
+            _ => panic!("expected AttestationProviderError"),
+        }
+    }
+
+    #[test]
+    fn test_extract_attest_token_empty_string_rejected_as_502() {
+        let resp: GtaAttestResponse = serde_json::from_str(
+            r#"{"service_version":"1.0.0","tokens":[{"node_id":"node-1","token":""}]}"#,
+        )
+        .unwrap();
+        let err = AttestationRestClient::extract_attest_token(&resp).unwrap_err();
+        match err {
+            RbsError::AttestationProviderError { status, .. } => assert_eq!(status, 502),
+            _ => panic!("expected AttestationProviderError"),
+        }
     }
 }

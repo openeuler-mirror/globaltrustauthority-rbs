@@ -31,7 +31,7 @@ use crate::cli::output::{ClientOutput, ResourceOutput};
 use crate::cli::utils::load_private_key_pem;
 use crate::error::RbcError;
 use crate::sdk::{GetResourceRequest, Session};
-use crate::tools::tee_key::TeePublicKey;
+use crate::tools::tee_key::{KeyType, TeePublicKey};
 
 #[derive(Debug, Error)]
 pub enum CliError {
@@ -221,6 +221,16 @@ fn public_key_to_jwk_value(input: &str) -> Result<Value, CliError> {
     let trimmed = raw.trim();
 
     if let Ok(jwk) = TeePublicKey::from_jwk_json(trimmed) {
+        // tee-pubkey is only ever consumed by RBS's JWE encryption path, which
+        // supports RSA/EC only — reject SM2 up front instead of letting the
+        // key through and failing at resource-retrieval time server-side.
+        if jwk.key_type() == KeyType::Sm2 {
+            return Err(CliError::InvalidArgument(
+                "SM2 public keys are not supported for tee-pubkey: the JWE envelope only supports \
+                 RSA (>= 4096 bits) and EC P-256/P-384/P-521; SM2 keys are for signing only"
+                    .to_string(),
+            ));
+        }
         jwk.validate_params().map_err(|err| CliError::InvalidArgument(err.to_string()))?;
         return Ok(serde_json::from_str(trimmed)?);
     }
@@ -494,5 +504,19 @@ mod tests {
         assert!(validate_file_path("relative.pem").is_ok());
         assert!(validate_file_path("").is_err());
         assert!(validate_file_path(".").is_err());
+    }
+
+    // --attester-pubkey must never accept SM2 JWKs: the tee-pubkey only feeds
+    // RBS's JWE encryption, which has no SM2 support — a bare SM2 JWK passes
+    // the shared key validation but would make every resource GET fail
+    // server-side with 400 JWE encryption failed.
+    #[test]
+    fn public_key_to_jwk_value_rejects_sm2_jwk() {
+        let jwk = crate::tools::tee_key::TeeKeyPair::generate(crate::tools::tee_key::KeyType::Sm2)
+            .unwrap()
+            .public_jwk_json()
+            .unwrap();
+        let err = public_key_to_jwk_value(&jwk).err().unwrap();
+        assert!(err.to_string().contains("SM2"), "expected SM2 rejection, got: {err}");
     }
 }

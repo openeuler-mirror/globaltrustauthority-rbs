@@ -663,7 +663,7 @@ pub struct AttestationPolicyListResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, Validate, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct PolicyCreateRequest {
-    /// Policy name (1-255 chars; GTA rejects the special characters `< > " ' & | \ / * ?` and backtick).
+    /// Policy name (1-255 chars; GTA rejects the special characters `< > " ' & | \ / * ?` and `` ` ``).
     #[validate(length(min = 1, message = "must not be empty"))]
     #[schema(example = "policy1", min_length = 1)]
     pub name: String,
@@ -696,7 +696,7 @@ pub struct PolicyUpdateRequest {
     /// ID of the policy to update (1-36 chars, GTA-enforced).
     #[schema(example = "P1")]
     pub id: String,
-    /// New name (1-255 chars; GTA rejects the special characters `< > " ' & | \ / * ?` and backtick).
+    /// New name (1-255 chars; GTA rejects the special characters `< > " ' & | \ / * ?` and `` ` ``).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     /// New description (at most 512 chars).

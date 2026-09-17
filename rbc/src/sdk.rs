@@ -41,10 +41,13 @@ pub enum ProviderType {
 /// Raw provider configuration entry as deserialized from `rbc.yaml`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ProviderRawConfig {
+    /// Provider implementation selected by this entry (the `type` key in `rbc.yaml`).
     #[serde(rename = "type")]
     pub provider_type: ProviderType,
+    /// Whether this provider entry is enabled; defaults to `true` when omitted.
     #[serde(default = "ProviderRawConfig::default_enabled")]
     pub enabled: bool,
+    /// Provider-specific settings; the remaining keys of the entry, flattened into one map.
     #[serde(flatten)]
     pub rest: serde_json::Map<String, Value>,
 }
@@ -58,17 +61,24 @@ impl ProviderRawConfig {
 /// RBS connection parameters, mapped from the `rbs:` block in `rbc.yaml`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct RbsConfig {
+    /// Base URL of the RBS REST server (required).
     pub base_url: String,
+    /// Request timeout in seconds.
     pub timeout_secs: Option<u64>,
+    /// Path to a custom CA certificate for TLS verification.
     pub ca_cert: Option<String>,
 }
 
 /// Full RBC configuration, directly mirrors the structure of `rbc.yaml`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
+    /// RBS connection parameters (the `rbs:` block in `rbc.yaml`).
     pub rbs: RbsConfig,
+    /// Evidence provider entries from `rbc.yaml`.
     pub evidence_provider: Option<Vec<ProviderRawConfig>>,
+    /// Token provider entries from `rbc.yaml`.
     pub token_provider: Option<Vec<ProviderRawConfig>>,
+    /// Key algorithm for the ephemeral TEE key pair; defaults to `Rsa` when omitted.
     #[serde(default)]
     pub key_algorithm: KeyType,
 }
@@ -123,7 +133,9 @@ impl ConfigBuilder {
         self.token_provider = Some(tp);
         self
     }
-    /// Set the key algorithm used for ephemeral TEE key generation.
+    /// Set the key algorithm used for ephemeral TEE key generation. `KeyType` variants:
+    /// `Rsa`, `Ec`, `Sm2`. `Sm2` supports key generation/loading and signing only; the
+    /// JWE resource envelope does not support SM2 (use `Rsa` or `Ec` for the envelope).
     pub fn key_algorithm(mut self, alg: KeyType) -> Self {
         self.key_algorithm = Some(alg);
         self
@@ -150,9 +162,11 @@ pub enum GetResourceRequest<'a> {
 }
 
 pub struct Resource {
+    /// URI of the retrieved resource.
     pub uri: String,
     /// Raw content, possibly a JWE ciphertext; zeroed on `Drop`.
     pub content: Zeroizing<Vec<u8>>,
+    /// Media type of the resource content, when reported by the server.
     pub content_type: Option<String>,
 }
 
@@ -272,6 +286,17 @@ impl Session {
             let pubkey_json = serde_json::to_string(pubkey).map_err(RbcError::JsonError)?;
             let pubkey = TeePublicKey::from_jwk_json(&pubkey_json)
                 .map_err(|e| RbcError::InvalidInput(format!("invalid tee-pubkey: {e}")))?;
+            // tee-pubkey is only ever consumed by RBS's JWE encryption path,
+            // which supports RSA/EC only — an SM2 key would pass the shared
+            // validation but make every later resource retrieval fail
+            // server-side, so refuse it at session creation.
+            if pubkey.key_type() == KeyType::Sm2 {
+                return Err(RbcError::InvalidInput(
+                    "invalid tee-pubkey: SM2 keys are not supported for the JWE envelope \
+                     (RSA/EC only; SM2 is for signing)"
+                        .to_string(),
+                ));
+            }
             pubkey.validate_params()?;
             Ok(Self {
                 client,
@@ -657,6 +682,26 @@ token_provider:
 
         assert!(session.caller_manages_key);
         assert!(session.ephemeral_key.is_none());
+    }
+
+    #[test]
+    fn session_create_with_sm2_tee_pubkey_rejected() {
+        // SM2 can never receive JWE-encrypted content (RBS's envelope is
+        // RSA/EC only), so caller-managed mode must refuse SM2 tee-pubkeys.
+        let client = make_test_client();
+        let sm2_jwk: Value = serde_json::from_str(
+            &TeeKeyPair::generate(KeyType::Sm2).unwrap().public_jwk_json().unwrap(),
+        )
+        .unwrap();
+        let mut runtime_data = serde_json::Map::new();
+        runtime_data.insert("tee-pubkey".to_string(), sm2_jwk);
+        let attester_data = AttesterData { runtime_data: Some(runtime_data) };
+
+        let err = Session::create(Rc::clone(&client.inner), Some(&attester_data), KeyType::Ec)
+            .err()
+            .unwrap();
+        assert!(matches!(err, RbcError::InvalidInput(_)), "expected InvalidInput, got {err:?}");
+        assert!(err.to_string().contains("SM2"), "unexpected message: {err}");
     }
 
     #[test]

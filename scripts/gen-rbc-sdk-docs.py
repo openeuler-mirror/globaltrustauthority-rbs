@@ -40,7 +40,9 @@ from pathlib import Path
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 def join_doc(lines):
-    return " ".join(lines).strip()
+    # Empty `///` lines are paragraph separators inside a doc comment; joining
+    # them verbatim would emit double spaces in the output, so drop them.
+    return " ".join(l for l in lines if l).strip()
 
 
 def clean_sig(raw_lines):

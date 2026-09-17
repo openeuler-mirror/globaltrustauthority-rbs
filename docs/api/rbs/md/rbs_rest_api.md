@@ -10,7 +10,7 @@ License: [Mulan Permissive Software License, Version 2](http://license.coscl.org
 
 | URL | Description |
 |---|---|
-| `http://localhost:6666` | Default local development (see `rbs.yaml` `rest.listen_addr`) |
+| `http://127.0.0.1:6666` | Default local development (see `rbs.yaml` `rest.listen_addr`) |
 
 ## Authentication
 
@@ -434,7 +434,7 @@ Schema: [CreatePolicyRequest](#createpolicyrequest)
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `name` | string | yes | Policy name, unique per user (1-255 chars; `<>\"'&\|\\/*?` and backtick are forbidden). |
+| `name` | string | yes | Policy name, unique per user (1-255 chars; the characters `< > " ' & \| \ / * ?` and `` ` `` are forbidden). |
 | `content_type` | string | yes | Encoding of `content`; only `base64` is supported. |
 | `content` | string | yes | Base64-encoded Rego policy text; must decode to valid UTF-8 within the configured size limit. |
 
@@ -571,7 +571,7 @@ Schema: [UpdatePolicyRequest](#updatepolicyrequest)
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `name` | string | yes | New policy name, unique per user (1-255 chars; `<>\"'&\|\\/*?` and backtick are forbidden). |
+| `name` | string | yes | New policy name, unique per user (1-255 chars; the characters `< > " ' & \| \ / * ?` and `` ` `` are forbidden). |
 | `content_type` | string | yes | New encoding of `content`; only `base64` is supported. |
 | `content` | string | yes | New base64-encoded Rego policy text; must decode to valid UTF-8 within the configured size limit. |
 
@@ -1098,7 +1098,7 @@ Example request:
 | 400 | Invalid request. | [ErrorBody](#errorbody) |
 | 500 | Internal server error. | [ErrorBody](#errorbody) |
 | 501 | Builtin attestation backend mode is configured but not implemented. | [ErrorBody](#errorbody) |
-| 502 | Attestation backend error, forwarded verbatim: RBS returns GTA's non-2xx status code (502 shown as an example; statuses such as 400 or 500 are returned as-is) and wraps GTA's body in the error field. | [ErrorBody](#errorbody) |
+| 502 | Attestation backend error, forwarded verbatim: RBS returns GTA's non-2xx status code (502 shown as an example; statuses such as 400 or 500 are returned as-is) and wraps GTA's body in the error field. A GTA 200 response whose token list carries no non-empty token is likewise rejected as 502. | [ErrorBody](#errorbody) |
 | 503 | Attestation provider unreachable or timed out. | [ErrorBody](#errorbody) |
 
 Example response (200):
@@ -1511,7 +1511,7 @@ Schema: [PolicyUpdateRequest](#policyupdaterequest)
 | Property | Type | Required | Description |
 |---|---|---|---|
 | `id` | string | yes | ID of the policy to update (1-36 chars, GTA-enforced). |
-| `name` | string | no | New name (1-255 chars; GTA rejects the special characters `< > " ' & \| \ / * ?` and backtick). |
+| `name` | string | no | New name (1-255 chars; GTA rejects the special characters `< > " ' & \| \ / * ?` and `` ` ``). |
 | `description` | string | no | New description (at most 512 chars). |
 | `attester_type` | array of string | no | New attester type list (1-9 items, each at most 255 chars). |
 | `content_type` | string | no | New content encoding: `jwt` or `text`. |
@@ -1578,7 +1578,7 @@ Schema: [PolicyCreateRequest](#policycreaterequest)
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `name` | string | yes | Policy name (1-255 chars; GTA rejects the special characters `< > " ' & \| \ / * ?` and backtick). |
+| `name` | string | yes | Policy name (1-255 chars; GTA rejects the special characters `< > " ' & \| \ / * ?` and `` ` ``). |
 | `attester_type` | array of string | yes | Attester type list (1-9 items, each at most 255 chars); supported values: `all`, `tpm`, `tpm_boot`, `tpm_ima`, `virt_cca`, `ascend_npu`, `itrustee`, `cca`, `dice`. |
 | `content_type` | string | yes | Content encoding (required): `jwt` or `text` (GTA-enforced). |
 | `content` | string | yes | Policy content (base64-encoded); the decoded size is bounded by GTA's `policy_content_size_limit` (shipped default 500 KB). |
@@ -2482,7 +2482,7 @@ Schema: [PolicyUpdateRequest](#policyupdaterequest)
 | Property | Type | Required | Description |
 |---|---|---|---|
 | `id` | string | yes | ID of the policy to update (1-36 chars, GTA-enforced). |
-| `name` | string | no | New name (1-255 chars; GTA rejects the special characters `< > " ' & \| \ / * ?` and backtick). |
+| `name` | string | no | New name (1-255 chars; GTA rejects the special characters `< > " ' & \| \ / * ?` and `` ` ``). |
 | `description` | string | no | New description (at most 512 chars). |
 | `attester_type` | array of string | no | New attester type list (1-9 items, each at most 255 chars). |
 | `content_type` | string | no | New content encoding: `jwt` or `text`. |
@@ -2555,7 +2555,7 @@ Schema: [PolicyCreateRequest](#policycreaterequest)
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `name` | string | yes | Policy name (1-255 chars; GTA rejects the special characters `< > " ' & \| \ / * ?` and backtick). |
+| `name` | string | yes | Policy name (1-255 chars; GTA rejects the special characters `< > " ' & \| \ / * ?` and `` ` ``). |
 | `attester_type` | array of string | yes | Attester type list (1-9 items, each at most 255 chars); supported values: `all`, `tpm`, `tpm_boot`, `tpm_ima`, `virt_cca`, `ascend_npu`, `itrustee`, `cca`, `dice`. |
 | `content_type` | string | yes | Content encoding (required): `jwt` or `text` (GTA-enforced). |
 | `content` | string | yes | Policy content (base64-encoded); the decoded size is bounded by GTA's `policy_content_size_limit` (shipped default 500 KB). |
@@ -3274,7 +3274,7 @@ Policy create request body.
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `name` | string | yes | Policy name, unique per user (1-255 chars; `<>\"'&\|\\/*?` and backtick are forbidden). |
+| `name` | string | yes | Policy name, unique per user (1-255 chars; the characters `< > " ' & \| \ / * ?` and `` ` `` are forbidden). |
 | `content_type` | string | yes | Encoding of `content`; only `base64` is supported. |
 | `content` | string | yes | Base64-encoded Rego policy text; must decode to valid UTF-8 within the configured size limit. |
 
@@ -3323,7 +3323,7 @@ Request body for POST attestation policy (create).
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `name` | string | yes | Policy name (1-255 chars; GTA rejects the special characters `< > " ' & \| \ / * ?` and backtick). |
+| `name` | string | yes | Policy name (1-255 chars; GTA rejects the special characters `< > " ' & \| \ / * ?` and `` ` ``). |
 | `attester_type` | array of string | yes | Attester type list (1-9 items, each at most 255 chars); supported values: `all`, `tpm`, `tpm_boot`, `tpm_ima`, `virt_cca`, `ascend_npu`, `itrustee`, `cca`, `dice`. |
 | `content_type` | string | yes | Content encoding (required): `jwt` or `text` (GTA-enforced). |
 | `content` | string | yes | Policy content (base64-encoded); the decoded size is bounded by GTA's `policy_content_size_limit` (shipped default 500 KB). |
@@ -3396,7 +3396,7 @@ Request body for PUT attestation policy (update).
 | Property | Type | Required | Description |
 |---|---|---|---|
 | `id` | string | yes | ID of the policy to update (1-36 chars, GTA-enforced). |
-| `name` | string | no | New name (1-255 chars; GTA rejects the special characters `< > " ' & \| \ / * ?` and backtick). |
+| `name` | string | no | New name (1-255 chars; GTA rejects the special characters `< > " ' & \| \ / * ?` and `` ` ``). |
 | `description` | string | no | New description (at most 512 chars). |
 | `attester_type` | array of string | no | New attester type list (1-9 items, each at most 255 chars). |
 | `content_type` | string | no | New content encoding: `jwt` or `text`. |
@@ -3592,7 +3592,7 @@ Policy update request body. All fields are required (full replacement).
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `name` | string | yes | New policy name, unique per user (1-255 chars; `<>\"'&\|\\/*?` and backtick are forbidden). |
+| `name` | string | yes | New policy name, unique per user (1-255 chars; the characters `< > " ' & \| \ / * ?` and `` ` `` are forbidden). |
 | `content_type` | string | yes | New encoding of `content`; only `base64` is supported. |
 | `content` | string | yes | New base64-encoded Rego policy text; must decode to valid UTF-8 within the configured size limit. |
 
