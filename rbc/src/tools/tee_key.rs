@@ -42,7 +42,11 @@ const DEFAULT_EC_CURVE: EcCurve = EcCurve::P256;
 const DEFAULT_CONTENT_ENCRYPTION_KEY: &str = "A256GCM";
 
 /// Caller-supplied tee-pubkey validation allowlists.
-const RSA_ALLOWED_ALGS: &[&str] = &["RSA-OAEP-256", "RSA-OAEP-384", "RSA-OAEP-512"];
+/// A declared `alg` must match what the RBS server's JWE path uses: josekit's
+/// `encrypter_from_jwk` rejects a JWK whose `alg` differs from the algorithm
+/// instance, and RBS always encrypts RSA keys with RSA-OAEP-256 — so
+/// RSA-OAEP-384/512 declarations are rejected here as well.
+const RSA_ALLOWED_ALGS: &[&str] = &["RSA-OAEP-256"];
 // ECDH-ES (direct key agreement) and weaker key-wrap variants are excluded.
 const EC_ALLOWED_ALGS: &[&str] = &["ECDH-ES+A256KW"];
 // P-256, P-384, P-521 are supported; secp256k1 and weaker curves excluded.

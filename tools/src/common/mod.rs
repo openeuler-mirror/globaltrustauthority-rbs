@@ -35,7 +35,8 @@ pub const MIN_PAGE_LIMIT: i64 = 1;
 pub const MAX_PAGE_LIMIT: i64 = 100;
 pub const DEFAULT_PAGE_OFFSET: i64 = 0;
 pub const MIN_PAGE_OFFSET: i64 = 0;
-pub const MAX_PAGE_OFFSET: i64 = 1000000;
+/// Server-side cap for list `offset` across RBS endpoints (values above 100000 are rejected with 400).
+pub const MAX_PAGE_OFFSET: i64 = 100_000;
 
 pub const AS_PROVIDE: &str = "gta";
 pub const CLIENT_REQUEST_TIMEOUT: u64 = 60;

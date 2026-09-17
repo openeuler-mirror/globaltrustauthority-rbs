@@ -93,7 +93,7 @@ command -v rbs rbc rbs-cli
 
 # Service active (rbs package only)
 systemctl is-enabled rbs.service
-systemctl is-active  rbs.service
+systemctl is-active rbs.service
 
 # Config files present
 test -f /etc/rbs/rbs.yaml && echo 'rbs.yaml OK'

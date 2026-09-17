@@ -38,7 +38,7 @@ flowchart TB
 
     subgraph external ["External Systems"]
         GTA["Global Trust Authority<br/>(remote attestation)"]
-        Backend["Resource Backend<br/>(e.g. Vault)"]
+        Backend["Resource Backend<br/>(Vault / HSM / CA)"]
         DB[("Database<br/>(users, policies, metadata)")]
     end
 
@@ -47,7 +47,7 @@ flowchart TB
     Admin --> AdminCLI
     AdminCLI -->|"HTTPS REST<br/>(admin + client APIs)"| RBS
     RBS -->|"attestation REST"| GTA
-    RBS -->|"fetch keys / secrets"| Backend
+    RBS -->|"read / write / issue resources"| Backend
     RBS -->|"SeaORM persistence"| DB
 ```
 
@@ -57,7 +57,7 @@ flowchart TB
 - `rbc` SDK or `rbc-cli` as the client integration layer.
 - RBS service as the resource broker and policy enforcement point.
 - [Global Trust Authority](https://gitcode.com/openeuler/global-trust-authority) as the remote attestation authority; its repository hosts the GTA service, attestation components, and client-side attestation agent capabilities.
-- Resource backends such as Vault.
+- Resource backends such as Vault (KV secrets), HSM (PKCS#11 key material), and CA (CMPv2 certificate issuance).
 - Database storing users, policies, resources, and metadata.
 - Administrators using `rbs-admin-client` or operator tooling.
 
@@ -106,7 +106,7 @@ flowchart LR
         direction LR
         PA["Attester<br/>workload / rbc"] -->|"1. Evidence"| PV["Verifier<br/>GTA / built-in provider"]
         PV -->|"2. Attestation Result<br/>attest token"| PA
-        PA -->|"3. GET /rbs/v0/{uri}<br/>Authorization: Attest &lt;token&gt;"| PR["Relying Party<br/>RBS"]
+        PA -->|"3. GET /rbs/v0/{uri}<br/>Authorization: Attest #60;token#62;"| PR["Relying Party<br/>RBS"]
     end
 
     subgraph background ["Background-Check Model (RFC 9334 §5.2)"]
@@ -237,14 +237,14 @@ flowchart TB
         PR["PolicyRepository"]
         RR["ResourceRepository"]
         PC["PolicyClient<br/>DbPolicyClient"]
-        BP["BackendProvider<br/>Vault and other backends"]
+        BP["BackendProvider<br/>Vault / Hsm / CA backends"]
         Infra["Infra<br/>DB, logging, migrations"]
     end
 
     AM -->|"challenge / attest"| AP
     AP -.->|"REST mode only"| GTA
     PS -->|"policy CRUD / admin API"| PR
-    PS -->|"policy–resource relations"| PC
+    PS -->|"policy-resource relations"| PC
     RS -->|"resource metadata"| RR
     RS -->|"load Rego for Attest authZ"| PC
     PC --> Infra
@@ -325,7 +325,7 @@ sequenceDiagram
     REST-->>Client: 200 JSON
 ```
 
-HTTP route handler `get_challenge` (`rbs/rest/src/routes/attestation.rs`) delegates to `AttestationManager::get_auth_challenge()` / `AttestationProvider::get_auth_challenge()` in core.
+HTTP route handler `get_challenge` (`rbs/rest/src/routes/attestation.rs`) delegates to `AttestationManager::get_auth_challenge()` / `AttestationProvider::get_auth_challenge()` in core. A GTA attest response is accepted only when its token list carries a non-empty token; a 200 with an empty list (or an empty token) is rejected as `502` (`attestation provider error`) instead of propagating an empty token, which would otherwise surface only later as an opaque `invalid token` on the first resource read.
 
 ### 8.3 Resource Retrieval (Attest Token Path)
 
@@ -402,7 +402,7 @@ sequenceDiagram
     REST-->>Client: 200 JSON
 ```
 
-The same Bearer + `admin_policy.rego` pattern applies to `GET /rbs/v0/{uri}/info` (metadata only, no backend fetch). `UserScoped` owner checks match `sub` to resource owner only — **`role` is not enforced** on this path (see §10 token matrix).
+`GET /rbs/v0/{uri}/info` (metadata only, no backend fetch) also uses Bearer + `admin_policy.rego` owner checks, with one deliberate difference: the hsm/ca Bearer-deny does **not** apply. `get_info` passes `res_provider = None` into the authz check, so the rego input omits `res_provider` and the `hsm`/`ca` guards never match — owners may read the metadata of their HSM/CA resources with a Bearer token, but not the content (info returns no secret material). `UserScoped` owner checks match `sub` to resource owner only — **`role` is not enforced** on this path (see §10 token matrix).
 
 ### 8.4 Resource Retrieval (Inline Evidence Path)
 
@@ -559,7 +559,7 @@ This flow summarizes the **Passport Model** client path (§8.2 → §8.3). For t
 
 ## 9. Data and Persistence Architecture
 
-RBS stores operational metadata in the database and protected resource content in external backends. SeaORM abstracts SQLite, PostgreSQL, and MySQL; **production bootstrap is SQLite-centric today**.
+RBS stores operational metadata in the database and delegates protected resource content to external backends — storage backends hold the content (Vault KV, HSM objects), while issuance backends produce it on demand (CA certificates via CMPv2). SeaORM abstracts SQLite, PostgreSQL, and MySQL; **production bootstrap is SQLite-centric today**.
 
 ```mermaid
 flowchart LR
@@ -574,7 +574,7 @@ flowchart LR
     end
 
     Core["rbs-core"] -->|"read/write metadata"| db_zone
-    Core -->|"read plaintext after auth"| backend_zone
+    Core -->|"read plaintext after auth#59;<br/>write/delete per backend capabilities"| backend_zone
 ```
 
 | In database | Not in database |
@@ -589,7 +589,7 @@ flowchart LR
 | **Bootstrap** | Config → connection → `migrate_core_tables()` (`infra/rdb/connection.rs`) applies `sql_file_path` (default `rbs/rdb_sql/sqlite_rbs.sql`) |
 | **Other engines** | PostgreSQL/MySQL configurable; `mysql_rbs.sql` is a stub — operators supply schema/migration (not default path) |
 | **Contract sync** | `rbs-api-types` ↔ OpenAPI YAML ↔ Markdown/HTML API docs |
-| **Sensitive data** | Config fields, Vault tokens, protected content; `zeroize` where applicable |
+| **Sensitive data** | Config fields, backend credentials (Vault tokens, HSM PINs, CA protection keys), protected content; `zeroize` where applicable |
 
 ## 10. Security Architecture
 
@@ -606,7 +606,7 @@ RBS enforces **default deny** on Bearer JWT and Attest token paths (action/owner
 | Unauthorized administrators | Bearer + `admin_policy.rego` / role checks |
 | Backend leakage | Plaintext only after auth; JWE before client response |
 | Network attackers | HTTPS when `rest.https.enabled`; trusted proxy for client IP |
-| DoS / abuse | Unauthenticated `GET .../challenge`, `POST .../attest`, and `POST .../retrieve` (inline attest fan-out to GTA) — mitigate via `per-ip-rate-limit` + runtime rate limit config |
+| DoS / abuse | Unauthenticated `GET .../challenge`, `POST .../attest`, and `POST .../retrieve` (inline attest fan-out to GTA) — mitigate via `per-ip-rate-limit` + runtime rate limit config. Request URIs (path + query) are capped at 2048 bytes by the fixed compile-time constant `DEFAULT_MAX_URI_LEN` (not configurable in `RestConfig`); longer URIs are rejected with `414 URI Too Long` (JSON `ErrorBody`) before routing and auth |
 | Remote attestation trust chain | GTA REST provider (default), built-in stub, provider selection, trust assumptions |
 
 ### Authentication dual-path
@@ -645,7 +645,8 @@ flowchart LR
 |---|------------|--------------|
 | **Used for** | Admin/user/policy APIs; owner-only resource GET/GET info (`admin_policy.rego`, not resource-bound Rego) | Resource GET (Passport); after `POST .../retrieve` (Background-Check) |
 | **Enforced at authn** | `iss`, `aud`, `exp`, `sub`, signature vs per-user pubkey (DB); `role` extracted but not required for all Bearer paths | Signature, `exp`, `iss`; `aud` only when `auth.attest_token.audience` configured |
-| **Enforced at authz (Bearer)** | `role == admin` only for `AdminOnly` (`admin_policy.rego`); owner GET/info (`UserScoped`) checks `sub` vs owner — no `role` requirement | — |
+| **Algorithms** (same for both token types) | `PS256`/`PS384`/`PS512`, `ES256`/`ES384`/`ES512`, `EdDSA`, `SM2`; anything else — including `RS256`/`RS384`/`RS512` and all HMAC variants — is rejected before signature verification. Verification paths: `jsonwebtoken` (default), `josekit` (ES512), vendored OpenSSL with the GM/T 0009 user ID pinned (SM2) — see [`rbs_config_reference.md` §9](../usage_guide/rbs_config_reference.md) | Same |
+| **Enforced at authz (Bearer)** | `AdminOnly` requires `role == admin` **and** `sub == "Administrator"` — the self-signed `role` claim is bound to the bootstrap admin subject by `admin_policy.rego` (§8.5); owner GET/info (`UserScoped`) checks `sub` vs owner with no `role` requirement, but a `role == admin` claim from any other subject is rejected (role/sub consistency). Bearer owner **content** GET is denied for HSM/CA backends; the metadata-only `GET .../info` is exempt (§8.3b) | — |
 | **Not enforced** | `scope`, `jti` / one-time-use store | `jti` / one-time-use store |
 | **Replay** | RBS does not track Bearer replay | Reusable within `exp`; do not conflate with challenge-nonce freshness (GTA) |
 | **Lockout** | Failed verifications for existing user increment lockout; attest failures excluded | — |
@@ -657,7 +658,7 @@ flowchart LR
 |---|-----------|
 | 1 | **Nonce control:** Challenge nonces forwarded to attestation provider (typically GTA REST); `rbs-core` has no local single-use nonce store — freshness enforced by GTA |
 | 2 | **Default deny:** Missing policy, invalid Rego, missing claims, expired tokens, locked users, `AdminOnly` role mismatch, missing metadata, or unresolvable backend ref → reject. On resource read paths a policy mismatch rejects as 404 (indistinguishable from missing, anti-enumeration) while an unevaluable policy rejects as 500 (server fault) |
-| 3 | **Plaintext boundary:** Resource plaintext enters `rbs-core` only after authorization on a controlled path; JWE-encrypt ASAP; no logging of evidence, tokens, backend creds, or plaintext |
+| 3 | **Plaintext boundary:** Resource plaintext enters `rbs-core` only after authorization on a controlled path; JWE-encrypt ASAP; no logging of evidence, tokens, backend creds, or plaintext. JWE envelope: content encryption `A256GCM`; key management `RSA-OAEP-256` for RSA TEE keys and `ECDH-ES+A256KW` for EC TEE keys — any other JWK key type is rejected (client-side key sizes: see [`rbc.md` §2](../usage_guide/rbc.md)) |
 | 4 | **`export_mode`:** Metadata on resource records only; release always JWE today; `plain` rejected at validation |
 
 ### Configuration-dependent controls
@@ -667,6 +668,7 @@ flowchart LR
 | **Transport** | HTTPS when `rest.https.enabled` (OpenSSL cert/key); plain HTTP valid for dev |
 | **Trusted proxy** | `rest.trusted_proxy.addrs` for client IP behind reverse proxies |
 | **Rate limiting** | Compile-time `per-ip-rate-limit` + runtime `rest.rate_limit.enabled`, `requests_per_sec`, `burst` |
+| **GTA retries** | `attestation.*.rest.retries` (default `3`, fixed 5 s interval) applies to runtime attestation calls only — `GET /challenge` and `POST /attest` retry on GTA 5xx and transport errors. Management proxy calls (`/rbs/v0/attestation/...`) never retry: management writes are not idempotent, so failures surface to the caller, who may verify manually (e.g. GET the entity) before retrying |
 | **Secret handling** | No sensitive log output; protect backend credentials; restrict protected resource exposure |
 | **Auditability** | Logging: startup, admin ops, auth failures, policy/resource decisions, backend errors |
 
@@ -834,7 +836,7 @@ Same fields and endpoint as [§11](#11-api-and-compatibility) (`GET /rbs/version
 | Database | `storage.*`, `sql_file_path` | SQLite default; PostgreSQL/MySQL optional (§9) |
 | Admin bootstrap | `admin.max_users`, `admin.admin_key.*` | Default admin pubkey; user cap |
 | Attestation backend | `attestation.backends.*` | GTA REST provider (default) |
-| Resource backends | Resource backend blocks in config | Vault and other `BackendProvider` adapters |
+| Resource backends | Resource backend blocks in config | `VaultBackend` (Vault/OpenBao KV), `HsmBackend` (PKCS#11), `CABackend` (CMPv2) — see the [usage manual](../usage_guide/rbs_usage_manual.md) ch. 9–11 |
 | Logging | `logging.*` | Level, format, rotation, gzip compression |
 
 ### Test strategy
@@ -855,11 +857,13 @@ Extensions follow dependency direction: `rbs-api-types` (contracts) → `rbs-cor
 |-----------|----------|---------|
 | `AttestationProvider` | `rbs/core/src/attestation/provider.rs` | Challenge + evidence → attest token (GTA REST default; `BuiltinAttestationProvider` stub); also exposes `as_ref_value`/`as_cert`/`as_policy` accessors for management subtypes |
 | `RefValueProvider` / `CertProvider` / `PolicyProvider` | `rbs/core/src/attestation/provider.rs` | Management subtypes for ref_value/cert/policy CRUD (6 methods each); accessed via `as_*()` accessors on `AttestationProvider`; `AttestationRestClient` implements all three, `BuiltinAttestationProvider` returns `None` (501) |
-| `ResourceBackend` | `rbs/core/src/resource/adapter/mod.rs` | Read protected content after authorization |
+| `ResourceBackend` | `rbs/core/src/resource/adapter/mod.rs` | Backend contract: mandatory `get_resource_content` (read, after authorization); optional `put_resource_content` / `delete_resource` / `check_resource_exists` are gated by the `capabilities()` bitfield (`PUT`/`DELETE`/`CHECK`) — the service never invokes an undeclared capability |
 | `BackendProvider` | same | Registry: `res_provider` → `Arc<dyn ResourceBackend>` |
 | `PolicyClient` / `DbPolicyClient` | same | Runtime policy reads for `ResourceService` (validation + content) |
 | `UserKeyProvider` | `rbs/core/src/auth/authn/mod.rs` | Bearer JWT pubkey lookup (`AdminManager` impl) |
-| `VaultBackend` | `rbs/core/src/resource/adapter/vault.rs` | Reference Vault `ResourceBackend` adapter |
+| `VaultBackend` | `rbs/core/src/resource/adapter/vault.rs` | Vault/OpenBao KV adapter; declares `CHECK` — content stays in Vault, RBS registers metadata only after verifying the referenced secret exists |
+| `HsmBackend` | `rbs/core/src/resource/adapter/hsm.rs` | PKCS#11 HSM adapter (e.g. SoftHSM2); declares `PUT`/`DELETE` — imports/replaces and destroys key material stored as labelled CKO_DATA objects |
+| `CABackend` | `rbs/core/src/resource/adapter/ca.rs` | Get-only CA adapter (CMPv2, e.g. XiPKI); declares no optional capabilities — certificates are issued on demand from the CSR in `attester_data.runtime_data.csr` (missing CSR → 400 `csr required`); nothing is stored in the CA backend |
 
 ### Other extension surfaces
 
@@ -958,7 +962,7 @@ The following decisions are recorded in this document. See cross-references in e
 | Resource | Protected content such as keys, certificates, or secrets |
 | Policy | Authorization rule controlling who may access a resource |
 | Provider | Pluggable implementation behind a core trait |
-| Resource Backend | External system that stores protected resource content, such as Vault or another `BackendProvider` adapter |
+| Resource Backend | External system behind a `ResourceBackend` adapter: a content store (Vault KV, HSM PKCS#11 objects) or an on-demand issuer (CA via CMPv2) |
 | External Dependency | System that RBS interacts with independently, including GTA, the database, and resource backends; do not use the overloaded term Backend |
 | Passport Model | [RFC 9334](https://www.rfc-editor.org/rfc/rfc9334) §5.1 attestation pattern: Attester obtains an Attestation Result from the Verifier and presents it to the Relying Party; in RBS, attest token then `GET /{uri}` with `Authorization: Attest <token>` |
 | Background-Check Model | [RFC 9334](https://www.rfc-editor.org/rfc/rfc9334) §5.2 attestation pattern: Attester sends Evidence to the Relying Party, which forwards it to the Verifier; in RBS, `POST /{uri}/retrieve` with inline evidence |

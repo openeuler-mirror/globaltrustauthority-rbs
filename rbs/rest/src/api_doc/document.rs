@@ -75,7 +75,7 @@ impl Modify for SecurityAddon {
         contact(name = "RBS open-source community", url = "https://gitcode.com/openeuler/globaltrustauthority-rbs"),
     ),
     servers(
-        (url = "http://localhost:6666", description = "Default local development (see `rbs.yaml` `rest.listen_addr`)"),
+        (url = "http://127.0.0.1:6666", description = "Default local development (see `rbs.yaml` `rest.listen_addr`)"),
     ),
     tags(
         (name = "System", description = "`RbsCore::system` — service identity and API/build version via `GET /rbs/version` (system metadata). Does not require authentication."),

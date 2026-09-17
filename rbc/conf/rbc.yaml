@@ -6,13 +6,13 @@ rbs:
 evidence_provider:
   - type: native
     enabled: false
-    config_path: /etc/gta/agent_config.yaml
+    config_path: /etc/attestation_agent/agent_config.yaml
 
 token_provider:
   - type: rbs
     enabled: false
-    config_path: /etc/gta/agent_config.yaml
+    config_path: /etc/attestation_agent/agent_config.yaml
 
   - type: native
     enabled: false
-    config_path: /etc/gta/agent_config.yaml
+    config_path: /etc/attestation_agent/agent_config.yaml

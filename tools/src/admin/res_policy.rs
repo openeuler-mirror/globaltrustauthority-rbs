@@ -13,7 +13,7 @@ use crate::common::formatter::{Formatter, TextOutput};
 use crate::common::utils::read_path_file;
 use crate::common::validate::{validate_optional_i64, validate_trimmed_string_max_len, validate_url_path_segment};
 use crate::common::DEFAULT_PAGE_LIMIT;
-use crate::common::MAX_PAGE_LIMIT;
+use crate::common::{MAX_PAGE_LIMIT, MAX_PAGE_OFFSET};
 use crate::config::GlobalOptions;
 use crate::error::CliError;
 use base64::engine::general_purpose;
@@ -99,10 +99,10 @@ pub struct ListArgs {
     )]
     pub ids: Option<Vec<String>>,
 
-    #[arg(long, allow_hyphen_values = true)]
+    #[arg(long, allow_hyphen_values = true, help = "Page size (1-100; RBS default is 10)")]
     pub limit: Option<String>,
 
-    #[arg(long, allow_hyphen_values = true)]
+    #[arg(long, allow_hyphen_values = true, help = "Page offset (0-100000; RBS default is 0)")]
     pub offset: Option<String>,
 }
 
@@ -180,7 +180,7 @@ async fn execute_res_policy_command(
         ResPolicyCommand::List(args) => {
             let limit =
                 validate_optional_i64(args.limit.as_deref(), 1, MAX_PAGE_LIMIT, "limit")?.unwrap_or(DEFAULT_PAGE_LIMIT);
-            let offset = validate_optional_i64(args.offset.as_deref(), 0, MAX_PAGE_LIMIT, "offset")?.unwrap_or(0);
+            let offset = validate_optional_i64(args.offset.as_deref(), 0, MAX_PAGE_OFFSET, "offset")?.unwrap_or(0);
             let resp = service
                 .list_policies(&PolicyListQuery {
                     ids: args.ids.clone().and_then(|v| (!v.is_empty()).then(|| v.join(","))),

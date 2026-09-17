@@ -62,7 +62,7 @@ pub async fn get_challenge(
     responses(
         (status = 200, description = "Attestation token (JSON).", body = AttestResponse),
         (status = 400, description = "Invalid request.", body = ErrorBody),
-        (status = 502, description = "Attestation backend error, forwarded verbatim: RBS returns GTA's non-2xx status code (502 shown as an example; statuses such as 400 or 500 are returned as-is) and wraps GTA's body in the error field.", body = ErrorBody),
+        (status = 502, description = "Attestation backend error, forwarded verbatim: RBS returns GTA's non-2xx status code (502 shown as an example; statuses such as 400 or 500 are returned as-is) and wraps GTA's body in the error field. A GTA 200 response whose token list carries no non-empty token is likewise rejected as 502.", body = ErrorBody),
         (status = 503, description = "Attestation provider unreachable or timed out.", body = ErrorBody),
         (status = 501, description = "Builtin attestation backend mode is configured but not implemented.", body = ErrorBody),
         (status = 500, description = "Internal server error.", body = ErrorBody),

@@ -203,7 +203,13 @@ rbs-cli -b http://127.0.0.1:6666 version
 
 ## 5. Container: build, run, and test (step-by-step)
 
-**Objective:** produce the **OCI image**, start the stack with **Docker Compose**, then invoke **`/rbs/version`** from the host on **port 8080**. Use **[`deployment/docker/rbs-compose.yaml`](../../deployment/docker/rbs-compose.yaml)**, which defines the service and embeds the RBS runtime config under **`configs.rbs_runtime_yaml.content`** (**`rest.listen_addr: "127.0.0.1:8080"`**) plus **`network_mode: host`** so that bind is reachable from the host on Linux. **`network_mode: host` here is for open-source demonstration or local testing only**—do not treat it as a production networking model; harden ports, networks, and secrets for real deployments. On Docker Desktop (macOS/Windows), host networking differs; switch to bridge mode by editing the embedded **`listen_addr`** to **`0.0.0.0:8080`**, removing **`network_mode: host`**, and adding **`ports: - "127.0.0.1:8080:8080"`** on the service.
+**Objective:** produce the **OCI image**, start the stack with **Docker Compose**, then invoke **`/rbs/version`** from the host on **port 8080**.
+
+**Compose file** — Use **[`deployment/docker/rbs-compose.yaml`](../../deployment/docker/rbs-compose.yaml)**, which defines the service and embeds the RBS runtime config under **`configs.rbs_runtime_yaml.content`** (**`rest.listen_addr: "127.0.0.1:8080"`**) plus **`network_mode: host`** so that bind is reachable from the host on Linux.
+
+**Production caveat** — **`network_mode: host` here is for open-source demonstration or local testing only**—do not treat it as a production networking model; harden ports, networks, and secrets for real deployments.
+
+**Docker Desktop (macOS/Windows)** — Host networking differs; switch to bridge mode by editing the embedded **`listen_addr`** to **`0.0.0.0:8080`**, removing **`network_mode: host`**, and adding **`ports: - "127.0.0.1:8080:8080"`** on the service.
 
 **Container engine**
 

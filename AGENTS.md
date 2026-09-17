@@ -208,6 +208,10 @@ See [`docs/design/architecture.md` §10](docs/design/architecture.md#10-security
 - Example values in schema should be non-empty strings (build-time embedded)
 - Mirror every `#[validate(length|range)]` rule as `#[schema(min_length|max_length|pattern|minimum|maximum)]` (body types) or `#[param(...)]` (query structs with `#[derive(IntoParams)]` + `#[into_params(parameter_in = Query)]`), so validation rules reach the OpenAPI contract; `rbs/api-types/tests/schema_constraint_test.rs` and `rbs/rest/tests/openapi_constraint_test.rs` enforce the pairing
 
+### Diagrams (Mermaid)
+
+- In Mermaid diagram text, escape `<`/`>` as `#60;`/`#62;` and `;` as `#59;` (Mermaid entity codes, not HTML entities such as `&lt;`); keep `<br/>` for line breaks and quote labels containing special characters
+
 ### Language
 
 - Commit messages, code comments, and documentation must be written in English

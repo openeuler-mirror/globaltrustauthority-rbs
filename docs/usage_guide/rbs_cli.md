@@ -25,14 +25,23 @@ Global options accepted by `rbs-cli`:
 
 | Option | Required | Default | Meaning / Notes |
 |---|---|---|---|
-| `-b`, `--base-url <BASE_URL>` | No | `https://127.0.0.1:6666` | Base URL of the target RBS service. |
+| `-b`, `--base-url <BASE_URL>` | No | `RBS_BASE_URL` when set, else `https://127.0.0.1:6666` | Base URL of the target RBS service. |
 | `-t`, `--token <TOKEN>` | No | from `RBS_TOKEN` when set | Bearer token used for authenticated admin requests. |
-| `--cert <CERT>` | No | unset | CA certificate file used to verify the RBS server. |
-| `-f`, `--format <FORMAT>` | No | `text` | Output format: `text` or `json`. |
+| `--cert <CERT>` | No | `RBS_CERT` when set, else unset | CA certificate file used to verify the RBS server. |
+| `-f`, `--format <FORMAT>` | No | `RBS_FORMAT` when set, else `text` | Output format: `text` or `json`. |
 | `-o`, `--output-file <OUTPUT_FILE>` | No | unset | Write rendered output to a file. |
 | `-v`, `--verbose` | No | `false` | Enable verbose logging. |
 | `-q`, `--quiet` | No | `false` | Suppress non-essential output. Conflicts with `--verbose`. |
 | `--noout` | No | `false` | Do not print command output to stdout. |
+
+Global options can also be supplied through environment variables. Precedence is **CLI option > environment variable > built-in default**:
+
+| Variable | Feeds | Meaning |
+|---|---|---|
+| `RBS_BASE_URL` | `--base-url` | Base URL of the target RBS service |
+| `RBS_TOKEN` | `--token` | Bearer token for authenticated admin requests |
+| `RBS_CERT` | `--cert` | CA certificate file used to verify the RBS server |
+| `RBS_FORMAT` | `--format` | Output format: `text` or `json` |
 
 The default base URL uses HTTPS. `rbs-cli` uses Rustls for HTTPS and requires TLS 1.3 or later. It trusts the system trust store by default; for a private or self-signed CA, pass `--cert <CA_PEM>`. Use HTTP only by explicitly passing an `http://...` value to `--base-url`.
 
@@ -77,6 +86,65 @@ rbs-cli -b https://rbs.example.com -t "$RBS_TOKEN" policy list --limit 10 --offs
 # Create a GTA attestation policy; text content is Base64 encoded.
 rbs-cli -b https://rbs.example.com -t "$RBS_TOKEN" \
   policy create --name allow-tpm --attester-type tpm --content-type text --content @policy.b64
+```
+
+Parameter reference:
+
+**`ref-value`**
+
+| Operation | Options |
+|---|---|
+| `list` | `--ids` (comma-separated, at most 10 IDs / 500 chars), `-t`, `--attester-type` (filter), `--limit` (1-10), `--offset` (0-100000) |
+| `get` | `--id` |
+| `create` | `--name` (required), `--description`, `-t`, `--attester-type` (required: `tpm`, `tpm_ima`, `virt_cca`, `ascend_npu`), `--content` (required: JWT or Base64, or `@file`; 1 B - 10 MiB), `--content-type` (`jwt` (default) \| `base64`) |
+| `update` | `--id` (required), `--name`, `--description`, `-t`, `--attester-type`, `--content`, `--content-type` |
+| `delete` | `--delete-type` (required: `all` \| `id` \| `type`), `--ids` (required with `id`), `-t`, `--attester-type` (required with `type`) |
+
+**`cert`**
+
+| Operation | Options |
+|---|---|
+| `list` | `--ids` (comma-separated, at most 10 IDs / 500 chars), `-t`, `--cert-type` (filter; `crl` queries CRLs), `--limit` (1-10), `--offset` (0-100000) |
+| `get` | `-i`, `--id` |
+| `create` | `-n`, `--name` (required), `-d`, `--description`, `-t`, `--type` (required, comma-separated list; `crl` must be used alone), `-c`, `--content` (required for non-CRL types), `--crl-content` (required with `--type crl`), `--is-default` |
+| `update` | `-i`, `--id` (required), `-n`, `--name`, `-d`, `--description`, `-t`, `--type` (new type list; `crl` not supported), `--is-default` |
+| `delete` | `--delete-type` (`id` \| `type` \| `all`), `--ids`, `-t`, `--type` (cert type for delete-by-type, or `crl` to delete CRLs) |
+
+**`policy`**
+
+| Operation | Options |
+|---|---|
+| `list` | `--ids` (comma-separated, at most 10 IDs / 500 chars), `-t`, `--attester-type` (filter), `--limit` (1-10), `--offset` (0-100000) |
+| `get` | `--id` |
+| `create` | `--name` (required), `--description`, `-t`, `--attester-type` (required, comma-separated list), `--content-type` (`text` (default) \| `jwt`), `--content` (required; `text` expects Base64 policy text), `--is-default` |
+| `update` | `--id` (required), `--name`, `--description`, `-t`, `--attester-type`, `--content-type`, `--content`, `--is-default` |
+| `delete` | `--delete-type` (required: `id` \| `attester_type` \| `all`), `--ids` (required with `id`), `-t`, `--attester-type` (required with `attester_type`) |
+
+Update and delete examples:
+
+```bash
+# Rename a baseline and replace its content.
+rbs-cli -b https://rbs.example.com -t "$RBS_TOKEN" \
+  ref-value update --id RV1 --name tpm-baseline-v2 --content @baseline-v2.jwt
+
+# Delete reference values by ID.
+rbs-cli -b https://rbs.example.com -t "$RBS_TOKEN" \
+  ref-value delete --delete-type id --ids RV1,RV2
+
+# Mark a certificate as the default.
+rbs-cli -b https://rbs.example.com -t "$RBS_TOKEN" cert update --id C1 --is-default true
+
+# Delete certificates by ID.
+rbs-cli -b https://rbs.example.com -t "$RBS_TOKEN" \
+  cert delete --delete-type id --ids C1
+
+# Update a policy's content and attester types.
+rbs-cli -b https://rbs.example.com -t "$RBS_TOKEN" \
+  policy update --id P1 --content @policy-v2.b64 --attester-type tpm,tpm_ima
+
+# Delete all policies for one attester type.
+rbs-cli -b https://rbs.example.com -t "$RBS_TOKEN" \
+  policy delete --delete-type attester_type --attester-type tpm
 ```
 
 Use `rbs-cli <ref-value|cert|policy> <command> --help` for the complete,
@@ -138,7 +206,7 @@ rbs-cli client collect-evidence [OPTIONS] \
 |---|---|---|---|
 | `--agent-config <AGENT_CONFIG>` | No | `/etc/attestation_agent/agent_config.yaml` | Path to the attestation agent config file. |
 | `--nonce <NONCE>` | Yes | none | Nonce to embed in collected evidence. Supports inline input or `@file`. |
-| `--attester-pubkey <ATTESTER_PUBKEY>` | Yes | none | Attester public key used to populate `tee-pubkey` in runtime data. Supports inline input or `@file`. |
+| `--attester-pubkey <ATTESTER_PUBKEY>` | Yes | none | Attester public key used to populate `tee-pubkey` in runtime data. PEM or JWK; RSA (≥ 4096 bits) or EC P-256/P-384/P-521 only — SM2 is rejected (signing-only). Supports inline input or `@file`. |
 | `--attester-data <ATTESTER_DATA>` | No | unset | Attester-data JSON or `@file` path merged into the request. |
 | `--runtime-data <RUNTIME_DATA>` | No | repeatable | Runtime data entry in `key=value` form. Repeat to add multiple entries. |
 
@@ -201,7 +269,7 @@ rbs-cli client get-token [OPTIONS] --attester-pubkey <ATTESTER_PUBKEY>
 | Option | Required | Default | Meaning / Notes |
 |---|---|---|---|
 | `--agent-config <AGENT_CONFIG>` | No | `/etc/attestation_agent/agent_config.yaml` | Path to the attestation agent config file. |
-| `--attester-pubkey <ATTESTER_PUBKEY>` | Yes | none | Attester public key used to populate `tee-pubkey` in runtime data. Supports inline input or `@file`. |
+| `--attester-pubkey <ATTESTER_PUBKEY>` | Yes | none | Attester public key used to populate `tee-pubkey` in runtime data. PEM or JWK; RSA (≥ 4096 bits) or EC P-256/P-384/P-521 only — SM2 is rejected (signing-only). Supports inline input or `@file`. |
 | `--attester-data <ATTESTER_DATA>` | No | unset | Attester-data JSON or `@file` path merged into the request. |
 | `--runtime-data <RUNTIME_DATA>` | No | repeatable | Runtime data entry in `key=value` form. Repeat to add multiple entries. |
 | `--evidence <EVIDENCE>` | No | unset | Mutually exclusive with `--attester-pubkey`. |
@@ -431,7 +499,7 @@ rbs-cli user create [OPTIONS] \
 | Option | Required | Default | Meaning / Notes |
 |---|---|---|---|
 | `--username <USERNAME>` | Yes | none | Username to create. |
-| `--role <ROLE>` | No | `user` | User role: `user` or `admin`. |
+| `--role <ROLE>` | No | `user` | User role: `user` or `admin` (passed through to RBS). RBS rejects `admin` at creation with 400 — the admin role is pre-configured, not creatable via the API. |
 | `--enabled <ENABLED>` | No | unset | Whether the user is enabled after creation. |
 | `--public-key <PUBLIC_KEY>` | Conditionally | unset | PEM public key or `@file` path. Mutually exclusive with `--jwk`. |
 | `--jwk <JWK>` | Conditionally | unset | JWK JSON or `@file` path. Mutually exclusive with `--public-key`. |
@@ -460,7 +528,7 @@ rbs-cli user update [OPTIONS] --username <USERNAME>
 | Option | Required | Default | Meaning / Notes |
 |---|---|---|---|
 | `-u`, `--username <USERNAME>` | Yes | none | Username to update. |
-| `--role <ROLE>` | No | unset | New user role: `user` or `admin`. |
+| `--role <ROLE>` | No | unset | New user role: `user` or `admin` (passed through to RBS). RBS rejects `admin` with 403 — the role is not API-assignable; only the built-in Administrator accepts it (as a no-op). |
 | `--enabled <ENABLED>` | No | unset | Whether the user is enabled. |
 | `--public-key <PUBLIC_KEY>` | No | unset | PEM public key or `@file` path. Mutually exclusive with `--jwk`. |
 | `--jwk <JWK>` | No | unset | JWK JSON or `@file` path. Mutually exclusive with `--public-key`. |
@@ -475,7 +543,7 @@ Notes:
 rbs-cli -b http://127.0.0.1:8080 -t "$RBS_TOKEN" \
   user update \
   --username smoke-user \
-  --role admin
+  --role user
 ```
 
 ### `user delete`
@@ -796,7 +864,27 @@ rbs-cli -b http://127.0.0.1:8080 -t "$RBS_TOKEN" \
 rbs-cli token gen
 ```
 
-This guide keeps the token section at overview level. For the exact current parameter list of `token gen`, use:
+### `token gen` parameters
+
+| Option | Required | Default | Meaning |
+|---|---|---|---|
+| `--private-key-file <PATH>` | Yes | — | PEM private key used to sign the JWT |
+| `--private-key-passphrase [@PATH]` | No | unset | Passphrase for encrypted private keys; pass the flag without a value to be prompted, or `@PATH` to read it from a file |
+| `--iss` | No | `rbs-cli` | JWT `iss` claim (max 128 chars) |
+| `--sub` | No | `Administrator` | JWT `sub` claim — the username (max 64 chars) |
+| `--aud` | No | `globaltrustauthority-rbs` | JWT `aud` claim; repeat the flag to add up to 16 audiences (max 128 chars each) |
+| `--role` | No | unset | Custom `role` claim (max 64 chars) |
+| `--exp` | No | now + 3600 s | JWT `exp` as a Unix timestamp in seconds |
+| `--nbf` | No | unset | JWT `nbf` as a Unix timestamp in seconds |
+| `--iat` | No | unset | JWT `iat` as a Unix timestamp in seconds; must be earlier than `exp` |
+| `--jti` | No | unset | JWT ID claim (max 128 chars) |
+| `--alg` | No | inferred from the private key | Signing algorithm: `PS256`, `PS384`, `PS512`, `ES256`, `ES384`, `ES512`, `EdDSA`, or `SM2` |
+| `--kid` | No | unset | JWT header `kid` (max 128 chars) |
+| `--claims` | No | unset | JSON object merged into the payload as custom claims; inline JSON text or `@file` (max 64 KiB) |
+
+`--alg` default inference from the private key: RSA or RSA-PSS → `PS256`; Ed25519/Ed448 → `EdDSA`; EC P-256/P-384/P-521 → `ES256`/`ES384`/`ES512`; SM2 → `SM2`.
+
+For the authoritative option list, use:
 
 ```bash
 rbs-cli token gen --help

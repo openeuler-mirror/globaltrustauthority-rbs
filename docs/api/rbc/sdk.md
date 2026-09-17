@@ -23,9 +23,9 @@ Raw provider configuration entry as deserialized from `rbc.yaml`.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `provider_type` | `ProviderType` |  |
-| `enabled` | `bool` |  |
-| `rest` | `serde_json::Map<String, Value>` |  |
+| `provider_type` | `ProviderType` | Provider implementation selected by this entry (the `type` key in `rbc.yaml`). |
+| `enabled` | `bool` | Whether this provider entry is enabled; defaults to `true` when omitted. |
+| `rest` | `serde_json::Map<String, Value>` | Provider-specific settings; the remaining keys of the entry, flattened into one map. |
 
 ---
 
@@ -37,9 +37,9 @@ RBS connection parameters, mapped from the `rbs:` block in `rbc.yaml`.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `base_url` | `String` |  |
-| `timeout_secs` | `Option<u64>` |  |
-| `ca_cert` | `Option<String>` |  |
+| `base_url` | `String` | Base URL of the RBS REST server (required). |
+| `timeout_secs` | `Option<u64>` | Request timeout in seconds. |
+| `ca_cert` | `Option<String>` | Path to a custom CA certificate for TLS verification. |
 
 ---
 
@@ -51,10 +51,10 @@ Full RBC configuration, directly mirrors the structure of `rbc.yaml`.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `rbs` | `RbsConfig` |  |
-| `evidence_provider` | `Option<Vec<ProviderRawConfig>>` |  |
-| `token_provider` | `Option<Vec<ProviderRawConfig>>` |  |
-| `key_algorithm` | `KeyType` |  |
+| `rbs` | `RbsConfig` | RBS connection parameters (the `rbs:` block in `rbc.yaml`). |
+| `evidence_provider` | `Option<Vec<ProviderRawConfig>>` | Evidence provider entries from `rbc.yaml`. |
+| `token_provider` | `Option<Vec<ProviderRawConfig>>` | Token provider entries from `rbc.yaml`. |
+| `key_algorithm` | `KeyType` | Key algorithm for the ephemeral TEE key pair; defaults to `Rsa` when omitted. |
 
 **Methods**
 
@@ -128,9 +128,7 @@ Set the token provider configuration list.
 pub fn key_algorithm(mut self, alg: KeyType) -> Self
 ```
 
-Set the key algorithm used for ephemeral TEE key generation. `KeyType` variants:
-`Rsa`, `Ec`, `Sm2`. `Sm2` supports key generation/loading and signing only; the
-JWE resource envelope does not support SM2 (use `Rsa` or `Ec` for the envelope).
+Set the key algorithm used for ephemeral TEE key generation. `KeyType` variants: `Rsa`, `Ec`, `Sm2`. `Sm2` supports key generation/loading and signing only; the JWE resource envelope does not support SM2 (use `Rsa` or `Ec` for the envelope).
 
 #### `build`
 
@@ -159,9 +157,9 @@ Specifies the authorization mode when calling [`Session::get_resource`].
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `uri` | `String` |  |
+| `uri` | `String` | URI of the retrieved resource. |
 | `content` | `Zeroizing<Vec<u8>>` | Raw content, possibly a JWE ciphertext; zeroed on `Drop`. |
-| `content_type` | `Option<String>` |  |
+| `content_type` | `Option<String>` | Media type of the resource content, when reported by the server. |
 
 ---
 
@@ -241,6 +239,6 @@ Fetch the resource at `uri`, authorized via `request`.
 pub fn decrypt_content( &self, jwe_token: &str, private_key_pem: Option<&str>, passphrase: Option<&[u8]>, ) -> Result<Zeroizing<Vec<u8>>, RbcError>
 ```
 
-Decrypt a JWE-encrypted resource content.  If `private_key_pem` is provided it is always used, regardless of whether the session holds an ephemeral key. This allows stateless callers (e.g. a CLI) to supply their own long-lived private key without requiring the same `Session` that collected evidence. Pass `passphrase` when the PEM is encrypted; caller is responsible for zeroizing the slice after this call.  When `private_key_pem` is omitted the session's ephemeral key is used instead.
+Decrypt a JWE-encrypted resource content. If `private_key_pem` is provided it is always used, regardless of whether the session holds an ephemeral key. This allows stateless callers (e.g. a CLI) to supply their own long-lived private key without requiring the same `Session` that collected evidence. Pass `passphrase` when the PEM is encrypted; caller is responsible for zeroizing the slice after this call. When `private_key_pem` is omitted the session's ephemeral key is used instead.
 
 ---
