@@ -3680,7 +3680,7 @@ components:
           type: array
           items:
             type: string
-          description: Certificate type list (JSON field name `type`); 1-7 items, each one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `crl`, `ascend_npu`; `crl` must be the only entry.
+          description: Certificate type list (JSON field name `type`); 1-6 items, each one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `crl`, `ascend_npu`; `crl` must be the only entry.
           example: '["tpm"]'
         description:
           type:
@@ -3919,7 +3919,7 @@ components:
           - 'null'
           items:
             type: string
-          description: New certificate type list (JSON field name `type`); 1-7 items, each one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `ascend_npu` — `crl` cannot be set on update.
+          description: New certificate type list (JSON field name `type`); 1-6 items, each one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `ascend_npu` — `crl` cannot be set on update.
         content:
           type:
           - string
@@ -4839,6 +4839,9 @@ components:
           - 'null'
           description: Base64-encoded PEM public key (mutually exclusive with `jwk`).
         jwk:
+          type:
+          - object
+          - 'null'
           description: JWK public key JSON object (mutually exclusive with `public_key`).
     UserListResponse:
       type: object
@@ -4938,6 +4941,9 @@ components:
           - 'null'
           description: Base64-encoded PEM public key (mutually exclusive with `jwk`).
         jwk:
+          type:
+          - object
+          - 'null'
           description: JWK public key JSON object (mutually exclusive with `public_key`).
   securitySchemes:
     attestAuth:

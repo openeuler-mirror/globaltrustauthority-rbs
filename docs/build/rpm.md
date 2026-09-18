@@ -91,8 +91,12 @@ rpm -qa | grep -E '^(rbs|rbc)'
 # Binaries on PATH
 command -v rbs rbc rbs-cli
 
-# Service active (rbs package only)
+# Service enabled (rbs package only); enabled by %post on every install
 systemctl is-enabled rbs.service
+# NOTE: `is-active` fails on a fresh install — by design. The packaged config is
+# fail-closed (`rest.https.enabled: true` with empty `cert_file`/`key_file`), so the
+# first auto-start exits; the service turns active only after TLS is configured or
+# https is disabled (see 5. Configure below).
 systemctl is-active rbs.service
 
 # Config files present
@@ -126,15 +130,15 @@ The unit sets `Environment=RBS_CONFIG=/etc/rbs/rbs.yaml`, so `rbs` reads that pa
 
 Keys that matter for a packaged install (full schema in the tree: [`rbs/conf/rbs.yaml`](../../rbs/conf/rbs.yaml)). Dot notation maps table keys to YAML: `rest.listen_addr` is `listen_addr` under `rest:`; `storage.url` and `storage.sql_file_path` are the `url` and `sql_file_path` keys under `storage:`.
 
-The **`rbs` RPM** copies [`rbs/conf/rbs.yaml`](../../rbs/conf/rbs.yaml) into `/etc/rbs/rbs.yaml` at **package build time**, then applies two **`sed`** edits in [`rpm/rbs.spec`](../../rpm/rbs.spec) so a **fresh** install matches the packaged layout: **`storage.url`** becomes **`sqlite:///var/lib/rbs/rbs.db`** and **`storage.sql_file_path`** becomes **`/usr/share/rbs/sqlite_rbs.sql`**. The SQL file is installed from [`rbs/conf/sqlite_rbs.sql`](../../rbs/conf/sqlite_rbs.sql) as **`/usr/share/rbs/sqlite_rbs.sql`** (`root:root`, `0644`). If you keep an **older edited** `%config(noreplace)` file across upgrades, merge these keys from **`*.rpmnew`** or align them manually. If the **source** YAML changes the exact `storage.url` / `storage.sql_file_path` lines, update the **`sed`** patterns in the spec so the packaged file still transforms correctly.
+The **`rbs` RPM** copies [`rbs/conf/rbs.yaml`](../../rbs/conf/rbs.yaml) into `/etc/rbs/rbs.yaml` at **package build time**, then applies two **`sed`** edits in [`rpm/rbs.spec`](../../rpm/rbs.spec) so a **fresh** install matches the packaged layout: **`storage.url`** becomes **`sqlite:///var/lib/rbs/rbs.db?mode=rwc`** and **`storage.sql_file_path`** becomes **`/usr/share/rbs/sqlite_rbs.sql`**. The SQL file is installed from [`rbs/conf/sqlite_rbs.sql`](../../rbs/conf/sqlite_rbs.sql) as **`/usr/share/rbs/sqlite_rbs.sql`** (`root:root`, `0644`). If you keep an **older edited** `%config(noreplace)` file across upgrades, merge these keys from **`*.rpmnew`** or align them manually. If the **source** YAML changes the exact `storage.url` / `storage.sql_file_path` lines, update the **`sed`** patterns in the spec so the packaged file still transforms correctly.
 
 | Key | Packaged default (fresh install) | Notes |
 | ---- | ---- | ---- |
 | `rest.listen_addr` | `127.0.0.1:6666` | Set to `0.0.0.0:<port>` to expose; update firewall too |
-| `rest.https.enabled` | `false` | Flip to `true` plus `cert_file` / `key_file` before exposing |
+| `rest.https.enabled` | `true` | Fail-closed by design: the packaged config ships empty `cert_file` / `key_file`, so a fresh install refuses to start until you provide valid PEM paths (or explicitly set this to `false`) |
 | `logging.file_path` | `/var/log/rbs/rbs.log` | Directory is pre-created with the correct owner |
 | `logging.enable_rotation` | `true` | See `rotation.*` block for caps |
-| `storage.url` | `sqlite:///var/lib/rbs/rbs.db` | Set at **package build** from the tree default `sqlite:///root/rbs.db` |
+| `storage.url` | `sqlite:///var/lib/rbs/rbs.db?mode=rwc` | Set at **package build** from the tree default `sqlite:///root/rbs.db?mode=rwc`; the `?mode=rwc` suffix creates the DB file on first connect (parent directory must exist) |
 | `storage.sql_file_path` | `/usr/share/rbs/sqlite_rbs.sql` | Schema shipped by the `rbs` RPM; override if you supply your own SQL bootstrap |
 
 Apply changes:
