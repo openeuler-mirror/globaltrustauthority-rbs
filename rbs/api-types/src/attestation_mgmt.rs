@@ -469,7 +469,7 @@ pub struct CertCreateRequest {
     #[validate(length(min = 1, message = "must not be empty"))]
     #[schema(example = "cert1", min_length = 1)]
     pub name: String,
-    /// Certificate type list (JSON field name `type`); 1-7 items, each one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `crl`, `ascend_npu`; `crl` must be the only entry.
+    /// Certificate type list (JSON field name `type`); 1-6 items, each one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `crl`, `ascend_npu`; `crl` must be the only entry.
     #[serde(rename = "type")]
     #[schema(example = "[\"tpm\"]")]
     pub cert_type: Vec<String>,
@@ -505,7 +505,7 @@ pub struct CertUpdateRequest {
     /// New description (at most 512 chars).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    /// New certificate type list (JSON field name `type`); 1-7 items, each one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `ascend_npu` — `crl` cannot be set on update.
+    /// New certificate type list (JSON field name `type`); 1-6 items, each one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `ascend_npu` — `crl` cannot be set on update.
     #[serde(skip_serializing_if = "Option::is_none", rename = "type")]
     pub cert_type: Option<Vec<String>>,
     /// Certificate content — GTA rejects this on update.

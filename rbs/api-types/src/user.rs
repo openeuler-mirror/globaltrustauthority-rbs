@@ -70,6 +70,7 @@ pub struct UserCreateRequest {
     pub public_key: Option<String>,
 
     /// JWK public key JSON object (mutually exclusive with `public_key`).
+    #[schema(value_type = Option<Object>)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub jwk: Option<Value>,
 }
@@ -130,6 +131,7 @@ pub struct UserUpdateRequest {
     pub public_key: Option<String>,
 
     /// JWK public key JSON object (mutually exclusive with `public_key`).
+    #[schema(value_type = Option<Object>)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub jwk: Option<Value>,
 }

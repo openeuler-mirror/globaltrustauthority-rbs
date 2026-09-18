@@ -188,7 +188,7 @@ Schema: [UserCreateRequest](#usercreaterequest)
 | `enabled` | boolean | no | Whether the account is enabled. |
 | `auth_type` | [AuthType](#authtype) | yes | Authentication method; currently only `jwt` is supported. |
 | `public_key` | string | no | Base64-encoded PEM public key (mutually exclusive with `jwk`). |
-| `jwk` | any | no | JWK public key JSON object (mutually exclusive with `public_key`). |
+| `jwk` | object | no | JWK public key JSON object (mutually exclusive with `public_key`). |
 
 Example request:
 
@@ -199,7 +199,7 @@ Example request:
   "enabled": true,
   "auth_type": "jwt",
   "public_key": "string",
-  "jwk": null
+  "jwk": {}
 }
 ```
 
@@ -296,7 +296,7 @@ Schema: [UserUpdateRequest](#userupdaterequest)
 | `enabled` | boolean | no | Whether the account can authenticate. |
 | `auth_type` | [AuthType](#authtype) | no | New authentication method; currently only `jwt` is supported. |
 | `public_key` | string | no | Base64-encoded PEM public key (mutually exclusive with `jwk`). |
-| `jwk` | any | no | JWK public key JSON object (mutually exclusive with `public_key`). |
+| `jwk` | object | no | JWK public key JSON object (mutually exclusive with `public_key`). |
 
 Example request:
 
@@ -306,7 +306,7 @@ Example request:
   "enabled": true,
   "auth_type": null,
   "public_key": "string",
-  "jwk": null
+  "jwk": {}
 }
 ```
 
@@ -1199,7 +1199,7 @@ Schema: [CertUpdateRequest](#certupdaterequest)
 | `id` | string | yes | ID of the certificate to update (1-32 chars, GTA-enforced). |
 | `name` | string | no | New name (1-255 chars). |
 | `description` | string | no | New description (at most 512 chars). |
-| `type` | array of string | no | New certificate type list (JSON field name `type`); 1-7 items, each one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `ascend_npu` — `crl` cannot be set on update. |
+| `type` | array of string | no | New certificate type list (JSON field name `type`); 1-6 items, each one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `ascend_npu` — `crl` cannot be set on update. |
 | `content` | string | no | Certificate content — GTA rejects this on update. |
 | `is_default` | boolean | no | Whether to set as default certificate. |
 
@@ -1260,7 +1260,7 @@ Schema: [CertCreateRequest](#certcreaterequest)
 | Property | Type | Required | Description |
 |---|---|---|---|
 | `name` | string | yes | Certificate name (1-255 chars, GTA-enforced). |
-| `type` | array of string | yes | Certificate type list (JSON field name `type`); 1-7 items, each one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `crl`, `ascend_npu`; `crl` must be the only entry. |
+| `type` | array of string | yes | Certificate type list (JSON field name `type`); 1-6 items, each one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `crl`, `ascend_npu`; `crl` must be the only entry. |
 | `description` | string | no | Optional description (at most 512 chars). |
 | `content` | string | no | Certificate content; required when `cert_type` does not contain `crl`. |
 | `crl_content` | string | no | CRL content; required when `cert_type` contains `crl` (which must then be the only entry). |
@@ -2149,7 +2149,7 @@ Schema: [CertUpdateRequest](#certupdaterequest)
 | `id` | string | yes | ID of the certificate to update (1-32 chars, GTA-enforced). |
 | `name` | string | no | New name (1-255 chars). |
 | `description` | string | no | New description (at most 512 chars). |
-| `type` | array of string | no | New certificate type list (JSON field name `type`); 1-7 items, each one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `ascend_npu` — `crl` cannot be set on update. |
+| `type` | array of string | no | New certificate type list (JSON field name `type`); 1-6 items, each one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `ascend_npu` — `crl` cannot be set on update. |
 | `content` | string | no | Certificate content — GTA rejects this on update. |
 | `is_default` | boolean | no | Whether to set as default certificate. |
 
@@ -2216,7 +2216,7 @@ Schema: [CertCreateRequest](#certcreaterequest)
 | Property | Type | Required | Description |
 |---|---|---|---|
 | `name` | string | yes | Certificate name (1-255 chars, GTA-enforced). |
-| `type` | array of string | yes | Certificate type list (JSON field name `type`); 1-7 items, each one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `crl`, `ascend_npu`; `crl` must be the only entry. |
+| `type` | array of string | yes | Certificate type list (JSON field name `type`); 1-6 items, each one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `crl`, `ascend_npu`; `crl` must be the only entry. |
 | `description` | string | no | Optional description (at most 512 chars). |
 | `content` | string | no | Certificate content; required when `cert_type` does not contain `crl`. |
 | `crl_content` | string | no | CRL content; required when `cert_type` contains `crl` (which must then be the only entry). |
@@ -3182,7 +3182,7 @@ Request body for POST cert (create).
 | Property | Type | Required | Description |
 |---|---|---|---|
 | `name` | string | yes | Certificate name (1-255 chars, GTA-enforced). |
-| `type` | array of string | yes | Certificate type list (JSON field name `type`); 1-7 items, each one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `crl`, `ascend_npu`; `crl` must be the only entry. |
+| `type` | array of string | yes | Certificate type list (JSON field name `type`); 1-6 items, each one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `crl`, `ascend_npu`; `crl` must be the only entry. |
 | `description` | string | no | Optional description (at most 512 chars). |
 | `content` | string | no | Certificate content; required when `cert_type` does not contain `crl`. |
 | `crl_content` | string | no | CRL content; required when `cert_type` contains `crl` (which must then be the only entry). |
@@ -3257,7 +3257,7 @@ Request body for PUT cert (update).
 | `id` | string | yes | ID of the certificate to update (1-32 chars, GTA-enforced). |
 | `name` | string | no | New name (1-255 chars). |
 | `description` | string | no | New description (at most 512 chars). |
-| `type` | array of string | no | New certificate type list (JSON field name `type`); 1-7 items, each one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `ascend_npu` — `crl` cannot be set on update. |
+| `type` | array of string | no | New certificate type list (JSON field name `type`); 1-6 items, each one of `refvalue`, `policy`, `tpm_boot`, `tpm`, `tpm_ima`, `ascend_npu` — `crl` cannot be set on update. |
 | `content` | string | no | Certificate content — GTA rejects this on update. |
 | `is_default` | boolean | no | Whether to set as default certificate. |
 
@@ -3620,7 +3620,7 @@ Request body for POST /rbs/v0/users (create user).
 | `enabled` | boolean | no | Whether the account is enabled. |
 | `auth_type` | [AuthType](#authtype) | yes | Authentication method; currently only `jwt` is supported. |
 | `public_key` | string | no | Base64-encoded PEM public key (mutually exclusive with `jwk`). |
-| `jwk` | any | no | JWK public key JSON object (mutually exclusive with `public_key`). |
+| `jwk` | object | no | JWK public key JSON object (mutually exclusive with `public_key`). |
 
 ### UserListResponse
 
@@ -3656,7 +3656,7 @@ Request body for PUT /rbs/v0/users/{username} (update user).
 | `enabled` | boolean | no | Whether the account can authenticate. |
 | `auth_type` | [AuthType](#authtype) | no | New authentication method; currently only `jwt` is supported. |
 | `public_key` | string | no | Base64-encoded PEM public key (mutually exclusive with `jwk`). |
-| `jwk` | any | no | JWK public key JSON object (mutually exclusive with `public_key`). |
+| `jwk` | object | no | JWK public key JSON object (mutually exclusive with `public_key`). |
 
 ---
 
