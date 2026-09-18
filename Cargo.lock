@@ -3420,6 +3420,7 @@ dependencies = [
  "foreign-types-shared",
  "josekit",
  "jsonwebtoken 10.4.0",
+ "libc",
  "log",
  "openssl",
  "openssl-sys",

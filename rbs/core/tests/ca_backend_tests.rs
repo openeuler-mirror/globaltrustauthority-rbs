@@ -102,11 +102,23 @@ fn build_response(
     anchor_cert_der: &[u8],
     issued_der: &[u8],
 ) -> Vec<u8> {
+    build_response_inner(req, anchor_key, anchor_cert_der, issued_der, |_| {})
+}
+
+/// `build_response` with a header tweak hook, used by the anti-replay
+/// regression tests to perturb the echoed trans_id / recip_nonce.
+fn build_response_inner(
+    req: &PkiMessage<'_>,
+    anchor_key: &PKey<openssl::pkey::Private>,
+    anchor_cert_der: &[u8],
+    issued_der: &[u8],
+    tweak_header: impl FnOnce(&mut PkiHeader<'_>),
+) -> Vec<u8> {
     let anchor_cert = x509_cert::Certificate::from_der(anchor_cert_der).unwrap();
     let issued = x509_cert::Certificate::from_der(issued_der).unwrap();
 
     let (resp_alg_oid, resp_digest) = oid_and_digest_for_key(anchor_key);
-    let resp_header = PkiHeader {
+    let mut resp_header = PkiHeader {
         pvno: Pvno::Cmp2000,
         sender: GeneralName::DirectoryName(anchor_cert.tbs_certificate.subject.clone()),
         recipient: req.header.sender.clone(),
@@ -123,6 +135,7 @@ fn build_response(
         free_text: None,
         general_info: None,
     };
+    tweak_header(&mut resp_header);
 
     let cert_response = CertResponse {
         cert_req_id: der::asn1::Int::new(&[0]).unwrap(),
@@ -476,5 +489,86 @@ async fn ca_backend_bad_protection_returns_backend_error() {
     match ca.get_resource_content(&desc, opts).await {
         Err(ResourceError::BackendError { .. }) => {}
         other => panic!("Expected BackendError (bad protection), got {:?}", other),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Anti-replay regression (security scan SV-03, RFC 4210 §5.1.1)
+// ---------------------------------------------------------------------------
+
+/// Shared setup for the anti-replay tests: a correctly signing mock CA whose
+/// response header is perturbed by `tweak` before signing, so the response
+/// carries a valid protection signature but a mismatched trans_id/recip_nonce.
+async fn replay_setup(tweak: fn(&mut PkiHeader<'_>)) -> Result<(), ResourceError> {
+    let dir = tempfile::TempDir::new().unwrap();
+
+    let anchor_key = PKey::from_rsa(openssl::rsa::Rsa::generate(2048).unwrap()).unwrap();
+    let anchor_cert = self_signed(&anchor_key, "replay-anchor");
+    let anchor_der = anchor_cert.to_der().unwrap();
+    let anchors_file = write_cert_pem(&anchor_cert, dir.path(), "anchor.pem");
+
+    let client_key = PKey::from_rsa(openssl::rsa::Rsa::generate(2048).unwrap()).unwrap();
+    let client_cert = self_signed(&client_key, "replay-client");
+    let prot_cert_file = write_cert_pem(&client_cert, dir.path(), "client.pem");
+    let prot_key_file = write_key_pem(&client_key, dir.path(), "client.key");
+
+    let issued_key = PKey::from_rsa(openssl::rsa::Rsa::generate(2048).unwrap()).unwrap();
+    let issued_cert = self_signed(&issued_key, "replay-issued");
+    let issued_der = issued_cert.to_der().unwrap();
+
+    let mut rb = openssl::x509::X509ReqBuilder::new().unwrap();
+    let mut nm = openssl::x509::X509NameBuilder::new().unwrap();
+    nm.append_entry_by_text("CN", "workload").unwrap();
+    rb.set_subject_name(&nm.build()).unwrap();
+    rb.set_pubkey(&client_key).unwrap();
+    rb.sign(&client_key, MessageDigest::sha256()).unwrap();
+    let csr_der = rb.build().to_der().unwrap();
+
+    let ak = anchor_key.clone();
+    let mock = CmpMock::start(move |req_body: &[u8]| {
+        let req = PkiMessage::from_der(req_body).ok()?;
+        if !matches!(req.body, PkiBody::P10cr(_)) { return None; }
+        Some(build_response_inner(&req, &ak, &anchor_der, &issued_der, tweak))
+    });
+
+    let cfg = make_ca_config(mock.url(), prot_cert_file, prot_key_file, anchors_file);
+    let ca = rbs_core::resource::adapter::CABackend::new(&cfg).expect("CA backend init");
+    let desc = ca_desc("replay");
+    let opts = rbs_api_types::GetResourceOptions { csr_der: Some(zeroize::Zeroizing::new(csr_der)) };
+    ca.get_resource_content(&desc, opts).await.map(|_| ())
+}
+
+/// SV-03: a validly signed response whose trans_id does not echo the
+/// request's trans_id must be rejected (stale/mismatched response replay).
+#[tokio::test]
+async fn ca_backend_rejects_trans_id_mismatch() {
+    match replay_setup(|h| {
+        h.trans_id = Some(OctetString::new(rand_bytes(16)).unwrap());
+    })
+    .await
+    {
+        Err(ResourceError::BackendError { detail }) => {
+            assert!(detail.contains("trans_id mismatch"), "detail must name trans_id, got: {detail}");
+        }
+        other => panic!("Expected BackendError (trans_id mismatch), got {:?}", other),
+    }
+}
+
+/// SV-03: a validly signed response whose recip_nonce does not equal the
+/// request's sender_nonce must be rejected (replay of another exchange).
+#[tokio::test]
+async fn ca_backend_rejects_recip_nonce_mismatch() {
+    match replay_setup(|h| {
+        h.recip_nonce = Some(OctetString::new(rand_bytes(16)).unwrap());
+    })
+    .await
+    {
+        Err(ResourceError::BackendError { detail }) => {
+            assert!(
+                detail.contains("recip_nonce mismatch"),
+                "detail must name recip_nonce, got: {detail}"
+            );
+        }
+        other => panic!("Expected BackendError (recip_nonce mismatch), got {:?}", other),
     }
 }

@@ -42,6 +42,10 @@ pub fn write_output(global: &GlobalOptions, output: &str) -> std::result::Result
 /// are tightened to 0o600 as well — reusing an output path must not keep a
 /// wider mode from an earlier creation. The process umask can only remove
 /// permission bits, never widen them.
+///
+/// The file is opened with `O_NOFOLLOW`: a symlink planted at the output
+/// path must not redirect the write to an arbitrary target file (symlink
+/// following would leak the secrets and overwrite the victim).
 pub fn write_private_file(path: &str, contents: &str) -> std::result::Result<(), std::io::Error> {
     #[cfg(unix)]
     {
@@ -53,13 +57,24 @@ pub fn write_private_file(path: &str, contents: &str) -> std::result::Result<(),
             .create(true)
             .truncate(true)
             .mode(0o600)
-            .open(path)?;
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(path)
+            .map_err(|e| {
+                if e.raw_os_error() == Some(libc::ELOOP) {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        format!("output path '{path}' is a symlink; refusing to write"),
+                    )
+                } else {
+                    e
+                }
+            })?;
         file.write_all(contents.as_bytes())?;
 
         // `mode()` only applies at creation; tighten pre-existing files.
         let perms = fs::metadata(path)?.permissions();
         if perms.mode() & 0o777 != 0o600 {
-            fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+            fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
         }
         Ok(())
     }
@@ -120,5 +135,36 @@ mod tests {
         assert_eq!(mode & 0o777, 0o600, "pre-existing output file must be tightened");
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "new-secret");
         let _ = std::fs::remove_file(&path);
+    }
+
+    /// SV-05 regression: a symlink planted at the output path must be
+    /// rejected — the CLI must not follow it and overwrite the target file
+    /// with secrets (tokens, decrypted resource content).
+    #[cfg(unix)]
+    #[test]
+    fn write_private_file_rejects_symlink_output_path() {
+        let dir = std::env::temp_dir();
+        let victim = dir.join(format!("tools-private-victim-{}.txt", std::process::id()));
+        let link = dir.join(format!("tools-private-link-{}", std::process::id()));
+        let _ = std::fs::remove_file(&link);
+        let _ = std::fs::remove_file(&victim);
+        std::fs::write(&victim, "victim-content").expect("seed victim file");
+        std::os::unix::fs::symlink(&victim, &link).expect("plant symlink");
+
+        let err = write_private_file(link.to_str().unwrap(), "secret")
+            .expect_err("symlink output path must be rejected");
+        assert!(
+            err.to_string().contains("symlink"),
+            "error must explain the symlink refusal, got: {err}"
+        );
+
+        // The victim file must be untouched.
+        assert_eq!(
+            std::fs::read_to_string(&victim).expect("read victim"),
+            "victim-content",
+            "symlink target must not be overwritten"
+        );
+        let _ = std::fs::remove_file(&link);
+        let _ = std::fs::remove_file(&victim);
     }
 }

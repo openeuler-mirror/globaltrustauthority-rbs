@@ -1026,6 +1026,7 @@ Example request:
 |---|---|---|
 | 200 | Resource content (base64-encoded JWE) | [ResourceContentResponse](#resourcecontentresponse) |
 | 404 | Resource not found or access denied | [ErrorBody](#errorbody) |
+| 429 | CA backend saturated: too many concurrent certificate issuance requests in flight, retry later. | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 | 501 | Builtin attestation backend mode is configured but not implemented. | [ErrorBody](#errorbody) |
 | 502 | Attestation backend error, forwarded verbatim: RBS returns GTA's non-2xx status code (502 shown as an example; statuses such as 400 or 500 are returned as-is) and wraps GTA's body in the error field. | [ErrorBody](#errorbody) |

@@ -319,6 +319,7 @@ pub async fn list_resources(
     responses(
         (status = 200, description = "Resource content (base64-encoded JWE)", body = ResourceContentResponse),
         (status = 404, description = "Resource not found or access denied", body = ErrorBody),
+        (status = 429, description = "CA backend saturated: too many concurrent certificate issuance requests in flight, retry later.", body = ErrorBody),
         (status = 502, description = "Attestation backend error, forwarded verbatim: RBS returns GTA's non-2xx status code (502 shown as an example; statuses such as 400 or 500 are returned as-is) and wraps GTA's body in the error field.", body = ErrorBody),
         (status = 503, description = "Attestation provider unreachable or timed out.", body = ErrorBody),
         (status = 501, description = "Builtin attestation backend mode is configured but not implemented.", body = ErrorBody),

@@ -59,6 +59,11 @@ pub enum ResourceError {
 
     #[error("ca request pending")]
     CaRequestPending,
+
+    /// Backend saturated with concurrent requests (e.g. too many in-flight
+    /// CA issuances). Mapped to HTTP 429 so callers back off and retry.
+    #[error("backend busy: too many concurrent requests, retry later")]
+    BackendBusy,
 }
 
 impl ResourceError {
@@ -78,6 +83,7 @@ impl ResourceError {
             ResourceError::NotFoundOrDenied => 404,
             ResourceError::BackendError { .. } => 502,
             ResourceError::CaRequestPending => 202,
+            ResourceError::BackendBusy => 429,
             ResourceError::PolicyEvaluationFailed => 500,
         }
     }
