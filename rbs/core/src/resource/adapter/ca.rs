@@ -39,6 +39,11 @@ const SHA256_RSA_OID: &str = "1.2.840.113549.1.1.11";
 const ECDSA_SHA256_OID: &str = "1.2.840.10045.4.3.2";
 const ECDSA_SHA384_OID: &str = "1.2.840.10045.4.3.3";
 const ECDSA_SHA512_OID: &str = "1.2.840.10045.4.3.4";
+/// Maximum concurrent in-flight certificate issuance requests (dedup
+/// registrations). `POST .../retrieve` is unauthenticated, so once this many
+/// distinct-key requests are in flight, further requests are rejected with
+/// 429 instead of accumulating unbounded memory or queueing behind the CA.
+const MAX_INFLIGHT: usize = 100;
 /// id-it-certProfile: carries the cert profile name in PKIHeader.generalInfo.
 const IT_CERT_PROFILE_OID: &str = "1.3.6.1.5.5.7.4.21";
 
@@ -78,6 +83,9 @@ pub struct CABackend {
     ttl: Duration,
     cache: DashMap<String, CacheEntry>,
     inflight: DashMap<String, Arc<tokio::sync::Mutex<()>>>,
+    /// Bounds concurrent certificate issuances (and therefore inflight dedup
+    /// registrations) to [`MAX_INFLIGHT`]; see the constant's docs.
+    issue_permits: tokio::sync::Semaphore,
 }
 
 impl fmt::Debug for CABackend {
@@ -179,6 +187,7 @@ impl CABackend {
             ttl: Duration::from_secs(config.idempotency.ttl_seconds as u64),
             cache: DashMap::new(),
             inflight: DashMap::new(),
+            issue_permits: tokio::sync::Semaphore::new(MAX_INFLIGHT),
         })
     }
 
@@ -242,8 +251,12 @@ impl CABackend {
             }])
         };
 
-        let txid = rand_bytes(16);
-        let nonce = rand_bytes(16);
+        let txid = OctetString::new(rand_bytes(16)).map_err(|e| {
+            ResourceError::BackendError { detail: format!("OctetString: {e}") }
+        })?;
+        let nonce = OctetString::new(rand_bytes(16)).map_err(|e| {
+            ResourceError::BackendError { detail: format!("OctetString: {e}") }
+        })?;
         let header = PkiHeader {
             pvno: Pvno::Cmp2000,
             sender: GeneralName::DirectoryName(prot_cert.tbs_certificate.subject.clone()),
@@ -257,12 +270,8 @@ impl CABackend {
             }),
             sender_kid: None,
             recip_kid: None,
-            trans_id: Some(OctetString::new(txid).map_err(|e| {
-                ResourceError::BackendError { detail: format!("OctetString: {e}") }
-            })?),
-            sender_nonce: Some(OctetString::new(nonce).map_err(|e| {
-                ResourceError::BackendError { detail: format!("OctetString: {e}") }
-            })?),
+            trans_id: Some(txid.clone()),
+            sender_nonce: Some(nonce.clone()),
             recip_nonce: None,
             free_text: None,
             general_info,
@@ -338,6 +347,23 @@ impl CABackend {
             log::error!("CA: CMP response parse failed: {}", e);
             ResourceError::BackendError { detail: "cmp response parse".to_string() }
         })?;
+
+        // RFC 4210 §5.1.1 anti-replay: the response must echo the request's
+        // trans_id and return our sender_nonce as recip_nonce. A validly
+        // signed but stale/mismatched response (a replay of another
+        // request's reply) must be rejected before its content is trusted.
+        if resp_msg.header.trans_id.as_ref() != Some(&txid) {
+            log::error!("CA: CMP response trans_id mismatch (possible replay)");
+            return Err(ResourceError::BackendError {
+                detail: "cmp response trans_id mismatch".to_string(),
+            });
+        }
+        if resp_msg.header.recip_nonce.as_ref() != Some(&nonce) {
+            log::error!("CA: CMP response recip_nonce mismatch (possible replay)");
+            return Err(ResourceError::BackendError {
+                detail: "cmp response recip_nonce mismatch".to_string(),
+            });
+        }
 
         let resp_protected = ProtectedPart { header: resp_msg.header.clone(), body: resp_msg.body.clone() };
         let resp_protected_der = resp_protected.to_der().map_err(|e| {
@@ -588,25 +614,38 @@ impl ResourceBackend for CABackend {
             }
         }
 
+        // Bound concurrent issuances before registering an inflight entry:
+        // the retrieve endpoint is unauthenticated, so a flood of distinct
+        // CSR+resource keys must be rejected (429) once MAX_INFLIGHT requests
+        // are already in flight, never queued or accumulated.
+        let _permit = self.issue_permits.try_acquire().map_err(|_| {
+            log::warn!(
+                "CA: rejecting request for tag='{}': too many concurrent issues",
+                desc.resource_name
+            );
+            ResourceError::BackendBusy
+        })?;
+
         let lock = self.inflight.entry(key.clone())
             .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(()))).clone();
+        // RAII cleanup: the inflight entry is removed on scope exit — and,
+        // crucially, on future cancellation at any await point below
+        // (`lock().await`, `issue().await`), which would otherwise leak it.
+        let _inflight = InflightGuard {
+            key: key.clone(),
+            map: &self.inflight,
+            lock: lock.clone(),
+        };
         let _g = lock.lock().await;
 
         if let Some(mut e) = self.cache.get_mut(&key) {
             if Instant::now() < e.expires_at {
                 e.last_access = Instant::now();
-                let _ = self.inflight.remove(&key);
                 return Ok(e.cert.clone());
             }
         }
 
-        let cert = match self.issue(desc, csr_der).await {
-            Ok(c) => c,
-            Err(e) => {
-                let _ = self.inflight.remove(&key);
-                return Err(e);
-            }
-        };
+        let cert = self.issue(desc, csr_der).await?;
 
         if self.cache.len() >= self.max_entries {
             evict_lru(&self.cache, self.max_entries);
@@ -616,10 +655,22 @@ impl ResourceBackend for CABackend {
             expires_at: Instant::now() + self.ttl,
             last_access: Instant::now(),
         });
-        // Clean up the transient inflight entry now that the cache holds the
-        // result, so dedup entries cannot accumulate unboundedly.
-        let _ = self.inflight.remove(&key);
         Ok(cert)
+    }
+}
+
+/// Removes an inflight dedup entry when dropped. The identity check
+/// (`Arc::ptr_eq`) ensures a late drop cannot remove an entry that a newer
+/// request re-registered for the same key after this one was cleaned up.
+struct InflightGuard<'a> {
+    key: String,
+    map: &'a DashMap<String, Arc<tokio::sync::Mutex<()>>>,
+    lock: Arc<tokio::sync::Mutex<()>>,
+}
+
+impl Drop for InflightGuard<'_> {
+    fn drop(&mut self) {
+        self.map.remove_if(&self.key, |_, v| Arc::ptr_eq(v, &self.lock));
     }
 }
 
@@ -824,5 +875,187 @@ mod tests {
             missing.unwrap_err().contains("read key file"),
             "error must mention the read failure"
         );
+    }
+
+    /// SV-02 regression (guard semantics): dropping the inflight guard removes
+    /// its own entry from the map.
+    #[test]
+    fn inflight_guard_removes_own_entry_on_drop() {
+        let map: DashMap<String, Arc<tokio::sync::Mutex<()>>> = DashMap::new();
+        let lock = map
+            .entry("k".to_string())
+            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+            .clone();
+        {
+            let _guard = InflightGuard { key: "k".to_string(), map: &map, lock: lock.clone() };
+            assert_eq!(map.len(), 1, "entry must exist while the guard is alive");
+        }
+        assert!(map.is_empty(), "guard drop must remove the inflight entry");
+    }
+
+    /// SV-02 regression (guard semantics): a guard for an old mutex must not
+    /// remove a newer entry re-registered under the same key by another call.
+    #[test]
+    fn inflight_guard_keeps_foreign_entry() {
+        let map: DashMap<String, Arc<tokio::sync::Mutex<()>>> = DashMap::new();
+        let stale_lock = Arc::new(tokio::sync::Mutex::new(()));
+        let fresh_lock = Arc::new(tokio::sync::Mutex::new(()));
+        map.insert("k".to_string(), fresh_lock);
+        let guard = InflightGuard { key: "k".to_string(), map: &map, lock: stale_lock };
+        drop(guard);
+        assert_eq!(map.len(), 1, "foreign (re-registered) entry must survive");
+    }
+
+    // ── SV-02 end-to-end: hanging CA + cancellation / saturation ──────────
+
+    /// Test-fixture CA backend files + config against a TCP server that
+    /// accepts requests and never answers.
+    struct HangingCa {
+        _dir: tempfile::TempDir,
+        config: CaConfig,
+    }
+
+    fn start_hanging_ca() -> HangingCa {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let key = openssl::pkey::PKey::from_rsa(
+            openssl::rsa::Rsa::generate(2048).expect("generate RSA key"),
+        )
+        .expect("wrap key");
+        let mut builder = openssl::x509::X509Builder::new().expect("cert builder");
+        let mut name = openssl::x509::X509NameBuilder::new().expect("name builder");
+        name.append_entry_by_text("CN", "hanging-ca").expect("CN");
+        builder.set_subject_name(&name.build()).expect("subject");
+        builder.set_pubkey(&key).expect("pubkey");
+        builder.set_version(2).expect("version");
+        builder
+            .set_not_before(&openssl::asn1::Asn1Time::days_from_now(0).expect("nb"))
+            .expect("not_before");
+        builder
+            .set_not_after(&openssl::asn1::Asn1Time::days_from_now(1).expect("na"))
+            .expect("not_after");
+        builder.sign(&key, openssl::hash::MessageDigest::sha256()).expect("sign");
+        let cert = builder.build();
+        std::fs::write(dir.path().join("cert.pem"), cert.to_pem().expect("pem")).expect("write cert");
+        std::fs::write(dir.path().join("key.pem"), key.private_key_to_pem_pkcs8().expect("key pem"))
+            .expect("write key");
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        listener.set_nonblocking(true).expect("nonblocking");
+        let addr = listener.local_addr().expect("addr");
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("runtime");
+            rt.block_on(async move {
+                let listener = tokio::net::TcpListener::from_std(listener).expect("listener");
+                loop {
+                    let Ok((mut sock, _)) = listener.accept().await else { break };
+                    // Read the request, then hang until the client times out
+                    // or gives up — this is the slow/loaded CA stand-in.
+                    tokio::spawn(async move {
+                        use tokio::io::AsyncReadExt;
+                        let mut buf = vec![0u8; 8192];
+                        let _ = sock.read(&mut buf).await;
+                        tokio::time::sleep(Duration::from_secs(60)).await;
+                    });
+                }
+            });
+        });
+
+        let config = CaConfig {
+            url: format!("http://{addr}"),
+            https: rbs_api_types::config::HttpsConfig::default(),
+            message_protection_cert_file: dir.path().join("cert.pem").to_string_lossy().into_owned(),
+            message_protection_key_file: dir.path().join("key.pem").to_string_lossy().into_owned(),
+            response_protection_trust_anchors_file: dir
+                .path()
+                .join("cert.pem")
+                .to_string_lossy()
+                .into_owned(),
+            cert_profile: String::new(),
+            allowed_resource_types: vec!["cert".to_string()],
+            max_response_bytes: 1_048_576,
+            timeout: 10,
+            idempotency: rbs_api_types::config::IdempotencyConfig::default(),
+        };
+        HangingCa { _dir: dir, config }
+    }
+
+    fn test_csr_der() -> Vec<u8> {
+        let key = openssl::pkey::PKey::from_rsa(
+            openssl::rsa::Rsa::generate(2048).expect("generate RSA key"),
+        )
+        .expect("wrap key");
+        let mut rb = openssl::x509::X509ReqBuilder::new().expect("req builder");
+        let mut name = openssl::x509::X509NameBuilder::new().expect("name builder");
+        name.append_entry_by_text("CN", "workload").expect("CN");
+        rb.set_subject_name(&name.build()).expect("subject");
+        rb.set_pubkey(&key).expect("pubkey");
+        rb.sign(&key, openssl::hash::MessageDigest::sha256()).expect("sign");
+        rb.build().to_der().expect("csr der")
+    }
+
+    /// SV-02 regression: a request cancelled while awaiting the CA must
+    /// release both its inflight entry and its semaphore permit (previously
+    /// the inflight entry leaked permanently on cancellation).
+    #[tokio::test]
+    async fn cancelled_request_releases_inflight_entry_and_permit() {
+        let hanging = start_hanging_ca();
+        let ca = Arc::new(CABackend::new(&hanging.config).expect("CA backend init"));
+
+        let desc = desc("hang");
+        let opts = GetResourceOptions { csr_der: Some(Zeroizing::new(test_csr_der())) };
+        let task = {
+            let ca = ca.clone();
+            tokio::spawn(async move { ca.get_resource_content(&desc, opts).await })
+        };
+
+        // Wait until the request registers its inflight entry and permit.
+        for _ in 0..200 {
+            if ca.inflight.len() == 1 && ca.issue_permits.available_permits() == MAX_INFLIGHT - 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(ca.inflight.len(), 1, "request should be in flight");
+        assert_eq!(
+            ca.issue_permits.available_permits(),
+            MAX_INFLIGHT - 1,
+            "one permit should be held"
+        );
+
+        // Cancel while the future is parked inside `issue()`.
+        task.abort();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(ca.inflight.is_empty(), "cancelled request must release its inflight entry");
+        assert_eq!(
+            ca.issue_permits.available_permits(),
+            MAX_INFLIGHT,
+            "cancelled request must release its semaphore permit"
+        );
+    }
+
+    /// SV-02 regression: when all `MAX_INFLIGHT` permits are held, a further
+    /// request must be rejected with `BackendBusy` (429) instead of
+    /// registering another inflight entry.
+    #[tokio::test]
+    async fn request_rejected_when_permits_exhausted() {
+        let hanging = start_hanging_ca();
+        let ca = Arc::new(CABackend::new(&hanging.config).expect("CA backend init"));
+
+        // Drain every permit to simulate a fully saturated CA path.
+        let mut permits = Vec::new();
+        while let Ok(permit) = ca.issue_permits.try_acquire() {
+            permits.push(permit);
+        }
+        assert_eq!(permits.len(), MAX_INFLIGHT, "all permits should be drained");
+
+        let desc = desc("saturate");
+        let opts = GetResourceOptions { csr_der: Some(Zeroizing::new(test_csr_der())) };
+        match ca.get_resource_content(&desc, opts).await {
+            Err(ResourceError::BackendBusy) => {}
+            other => panic!("expected BackendBusy, got {:?}", other),
+        }
     }
 }

@@ -1081,3 +1081,156 @@ async fn test_version_increment_on_update() {
     //   captured.policy_version == 3
     assert!(result.is_ok());
 }
+
+// ---------------------------------------------------------------------------
+// Concurrency regression (security scan SV-01)
+// ---------------------------------------------------------------------------
+
+/// Stateful in-memory repository whose `count_by_user` / `insert` behave like
+/// a real database (rows are actually stored and counted), unlike
+/// `MockPolicyRepository` which returns fixed results. `yield_now` calls
+/// simulate DB round-trip latency so racing tasks actually interleave.
+struct StatefulPolicyRepo {
+    rows: Mutex<Vec<PolicyEntity>>,
+    db: Arc<sea_orm::DatabaseConnection>,
+}
+
+impl StatefulPolicyRepo {
+    fn new() -> Self {
+        Self { rows: Mutex::new(Vec::new()), db: mock_db() }
+    }
+
+    fn len_for_user(&self, username: &str) -> usize {
+        self.rows.lock().unwrap().iter().filter(|r| r.username == username).count()
+    }
+}
+
+#[async_trait]
+impl PolicyRepository for StatefulPolicyRepo {
+    async fn insert(&self, entity: &PolicyEntity) -> Result<(), PolicyError> {
+        tokio::task::yield_now().await;
+        let mut rows = self.rows.lock().unwrap();
+        if rows
+            .iter()
+            .any(|r| r.username == entity.username && r.policy_name == entity.policy_name)
+        {
+            return Err(PolicyError::NameDuplicate { name: entity.policy_name.clone() });
+        }
+        rows.push(entity.clone());
+        Ok(())
+    }
+
+    async fn find_by_id(&self, _policy_id: &str) -> Result<Option<PolicyEntity>, PolicyError> {
+        Ok(None)
+    }
+
+    async fn find_by_name_and_user(
+        &self,
+        name: &str,
+        username: &str,
+    ) -> Result<Option<PolicyEntity>, PolicyError> {
+        Ok(self
+            .rows
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|r| r.username == username && r.policy_name == name)
+            .cloned())
+    }
+
+    async fn find_by_ids_and_user(
+        &self,
+        _policy_ids: &[String],
+        _username: &str,
+    ) -> Result<Vec<PolicyEntity>, PolicyError> {
+        Ok(Vec::new())
+    }
+
+    async fn list_by_user(
+        &self,
+        _username: &str,
+        _offset: i64,
+        _limit: i64,
+    ) -> Result<(Vec<PolicyEntity>, u64), PolicyError> {
+        Ok((Vec::new(), 0))
+    }
+
+    async fn count_by_user(&self, username: &str) -> Result<usize, PolicyError> {
+        tokio::task::yield_now().await;
+        Ok(self.len_for_user(username))
+    }
+
+    async fn update_with_version(
+        &self,
+        _policy_id: &str,
+        _expected_version: i32,
+        _entity: PolicyEntity,
+    ) -> Result<u64, PolicyError> {
+        Ok(0)
+    }
+
+    async fn delete_by_ids_txn(
+        &self,
+        _conn: &sea_orm::DatabaseTransaction,
+        _policy_ids: &[String],
+        _username: &str,
+    ) -> Result<u64, PolicyError> {
+        Ok(0)
+    }
+
+    async fn delete(&self, _policy_id: &str) -> Result<(), PolicyError> {
+        Ok(())
+    }
+
+    fn db_connection(&self) -> &sea_orm::DatabaseConnection {
+        &self.db
+    }
+}
+
+/// SV-01 regression: concurrent creates for one user with distinct names must
+/// not exceed `max_per_user`. Before the per-user create lock, N racing
+/// requests could all read the same count, all pass the quota check, and all
+/// insert (the `(username, policy_name)` unique index never fires because the
+/// names differ).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_create_concurrent_respects_max_per_user() {
+    let repo = Arc::new(StatefulPolicyRepo::new());
+    let config = PolicyConfig::default(); // max_per_user = 10
+    let validator = PolicyValidator::new(config.clone());
+    let authz = AuthzFacade::new(Arc::new(RealPolicyEngine));
+    let service = Arc::new(PolicyService::new(
+        repo.clone(),
+        authz,
+        Arc::new(MockPolicyClient::new()),
+        validator,
+        config,
+    ));
+
+    let mut handles = Vec::new();
+    for i in 0..20 {
+        let service = service.clone();
+        handles.push(tokio::spawn(async move {
+            let ctx = bearer_ctx("user123", "user");
+            let req = CreatePolicyRequest {
+                name: format!("concurrent-policy-{i}"),
+                content_type: "base64".into(),
+                content: VALID_REGO_B64.into(),
+            };
+            service.create(&ctx, &req).await
+        }));
+    }
+
+    let mut successes = 0;
+    let mut quota_rejections = 0;
+    for handle in handles {
+        match handle.await.expect("task panicked") {
+            Ok(_) => successes += 1,
+            Err(PolicyError::CountExceed { .. }) => quota_rejections += 1,
+            Err(other) => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    assert_eq!(successes, 10, "exactly max_per_user creates must succeed");
+    assert_eq!(quota_rejections, 10, "excess creates must be rejected by the quota check");
+    assert_eq!(repo.len_for_user("user123"), 10, "stored row count must equal the quota");
+}

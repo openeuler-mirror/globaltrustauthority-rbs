@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use chrono::Timelike;
+use dashmap::DashMap;
 use sea_orm::TransactionTrait;
 
 use super::config::PolicyConfig;
@@ -33,6 +34,13 @@ pub struct PolicyService {
     pub resource_client: Arc<dyn PolicyClient>,
     pub validator: PolicyValidator,
     pub config: PolicyConfig,
+    /// Per-user create locks serializing the quota check + insert critical
+    /// section in [`PolicyService::create`]. Without serialization, N racing
+    /// creates with distinct names can all pass `count_by_user` before any
+    /// insert lands and exceed `max_per_user` (TOCTOU); the DB unique index
+    /// only covers `(username, policy_name)` so it cannot catch distinct-name
+    /// races. Entries are one mutex per username, bounded by the user count.
+    create_locks: DashMap<String, Arc<tokio::sync::Mutex<()>>>,
 }
 
 fn millis_to_rfc3339(ms: i64) -> String {
@@ -49,7 +57,14 @@ impl PolicyService {
         validator: PolicyValidator,
         config: PolicyConfig,
     ) -> Self {
-        Self { repo, authz, resource_client, validator, config }
+        Self {
+            repo,
+            authz,
+            resource_client,
+            validator,
+            config,
+            create_locks: DashMap::new(),
+        }
     }
 
     // ---------------------------------------------------------------------------
@@ -81,6 +96,17 @@ impl PolicyService {
             log::error!("Policy create denied: name '{}' already exists for user '{}'", req.name, username);
             return Err(PolicyError::NameDuplicate { name: req.name.clone() });
         }
+
+        // Serialize the quota check + insert critical section per user: a
+        // concurrent create for the same user must observe this request's
+        // insert in `count_by_user`, otherwise both pass the quota check
+        // and both insert (see `create_locks` field docs).
+        let create_lock = self
+            .create_locks
+            .entry(username.to_string())
+            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+            .clone();
+        let _create_guard = create_lock.lock().await;
 
         // count limit check
         let count = self.repo.count_by_user(username).await?;

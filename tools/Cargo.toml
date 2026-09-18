@@ -35,3 +35,6 @@ josekit.workspace = true
 async-trait.workspace = true
 chrono.workspace = true
 jsonwebtoken = { workspace = true, features = ["rust_crypto"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
