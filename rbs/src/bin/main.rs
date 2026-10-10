@@ -17,10 +17,10 @@ use std::path::Path;
 use anyhow::Context;
 use clap::Parser;
 use rbs::load_config;
-use rbs_core::init_logging;
-use rbs_core::init_database;
-use rbs_core::rdb::execute_sql_file_path;
 use rbs_core::auth::LockoutTracker;
+use rbs_core::init_database;
+use rbs_core::init_logging;
+use rbs_core::rdb::execute_sql_file_path;
 
 /// RBS (Resource Broker Service) binary.
 #[derive(Parser)]
@@ -31,19 +31,22 @@ struct Cli {
     config: String,
 }
 
-/// Adapter: delegates [`rbs_core::auth::UserKeyProvider`] to `core.admin()`.
-struct CoreKeyProvider(std::sync::Arc<rbs_core::RbsCore>);
+/// Adapter: delegates [`rbs_core::auth::UserAuthProvider`] to `core.admin()`.
+struct CoreAuthProvider(std::sync::Arc<rbs_core::RbsCore>);
 
-impl std::fmt::Debug for CoreKeyProvider {
+impl std::fmt::Debug for CoreAuthProvider {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("CoreKeyProvider").finish()
+        f.debug_tuple("CoreAuthProvider").finish()
     }
 }
 
 #[async_trait::async_trait]
-impl rbs_core::auth::UserKeyProvider for CoreKeyProvider {
-    async fn get_public_key(&self, sub: &str) -> std::result::Result<String, rbs_core::auth::AuthError> {
-        self.0.admin().get_public_key(sub).await
+impl rbs_core::auth::UserAuthProvider for CoreAuthProvider {
+    async fn get_user_auth(
+        &self,
+        sub: &str,
+    ) -> std::result::Result<rbs_core::auth::UserAuthInfo, rbs_core::auth::AuthError> {
+        self.0.admin().get_user_auth(sub).await
     }
 }
 
@@ -62,7 +65,9 @@ async fn main() -> anyhow::Result<()> {
         log::info!("Database initialized successfully");
 
         let db_conn = rbs_core::rdb::get_db_connection()?;
-        execute_sql_file_path(&*db_conn, &database.sql_file_path).await.map_err(|e| anyhow::anyhow!("execute sql: {}", e))?;
+        execute_sql_file_path(&*db_conn, &database.sql_file_path)
+            .await
+            .map_err(|e| anyhow::anyhow!("execute sql: {}", e))?;
         log::info!("init table executed successfully");
     }
 
@@ -82,7 +87,7 @@ async fn main() -> anyhow::Result<()> {
         Ok(()) => log::info!("Admin bootstrap check completed"),
         Err(rbs_core::RbsError::ResourceConflict) => {
             log::info!("Admin bootstrap skipped: administrator already exists (concurrent bootstrap)");
-        }
+        },
         Err(e) => anyhow::bail!("bootstrap admin user: {}", e),
     }
 
@@ -90,10 +95,16 @@ async fn main() -> anyhow::Result<()> {
     {
         let rest_config =
             config.rest.clone().ok_or_else(|| anyhow::anyhow!("config.rest is required when built with `rest`"))?;
-        let key_provider: std::sync::Arc<dyn rbs_core::auth::UserKeyProvider> =
-            std::sync::Arc::new(CoreKeyProvider(core.clone()));
+        let auth_provider: std::sync::Arc<dyn rbs_core::auth::UserAuthProvider> =
+            std::sync::Arc::new(CoreAuthProvider(core.clone()));
         let lockout_tracker = LockoutTracker::new_shared();
-        let server = rbs_rest::Server::new(core.clone(), rest_config.clone(), config.auth.clone(), key_provider, lockout_tracker);
+        let server = rbs_rest::Server::new(
+            core.clone(),
+            rest_config.clone(),
+            config.auth.clone(),
+            auth_provider,
+            lockout_tracker,
+        );
         let bound = server.bind().await.context("bind REST server")?;
         log::info!("RBS REST server starting on {}", rest_config.listen_addr);
         bound.run().await.context("RBS REST server")?;

@@ -45,7 +45,7 @@ globaltrustauthority-rbs/
 - `PolicyService` - Policy CRUD and admin API operations
 - `AdminManager` - User administration and bootstrap
 - Provider pattern: `AttestationProvider`, `ResourceBackend` trait + `BackendProvider` registry, `PolicyClient` (policy adapter)
-- Auth integration: `UserKeyProvider` (implemented by `AdminManager` for bearer JWT verification)
+- Auth integration: `UserAuthProvider` (implemented by `AdminManager` for Bearer JWT key, status, and role lookup)
 - All provider traits must implement `Send + Sync`
 - Uses `async_trait` for async trait objects
 

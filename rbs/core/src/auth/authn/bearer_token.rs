@@ -13,7 +13,7 @@
 //! Bearer token verification module.
 //!
 //! BearerToken uses per-user public keys resolved from storage
-//! via [`UserKeyProvider`] using the `sub` claim.
+//! via [`UserAuthProvider`] using the `sub` claim.
 //!
 //! Account lockout is enforced via [`LockoutTracker`]: if a user
 //! accumulates `MAX_FAILED_ATTEMPTS` consecutive failures, the account
@@ -32,12 +32,12 @@ use openssl::pkey::{Id, PKey};
 use rbs_api_types::config::BearerTokenVerificationConfig;
 use serde_json::Value;
 
+use crate::auth::authn::sm2;
+use crate::auth::authn::{LockoutTracker, TokenVerifier, UserAuthProvider};
 use crate::auth::authn::common::{
     create_decoding_key, decode_token_header, is_es512, is_sm2, to_jsonwebtoken_alg,
     validate_algorithm, validate_jwt_claims, validate_josekit_exp, validate_josekit_audience, validate_rsa_key_size,
 };
-use crate::auth::authn::sm2;
-use crate::auth::authn::{LockoutTracker, TokenVerifier, UserKeyProvider};
 use crate::auth::context::{BearerContext, TokenType};
 use crate::auth::error::AuthError;
 
@@ -45,15 +45,13 @@ use crate::auth::error::AuthError;
 #[derive(Clone)]
 pub struct BearerTokenVerifier {
     config: BearerTokenVerificationConfig,
-    key_provider: Arc<dyn UserKeyProvider>,
+    auth_provider: Arc<dyn UserAuthProvider>,
     lockout_tracker: Arc<LockoutTracker>,
 }
 
 impl std::fmt::Debug for BearerTokenVerifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("BearerTokenVerifier")
-            .field("issuer", &self.config.issuer)
-            .finish()
+        f.debug_struct("BearerTokenVerifier").field("issuer", &self.config.issuer).finish()
     }
 }
 
@@ -61,10 +59,10 @@ impl BearerTokenVerifier {
     /// Create a new BearerTokenVerifier.
     pub fn new(
         config: BearerTokenVerificationConfig,
-        key_provider: Arc<dyn UserKeyProvider>,
+        auth_provider: Arc<dyn UserAuthProvider>,
         lockout_tracker: Arc<LockoutTracker>,
     ) -> Self {
-        Self { config, key_provider, lockout_tracker }
+        Self { config, auth_provider, lockout_tracker }
     }
 }
 
@@ -89,35 +87,28 @@ impl TokenVerifier for BearerTokenVerifier {
             return Err(AuthError::AccountLocked);
         }
 
-        // Step 4 — Look up the per-user public key.
+        // Step 4 — Look up the per-user public key and authoritative role.
         // If the user does not exist, we do NOT record a failure for lockout
         // tracking — only real (existing) users accumulate failure counts.
-        let public_key_pem = self
-            .key_provider
-            .get_public_key(&sub)
-            .await
-            .map_err(|e| {
-                warn!("BearerToken key lookup failed for sub '{}': {}", sub, e);
-                AuthError::TokenInvalid {
-                    reason: "invalid token".to_string(),
-                }
-            })?;
+        let user_auth = self.auth_provider.get_user_auth(&sub).await.map_err(|e| {
+            warn!("BearerToken user authentication lookup failed for sub '{}': {}", sub, e);
+            AuthError::TokenInvalid { reason: "invalid token".to_string() }
+        })?;
 
         // RSA-PSS public keys use OpenSSL to preserve key restrictions; ordinary RSA uses jsonwebtoken.
         let rsa_pss_key = matches!(header.alg.as_str(), "PS256" | "PS384" | "PS512")
             && matches!(
-                PKey::public_key_from_pem(public_key_pem.as_bytes()).map(|key| key.id()),
+                PKey::public_key_from_pem(user_auth.public_key.as_bytes()).map(|key| key.id()),
                 Ok(Id::RSA_PSS)
             );
         let result = if is_sm2(&header.alg) {
-            self.verify_sm2(token, &sub, &public_key_pem).await
+            self.verify_sm2(token, &sub, &user_auth.public_key, &user_auth.role).await
         } else if is_es512(&header.alg) {
-            self.verify_es512(token, &sub, &public_key_pem).await
+            self.verify_es512(token, &sub, &user_auth.public_key, &user_auth.role).await
         } else if rsa_pss_key {
-            self.verify_rsa_pss(token, &sub, &header.alg, &public_key_pem).await
+            self.verify_rsa_pss(token, &sub, &header.alg, &user_auth.public_key, &user_auth.role).await
         } else {
-            self.verify_jsonwebtoken(token, &sub, &header.alg, &public_key_pem)
-                .await
+            self.verify_jsonwebtoken(token, &sub, &header.alg, &user_auth.public_key, &user_auth.role).await
         };
 
         // Step 6 — Record success or failure for lockout tracking.
@@ -126,11 +117,11 @@ impl TokenVerifier for BearerTokenVerifier {
             Ok(ctx) => {
                 self.lockout_tracker.record_success(&sub);
                 Ok(ctx)
-            }
+            },
             Err(e) => {
                 self.lockout_tracker.record_failure(&sub);
                 Err(e)
-            }
+            },
         }
     }
 }
@@ -142,17 +133,14 @@ impl BearerTokenVerifier {
         token: &str,
         sub: &str,
         public_key_pem: &str,
+        role: &str,
     ) -> Result<BearerContext, AuthError> {
-        let verifier = ES512
-            .verifier_from_pem(public_key_pem.as_bytes())
-            .map_err(|e| {
-                warn!("BearerToken ES512 verifier creation failed: {}", e);
-                AuthError::TokenInvalid {
-                    reason: "invalid token".to_string(),
-                }
-            })?;
+        let verifier = ES512.verifier_from_pem(public_key_pem.as_bytes()).map_err(|e| {
+            warn!("BearerToken ES512 verifier creation failed: {}", e);
+            AuthError::TokenInvalid { reason: "invalid token".to_string() }
+        })?;
 
-        self.verify_josekit(token, sub, "ES512", &verifier)
+        self.verify_josekit(token, sub, "ES512", &verifier, role)
     }
 
     /// Verify using the original RSA-PSS key, including its parameter restrictions.
@@ -162,6 +150,7 @@ impl BearerTokenVerifier {
         sub: &str,
         alg: &str,
         public_key_pem: &str,
+        role: &str,
     ) -> Result<BearerContext, AuthError> {
         use openssl::{
             hash::MessageDigest,
@@ -195,7 +184,7 @@ impl BearerTokenVerifier {
         let payload = decoder.decode(payload).map_err(|_| invalid())?;
         let map: serde_json::Map<String, Value> = serde_json::from_slice(&payload).map_err(|_| invalid())?;
         let payload = jwt::JwtPayload::from_map(map).map_err(|_| invalid())?;
-        self.validate_josekit_payload(sub, alg, payload)
+        self.validate_josekit_payload(sub, alg, payload, role)
     }
 
     fn verify_josekit(
@@ -204,6 +193,7 @@ impl BearerTokenVerifier {
         sub: &str,
         alg: &str,
         verifier: &dyn JwsVerifier,
+        role: &str,
     ) -> Result<BearerContext, AuthError> {
         let (payload, _header) =
             jwt::decode_with_verifier(token, verifier).map_err(|e| {
@@ -224,7 +214,7 @@ impl BearerTokenVerifier {
                 }
             })?;
 
-        self.validate_josekit_payload(sub, alg, payload)
+        self.validate_josekit_payload(sub, alg, payload, role)
     }
 
     fn validate_josekit_payload(
@@ -232,6 +222,7 @@ impl BearerTokenVerifier {
         sub: &str,
         alg: &str,
         payload: jwt::JwtPayload,
+        role: &str,
     ) -> Result<BearerContext, AuthError> {
         // Validate exp explicitly (see `validate_josekit_exp`), then the remaining
         // claims (iss, aud, nbf, iat) with the same pinned clock read.
@@ -262,31 +253,14 @@ impl BearerTokenVerifier {
         })?;
 
         // Extract claims (signature is trusted at this point).
-        let iss = payload
-            .issuer()
-            .map(|s| s.to_string())
-            .unwrap_or_default();
-
-        let role = payload
-            .claim("role")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
+        let iss = payload.issuer().map(|s| s.to_string()).unwrap_or_default();
 
         let claims: Value = {
             let map = payload.claims_set().clone();
-            serde_json::to_value(map).map_err(|_| AuthError::TokenInvalid {
-                reason: "invalid token".to_string(),
-            })?
+            serde_json::to_value(map).map_err(|_| AuthError::TokenInvalid { reason: "invalid token".to_string() })?
         };
 
-        Ok(BearerContext {
-            iss,
-            sub: sub.to_string(),
-            role,
-            claims,
-            token_type: TokenType::Bearer,
-        })
+        Ok(BearerContext { iss, sub: sub.to_string(), role: role.to_string(), claims, token_type: TokenType::Bearer })
     }
 
     /// SM2 verification using OpenSSL (SM2 ECDSA over the SM3 digest).
@@ -301,6 +275,7 @@ impl BearerTokenVerifier {
         token: &str,
         sub: &str,
         public_key_pem: &str,
+        role: &str,
     ) -> Result<BearerContext, AuthError> {
         // Split compact JWS: header.payload.signature
         let parts: Vec<&str> = token.split('.').collect();
@@ -345,16 +320,10 @@ impl BearerTokenVerifier {
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        let role = claims
-            .get("role")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-
         Ok(BearerContext {
             iss,
             sub: sub.to_string(),
-            role,
+            role: role.to_string(),
             claims,
             token_type: TokenType::Bearer,
         })
@@ -367,20 +336,16 @@ impl BearerTokenVerifier {
         sub: &str,
         alg_str: &str,
         public_key_pem: &str,
+        role: &str,
     ) -> Result<BearerContext, AuthError> {
-        let decoding_key =
-            create_decoding_key(alg_str, public_key_pem.as_bytes()).map_err(|e| {
-                warn!("BearerToken decoding key creation failed: {}", e);
-                AuthError::TokenInvalid {
-                    reason: "invalid token".to_string(),
-                }
-            })?;
+        let decoding_key = create_decoding_key(alg_str, public_key_pem.as_bytes()).map_err(|e| {
+            warn!("BearerToken decoding key creation failed: {}", e);
+            AuthError::TokenInvalid { reason: "invalid token".to_string() }
+        })?;
 
         let jws_alg = to_jsonwebtoken_alg(alg_str).map_err(|e| {
             debug!("BearerToken unsupported algorithm '{}': {}", alg_str, e);
-            AuthError::TokenInvalid {
-                reason: "invalid token".to_string(),
-            }
+            AuthError::TokenInvalid { reason: "invalid token".to_string() }
         })?;
 
         let mut validation = Validation::new(jws_alg);
@@ -395,10 +360,8 @@ impl BearerTokenVerifier {
                 ErrorKind::ImmatureSignature => AuthError::TokenNotYetValid,
                 _ => {
                     warn!("BearerToken jsonwebtoken verification failed: {}", e);
-                    AuthError::TokenInvalid {
-                        reason: "invalid token".to_string(),
-                    }
-                }
+                    AuthError::TokenInvalid { reason: "invalid token".to_string() }
+                },
             }
         })?;
 
@@ -406,22 +369,13 @@ impl BearerTokenVerifier {
             .claims
             .get("iss")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| AuthError::TokenInvalid {
-                reason: "missing iss claim".to_string(),
-            })?
-            .to_string();
-
-        let role = token_data
-            .claims
-            .get("role")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
+            .ok_or_else(|| AuthError::TokenInvalid { reason: "missing iss claim".to_string() })?
             .to_string();
 
         Ok(BearerContext {
             iss,
             sub: sub.to_string(),
-            role,
+            role: role.to_string(),
             claims: token_data.claims,
             token_type: TokenType::Bearer,
         })
@@ -432,29 +386,21 @@ impl BearerTokenVerifier {
 fn extract_sub_from_payload(token: &str) -> Result<String, AuthError> {
     let parts: Vec<&str> = token.split('.').collect();
     if parts.len() != 3 {
-        return Err(AuthError::TokenInvalid {
-            reason: "invalid token".to_string(),
-        });
+        return Err(AuthError::TokenInvalid { reason: "invalid token".to_string() });
     }
 
     let payload_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(parts[1])
-        .map_err(|_| AuthError::TokenInvalid {
-            reason: "invalid token".to_string(),
-        })?;
+        .map_err(|_| AuthError::TokenInvalid { reason: "invalid token".to_string() })?;
 
-    let claims: Value =
-        serde_json::from_slice(&payload_bytes).map_err(|_| AuthError::TokenInvalid {
-            reason: "invalid token".to_string(),
-        })?;
+    let claims: Value = serde_json::from_slice(&payload_bytes)
+        .map_err(|_| AuthError::TokenInvalid { reason: "invalid token".to_string() })?;
 
     claims
         .get("sub")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
-        .ok_or_else(|| AuthError::TokenInvalid {
-            reason: "invalid token".to_string(),
-        })
+        .ok_or_else(|| AuthError::TokenInvalid { reason: "invalid token".to_string() })
 }
 
 #[cfg(test)]
@@ -483,9 +429,9 @@ mod tests {
     struct StubKeyProvider(String);
 
     #[async_trait]
-    impl UserKeyProvider for StubKeyProvider {
-        async fn get_public_key(&self, _sub: &str) -> Result<String, AuthError> {
-            Ok(self.0.clone())
+    impl UserAuthProvider for StubKeyProvider {
+        async fn get_user_auth(&self, _sub: &str) -> Result<crate::auth::UserAuthInfo, AuthError> {
+            Ok(crate::auth::UserAuthInfo { public_key: self.0.clone(), role: "user".to_string() })
         }
     }
 
@@ -599,12 +545,12 @@ mod tests {
     }
 
     #[async_trait]
-    impl UserKeyProvider for SelectiveStubKeyProvider {
-        async fn get_public_key(&self, sub: &str) -> Result<String, AuthError> {
+    impl UserAuthProvider for SelectiveStubKeyProvider {
+        async fn get_user_auth(&self, sub: &str) -> Result<crate::auth::UserAuthInfo, AuthError> {
             if self.nonexistent_subs.contains(&sub.to_string()) {
                 Err(AuthError::TokenInvalid { reason: "user not found".to_string() })
             } else {
-                Ok(self.pem.clone())
+                Ok(crate::auth::UserAuthInfo { public_key: self.pem.clone(), role: "user".to_string() })
             }
         }
     }
@@ -621,10 +567,7 @@ mod tests {
             issuer: "https://auth.example.com".to_string(),
             audience: "globaltrustauthority-rbs".to_string(),
         };
-        let key_provider = Arc::new(SelectiveStubKeyProvider {
-            pem,
-            nonexistent_subs: vec!["ghost_user".to_string()],
-        });
+        let key_provider = Arc::new(SelectiveStubKeyProvider { pem, nonexistent_subs: vec!["ghost_user".to_string()] });
         let verifier = BearerTokenVerifier::new(config, key_provider, Arc::clone(&tracker));
 
         // Token with a sub that does not exist in the key provider.
@@ -637,10 +580,9 @@ mod tests {
         }
 
         // The ghost_user should NOT have any entry in the tracker —
-        // failure counting skipped because key_provider.get_public_key() failed.
+        // failure counting skipped because auth_provider.get_user_auth() failed.
         assert!(!tracker.is_locked("ghost_user"));
-        assert!(!tracker.has_entry("ghost_user"),
-            "non-existent sub should not have a lockout entry");
+        assert!(!tracker.has_entry("ghost_user"), "non-existent sub should not have a lockout entry");
     }
 
     /// Verify that an existing user's failure IS counted when key lookup succeeds
@@ -701,10 +643,7 @@ mod tests {
 
         // Sign a valid PS256 JWT.
         let encoding_key = jsonwebtoken::EncodingKey::from_rsa_pem(priv_pem.as_bytes()).unwrap();
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
         let claims = serde_json::json!({
             "sub": "testuser",
             "iss": "rbs-cli",
@@ -721,8 +660,7 @@ mod tests {
 
         // After successful verification, record_success should have cleared
         // the tracker entry for "testuser".
-        assert!(!tracker.has_entry("testuser"),
-            "successful verify() should clear lockout counter via record_success");
+        assert!(!tracker.has_entry("testuser"), "successful verify() should clear lockout counter via record_success");
         assert!(!tracker.is_locked("testuser"));
     }
 
@@ -756,7 +694,7 @@ mod tests {
 
         let context = verifier.verify(&token).await.expect("RBS should verify a josekit RSA-PSS JWT");
         assert_eq!(context.sub, "pss-user");
-        assert_eq!(context.role, "operator");
+        assert_eq!(context.role, "user");
     }
 
     #[tokio::test]
@@ -803,7 +741,7 @@ mod tests {
         ] {
             let token = sign_openssl_pss_test_token(&key, alg, digest, false);
             let result = verifier.verify(&token).await.unwrap();
-            assert_eq!(result.role, "operator");
+            assert_eq!(result.role, "user");
             let expired = sign_openssl_pss_test_token(&key, alg, digest, true);
             assert!(matches!(verifier.verify(&expired).await, Err(AuthError::TokenExpired)));
         }
@@ -838,10 +776,7 @@ mod tests {
         let ec = EcKey::generate(&group).expect("generate EC key");
         let pkey = PKey::from_ec_key(ec).expect("PKey from EC");
         let pub_pem = String::from_utf8(pkey.public_key_to_pem().expect("pub pem")).unwrap();
-        let priv_pem = String::from_utf8(
-            pkey.private_key_to_pem_pkcs8().expect("priv pem"),
-        )
-        .unwrap();
+        let priv_pem = String::from_utf8(pkey.private_key_to_pem_pkcs8().expect("priv pem")).unwrap();
         (pub_pem, priv_pem)
     }
 
@@ -889,7 +824,7 @@ mod tests {
         let result = verifier.verify(&token).await;
         assert!(result.is_err(), "expired ES512 token must be rejected");
         match result.unwrap_err() {
-            AuthError::TokenExpired => {}
+            AuthError::TokenExpired => {},
             other => panic!("expected TokenExpired, got: {:?}", other),
         }
     }
@@ -908,12 +843,8 @@ mod tests {
         assert!(result.is_err(), "ES512 token without exp must be rejected");
         match result.unwrap_err() {
             AuthError::TokenInvalid { reason } => {
-                assert!(
-                    reason.contains("exp"),
-                    "reason should mention exp, got: {}",
-                    reason
-                );
-            }
+                assert!(reason.contains("exp"), "reason should mention exp, got: {}", reason);
+            },
             other => panic!("expected TokenInvalid, got: {:?}", other),
         }
     }
@@ -1027,7 +958,9 @@ mod tests {
         assert!(result.is_ok(), "valid SM2 token should verify: {:?}", result.err());
         let ctx = result.unwrap();
         assert_eq!(ctx.sub, "sm2-user");
-        assert_eq!(ctx.role, "admin");
+        // The JWT contains `role: admin`, but authorization uses the role
+        // returned by the database-backed provider.
+        assert_eq!(ctx.role, "user");
         assert_eq!(ctx.token_type, TokenType::Bearer);
     }
 

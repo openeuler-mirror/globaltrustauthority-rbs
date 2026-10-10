@@ -28,9 +28,12 @@ pub struct BearerContext {
     pub iss: String,
     /// Subject (user identifier)
     pub sub: String,
-    /// User role
+    /// Current user role loaded from the authoritative user store
     pub role: String,
-    /// Original claims
+    /// Original verified JWT claims, including caller-defined custom fields.
+    /// A valid signature does not make a caller-supplied `role` authoritative.
+    /// RBS role authorization must use `Self::role` from the user store,
+    /// never `claims["role"]`.
     pub claims: Value,
     /// Token type
     pub token_type: TokenType,
@@ -98,10 +101,7 @@ mod tests {
             "nonce": "test_nonce",
             "evidence": "test_evidence"
         });
-        let ctx = AttestContext {
-            claims: claims.clone(),
-            token_type: TokenType::Attest,
-        };
+        let ctx = AttestContext { claims: claims.clone(), token_type: TokenType::Attest };
 
         let cloned = ctx.clone();
         assert_eq!(ctx.token_type, cloned.token_type);
@@ -123,23 +123,20 @@ mod tests {
             AuthContext::Bearer(ctx) => {
                 assert_eq!(ctx.sub, "user123");
                 assert_eq!(ctx.token_type, TokenType::Bearer);
-            }
+            },
             _ => panic!("Expected Bearer variant"),
         }
     }
 
     #[test]
     fn test_auth_context_attest() {
-        let attest_ctx = AttestContext {
-            claims: serde_json::json!({"test": "claims"}),
-            token_type: TokenType::Attest,
-        };
+        let attest_ctx = AttestContext { claims: serde_json::json!({"test": "claims"}), token_type: TokenType::Attest };
 
         let auth_ctx = AuthContext::Attest(attest_ctx);
         match auth_ctx {
             AuthContext::Attest(ctx) => {
                 assert_eq!(ctx.token_type, TokenType::Attest);
-            }
+            },
             _ => panic!("Expected Attest variant"),
         }
     }
@@ -170,10 +167,7 @@ mod tests {
             }
         });
 
-        let ctx = AttestContext {
-            claims: claims.clone(),
-            token_type: TokenType::Attest,
-        };
+        let ctx = AttestContext { claims: claims.clone(), token_type: TokenType::Attest };
 
         assert_eq!(ctx.claims["tee-pubkey"], "0x1234...");
         assert_eq!(ctx.claims["nonce"], "random-nonce-value");

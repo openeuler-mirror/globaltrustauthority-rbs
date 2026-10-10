@@ -3,7 +3,7 @@
 from typing import Any
 import httpx
 import pytest
-from e2e.rbs.support import assert_error
+from e2e.rbs.support import assert_error, create_user
 
 pytestmark = [pytest.mark.e2e, pytest.mark.rbs]
 
@@ -51,3 +51,36 @@ def test_public_endpoints_ignore_invalid_authorization_header(rbs_api: Any) -> N
     with httpx.Client(trust_env=False) as client:
         assert client.get(f"{rbs_api.base_url}/rbs/version", headers=headers).status_code == 200
         assert client.get(f"{rbs_api.base_url}/rbs/v0/challenge", headers=headers).status_code == 200
+
+
+@pytest.mark.parametrize("role", [None, "user", "admin"], ids=["absent", "user", "admin"])
+def test_admin_authorization_uses_database_role(rbs_api: Any, role: str | None) -> None:
+    """Administrator permissions do not depend on an optional legacy JWT role."""
+    headers = rbs_api.bearer_headers("Administrator", role=role)
+    with httpx.Client(trust_env=False) as client:
+        response = client.get(f"{rbs_api.base_url}/rbs/v0/users", headers=headers)
+    assert response.status_code == 200, response.text
+
+
+@pytest.mark.parametrize("role", [None, "user", "admin"], ids=["absent", "user", "forged-admin"])
+def test_user_cannot_elevate_permissions_with_jwt_role(rbs_api: Any, role: str | None) -> None:
+    """A regular user's own token grants self access but never user administration."""
+    with httpx.Client(trust_env=False) as client:
+        user = create_user(client, rbs_api)
+        headers = rbs_api.bearer_headers(user["username"], role=role)
+        own = client.get(f"{rbs_api.base_url}/rbs/v0/users/{user['username']}", headers=headers)
+        assert own.status_code == 200, own.text
+        listed = client.get(f"{rbs_api.base_url}/rbs/v0/users", headers=headers)
+        assert_error(listed, 403)
+
+
+def test_existing_token_is_rejected_after_user_is_disabled(rbs_api: Any) -> None:
+    """Every request reads current account status even when the JWT is unchanged."""
+    with httpx.Client(trust_env=False) as client:
+        user = create_user(client, rbs_api)
+        url = f"{rbs_api.base_url}/rbs/v0/users/{user['username']}"
+        headers = rbs_api.bearer_headers(user["username"])
+        assert client.get(url, headers=headers).status_code == 200
+        disabled = client.put(url, headers=rbs_api.admin_headers, json={"enabled": False})
+        assert disabled.status_code == 200, disabled.text
+        assert_error(client.get(url, headers=headers), 401, "Authentication failed")

@@ -17,10 +17,10 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use rbs_api_types::config::AuthConfig;
 
+use crate::auth::authn::bearer_token::BearerTokenVerifier;
 use crate::auth::authn::lockout::LockoutTracker;
 use crate::auth::authn::token::AttestTokenVerifier;
-use crate::auth::authn::bearer_token::BearerTokenVerifier;
-use crate::auth::authn::{TokenVerifier, UserKeyProvider};
+use crate::auth::authn::{TokenVerifier, UserAuthProvider};
 use crate::auth::context::{AuthContext, TokenType};
 use crate::auth::error::AuthError;
 
@@ -41,7 +41,7 @@ pub trait Auth: Send + Sync {
 
 /// Authenticator implementation.
 ///
-/// BearerToken uses per-user public keys via [`UserKeyProvider`];
+/// BearerToken uses per-user authentication data via [`UserAuthProvider`];
 /// AttestToken uses the configured public key from `attest_token` config.
 #[derive(Clone)]
 pub struct Authenticator {
@@ -58,17 +58,17 @@ impl std::fmt::Debug for Authenticator {
 impl Authenticator {
     /// Create a new Authenticator.
     ///
-    /// `key_provider` resolves per-user BearerToken public keys from storage.
+    /// `auth_provider` resolves per-user BearerToken authentication data from storage.
     /// `lockout_tracker` tracks consecutive authentication failures per user
     /// and enforces account lockout when the threshold is reached.
     /// AttestToken uses `config.attest_token` for its public key.
     pub fn new(
         config: AuthConfig,
-        key_provider: Arc<dyn UserKeyProvider>,
+        auth_provider: Arc<dyn UserAuthProvider>,
         lockout_tracker: Arc<LockoutTracker>,
     ) -> Result<Self, AuthError> {
         Ok(Self {
-            bearer_verifier: BearerTokenVerifier::new(config.bearer_token, key_provider, lockout_tracker),
+            bearer_verifier: BearerTokenVerifier::new(config.bearer_token, auth_provider, lockout_tracker),
             attest_verifier: AttestTokenVerifier::new(config.attest_token)?,
         })
     }
@@ -83,12 +83,12 @@ impl Auth for Authenticator {
                 let ctx = self.bearer_verifier.verify(token).await?;
                 log::info!("Bearer token authenticated for user: {}", ctx.sub);
                 Ok(AuthContext::Bearer(ctx))
-            }
+            },
             TokenType::Attest => {
                 let ctx = self.attest_verifier.verify(token).await?;
                 log::info!("Attest token authenticated successfully");
                 Ok(AuthContext::Attest(ctx))
-            }
+            },
         }
     }
 }
@@ -96,6 +96,7 @@ impl Auth for Authenticator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::auth::authn::UserAuthInfo;
     use std::io::Write;
     use std::sync::OnceLock;
 
@@ -109,24 +110,26 @@ mod tests {
     }
 
     fn setup_test_key() -> String {
-        TEST_KEY_PATH.get_or_init(|| {
-            let pem = generate_test_public_key_pem();
-            let temp_dir = std::env::temp_dir();
-            let key_path = temp_dir.join("rbs_test_authenticator_pubkey.pem");
-            let mut file = std::fs::File::create(&key_path).expect("Failed to create temp key file");
-            file.write_all(&pem.as_bytes()).expect("Failed to write key");
-            key_path.to_string_lossy().to_string()
-        }).clone()
+        TEST_KEY_PATH
+            .get_or_init(|| {
+                let pem = generate_test_public_key_pem();
+                let temp_dir = std::env::temp_dir();
+                let key_path = temp_dir.join("rbs_test_authenticator_pubkey.pem");
+                let mut file = std::fs::File::create(&key_path).expect("Failed to create temp key file");
+                file.write_all(&pem.as_bytes()).expect("Failed to write key");
+                key_path.to_string_lossy().to_string()
+            })
+            .clone()
     }
 
-    /// Stub UserKeyProvider that returns the test public key for any sub.
+    /// Stub UserAuthProvider that returns test authentication data for any sub.
     #[derive(Debug)]
     struct StubKeyProvider(String);
 
     #[async_trait]
-    impl UserKeyProvider for StubKeyProvider {
-        async fn get_public_key(&self, _sub: &str) -> Result<String, AuthError> {
-            Ok(self.0.clone())
+    impl UserAuthProvider for StubKeyProvider {
+        async fn get_user_auth(&self, _sub: &str) -> Result<UserAuthInfo, AuthError> {
+            Ok(UserAuthInfo { public_key: self.0.clone(), role: "user".to_string() })
         }
     }
 

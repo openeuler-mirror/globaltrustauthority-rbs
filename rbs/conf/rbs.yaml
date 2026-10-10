@@ -36,7 +36,7 @@ auth:
     jwks_file: "/etc/rbs/attest.jwk"
     issuer: "Global Trust Authority"
 
-  # BearerToken verification (per-user keys from DB via UserKeyProvider)
+  # BearerToken verification (per-user keys and roles from DB via UserAuthProvider)
   bearer_token:
     issuer: "rbs-cli"
     audience: "globaltrustauthority-rbs"
@@ -141,4 +141,3 @@ resource:
       idempotency:
         max_entries: 1000                                     # idempotency LRU cache capacity
         ttl_seconds: 300                                      # idempotency TTL in seconds
-

@@ -20,7 +20,7 @@ use serde_json::json;
 
 use rbs_api_types::config::BearerTokenVerificationConfig;
 use rbs_core::auth::authn::TokenVerifier;
-use rbs_core::auth::{BearerTokenVerifier, LockoutTracker, UserKeyProvider};
+use rbs_core::auth::{BearerTokenVerifier, LockoutTracker, UserAuthProvider};
 use rbs_core::AuthError;
 
 use super::common::*;
@@ -141,15 +141,10 @@ async fn test_bearer_boundary_011_exp_at_current_timestamp() {
 #[tokio::test]
 async fn test_bearer_boundary_011_empty_sub_rejected() {
     let (pub_pem, priv_pem) = generate_rsa_keypair();
-    let config = BearerTokenVerificationConfig {
-        issuer: ISSUER.to_string(),
-        audience: AUDIENCE.to_string(),
-    };
-    let key_provider: Arc<dyn UserKeyProvider> = Arc::new(SelectiveStubKeyProvider {
-        pem: pub_pem,
-        nonexistent_subs: vec![String::new()],
-    });
-    let verifier = BearerTokenVerifier::new(config, key_provider, Arc::new(LockoutTracker::new()));
+    let config = BearerTokenVerificationConfig { issuer: ISSUER.to_string(), audience: AUDIENCE.to_string() };
+    let auth_provider: Arc<dyn UserAuthProvider> =
+        Arc::new(SelectiveStubAuthProvider { pem: pub_pem, nonexistent_subs: vec![String::new()] });
+    let verifier = BearerTokenVerifier::new(config, auth_provider, Arc::new(LockoutTracker::new()));
 
     let now = now_secs();
     let claims = json!({
@@ -164,9 +159,9 @@ async fn test_bearer_boundary_011_empty_sub_rejected() {
 }
 
 /// test_point_id: RUST_GTA_RBS_TP_AUTH_BearerBoundary_011
-/// JWT without a role claim authenticates successfully; role defaults to empty string.
+/// JWT without a role claim authenticates successfully; role comes from the user store.
 #[tokio::test]
-async fn test_bearer_boundary_011_no_role_defaults_empty() {
+async fn test_bearer_boundary_011_no_role_uses_stored_role() {
     let (pub_pem, priv_pem) = generate_rsa_keypair();
     let verifier = make_bearer_verifier(&pub_pem, ISSUER, AUDIENCE, Arc::new(LockoutTracker::new()));
     let now = now_secs();
@@ -179,7 +174,7 @@ async fn test_bearer_boundary_011_no_role_defaults_empty() {
     let token = sign_ps256_jwt(&priv_pem, claims);
     let result = verifier.verify(&token).await;
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().role, "");
+    assert_eq!(result.unwrap().role, "user");
 }
 
 /// test_point_id: RUST_GTA_RBS_TP_AUTH_BearerBoundary_011
@@ -200,7 +195,7 @@ async fn test_bearer_boundary_011_minimal_claims_succeeds() {
     assert!(result.is_ok());
     let ctx = result.unwrap();
     assert_eq!(ctx.sub, "testuser");
-    assert_eq!(ctx.role, "");
+    assert_eq!(ctx.role, "user");
 }
 
 // ===========================================================================
@@ -262,9 +257,9 @@ async fn test_claims_required_029_iss_mismatch_rejected() {
 }
 
 /// test_point_id: RUST_GTA_RBS_TP_AUTH_ClaimsRequired_029
-/// JWT without a role claim authenticates successfully; role defaults to empty string.
+/// JWT without a role claim authenticates successfully; role comes from the user store.
 #[tokio::test]
-async fn test_claims_required_029_no_role_defaults_empty() {
+async fn test_claims_required_029_no_role_uses_stored_role() {
     let (pub_pem, priv_pem) = generate_rsa_keypair();
     let verifier = make_bearer_verifier(&pub_pem, ISSUER, AUDIENCE, Arc::new(LockoutTracker::new()));
     let now = now_secs();
@@ -277,7 +272,42 @@ async fn test_claims_required_029_no_role_defaults_empty() {
     let token = sign_ps256_jwt(&priv_pem, claims);
     let result = verifier.verify(&token).await;
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().role, "");
+    assert_eq!(result.unwrap().role, "user");
+}
+
+/// A caller-provided role claim is preserved in raw claims but ignored for authorization.
+#[tokio::test]
+async fn bearer_role_claim_does_not_override_stored_role() {
+    let (pub_pem, priv_pem) = generate_rsa_keypair();
+    let verifier = make_bearer_verifier(&pub_pem, ISSUER, AUDIENCE, Arc::new(LockoutTracker::new()));
+    let claims = json!({
+        "sub": "testuser",
+        "iss": ISSUER,
+        "aud": AUDIENCE,
+        "exp": now_secs() + 3600,
+        "role": "admin",
+    });
+
+    let ctx = verifier.verify(&sign_ps256_jwt(&priv_pem, claims)).await.unwrap();
+    assert_eq!(ctx.role, "user");
+    assert_eq!(ctx.claims["role"], "admin");
+}
+
+/// An administrator token does not need a role claim; the database role is authoritative.
+#[tokio::test]
+async fn bearer_without_role_claim_uses_stored_admin_role() {
+    let (pub_pem, priv_pem) = generate_rsa_keypair();
+    let verifier = make_bearer_verifier_with_role(&pub_pem, ISSUER, AUDIENCE, "admin", Arc::new(LockoutTracker::new()));
+    let claims = json!({
+        "sub": "Administrator",
+        "iss": ISSUER,
+        "aud": AUDIENCE,
+        "exp": now_secs() + 3600,
+    });
+
+    let ctx = verifier.verify(&sign_ps256_jwt(&priv_pem, claims)).await.unwrap();
+    assert_eq!(ctx.role, "admin");
+    assert!(ctx.claims.get("role").is_none());
 }
 
 // ===========================================================================

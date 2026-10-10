@@ -75,13 +75,12 @@ fn base_generate_args(private_key_file: &Path, alg: TokenAlg) -> GenerateArgs {
         iss: "test-issuer".to_string(),
         sub: "test-subject".to_string(),
         aud: vec!["aud-1".to_string(), "aud-2".to_string()],
-        role: Some("operator".to_string()),
         exp: Some(1_900_000_000),
         nbf: Some(1_800_000_000),
         iat: Some(1_800_000_100),
         jti: Some("token-id-1".to_string()),
         kid: Some("kid-1".to_string()),
-        claims: Some(json!({"cluster": "test", "enabled": true}).to_string()),
+        claims: Some(json!({"cluster": "test", "enabled": true, "role": "operator"}).to_string()),
         ..GenerateArgs::default()
     }
 }
@@ -309,16 +308,13 @@ fn generate_token_with_eddsa() {
 
 #[test]
 fn token_gen_clap_accepts_max_length_string_fields() {
-    for (flag, max_len) in
-        [("--iss", 128usize), ("--sub", 64), ("--aud", 128), ("--role", 64), ("--jti", 128), ("--kid", 128)]
-    {
+    for (flag, max_len) in [("--iss", 128usize), ("--sub", 64), ("--aud", 128), ("--jti", 128), ("--kid", 128)] {
         let args = token_gen_args_with(flag, "a".repeat(max_len));
         let parsed = parse_generate_args(args).expect("expected clap to accept boundary length");
         let parsed_value = match flag {
             "--iss" => parsed.iss,
             "--sub" => parsed.sub,
             "--aud" => parsed.aud.into_iter().next().expect("missing audience"),
-            "--role" => parsed.role.expect("missing role"),
             "--jti" => parsed.jti.expect("missing jti"),
             "--kid" => parsed.kid.expect("missing kid"),
             _ => unreachable!("unsupported flag"),
@@ -329,9 +325,7 @@ fn token_gen_clap_accepts_max_length_string_fields() {
 
 #[test]
 fn token_gen_clap_rejects_oversized_string_fields() {
-    for (flag, max_len) in
-        [("--iss", 128usize), ("--sub", 64), ("--aud", 128), ("--role", 64), ("--jti", 128), ("--kid", 128)]
-    {
+    for (flag, max_len) in [("--iss", 128usize), ("--sub", 64), ("--aud", 128), ("--jti", 128), ("--kid", 128)] {
         let args = token_gen_args_with(flag, "a".repeat(max_len + 1));
         let err = parse_generate_args(args).expect_err("expected clap to reject oversized input");
         let err_text = err.to_string();
@@ -345,6 +339,13 @@ fn token_gen_clap_rejects_oversized_inline_claims() {
     let err = parse_generate_args(args).expect_err("expected clap to reject oversized claims JSON input");
     let err_text = err.to_string();
     assert!(err_text.contains("value length must not exceed 65536 characters"), "{err_text}");
+}
+
+#[test]
+fn token_gen_clap_rejects_removed_role_option() {
+    let args = token_gen_args_with("--role", "admin".to_string());
+    let err = parse_generate_args(args).expect_err("expected clap to reject the removed --role option");
+    assert!(err.to_string().contains("unexpected argument '--role'"));
 }
 
 #[test]

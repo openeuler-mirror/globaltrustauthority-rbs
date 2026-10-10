@@ -19,7 +19,9 @@ pub mod context;
 pub mod error;
 
 // Re-export auth module types
-pub use authn::{Auth, Authenticator, AttestTokenVerifier, BearerTokenVerifier, LockoutTracker, UserKeyProvider};
+pub use authn::{
+    AttestTokenVerifier, Auth, Authenticator, BearerTokenVerifier, LockoutTracker, UserAuthInfo, UserAuthProvider,
+};
 pub use authz::{Action, AuthzError, AuthzFacade, RequiredRole};
 pub use authz_checker::{AuthzChecker, AuthzCheckerImpl};
 pub use context::{AttestContext, AuthContext, BearerContext, TokenType};

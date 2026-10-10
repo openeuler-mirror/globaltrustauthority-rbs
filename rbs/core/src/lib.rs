@@ -20,40 +20,37 @@ pub mod policy;
 pub mod policy_engine;
 pub mod resource;
 
-use std::sync::Arc;
 use rbs_api_types::config::ResourceProviderConfig;
+use std::sync::Arc;
 
 pub mod system;
 
 pub use admin::AdminManager;
 pub use attestation::{
-    AttestationManager, AttestationProvider, BuiltinAttestationProvider,
-    CertProvider, GtaRestProvider, PolicyProvider, RefValueProvider,
+    AttestationManager, AttestationProvider, BuiltinAttestationProvider, CertProvider, GtaRestProvider, PolicyProvider,
+    RefValueProvider,
 };
 pub use auth::{
-    Action, Auth, AuthContext, Authenticator, AuthzChecker, AuthzCheckerImpl,
-    AuthzError, AuthzFacade, AttestContext, BearerContext, LockoutTracker, RequiredRole,
-    TokenType, AuthError, UserKeyProvider,
+    Action, AttestContext, Auth, AuthContext, AuthError, Authenticator, AuthzChecker, AuthzCheckerImpl, AuthzError,
+    AuthzFacade, BearerContext, LockoutTracker, RequiredRole, TokenType, UserAuthInfo, UserAuthProvider,
 };
-pub use policy::{
-    PolicyConfig, PolicyEntity, PolicyError, PolicyRepository, PolicyService, PolicyValidator,
-    SeaOrmPolicyRepository,
-};
-pub use resource::{
-    CreateResourceRequest, ResourceConfig, ResourceContentResponse, ResourceEntity, ResourceError,
-    ResourceInfoResponse, ResourceRepository, ResourceResponse, ResourceService,
-    SeaOrmResourceRepository, ResourceValidator, UpdateResourceRequest,
-};
-pub use resource::adapter::{BackendProvider, DbPolicyClient, VaultBackend};
-pub use infra::logging::init_logging;
 pub use infra::init_database;
+pub use infra::logging::init_logging;
 pub use infra::rdb;
+pub use policy::{
+    PolicyConfig, PolicyEntity, PolicyError, PolicyRepository, PolicyService, PolicyValidator, SeaOrmPolicyRepository,
+};
 pub use rbs_api_types::config::{
     AdminConfig, AdminKeyConfig, AttestationBackendConfig, AttestationBackendMode, AttestationConfig,
-    AttestationRestConfig, AuthConfig, CoreConfig, LogRotationConfig, LoggingConfig,
-    RotationCompression,
+    AttestationRestConfig, AuthConfig, CoreConfig, LogRotationConfig, LoggingConfig, RotationCompression,
 };
 pub use rbs_api_types::error::RbsError;
+pub use resource::adapter::{BackendProvider, DbPolicyClient, VaultBackend};
+pub use resource::{
+    CreateResourceRequest, ResourceConfig, ResourceContentResponse, ResourceEntity, ResourceError,
+    ResourceInfoResponse, ResourceRepository, ResourceResponse, ResourceService, ResourceValidator,
+    SeaOrmResourceRepository, UpdateResourceRequest,
+};
 pub use system::{BuildMetadata, RbsVersion, API_VERSION, SERVICE_NAME};
 
 /// Core runtime handle.
@@ -66,9 +63,7 @@ pub struct RbsCore {
 
 impl std::fmt::Debug for RbsCore {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RbsCore")
-            .field("attestation", &self.attestation)
-            .finish()
+        f.debug_struct("RbsCore").field("attestation", &self.attestation).finish()
     }
 }
 
@@ -84,19 +79,29 @@ impl RbsCore {
     }
 
     #[must_use]
-    pub fn attestation(&self) -> &AttestationManager { &self.attestation }
+    pub fn attestation(&self) -> &AttestationManager {
+        &self.attestation
+    }
 
     #[must_use]
-    pub fn resource(&self) -> &ResourceService { &self.resource }
+    pub fn resource(&self) -> &ResourceService {
+        &self.resource
+    }
 
     #[must_use]
-    pub fn policy(&self) -> &PolicyService { &self.policy }
+    pub fn policy(&self) -> &PolicyService {
+        &self.policy
+    }
 
     #[must_use]
-    pub fn admin(&self) -> &AdminManager { &self.admin }
+    pub fn admin(&self) -> &AdminManager {
+        &self.admin
+    }
 
     #[must_use]
-    pub fn system(&self) -> System { System }
+    pub fn system(&self) -> System {
+        System
+    }
 }
 
 /// Builder for constructing `RbsCore` from configuration.
@@ -106,7 +111,9 @@ pub struct RbsCoreBuilder {
 
 impl RbsCoreBuilder {
     #[must_use]
-    pub fn new(config: CoreConfig) -> Self { Self { config } }
+    pub fn new(config: CoreConfig) -> Self {
+        Self { config }
+    }
 
     #[must_use]
     pub fn build(self) -> RbsCore {
@@ -117,11 +124,10 @@ impl RbsCoreBuilder {
             let provider: Arc<dyn AttestationProvider> = match backend_config.mode {
                 AttestationBackendMode::Builtin => {
                     Arc::new(BuiltinAttestationProvider::default()) as Arc<dyn AttestationProvider>
-                }
+                },
                 AttestationBackendMode::Rest => {
-                    Arc::new(GtaRestProvider::new(backend_config.rest.clone()))
-                        as Arc<dyn AttestationProvider>
-                }
+                    Arc::new(GtaRestProvider::new(backend_config.rest.clone())) as Arc<dyn AttestationProvider>
+                },
             };
             attestation.register(name, provider);
         }
@@ -139,7 +145,13 @@ impl RbsCoreBuilder {
         let policy_repo: Arc<dyn PolicyRepository> = Arc::new(SeaOrmPolicyRepository::new(db.clone()));
         let resource_repo: Arc<dyn ResourceRepository> = Arc::new(SeaOrmResourceRepository::new(db.clone()));
         let policy_client: Arc<dyn resource::adapter::PolicyClient> = Arc::new(DbPolicyClient::new(db));
-        let policy = PolicyService::new(policy_repo, authz_facade.clone(), policy_client.clone(), policy_validator, policy_config);
+        let policy = PolicyService::new(
+            policy_repo,
+            authz_facade.clone(),
+            policy_client.clone(),
+            policy_validator,
+            policy_config,
+        );
 
         let mut resource_config = ResourceConfig::default();
         let mut backend_provider = BackendProvider::default();
@@ -152,33 +164,37 @@ impl RbsCoreBuilder {
                     ResourceProviderConfig::Vault(vault_cfg) => {
                         let vault = resource::adapter::VaultBackend::new(vault_cfg)
                             .unwrap_or_else(|e| panic!("Failed to initialize Vault backend '{name}': {e}"));
-                        resource_config.per_backend_allowed_types.insert(name.clone(), vault_cfg.allowed_resource_types.clone());
+                        resource_config
+                            .per_backend_allowed_types
+                            .insert(name.clone(), vault_cfg.allowed_resource_types.clone());
                         backend_provider.register(name, Arc::new(vault));
-                        log::info!("Registered resource backend '{}' (type=vault, url={})",
-                            name, vault_cfg.url);
-                    }
+                        log::info!("Registered resource backend '{}' (type=vault, url={})", name, vault_cfg.url);
+                    },
                     ResourceProviderConfig::Ca(ca_cfg) => {
                         let ca = resource::adapter::CABackend::new(ca_cfg)
                             .unwrap_or_else(|e| panic!("Failed to initialize CA backend '{name}': {e}"));
-                        resource_config.per_backend_allowed_types.insert(name.clone(), ca_cfg.allowed_resource_types.clone());
+                        resource_config
+                            .per_backend_allowed_types
+                            .insert(name.clone(), ca_cfg.allowed_resource_types.clone());
                         backend_provider.register(name, Arc::new(ca));
                         log::info!("Registered resource backend '{}' (type=ca)", name);
-                    }
+                    },
                     ResourceProviderConfig::Hsm(hsm_cfg) => {
                         let hsm = resource::adapter::HsmBackend::new(hsm_cfg)
                             .unwrap_or_else(|e| panic!("Failed to initialize HSM backend '{name}': {e}"));
-                        resource_config.per_backend_allowed_types.insert(name.clone(), hsm_cfg.allowed_resource_types.clone());
+                        resource_config
+                            .per_backend_allowed_types
+                            .insert(name.clone(), hsm_cfg.allowed_resource_types.clone());
                         backend_provider.register(name, Arc::new(hsm));
                         log::info!("Registered resource backend '{}' (type=hsm)", name);
-                    }
+                    },
                 }
             }
         }
         log::info!("Resource config: max_per_user={}", resource_config.max_per_user);
         let resource_validator = ResourceValidator::new(resource_config);
-        let resource = ResourceService::new(
-            resource_repo, authz, backend_provider, policy_client.clone(), resource_validator,
-        );
+        let resource =
+            ResourceService::new(resource_repo, authz, backend_provider, policy_client.clone(), resource_validator);
 
         let admin = AdminManager::new(self.config.admin, authz_facade.clone());
 
@@ -201,21 +217,34 @@ impl Default for RbsCore {
                 crate::infra::rdb::migrate_core_tables(&conn).await.expect("migrate");
                 Arc::new(conn)
             })
-        }).join().expect("db init thread");
+        })
+        .join()
+        .expect("db init thread");
 
         let policy_repo: Arc<dyn PolicyRepository> = Arc::new(SeaOrmPolicyRepository::new(db.clone()));
         let resource_repo: Arc<dyn ResourceRepository> = Arc::new(SeaOrmResourceRepository::new(db.clone()));
         let policy_client: Arc<dyn resource::adapter::PolicyClient> = Arc::new(DbPolicyClient::new(db));
 
         let policy = PolicyService::new(
-            policy_repo, authz_facade.clone(), policy_client.clone(),
-            PolicyValidator::new(PolicyConfig::default()), PolicyConfig::default(),
+            policy_repo,
+            authz_facade.clone(),
+            policy_client.clone(),
+            PolicyValidator::new(PolicyConfig::default()),
+            PolicyConfig::default(),
         );
         let resource = ResourceService::new(
-            resource_repo, authz, BackendProvider::new(),
-            policy_client, ResourceValidator::new(ResourceConfig::default()),
+            resource_repo,
+            authz,
+            BackendProvider::new(),
+            policy_client,
+            ResourceValidator::new(ResourceConfig::default()),
         );
-        RbsCore::new(AttestationManager::default(), resource, policy, AdminManager::new(AdminConfig::default(), authz_facade))
+        RbsCore::new(
+            AttestationManager::default(),
+            resource,
+            policy,
+            AdminManager::new(AdminConfig::default(), authz_facade),
+        )
     }
 }
 
@@ -225,5 +254,7 @@ pub struct System;
 
 impl System {
     #[must_use]
-    pub fn version(&self) -> RbsVersion { system::get_rbs_version() }
+    pub fn version(&self) -> RbsVersion {
+        system::get_rbs_version()
+    }
 }

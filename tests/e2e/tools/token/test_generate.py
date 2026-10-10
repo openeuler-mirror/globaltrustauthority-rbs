@@ -51,6 +51,7 @@ def test_token_generate_returns_signed_ps256_token_with_merged_claims(
     assert claims["iss"] == "e2e-tools"
     assert claims["sub"] == "tools-user"
     assert claims["scope"] == "e2e-tools"
+    assert "role" not in claims
     assert isinstance(claims["exp"], int)
 
 

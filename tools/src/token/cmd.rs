@@ -46,7 +46,6 @@ const ISS_MAX_LEN: usize = 128;
 const SUB_MAX_LEN: usize = 64;
 const AUD_MAX_LEN: usize = 128;
 const AUD_MAX_COUNT: usize = 16;
-const ROLE_MAX_LEN: usize = 64;
 const JTI_MAX_LEN: usize = 128;
 const KID_MAX_LEN: usize = 128;
 const CLAIMS_MAX_SIZE: u64 = 64 * 1024;
@@ -119,8 +118,6 @@ pub enum TokenCommand {
 /// - `sub`: JWT `sub` claim, carrying the username associated with the token.
 /// - `aud`: JWT `aud` claim. One value is serialized as a string; multiple
 ///   values are serialized as an array.
-/// - `role`: optional custom business claim added to the payload so downstream
-///   services can identify the caller's role.
 /// - `exp`: JWT `exp` claim. When omitted, the generator uses the default
 ///   expiration policy defined by the CLI.
 /// - `nbf`: optional JWT `nbf` claim, restricting token usage before a given
@@ -182,13 +179,6 @@ pub struct GenerateArgs {
     )]
     pub aud: Vec<String>,
 
-    #[arg(
-        long,
-        value_parser = |value: &str| validate_string_max_len(value, ROLE_MAX_LEN),
-        help = "Optional role claim added to the token payload"
-    )]
-    pub role: Option<String>,
-
     #[arg(long, help = "JWT expiration time as a Unix timestamp in seconds")]
     pub exp: Option<u64>,
 
@@ -226,7 +216,6 @@ impl Default for GenerateArgs {
             iss: DEFAULT_ISSUER.to_string(),
             sub: DEFAULT_SUBJECT.to_string(),
             aud: vec![DEFAULT_AUDIENCE.to_string()],
-            role: None,
             private_key_file: None,
             private_key_passphrase: None,
             exp: None,
@@ -359,9 +348,6 @@ impl TokenGenerate {
         payload.insert("iss".to_string(), Value::String(args.iss.clone()));
         payload.insert("sub".to_string(), Value::String(args.sub.clone()));
         payload.insert("aud".to_string(), audience_value(&args.aud));
-        if let Some(role) = &args.role {
-            payload.insert("role".to_string(), Value::String(role.clone()));
-        }
         payload.insert("exp".to_string(), Value::Number(exp.into()));
 
         if let Some(nbf) = args.nbf {
@@ -777,8 +763,6 @@ mod tests {
         assert!(validate_string_max_len(&"i".repeat(ISS_MAX_LEN + 1), ISS_MAX_LEN).is_err());
         assert!(validate_string_max_len(&"s".repeat(SUB_MAX_LEN), SUB_MAX_LEN).is_ok());
         assert!(validate_string_max_len(&"s".repeat(SUB_MAX_LEN + 1), SUB_MAX_LEN).is_err());
-        assert!(validate_string_max_len(&"r".repeat(ROLE_MAX_LEN), ROLE_MAX_LEN).is_ok());
-        assert!(validate_string_max_len(&"r".repeat(ROLE_MAX_LEN + 1), ROLE_MAX_LEN).is_err());
         assert!(validate_string_max_len(&"k".repeat(KID_MAX_LEN), KID_MAX_LEN).is_ok());
         assert!(validate_string_max_len(&"k".repeat(KID_MAX_LEN + 1), KID_MAX_LEN).is_err());
     }

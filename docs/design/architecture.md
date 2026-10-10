@@ -380,8 +380,9 @@ sequenceDiagram
     participant Backend as resource backend
 
     Client->>REST: GET /rbs/v0/{uri}<br/>Authorization: Bearer #60;bearer-jwt#62;
-    REST->>Auth: validate Bearer JWT (iss, aud, exp, sub, per-user key#59; lockout#59; role extracted)
-    Auth-->>REST: Bearer context (enc_pubkey claim)
+    REST->>Auth: validate Bearer JWT (iss, aud, exp, sub, per-user key)
+    Auth->>DB: load current user key, status, and role
+    Auth-->>REST: Bearer context (database role + original claims)
     REST->>RS: get_content(ctx, uri)
     RS->>RS: validate URI
     RS->>DB: find_by_uri(uri)
@@ -464,8 +465,8 @@ sequenceDiagram
     participant Repo as PolicyRepository
 
     User->>REST: POST /rbs/v0/resource/policy<br/>Authorization: Bearer #60;bearer-jwt#62;
-    REST->>Auth: validate Bearer JWT (role extracted)
-    Auth-->>REST: user context (admin or user role)
+    REST->>Auth: validate Bearer JWT and load current database role
+    Auth-->>REST: user context (database admin or user role)
     REST->>PS: create(ctx, request)
     PS->>AuthZ: check user permission (UserScoped via admin_policy.rego)
     PS->>PS: PolicyValidator (name, quota, content size)
@@ -644,10 +645,10 @@ flowchart LR
 | | Bearer JWT | Attest token |
 |---|------------|--------------|
 | **Used for** | Admin/user/policy APIs; owner-only resource GET/GET info (`admin_policy.rego`, not resource-bound Rego) | Resource GET (Passport); after `POST .../retrieve` (Background-Check) |
-| **Enforced at authn** | `iss`, `aud`, `exp`, `sub`, signature vs per-user pubkey (DB); `role` extracted but not required for all Bearer paths | Signature, `exp`, `iss`; `aud` only when `auth.attest_token.audience` configured |
+| **Enforced at authn** | `iss`, `aud`, `exp`, `sub`, signature vs per-user pubkey (DB); current status and role loaded from DB on every request | Signature, `exp`, `iss`; `aud` only when `auth.attest_token.audience` configured |
 | **Algorithms** (same for both token types) | `PS256`/`PS384`/`PS512`, `ES256`/`ES384`/`ES512`, `EdDSA`, `SM2`; anything else — including `RS256`/`RS384`/`RS512` and all HMAC variants — is rejected before signature verification. Verification paths: `jsonwebtoken` (default), `josekit` (ES512), OpenSSL (Bearer RSA-PSS PEM keys), vendored OpenSSL with the GM/T 0009 user ID pinned (SM2) — see [`rbs_config_reference.md` §9](../usage_guide/rbs_config_reference.md) | Same |
-| **Enforced at authz (Bearer)** | `AdminOnly` requires `role == admin` **and** `sub == "Administrator"` — the self-signed `role` claim is bound to the bootstrap admin subject by `admin_policy.rego` (§8.5); owner GET/info (`UserScoped`) checks `sub` vs owner with no `role` requirement, but a `role == admin` claim from any other subject is rejected (role/sub consistency). Bearer owner **content** GET is denied for HSM/CA backends; the metadata-only `GET .../info` is exempt (§8.3b) | — |
-| **Not enforced** | `scope`, `jti` / one-time-use store | `jti` / one-time-use store |
+| **Enforced at authz (Bearer)** | DB role `admin` only for `AdminOnly` (`admin_policy.rego`); owner GET/info (`UserScoped`) checks `sub` vs owner — no role requirement. Bearer owner content GET is denied for HSM/CA backends; metadata-only GET info is exempt (§8.3b) | — |
+| **Not enforced** | JWT `role` claim (preserved as a custom claim but ignored for authorization), `scope`, `jti` / one-time-use store | `jti` / one-time-use store |
 | **Replay** | RBS does not track Bearer replay | Reusable within `exp`; do not conflate with challenge-nonce freshness (GTA) |
 | **Lockout** | Failed verifications for existing user increment lockout; attest failures excluded | — |
 | **Logging** | Full tokens must not appear in logs, errors, or audit events | Same |
@@ -860,7 +861,7 @@ Extensions follow dependency direction: `rbs-api-types` (contracts) → `rbs-cor
 | `ResourceBackend` | `rbs/core/src/resource/adapter/mod.rs` | Backend contract: mandatory `get_resource_content` (read, after authorization); optional `put_resource_content` / `delete_resource` / `check_resource_exists` are gated by the `capabilities()` bitfield (`PUT`/`DELETE`/`CHECK`) — the service never invokes an undeclared capability |
 | `BackendProvider` | same | Registry: `res_provider` → `Arc<dyn ResourceBackend>` |
 | `PolicyClient` / `DbPolicyClient` | same | Runtime policy reads for `ResourceService` (validation + content) |
-| `UserKeyProvider` | `rbs/core/src/auth/authn/mod.rs` | Bearer JWT pubkey lookup (`AdminManager` impl) |
+| `UserAuthProvider` | `rbs/core/src/auth/authn/mod.rs` | One-query Bearer user public-key, status, and role lookup (`AdminManager` impl) |
 | `VaultBackend` | `rbs/core/src/resource/adapter/vault.rs` | Vault/OpenBao KV adapter; declares `CHECK` — content stays in Vault, RBS registers metadata only after verifying the referenced secret exists |
 | `HsmBackend` | `rbs/core/src/resource/adapter/hsm.rs` | PKCS#11 HSM adapter (e.g. SoftHSM2); declares `PUT`/`DELETE` — imports/replaces and destroys key material stored as labelled CKO_DATA objects |
 | `CABackend` | `rbs/core/src/resource/adapter/ca.rs` | Get-only CA adapter (CMPv2, e.g. XiPKI); declares no optional capabilities — certificates are issued on demand from the CSR in `attester_data.runtime_data.csr` (missing CSR → 400 `csr required`); nothing is stored in the CA backend |
@@ -886,7 +887,7 @@ flowchart TB
         Host["Host application"] -->|"register providers"| Asm
     end
     Asm --> Core["rbs-core services<br/>AttestationManager, ResourceService,<br/>PolicyService, AdminManager"]
-    Core --> Ext["AttestationProvider<br/>BackendProvider, PolicyClient, UserKeyProvider"]
+    Core --> Ext["AttestationProvider<br/>BackendProvider, PolicyClient, UserAuthProvider"]
 ```
 
 ### Extension checklist

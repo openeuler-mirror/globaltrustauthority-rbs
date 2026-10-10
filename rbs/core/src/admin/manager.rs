@@ -20,7 +20,10 @@ use rbs_api_types::error::RbsError;
 use rbs_api_types::{
     AdminConfig, Role, UserCreateRequest, UserListQuery, UserListResponse, UserResponse, UserUpdateRequest,
 };
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Select, Set, TransactionTrait};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Select, Set,
+    TransactionTrait,
+};
 use serde_json::Value;
 
 use crate::auth::{Action, AuthContext, AuthzError, AuthzFacade, RequiredRole};
@@ -91,18 +94,23 @@ impl AdminManager {
 
     /// List users (admin only).
     pub async fn list_users(&self, params: &UserListQuery, auth_ctx: &AuthContext) -> Result<UserListResponse> {
-        log::info!("list_users called: limit={:?}, offset={:?}, role={:?}, enabled={:?}",
-            params.limit, params.offset, params.role, params.enabled);
+        log::info!(
+            "list_users called: limit={:?}, offset={:?}, role={:?}, enabled={:?}",
+            params.limit,
+            params.offset,
+            params.role,
+            params.enabled
+        );
 
         let bearer = match self.require_enabled_admin(auth_ctx).await {
             Ok(b) => {
                 log::info!("require_enabled_admin succeeded: sub={}, role={}", b.sub, b.role);
                 b
-            }
+            },
             Err(e) => {
                 log::error!("require_enabled_admin failed: {:?}", e);
                 return Err(e);
-            }
+            },
         };
 
         let limit = params.limit.unwrap_or(10);
@@ -115,13 +123,10 @@ impl AdminManager {
             internal_err(e)
         })?;
 
-        let total_count = Self::build_filtered_query(params)
-            .count(&*db)
-            .await
-            .map_err(|e| {
-                log::error!("Failed to count users: {}", e);
-                internal_err(e)
-            })? as i64;
+        let total_count = Self::build_filtered_query(params).count(&*db).await.map_err(|e| {
+            log::error!("Failed to count users: {}", e);
+            internal_err(e)
+        })? as i64;
 
         let models = Self::build_filtered_query(params)
             .order_by_asc(UserColumn::Username)
@@ -161,26 +166,27 @@ impl AdminManager {
             internal_err(e)
         })?;
 
-        let inserted = Self::insert_user_in_txn(
-            &db, req, &auth_value, &auth_alg, self.config.max_users,
-        ).await.map_err(|e| {
-            let msg = e.to_string();
-            if msg.contains("duplicate") {
-                log::error!("User creation failed: duplicate username '{}'", req.username);
-                return RbsError::ResourceConflict;
-            }
-            if msg.contains("max_users") {
-                log::error!(
-                    "User creation by '{}' rejected: max_users limit ({}) reached",
-                    bearer.sub, self.config.max_users
-                );
-                return RbsError::ResourceQuotaExceeded;
-            }
-            log::error!("Failed to insert user '{}': {}", req.username, e);
-            internal_err(e)
-        })?;
+        let inserted =
+            Self::insert_user_in_txn(&db, req, &auth_value, &auth_alg, self.config.max_users).await.map_err(|e| {
+                let msg = e.to_string();
+                if msg.contains("duplicate") {
+                    log::error!("User creation failed: duplicate username '{}'", req.username);
+                    return RbsError::ResourceConflict;
+                }
+                if msg.contains("max_users") {
+                    log::error!(
+                        "User creation by '{}' rejected: max_users limit ({}) reached",
+                        bearer.sub,
+                        self.config.max_users
+                    );
+                    return RbsError::ResourceQuotaExceeded;
+                }
+                log::error!("Failed to insert user '{}': {}", req.username, e);
+                internal_err(e)
+            })?;
 
-        log::info!("User '{}' (id={}, role={:?}) created by '{}'",
+        log::info!(
+            "User '{}' (id={}, role={:?}) created by '{}'",
             req.username,
             inserted.user_id,
             inserted.role,
@@ -203,13 +209,10 @@ impl AdminManager {
             log::error!("Failed to get DB connection for get_user: {}", e);
             internal_err(e)
         })?;
-        let model = UserEntity::find_by_id(username)
-            .one(&*db)
-            .await
-            .map_err(|e| {
-                log::error!("Failed to query user '{}': {}", username, e);
-                internal_err(e)
-            })?;
+        let model = UserEntity::find_by_id(username).one(&*db).await.map_err(|e| {
+            log::error!("Failed to query user '{}': {}", username, e);
+            internal_err(e)
+        })?;
 
         if let Some(ref _m) = model {
             log::info!("get_user completed: username='{}', found=true", username);
@@ -276,17 +279,15 @@ impl AdminManager {
             internal_err(e)
         })?;
 
-        let updated = Self::apply_user_update(&db, username, req, &key_material)
-            .await
-            .map_err(|e| {
-                let msg = e.to_string();
-                if msg.contains("not_found") {
-                    log::error!("Update user '{}' rejected: not found", username);
-                    return RbsError::ResourceNotFound;
-                }
-                log::error!("Failed to update user '{}': {}", username, e);
-                internal_err(e)
-            })?;
+        let updated = Self::apply_user_update(&db, username, req, &key_material).await.map_err(|e| {
+            let msg = e.to_string();
+            if msg.contains("not_found") {
+                log::error!("Update user '{}' rejected: not found", username);
+                return RbsError::ResourceNotFound;
+            }
+            log::error!("Failed to update user '{}': {}", username, e);
+            internal_err(e)
+        })?;
 
         log::info!("User '{}' updated by '{}'", username, bearer.sub);
         Ok(model_to_response(&updated))
@@ -331,21 +332,17 @@ impl AdminManager {
         if policy_count > 0 || resource_count > 0 {
             log::error!(
                 "Delete user '{}' blocked: owns {} policy(ies), {} resource(s)",
-                username, policy_count, resource_count
+                username,
+                policy_count,
+                resource_count
             );
-            return Err(RbsError::UserHasDependents {
-                policies: policy_count,
-                resources: resource_count,
-            });
+            return Err(RbsError::UserHasDependents { policies: policy_count, resources: resource_count });
         }
 
-        let result = UserEntity::delete_by_id(username)
-            .exec(&*db)
-            .await
-            .map_err(|e| {
-                log::error!("Failed to delete user '{}': {}", username, e);
-                internal_err(e)
-            })?;
+        let result = UserEntity::delete_by_id(username).exec(&*db).await.map_err(|e| {
+            log::error!("Failed to delete user '{}': {}", username, e);
+            internal_err(e)
+        })?;
 
         if result.rows_affected == 0 {
             log::error!("Delete user '{}' rejected: not found", username);
@@ -413,10 +410,7 @@ impl AdminManager {
             let role = role.clone();
 
             Box::pin(async move {
-                let regular_count = UserEntity::find()
-                    .filter(UserColumn::Role.ne(DbRole::Admin))
-                    .count(txn)
-                    .await?;
+                let regular_count = UserEntity::find().filter(UserColumn::Role.ne(DbRole::Admin)).count(txn).await?;
 
                 if regular_count >= max_users as u64 {
                     return Err(sea_orm::DbErr::Custom("max_users".to_string()));
@@ -454,7 +448,8 @@ impl AdminManager {
             query = query.filter(UserColumn::Role.eq(DbRole::from(*role)));
         }
         if let Some(enabled) = params.enabled {
-            query = query.filter(UserColumn::Status.eq(if enabled { UserStatus::Enabled } else { UserStatus::Disabled }));
+            query =
+                query.filter(UserColumn::Status.eq(if enabled { UserStatus::Enabled } else { UserStatus::Disabled }));
         }
         query
     }
@@ -479,16 +474,15 @@ impl AdminManager {
             if AdminManager::role_as_str(role) != caller_role {
                 log::error!(
                     "Self-update by '{}' rejected: non-admin may not change role ({} -> {})",
-                    username, caller_role, AdminManager::role_as_str(role)
+                    username,
+                    caller_role,
+                    AdminManager::role_as_str(role)
                 );
                 return Err(RbsError::SelfUpdateFieldRestricted { field: "role" });
             }
         }
         if let Some(false) = req.enabled {
-            log::error!(
-                "Self-update by '{}' rejected: non-admin may not disable self",
-                username
-            );
+            log::error!("Self-update by '{}' rejected: non-admin may not disable self", username);
             return Err(RbsError::SelfUpdateFieldRestricted { field: "enabled" });
         }
         Ok(())
@@ -518,22 +512,16 @@ impl AdminManager {
         match req.role {
             Some(Role::Admin) if username == ADMIN_USERNAME => {
                 // no-op: built-in administrator is already admin.
-            }
+            },
             Some(Role::Admin) => {
-                log::error!(
-                    "Update '{}' rejected: admin role is pre-configured and not API-assignable",
-                    username
-                );
+                log::error!("Update '{}' rejected: admin role is pre-configured and not API-assignable", username);
                 return Err(RbsError::AdminRoleNotAssignable);
-            }
+            },
             Some(_) if username == ADMIN_USERNAME => {
-                log::error!(
-                    "Update '{}' rejected: cannot change role of the built-in administrator",
-                    username
-                );
+                log::error!("Update '{}' rejected: cannot change role of the built-in administrator", username);
                 return Err(RbsError::BuiltInAdminProtected { field: "role" });
-            }
-            _ => {}
+            },
+            _ => {},
         }
         Ok(())
     }
@@ -559,9 +547,8 @@ impl AdminManager {
 
             Box::pin(async move {
                 let existing = UserEntity::find_by_id(&username).one(txn).await?;
-                let mut active: UserActiveModel = existing
-                    .ok_or_else(|| sea_orm::DbErr::Custom("not_found".to_string()))?
-                    .into();
+                let mut active: UserActiveModel =
+                    existing.ok_or_else(|| sea_orm::DbErr::Custom("not_found".to_string()))?.into();
 
                 if let Some((ref auth_value, ref auth_alg)) = key_material {
                     active.auth_value = Set(auth_value.clone());
@@ -590,7 +577,8 @@ impl AdminManager {
     pub async fn require_enabled_admin<'a>(&self, auth_ctx: &'a AuthContext) -> Result<&'a crate::auth::BearerContext> {
         log::info!("require_enabled_admin: starting authz check");
 
-        let result = self.authz
+        let result = self
+            .authz
             .check(auth_ctx)
             .action(Action::List)
             .required_role(RequiredRole::AdminOnly)
@@ -601,7 +589,7 @@ impl AdminManager {
             Ok(_) => log::info!("require_enabled_admin: authz check passed"),
             Err(e) => {
                 return Err(map_authz_err(e, auth_ctx));
-            }
+            },
         }
 
         let bearer = extract_bearer(auth_ctx)?;
@@ -616,7 +604,8 @@ impl AdminManager {
     /// Authorize with `UserScoped`, check enabled, return `BearerContext`.
     async fn require_enabled_bearer<'a>(&self, auth_ctx: &'a AuthContext) -> Result<&'a crate::auth::BearerContext> {
         log::info!("require_enabled_bearer: starting authz check");
-        let result = self.authz
+        let result = self
+            .authz
             .check(auth_ctx)
             .action(Action::Get)
             .required_role(RequiredRole::UserScoped)
@@ -627,7 +616,7 @@ impl AdminManager {
             Ok(_) => log::info!("require_enabled_bearer: authz check passed"),
             Err(e) => {
                 return Err(map_authz_err(e, auth_ctx));
-            }
+            },
         }
 
         let bearer = extract_bearer(auth_ctx)?;
@@ -649,25 +638,22 @@ impl AdminManager {
         })?;
         log::info!("ensure_enabled: got DB connection");
 
-        let model = UserEntity::find_by_id(username)
-            .one(&*db)
-            .await
-            .map_err(|e| {
-                log::error!("ensure_enabled: query failed: {}", e);
-                internal_err(e)
-            })?;
+        let model = UserEntity::find_by_id(username).one(&*db).await.map_err(|e| {
+            log::error!("ensure_enabled: query failed: {}", e);
+            internal_err(e)
+        })?;
         log::info!("ensure_enabled: query succeeded, model={:?}", model.as_ref().map(|m| (&m.username, m.status)));
 
         match model {
             Some(m) if m.status == UserStatus::Disabled => {
                 log::error!("Operation rejected: user '{}' is disabled", username);
                 Err(RbsError::AuthzInsufficientPermissions)
-            }
+            },
             Some(_) => Ok(()),
             None => {
                 log::error!("Operation rejected: user '{}' not found", username);
                 Err(RbsError::AuthzInsufficientPermissions)
-            }
+            },
         }
     }
 
@@ -683,19 +669,17 @@ impl AdminManager {
                 Err(RbsError::InternalUnexpected {
                     context: "admin_key: public_key_path and jwks_file are mutually exclusive".to_string(),
                 })
-            }
+            },
             (false, false) => {
                 log::error!("Admin key config error: neither public_key_path nor jwks_file configured");
                 Err(RbsError::InternalUnexpected {
                     context: "admin_key: either public_key_path or jwks_file must be configured".to_string(),
                 })
-            }
+            },
             (true, false) => {
                 let Some(path) = key_config.public_key_path.as_deref() else {
                     log::error!("Admin key config internal error: public_key_path missing in (true, false) arm");
-                    return Err(RbsError::InternalUnexpected {
-                        context: "admin_key internal error".to_string(),
-                    });
+                    return Err(RbsError::InternalUnexpected { context: "admin_key internal error".to_string() });
                 };
                 let pem = fs::read_to_string(path).map_err(|e| {
                     log::error!("Failed to read admin public key file '{}': {}", path, e);
@@ -708,25 +692,19 @@ impl AdminManager {
                 })?;
                 log::debug!("Admin public key loaded from '{}' (alg={})", path, alg);
                 Ok((pem, alg))
-            }
+            },
             (false, true) => {
                 let Some(path) = key_config.jwks_file.as_deref() else {
                     log::error!("Admin key config internal error: jwks_file missing in (false, true) arm");
-                    return Err(RbsError::InternalUnexpected {
-                        context: "admin_key internal error".to_string(),
-                    });
+                    return Err(RbsError::InternalUnexpected { context: "admin_key internal error".to_string() });
                 };
                 let content = fs::read_to_string(path).map_err(|e| {
                     log::error!("Failed to read admin JWK file '{}': {}", path, e);
-                    RbsError::InternalUnexpected {
-                        context: format!("Failed to read JWK file ({}): {}", path, e),
-                    }
+                    RbsError::InternalUnexpected { context: format!("Failed to read JWK file ({}): {}", path, e) }
                 })?;
                 let jwk: Value = serde_json::from_str(&content).map_err(|e| {
                     log::error!("Failed to parse admin JWK file '{}': {}", path, e);
-                    RbsError::InternalUnexpected {
-                        context: format!("Failed to parse JWK file ({}): {}", path, e),
-                    }
+                    RbsError::InternalUnexpected { context: format!("Failed to parse JWK file ({}): {}", path, e) }
                 })?;
                 let pem = jwk_to_pem(&jwk).inspect_err(|e| {
                     log::error!("Failed to convert admin JWK to PEM: {}", e);
@@ -734,42 +712,42 @@ impl AdminManager {
                 let alg = validate_and_derive_alg(&pem)?;
                 log::debug!("Admin JWK key loaded from '{}' (alg={})", path, alg);
                 Ok((pem, alg))
-            }
+            },
         }
     }
 }
 
 #[async_trait::async_trait]
-impl crate::auth::UserKeyProvider for AdminManager {
-    async fn get_public_key(&self, sub: &str) -> std::result::Result<String, crate::auth::AuthError> {
+impl crate::auth::UserAuthProvider for AdminManager {
+    async fn get_user_auth(&self, sub: &str) -> std::result::Result<crate::auth::UserAuthInfo, crate::auth::AuthError> {
         let db = get_connection_from_pool().map_err(|e| {
-            log::error!("Failed to get DB connection for public key lookup: {}", e);
+            log::error!("Failed to get DB connection for user authentication lookup: {}", e);
             crate::auth::AuthError::TokenInvalid { reason: "invalid token".to_string() }
         })?;
-        Self::lookup_public_key(&*db, sub).await
+        Self::lookup_user_auth(&*db, sub).await
     }
 }
 
 impl AdminManager {
-    /// Look up a user's public key for BearerToken verification.
+    /// Look up a user's public key and authoritative role for BearerToken verification.
     ///
     /// Rejects users that do not exist or are disabled. Extracted from the
-    /// `UserKeyProvider` impl so the existence/disabled logic can be tested
+    /// `UserAuthProvider` impl so the existence/disabled logic can be tested
     /// against an in-memory SQLite database without the global connection pool.
     ///
     /// All failure paths return a generic `"invalid token"` reason — the
     /// distinguishing detail (not-found vs. disabled) lives only in server-side
     /// logs, so callers and the HTTP layer cannot leak whether a given `sub`
     /// exists or is disabled (user-enumeration defense).
-    async fn lookup_public_key(
+    async fn lookup_user_auth(
         db: &sea_orm::DatabaseConnection,
         sub: &str,
-    ) -> std::result::Result<String, crate::auth::AuthError> {
+    ) -> std::result::Result<crate::auth::UserAuthInfo, crate::auth::AuthError> {
         let model = UserEntity::find_by_id(sub)
             .one(db)
             .await
             .map_err(|e| {
-                log::error!("Failed to query user '{}' for public key: {}", sub, e);
+                log::error!("Failed to query user '{}' for authentication data: {}", sub, e);
                 crate::auth::AuthError::TokenInvalid { reason: "invalid token".to_string() }
             })?
             .ok_or_else(|| {
@@ -785,7 +763,12 @@ impl AdminManager {
             return Err(crate::auth::AuthError::TokenInvalid { reason: "invalid token".to_string() });
         }
 
-        Ok(model.auth_value)
+        let role = match model.role {
+            DbRole::Admin => ROLE_ADMIN,
+            DbRole::User => "user",
+        };
+
+        Ok(crate::auth::UserAuthInfo { public_key: model.auth_value, role: role.to_string() })
     }
 }
 
@@ -798,7 +781,7 @@ fn extract_bearer(ctx: &AuthContext) -> Result<&crate::auth::BearerContext> {
         AuthContext::Attest(_) => {
             log::error!("Admin operation rejected: AttestToken used");
             Err(RbsError::AuthnInvalidToken)
-        }
+        },
     }
 }
 
@@ -807,10 +790,10 @@ fn map_authz_err(e: AuthzError, ctx: &AuthContext) -> RbsError {
     match ctx {
         AuthContext::Bearer(b) => {
             log::error!("Authz denied for '{}' (role={}): {:?}", b.sub, b.role, e);
-        }
+        },
         AuthContext::Attest(_) => {
             log::error!("Authz denied for AttestToken: {:?}", e);
-        }
+        },
     }
     match e {
         AuthzError::Denied => RbsError::AuthzInsufficientPermissions,
@@ -997,13 +980,8 @@ mod tests {
 
     #[test]
     fn extract_update_key_material_returns_none_without_key() {
-        let req = UserUpdateRequest {
-            role: Some(Role::User),
-            enabled: None,
-            auth_type: None,
-            public_key: None,
-            jwk: None,
-        };
+        let req =
+            UserUpdateRequest { role: Some(Role::User), enabled: None, auth_type: None, public_key: None, jwk: None };
         let result = AdminManager::extract_update_key_material(&req);
         assert!(result.is_ok());
         assert!(result.unwrap().is_none());
@@ -1013,32 +991,21 @@ mod tests {
     fn enforce_whitelist_rejects_role_escalation_for_non_admin() {
         // A non-admin (caller_role "user") trying to set role=Admin must be
         // rejected with the dedicated field-restricted error.
-        let req = UserUpdateRequest {
-            role: Some(Role::Admin),
-            enabled: None,
-            auth_type: None,
-            public_key: None,
-            jwk: None,
-        };
+        let req =
+            UserUpdateRequest { role: Some(Role::Admin), enabled: None, auth_type: None, public_key: None, jwk: None };
         let result = AdminManager::enforce_whitelist(&req, "test_user", "user");
         match result {
-            Err(RbsError::SelfUpdateFieldRestricted { field: "role" }) => {}
+            Err(RbsError::SelfUpdateFieldRestricted { field: "role" }) => {},
             other => panic!("Expected SelfUpdateFieldRestricted(field=role), got: {:?}", other),
         }
     }
 
     #[test]
     fn enforce_whitelist_rejects_self_disable_for_non_admin() {
-        let req = UserUpdateRequest {
-            role: None,
-            enabled: Some(false),
-            auth_type: None,
-            public_key: None,
-            jwk: None,
-        };
+        let req = UserUpdateRequest { role: None, enabled: Some(false), auth_type: None, public_key: None, jwk: None };
         let result = AdminManager::enforce_whitelist(&req, "test_user", "user");
         match result {
-            Err(RbsError::SelfUpdateFieldRestricted { field: "enabled" }) => {}
+            Err(RbsError::SelfUpdateFieldRestricted { field: "enabled" }) => {},
             other => panic!("Expected SelfUpdateFieldRestricted(field=enabled), got: {:?}", other),
         }
     }
@@ -1047,13 +1014,8 @@ mod tests {
     fn enforce_whitelist_allows_role_noop() {
         // role equal to the caller's current role is a no-op and must pass,
         // so round-tripping clients are not falsely rejected.
-        let req = UserUpdateRequest {
-            role: Some(Role::User),
-            enabled: None,
-            auth_type: None,
-            public_key: None,
-            jwk: None,
-        };
+        let req =
+            UserUpdateRequest { role: Some(Role::User), enabled: None, auth_type: None, public_key: None, jwk: None };
         let result = AdminManager::enforce_whitelist(&req, "test_user", "user");
         assert!(result.is_ok(), "no-op role should be allowed: {:?}", result);
     }
@@ -1062,13 +1024,7 @@ mod tests {
     fn enforce_whitelist_allows_enabled_true_noop() {
         // enabled=true is a no-op (caller is guaranteed Enabled by the auth
         // middleware) and must pass.
-        let req = UserUpdateRequest {
-            role: None,
-            enabled: Some(true),
-            auth_type: None,
-            public_key: None,
-            jwk: None,
-        };
+        let req = UserUpdateRequest { role: None, enabled: Some(true), auth_type: None, public_key: None, jwk: None };
         let result = AdminManager::enforce_whitelist(&req, "test_user", "user");
         assert!(result.is_ok(), "no-op enabled=true should be allowed: {:?}", result);
     }
@@ -1079,7 +1035,7 @@ mod tests {
             role: None,
             enabled: None,
             auth_type: Some(AuthType::Jwt),
-            public_key: Some("dGVzdEtleQ==".to_string()),  // base64 of "testKey"
+            public_key: Some("dGVzdEtleQ==".to_string()), // base64 of "testKey"
             jwk: None,
         };
         let result = AdminManager::enforce_whitelist(&req, "test_user", "user");
@@ -1095,7 +1051,7 @@ mod tests {
             role: Some(Role::User),
             enabled: Some(true),
             auth_type: Some(AuthType::Jwt),
-            public_key: Some("dGVzdEtleQ==".to_string()),  // base64 of "testKey"
+            public_key: Some("dGVzdEtleQ==".to_string()), // base64 of "testKey"
             jwk: None,
         };
         let result = AdminManager::enforce_whitelist(&req, "test_user", "user");
@@ -1104,13 +1060,7 @@ mod tests {
 
     #[test]
     fn enforce_whitelist_accepts_empty_request() {
-        let req = UserUpdateRequest {
-            role: None,
-            enabled: None,
-            auth_type: None,
-            public_key: None,
-            jwk: None,
-        };
+        let req = UserUpdateRequest { role: None, enabled: None, auth_type: None, public_key: None, jwk: None };
         let result = AdminManager::enforce_whitelist(&req, "test_user", "user");
         assert!(result.is_ok());
     }
@@ -1120,13 +1070,8 @@ mod tests {
     #[test]
     fn role_policy_allows_built_in_admin_role_noop() {
         // Administrator keeping role=admin is a no-op and must pass.
-        let req = UserUpdateRequest {
-            role: Some(Role::Admin),
-            enabled: None,
-            auth_type: None,
-            public_key: None,
-            jwk: None,
-        };
+        let req =
+            UserUpdateRequest { role: Some(Role::Admin), enabled: None, auth_type: None, public_key: None, jwk: None };
         let result = AdminManager::enforce_role_policy(&req, "Administrator");
         assert!(result.is_ok(), "built-in admin role=admin no-op should be allowed: {:?}", result);
     }
@@ -1134,16 +1079,11 @@ mod tests {
     #[test]
     fn role_policy_rejects_demoting_built_in_admin() {
         // Administrator setting role=user (demote) must be rejected.
-        let req = UserUpdateRequest {
-            role: Some(Role::User),
-            enabled: None,
-            auth_type: None,
-            public_key: None,
-            jwk: None,
-        };
+        let req =
+            UserUpdateRequest { role: Some(Role::User), enabled: None, auth_type: None, public_key: None, jwk: None };
         let result = AdminManager::enforce_role_policy(&req, "Administrator");
         match result {
-            Err(RbsError::BuiltInAdminProtected { field: "role" }) => {}
+            Err(RbsError::BuiltInAdminProtected { field: "role" }) => {},
             other => panic!("expected BuiltInAdminProtected(field=role), got: {:?}", other),
         }
     }
@@ -1152,16 +1092,11 @@ mod tests {
     fn role_policy_rejects_promoting_non_admin_target() {
         // Setting role=admin on a non-built-in user (promotion) must be
         // rejected (admin is pre-configured, not API-assignable).
-        let req = UserUpdateRequest {
-            role: Some(Role::Admin),
-            enabled: None,
-            auth_type: None,
-            public_key: None,
-            jwk: None,
-        };
+        let req =
+            UserUpdateRequest { role: Some(Role::Admin), enabled: None, auth_type: None, public_key: None, jwk: None };
         let result = AdminManager::enforce_role_policy(&req, "testuser");
         match result {
-            Err(RbsError::AdminRoleNotAssignable) => {}
+            Err(RbsError::AdminRoleNotAssignable) => {},
             other => panic!("expected AdminRoleNotAssignable, got: {:?}", other),
         }
     }
@@ -1169,26 +1104,15 @@ mod tests {
     #[test]
     fn role_policy_allows_user_role_on_non_admin_target() {
         // role=user on a normal target is allowed.
-        let req = UserUpdateRequest {
-            role: Some(Role::User),
-            enabled: None,
-            auth_type: None,
-            public_key: None,
-            jwk: None,
-        };
+        let req =
+            UserUpdateRequest { role: Some(Role::User), enabled: None, auth_type: None, public_key: None, jwk: None };
         let result = AdminManager::enforce_role_policy(&req, "testuser");
         assert!(result.is_ok());
     }
 
     #[test]
     fn role_policy_allows_absent_role() {
-        let req = UserUpdateRequest {
-            role: None,
-            enabled: None,
-            auth_type: None,
-            public_key: None,
-            jwk: None,
-        };
+        let req = UserUpdateRequest { role: None, enabled: None, auth_type: None, public_key: None, jwk: None };
         assert!(AdminManager::enforce_role_policy(&req, "anyone").is_ok());
     }
 
@@ -1312,24 +1236,24 @@ mod tests {
         assert!(users.is_empty());
     }
 
-    // ── get_public_key / lookup_public_key: disabled-user rejection ──
+    // ── get_user_auth / lookup_user_auth: disabled-user rejection ──
     //
     // Fix regression: a disabled user holding a still-valid Bearer token could
     // still authenticate (public key was returned regardless of status) and
-    // then create resources/policies/attestations. lookup_public_key must
+    // then create resources/policies/attestations. lookup_user_auth must
     // reject disabled users at the authentication stage.
     //
     // setup_test_users inserts: Bob(Enabled), Charlie(Disabled), Eve(Disabled),
     // all with auth_value "test-key".
 
     #[tokio::test]
-    async fn lookup_public_key_rejects_disabled_user() {
+    async fn lookup_user_auth_rejects_disabled_user() {
         let db = sea_orm::Database::connect("sqlite::memory:").await.expect("connect");
         crate::rdb::execute_sql_file_path(&db, "../rdb_sql/sqlite_rbs.sql").await.expect("migrate");
         setup_test_users(&db).await;
 
         // Charlie is Disabled — must NOT get a public key back.
-        let result = AdminManager::lookup_public_key(&db, "Charlie").await;
+        let result = AdminManager::lookup_user_auth(&db, "Charlie").await;
         assert!(result.is_err(), "disabled user must not receive a public key");
         match result.unwrap_err() {
             crate::auth::AuthError::TokenInvalid { reason } => {
@@ -1338,34 +1262,40 @@ mod tests {
                     reason, "invalid token",
                     "disabled-user rejection must not leak status in the reason, got: {reason}"
                 );
-            }
+            },
             other => panic!("expected TokenInvalid for disabled user, got: {:?}", other),
         }
 
         // Eve is also Disabled.
-        let result = AdminManager::lookup_public_key(&db, "Eve").await;
+        let result = AdminManager::lookup_user_auth(&db, "Eve").await;
         assert!(result.is_err(), "disabled user must not receive a public key");
     }
 
     #[tokio::test]
-    async fn lookup_public_key_returns_key_for_enabled_user() {
+    async fn lookup_user_auth_returns_key_and_role_for_enabled_user() {
         let db = sea_orm::Database::connect("sqlite::memory:").await.expect("connect");
         crate::rdb::execute_sql_file_path(&db, "../rdb_sql/sqlite_rbs.sql").await.expect("migrate");
         setup_test_users(&db).await;
 
         // Bob is Enabled — must get the stored public key back.
-        let result = AdminManager::lookup_public_key(&db, "Bob").await;
+        let result = AdminManager::lookup_user_auth(&db, "Bob").await;
         assert!(result.is_ok(), "enabled user should receive a public key: {:?}", result.err());
-        assert_eq!(result.unwrap(), "test-key");
+        let user_auth = result.unwrap();
+        assert_eq!(user_auth.public_key, "test-key");
+        assert_eq!(user_auth.role, "user");
+
+        let admin_auth = AdminManager::lookup_user_auth(&db, "Alice").await.unwrap();
+        assert_eq!(admin_auth.public_key, "test-key");
+        assert_eq!(admin_auth.role, "admin");
     }
 
     #[tokio::test]
-    async fn lookup_public_key_rejects_nonexistent_user() {
+    async fn lookup_user_auth_rejects_nonexistent_user() {
         let db = sea_orm::Database::connect("sqlite::memory:").await.expect("connect");
         crate::rdb::execute_sql_file_path(&db, "../rdb_sql/sqlite_rbs.sql").await.expect("migrate");
         setup_test_users(&db).await;
 
-        let result = AdminManager::lookup_public_key(&db, "NoSuchUser").await;
+        let result = AdminManager::lookup_user_auth(&db, "NoSuchUser").await;
         assert!(result.is_err(), "nonexistent user must not receive a public key");
         match result.unwrap_err() {
             crate::auth::AuthError::TokenInvalid { reason } => {
@@ -1373,7 +1303,7 @@ mod tests {
                     reason, "invalid token",
                     "nonexistent-user rejection must not leak existence in the reason, got: {reason}"
                 );
-            }
+            },
             other => panic!("expected TokenInvalid for nonexistent user, got: {:?}", other),
         }
     }
@@ -1382,13 +1312,13 @@ mod tests {
     /// an attacker cannot distinguish "user exists but disabled" from "user
     /// does not exist" — the user-enumeration defense this fix relies on.
     #[tokio::test]
-    async fn lookup_public_key_disabled_and_nonexistent_errors_are_identical() {
+    async fn lookup_user_auth_disabled_and_nonexistent_errors_are_identical() {
         let db = sea_orm::Database::connect("sqlite::memory:").await.expect("connect");
         crate::rdb::execute_sql_file_path(&db, "../rdb_sql/sqlite_rbs.sql").await.expect("migrate");
         setup_test_users(&db).await;
 
-        let disabled_err = format!("{:?}", AdminManager::lookup_public_key(&db, "Charlie").await.unwrap_err());
-        let nonexistent_err = format!("{:?}", AdminManager::lookup_public_key(&db, "NoSuchUser").await.unwrap_err());
+        let disabled_err = format!("{:?}", AdminManager::lookup_user_auth(&db, "Charlie").await.unwrap_err());
+        let nonexistent_err = format!("{:?}", AdminManager::lookup_user_auth(&db, "NoSuchUser").await.unwrap_err());
         assert_eq!(
             disabled_err, nonexistent_err,
             "disabled-user and nonexistent-user errors must be indistinguishable"

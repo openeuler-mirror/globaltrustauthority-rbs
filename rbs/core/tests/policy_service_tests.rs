@@ -15,11 +15,9 @@
 //! Each test constructs a `MockPolicyRepository` with the desired return values,
 //! creates a `PolicyService`, invokes the relevant method, and asserts the result.
 //!
-//! NOTE: Bearer contexts use a non-admin role (e.g. "user") for regular
-//! users. The admin policy rejects a forged `role="admin"` claim whose
-//! `sub` is not the bootstrap Administrator on UserScoped operations, so
-//! tests that expect to reach the service body must use a legitimate
-//! non-admin role. Attest-token tests still expect an authz deny.
+//! NOTE: Bearer contexts use the role loaded from the user database. Tests that
+//! expect to reach the service body use the role appropriate for that path.
+//! Attest-token tests still expect an authz deny.
 
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -28,18 +26,12 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use rbs_core::auth::authz::AuthzFacade;
-use rbs_core::{
-    AttestContext, AuthContext, BearerContext, TokenType,
-};
-use rbs_core::policy::{
-    PolicyConfig, PolicyEntity, PolicyError, PolicyRepository, PolicyValidator,
-};
-use rbs_core::policy::service::{
-    CreatePolicyRequest, PolicyQuery, PolicyService, UpdatePolicyRequest,
-};
+use rbs_core::policy::service::{CreatePolicyRequest, PolicyQuery, PolicyService, UpdatePolicyRequest};
+use rbs_core::policy::{PolicyConfig, PolicyEntity, PolicyError, PolicyRepository, PolicyValidator};
 use rbs_core::policy_engine::RealPolicyEngine;
 use rbs_core::resource::adapter::PolicyClient;
 use rbs_core::resource::error::ResourceError;
+use rbs_core::{AttestContext, AuthContext, BearerContext, TokenType};
 
 // ---------------------------------------------------------------------------
 // MockPolicyRepository
@@ -72,10 +64,13 @@ fn mock_db() -> Arc<sea_orm::DatabaseConnection> {
     static DB: OnceLock<Arc<sea_orm::DatabaseConnection>> = OnceLock::new();
     Arc::clone(DB.get_or_init(|| {
         let db = std::thread::spawn(|| {
-            tokio::runtime::Runtime::new().unwrap().block_on(
-                sea_orm::Database::connect("sqlite::memory:")
-            ).expect("mock in-memory sqlite")
-        }).join().unwrap();
+            tokio::runtime::Runtime::new()
+                .unwrap()
+                .block_on(sea_orm::Database::connect("sqlite::memory:"))
+                .expect("mock in-memory sqlite")
+        })
+        .join()
+        .unwrap();
         Arc::new(db)
     }))
 }
@@ -102,28 +97,19 @@ impl MockPolicyRepository {
         self
     }
 
-    fn with_find_by_name_and_user(
-        self,
-        result: Result<Option<PolicyEntity>, PolicyError>,
-    ) -> Self {
+    fn with_find_by_name_and_user(self, result: Result<Option<PolicyEntity>, PolicyError>) -> Self {
         *self.find_by_name_and_user.lock().unwrap() = result;
         self
     }
 
     #[allow(dead_code)]
-    fn with_find_by_ids_and_user(
-        self,
-        result: Result<Vec<PolicyEntity>, PolicyError>,
-    ) -> Self {
+    fn with_find_by_ids_and_user(self, result: Result<Vec<PolicyEntity>, PolicyError>) -> Self {
         *self.find_by_ids_and_user.lock().unwrap() = result;
         self
     }
 
     #[allow(dead_code)]
-    fn with_list_by_user(
-        self,
-        result: Result<(Vec<PolicyEntity>, u64), PolicyError>,
-    ) -> Self {
+    fn with_list_by_user(self, result: Result<(Vec<PolicyEntity>, u64), PolicyError>) -> Self {
         *self.list_by_user.lock().unwrap() = result;
         self
     }
@@ -162,11 +148,7 @@ impl PolicyRepository for MockPolicyRepository {
         self.find_by_id.lock().unwrap().clone()
     }
 
-    async fn find_by_name_and_user(
-        &self,
-        _name: &str,
-        _username: &str,
-    ) -> Result<Option<PolicyEntity>, PolicyError> {
+    async fn find_by_name_and_user(&self, _name: &str, _username: &str) -> Result<Option<PolicyEntity>, PolicyError> {
         self.find_by_name_and_user.lock().unwrap().clone()
     }
 
@@ -200,7 +182,12 @@ impl PolicyRepository for MockPolicyRepository {
         self.update_with_version.lock().unwrap().clone()
     }
 
-    async fn delete_by_ids_txn(&self, _conn: &sea_orm::DatabaseTransaction, _policy_ids: &[String], _username: &str) -> Result<u64, PolicyError> {
+    async fn delete_by_ids_txn(
+        &self,
+        _conn: &sea_orm::DatabaseTransaction,
+        _policy_ids: &[String],
+        _username: &str,
+    ) -> Result<u64, PolicyError> {
         self.delete_by_ids_txn.lock().unwrap().clone()
     }
 
@@ -221,7 +208,9 @@ struct MockPolicyClient {
 }
 
 impl MockPolicyClient {
-    fn new() -> Self { Self { relation_res_ids: Mutex::new(Ok(vec![])) } }
+    fn new() -> Self {
+        Self { relation_res_ids: Mutex::new(Ok(vec![])) }
+    }
     #[allow(dead_code)]
     fn with_relation_res_ids(self, result: Result<Vec<String>, ResourceError>) -> Self {
         *self.relation_res_ids.lock().unwrap() = result;
@@ -231,8 +220,12 @@ impl MockPolicyClient {
 
 #[async_trait::async_trait]
 impl PolicyClient for MockPolicyClient {
-    async fn validate_policy(&self, _id: &str, _uid: &str) -> Result<bool, ResourceError> { Ok(true) }
-    async fn get_policy_content(&self, _id: &str) -> Result<String, ResourceError> { Ok("package x\n".into()) }
+    async fn validate_policy(&self, _id: &str, _uid: &str) -> Result<bool, ResourceError> {
+        Ok(true)
+    }
+    async fn get_policy_content(&self, _id: &str) -> Result<String, ResourceError> {
+        Ok("package x\n".into())
+    }
     async fn relation_res_ids(&self, _id: &str, _uid: &str) -> Result<Vec<String>, ResourceError> {
         self.relation_res_ids.lock().unwrap().clone()
     }
@@ -267,10 +260,7 @@ fn bearer_ctx(sub: &str, role: &str) -> AuthContext {
 
 /// Build an Attest auth context (always Denied by the authz facade).
 fn attest_ctx() -> AuthContext {
-    AuthContext::Attest(AttestContext {
-        claims: Value::Null,
-        token_type: TokenType::Attest,
-    })
+    AuthContext::Attest(AttestContext { claims: Value::Null, token_type: TokenType::Attest })
 }
 
 /// Convenience constructor for a minimal `PolicyEntity`.
@@ -301,9 +291,7 @@ const VALID_REGO_B64: &str = "cGFja2FnZSByYnMKCmRlZmF1bHQgYWxsb3cgPSBmYWxzZQphbG
 /// is below the limit. Expect a `PolicyResponse` with `policy_version == 1`.
 #[tokio::test]
 async fn test_create_success() {
-    let repo = MockPolicyRepository::new()
-        .with_find_by_name_and_user(Ok(None))
-        .with_count_by_user(Ok(5)); // below max_per_user (10)
+    let repo = MockPolicyRepository::new().with_find_by_name_and_user(Ok(None)).with_count_by_user(Ok(5)); // below max_per_user (10)
 
     let service = make_service(repo);
     let ctx = bearer_ctx("user123", "user");
@@ -326,11 +314,7 @@ async fn test_create_permission_denied() {
     let repo = MockPolicyRepository::new();
     let service = make_service(repo);
     let ctx = attest_ctx();
-    let req = CreatePolicyRequest {
-        name: "test-policy".into(),
-        content_type: "base64".into(),
-        content: String::new(),
-    };
+    let req = CreatePolicyRequest { name: "test-policy".into(), content_type: "base64".into(), content: String::new() };
 
     let result = service.create(&ctx, &req).await;
     assert!(result.is_err());
@@ -342,16 +326,12 @@ async fn test_create_permission_denied() {
 #[tokio::test]
 async fn test_create_name_duplicate() {
     let existing = make_entity("policy-1", "user123", "test-policy");
-    let repo = MockPolicyRepository::new()
-        .with_find_by_name_and_user(Ok(Some(existing)));
+    let repo = MockPolicyRepository::new().with_find_by_name_and_user(Ok(Some(existing)));
 
     let service = make_service(repo);
     let ctx = bearer_ctx("user123", "user");
-    let req = CreatePolicyRequest {
-        name: "test-policy".into(),
-        content_type: "base64".into(),
-        content: HELLO_B64.into(),
-    };
+    let req =
+        CreatePolicyRequest { name: "test-policy".into(), content_type: "base64".into(), content: HELLO_B64.into() };
 
     let result = service.create(&ctx, &req).await;
     assert!(result.is_err());
@@ -362,17 +342,12 @@ async fn test_create_name_duplicate() {
 /// is at the configured maximum.
 #[tokio::test]
 async fn test_create_count_exceeded() {
-    let repo = MockPolicyRepository::new()
-        .with_find_by_name_and_user(Ok(None))
-        .with_count_by_user(Ok(10)); // max_per_user is 10 in default config
+    let repo = MockPolicyRepository::new().with_find_by_name_and_user(Ok(None)).with_count_by_user(Ok(10)); // max_per_user is 10 in default config
 
     let service = make_service(repo);
     let ctx = bearer_ctx("user123", "user");
-    let req = CreatePolicyRequest {
-        name: "test-policy".into(),
-        content_type: "base64".into(),
-        content: HELLO_B64.into(),
-    };
+    let req =
+        CreatePolicyRequest { name: "test-policy".into(), content_type: "base64".into(), content: HELLO_B64.into() };
 
     let result = service.create(&ctx, &req).await;
     assert!(result.is_err());
@@ -384,17 +359,12 @@ async fn test_create_count_exceeded() {
 #[tokio::test]
 async fn test_create_name_duplicate_beats_count_exceeded() {
     let existing = make_entity("policy-1", "user123", "test-policy");
-    let repo = MockPolicyRepository::new()
-        .with_find_by_name_and_user(Ok(Some(existing)))
-        .with_count_by_user(Ok(10));
+    let repo = MockPolicyRepository::new().with_find_by_name_and_user(Ok(Some(existing))).with_count_by_user(Ok(10));
 
     let service = make_service(repo);
     let ctx = bearer_ctx("user123", "user");
-    let req = CreatePolicyRequest {
-        name: "test-policy".into(),
-        content_type: "base64".into(),
-        content: HELLO_B64.into(),
-    };
+    let req =
+        CreatePolicyRequest { name: "test-policy".into(), content_type: "base64".into(), content: HELLO_B64.into() };
 
     let result = service.create(&ctx, &req).await;
     assert!(result.is_err());
@@ -406,9 +376,7 @@ async fn test_create_name_duplicate_beats_count_exceeded() {
 /// not valid base64.
 #[tokio::test]
 async fn test_create_invalid_base64() {
-    let repo = MockPolicyRepository::new()
-        .with_find_by_name_and_user(Ok(None))
-        .with_count_by_user(Ok(0));
+    let repo = MockPolicyRepository::new().with_find_by_name_and_user(Ok(None)).with_count_by_user(Ok(0));
 
     let service = make_service(repo);
     let ctx = bearer_ctx("user123", "user");
@@ -434,17 +402,12 @@ async fn test_update_name_duplicate_rename_conflict() {
     let existing = make_entity("policy-1", "user123", "old-name");
     let conflict = make_entity("policy-2", "user123", "new-name");
 
-    let repo = MockPolicyRepository::new()
-        .with_find_by_id(Ok(Some(existing)))
-        .with_find_by_name_and_user(Ok(Some(conflict)));
+    let repo =
+        MockPolicyRepository::new().with_find_by_id(Ok(Some(existing))).with_find_by_name_and_user(Ok(Some(conflict)));
 
     let service = make_service(repo);
     let ctx = bearer_ctx("user123", "user");
-    let req = UpdatePolicyRequest {
-        name: "new-name".into(),
-        content_type: "base64".into(),
-        content: HELLO_B64.into(),
-    };
+    let req = UpdatePolicyRequest { name: "new-name".into(), content_type: "base64".into(), content: HELLO_B64.into() };
 
     let result = service.update(&ctx, "policy-1", &req).await;
     assert!(result.is_err());
@@ -465,11 +428,8 @@ async fn test_update_name_same_as_self() {
 
     let service = make_service(repo);
     let ctx = bearer_ctx("user123", "user");
-    let req = UpdatePolicyRequest {
-        name: "same-name".into(),
-        content_type: "base64".into(),
-        content: VALID_REGO_B64.into(),
-    };
+    let req =
+        UpdatePolicyRequest { name: "same-name".into(), content_type: "base64".into(), content: VALID_REGO_B64.into() };
 
     let result = service.update(&ctx, "policy-1", &req).await;
     assert!(result.is_ok());
@@ -496,8 +456,7 @@ async fn test_delete_permission_denied() {
 /// not exist.
 #[tokio::test]
 async fn test_single_delete_policy_not_found() {
-    let repo = MockPolicyRepository::new()
-        .with_find_by_id(Ok(None));
+    let repo = MockPolicyRepository::new().with_find_by_id(Ok(None));
 
     let service = make_service(repo);
     let ctx = bearer_ctx("user123", "user");
@@ -513,8 +472,7 @@ async fn test_single_delete_policy_not_found() {
 #[tokio::test]
 async fn test_single_delete_permission_denied_cross_user() {
     let entity = make_entity("policy-1", "other-user", "test-policy");
-    let repo = MockPolicyRepository::new()
-        .with_find_by_ids_and_user(Ok(vec![entity]));
+    let repo = MockPolicyRepository::new().with_find_by_ids_and_user(Ok(vec![entity]));
 
     let service = make_service(repo);
     let ctx = bearer_ctx("user123", "user");
@@ -535,11 +493,7 @@ async fn test_list_permission_denied() {
     let repo = MockPolicyRepository::new();
     let service = make_service(repo);
     let ctx = attest_ctx();
-    let query = PolicyQuery {
-        ids: None,
-        offset: 0,
-        limit: 10,
-    };
+    let query = PolicyQuery { ids: None, offset: 0, limit: 10 };
 
     let result = service.list(&ctx, &query).await;
     assert!(result.is_err());
@@ -549,20 +503,12 @@ async fn test_list_permission_denied() {
 /// UT-S-025: list with the `ids` filter returns the matching entities.
 #[tokio::test]
 async fn test_list_with_ids_filter() {
-    let entities = vec![
-        make_entity("policy-1", "user123", "policy-a"),
-        make_entity("policy-2", "user123", "policy-b"),
-    ];
-    let repo = MockPolicyRepository::new()
-        .with_find_by_ids_and_user(Ok(entities));
+    let entities = vec![make_entity("policy-1", "user123", "policy-a"), make_entity("policy-2", "user123", "policy-b")];
+    let repo = MockPolicyRepository::new().with_find_by_ids_and_user(Ok(entities));
 
     let service = make_service(repo);
     let ctx = bearer_ctx("user123", "user");
-    let query = PolicyQuery {
-        ids: Some(vec!["policy-1".into(), "policy-2".into()]),
-        offset: 0,
-        limit: 10,
-    };
+    let query = PolicyQuery { ids: Some(vec!["policy-1".into(), "policy-2".into()]), offset: 0, limit: 10 };
 
     let result = service.list(&ctx, &query).await;
     assert!(result.is_ok());
@@ -590,8 +536,7 @@ async fn test_get_by_id_permission_denied() {
 /// UT-S-023: get_by_id returns `NotFound` when the policy does not exist.
 #[tokio::test]
 async fn test_get_by_id_not_found() {
-    let repo = MockPolicyRepository::new()
-        .with_find_by_id(Ok(None));
+    let repo = MockPolicyRepository::new().with_find_by_id(Ok(None));
 
     let service = make_service(repo);
     let ctx = bearer_ctx("user123", "user");
@@ -606,8 +551,7 @@ async fn test_get_by_id_not_found() {
 #[tokio::test]
 async fn test_get_by_id_cross_user() {
     let entity = make_entity("policy-1", "other-user", "test-policy");
-    let repo = MockPolicyRepository::new()
-        .with_find_by_id(Ok(Some(entity)));
+    let repo = MockPolicyRepository::new().with_find_by_id(Ok(Some(entity)));
 
     let service = make_service(repo);
     let ctx = bearer_ctx("user123", "user");
@@ -647,11 +591,8 @@ async fn test_batch_delete_empty_ids() {
 /// the update call returns 1 row affected, and the response reports version 3.
 #[tokio::test]
 async fn test_update_success_with_optimistic_lock() {
-    let entity = PolicyEntity {
-        policy_version: 2,
-        username: "user1".into(),
-        ..make_entity("pol-1", "user1", "old_name")
-    };
+    let entity =
+        PolicyEntity { policy_version: 2, username: "user1".into(), ..make_entity("pol-1", "user1", "old_name") };
 
     let repo = MockPolicyRepository::new()
         .with_find_by_id(Ok(Some(entity)))
@@ -660,11 +601,8 @@ async fn test_update_success_with_optimistic_lock() {
 
     let service = make_service(repo);
     let ctx = bearer_ctx("user1", "user");
-    let req = UpdatePolicyRequest {
-        name: "new_name".into(),
-        content_type: "base64".into(),
-        content: VALID_REGO_B64.into(),
-    };
+    let req =
+        UpdatePolicyRequest { name: "new_name".into(), content_type: "base64".into(), content: VALID_REGO_B64.into() };
 
     let result = service.update(&ctx, "pol-1", &req).await;
     assert!(result.is_ok());
@@ -676,16 +614,11 @@ async fn test_update_success_with_optimistic_lock() {
 /// UT-S-009: update returns NotFound when the policy does not exist.
 #[tokio::test]
 async fn test_update_policy_not_found() {
-    let repo = MockPolicyRepository::new()
-        .with_find_by_id(Ok(None));
+    let repo = MockPolicyRepository::new().with_find_by_id(Ok(None));
 
     let service = make_service(repo);
     let ctx = bearer_ctx("admin", "user");
-    let req = UpdatePolicyRequest {
-        name: "new_name".into(),
-        content_type: "base64".into(),
-        content: HELLO_B64.into(),
-    };
+    let req = UpdatePolicyRequest { name: "new_name".into(), content_type: "base64".into(), content: HELLO_B64.into() };
 
     let result = service.update(&ctx, "pol-404", &req).await;
     assert!(result.is_err());
@@ -696,21 +629,13 @@ async fn test_update_policy_not_found() {
 /// different user.
 #[tokio::test]
 async fn test_update_permission_denied_wrong_owner() {
-    let entity = PolicyEntity {
-        username: "user2".into(),
-        ..make_entity("pol-1", "user2", "test-policy")
-    };
+    let entity = PolicyEntity { username: "user2".into(), ..make_entity("pol-1", "user2", "test-policy") };
 
-    let repo = MockPolicyRepository::new()
-        .with_find_by_id(Ok(Some(entity)));
+    let repo = MockPolicyRepository::new().with_find_by_id(Ok(Some(entity)));
 
     let service = make_service(repo);
     let ctx = bearer_ctx("user1", "user");
-    let req = UpdatePolicyRequest {
-        name: "new_name".into(),
-        content_type: "base64".into(),
-        content: HELLO_B64.into(),
-    };
+    let req = UpdatePolicyRequest { name: "new_name".into(), content_type: "base64".into(), content: HELLO_B64.into() };
 
     let result = service.update(&ctx, "pol-1", &req).await;
     assert!(result.is_err());
@@ -721,11 +646,8 @@ async fn test_update_permission_denied_wrong_owner() {
 /// that another transaction has already updated the policy.
 #[tokio::test]
 async fn test_update_version_conflict() {
-    let entity = PolicyEntity {
-        policy_version: 2,
-        username: "user1".into(),
-        ..make_entity("pol-1", "user1", "my_policy")
-    };
+    let entity =
+        PolicyEntity { policy_version: 2, username: "user1".into(), ..make_entity("pol-1", "user1", "my_policy") };
 
     let repo = MockPolicyRepository::new()
         .with_find_by_id(Ok(Some(entity)))
@@ -734,11 +656,8 @@ async fn test_update_version_conflict() {
 
     let service = make_service(repo);
     let ctx = bearer_ctx("user1", "user");
-    let req = UpdatePolicyRequest {
-        name: "new_name".into(),
-        content_type: "base64".into(),
-        content: VALID_REGO_B64.into(),
-    };
+    let req =
+        UpdatePolicyRequest { name: "new_name".into(), content_type: "base64".into(), content: VALID_REGO_B64.into() };
 
     let result = service.update(&ctx, "pol-1", &req).await;
     assert!(result.is_err());
@@ -762,11 +681,8 @@ async fn test_update_retry_after_conflict_succeeds() {
     //
     // The current mock infrastructure returns the same value for each method
     // regardless of call count, so we configure the "final success" state.
-    let entity_v3 = PolicyEntity {
-        policy_version: 3,
-        username: "user1".into(),
-        ..make_entity("pol-1", "user1", "my_policy")
-    };
+    let entity_v3 =
+        PolicyEntity { policy_version: 3, username: "user1".into(), ..make_entity("pol-1", "user1", "my_policy") };
 
     let repo = MockPolicyRepository::new()
         .with_find_by_id(Ok(Some(entity_v3)))
@@ -775,11 +691,8 @@ async fn test_update_retry_after_conflict_succeeds() {
 
     let service = make_service(repo);
     let ctx = bearer_ctx("user1", "user");
-    let req = UpdatePolicyRequest {
-        name: "new_name".into(),
-        content_type: "base64".into(),
-        content: VALID_REGO_B64.into(),
-    };
+    let req =
+        UpdatePolicyRequest { name: "new_name".into(), content_type: "base64".into(), content: VALID_REGO_B64.into() };
 
     let result = service.update(&ctx, "pol-1", &req).await;
     // Once retry is implemented: assert!(result.is_ok());
@@ -796,9 +709,7 @@ async fn test_update_retry_after_conflict_succeeds() {
 #[tokio::test]
 async fn test_single_delete_success() {
     let entity = make_entity("pol-1", "user1", "my_policy");
-    let repo = MockPolicyRepository::new()
-        .with_find_by_ids_and_user(Ok(vec![entity]))
-        .with_delete_by_ids_txn(Ok(1));
+    let repo = MockPolicyRepository::new().with_find_by_ids_and_user(Ok(vec![entity])).with_delete_by_ids_txn(Ok(1));
     let client = MockPolicyClient::new().with_relation_res_ids(Ok(vec![]));
 
     let service = make_service_with_client(repo, client);
@@ -813,15 +724,10 @@ async fn test_single_delete_success() {
 /// by one or more resources.
 #[tokio::test]
 async fn test_delete_policy_being_referenced() {
-    let entity = PolicyEntity {
-        policy_name: "my_policy".into(),
-        ..make_entity("pol-1", "user1", "my_policy")
-    };
+    let entity = PolicyEntity { policy_name: "my_policy".into(), ..make_entity("pol-1", "user1", "my_policy") };
 
-    let repo = MockPolicyRepository::new()
-        .with_find_by_ids_and_user(Ok(vec![entity]));
-    let client = MockPolicyClient::new()
-        .with_relation_res_ids(Ok(vec!["res-uri-1".into(), "res-uri-2".into()]));
+    let repo = MockPolicyRepository::new().with_find_by_ids_and_user(Ok(vec![entity]));
+    let client = MockPolicyClient::new().with_relation_res_ids(Ok(vec!["res-uri-1".into(), "res-uri-2".into()]));
 
     let service = make_service_with_client(repo, client);
     let ctx = bearer_ctx("user1", "user");
@@ -849,19 +755,12 @@ async fn test_batch_delete_all_success() {
         make_entity("pol-3", "user1", "policy-c"),
     ];
 
-    let repo = MockPolicyRepository::new()
-        .with_find_by_ids_and_user(Ok(entities))
-        .with_delete_by_ids_txn(Ok(3));
-    let client = MockPolicyClient::new()
-        .with_relation_res_ids(Ok(vec![]));
+    let repo = MockPolicyRepository::new().with_find_by_ids_and_user(Ok(entities)).with_delete_by_ids_txn(Ok(3));
+    let client = MockPolicyClient::new().with_relation_res_ids(Ok(vec![]));
 
     let service = make_service_with_client(repo, client);
     let ctx = bearer_ctx("user1", "user");
-    let ids = vec![
-        "pol-1".to_string(),
-        "pol-2".to_string(),
-        "pol-3".to_string(),
-    ];
+    let ids = vec!["pol-1".to_string(), "pol-2".to_string(), "pol-3".to_string()];
 
     let result = service.delete(&ctx, &ids).await;
     assert!(result.is_ok());
@@ -877,18 +776,12 @@ async fn test_batch_delete_partial_referenced() {
         make_entity("pol-3", "user1", "policy-3"),
     ];
 
-    let repo = MockPolicyRepository::new()
-        .with_find_by_ids_and_user(Ok(entities));
-    let client = MockPolicyClient::new()
-        .with_relation_res_ids(Ok(vec!["res-uri".into()]));
+    let repo = MockPolicyRepository::new().with_find_by_ids_and_user(Ok(entities));
+    let client = MockPolicyClient::new().with_relation_res_ids(Ok(vec!["res-uri".into()]));
 
     let service = make_service_with_client(repo, client);
     let ctx = bearer_ctx("user1", "user");
-    let ids = vec![
-        "pol-1".to_string(),
-        "pol-2".to_string(),
-        "pol-3".to_string(),
-    ];
+    let ids = vec!["pol-1".to_string(), "pol-2".to_string(), "pol-3".to_string()];
 
     let result = service.delete(&ctx, &ids).await;
     assert!(result.is_err());
@@ -903,16 +796,11 @@ async fn test_batch_delete_partial_referenced() {
 /// (transaction rollback).
 #[tokio::test]
 async fn test_batch_delete_partial_not_found() {
-    let repo = MockPolicyRepository::new()
-        .with_find_by_id(Ok(None));
+    let repo = MockPolicyRepository::new().with_find_by_id(Ok(None));
 
     let service = make_service(repo);
     let ctx = bearer_ctx("user1", "user");
-    let ids = vec![
-        "pol-1".to_string(),
-        "pol-404".to_string(),
-        "pol-3".to_string(),
-    ];
+    let ids = vec!["pol-1".to_string(), "pol-404".to_string(), "pol-3".to_string()];
 
     let result = service.delete(&ctx, &ids).await;
     assert!(result.is_err());
@@ -928,16 +816,11 @@ async fn test_batch_delete_partial_not_found() {
 async fn test_list_basic() {
     let e1 = make_entity("pol-1", "user1", "policy-a");
     let e2 = make_entity("pol-2", "user1", "policy-b");
-    let repo = MockPolicyRepository::new()
-        .with_list_by_user(Ok((vec![e1, e2], 2)));
+    let repo = MockPolicyRepository::new().with_list_by_user(Ok((vec![e1, e2], 2)));
 
     let service = make_service(repo);
     let ctx = bearer_ctx("user1", "user");
-    let query = PolicyQuery {
-        ids: None,
-        offset: 0,
-        limit: 10,
-    };
+    let query = PolicyQuery { ids: None, offset: 0, limit: 10 };
 
     let result = service.list(&ctx, &query).await;
     assert!(result.is_ok());
@@ -951,19 +834,13 @@ async fn test_list_basic() {
 /// UT-S-019: list with pagination — offset 20, limit 10 returns 5 items.
 #[tokio::test]
 async fn test_list_with_pagination() {
-    let items: Vec<PolicyEntity> = (0..5)
-        .map(|i| make_entity(&format!("pol-{}", i + 21), "user1", &format!("policy-{}", i + 21)))
-        .collect();
-    let repo = MockPolicyRepository::new()
-        .with_list_by_user(Ok((items, 25)));
+    let items: Vec<PolicyEntity> =
+        (0..5).map(|i| make_entity(&format!("pol-{}", i + 21), "user1", &format!("policy-{}", i + 21))).collect();
+    let repo = MockPolicyRepository::new().with_list_by_user(Ok((items, 25)));
 
     let service = make_service(repo);
     let ctx = bearer_ctx("user1", "user");
-    let query = PolicyQuery {
-        ids: None,
-        offset: 20,
-        limit: 10,
-    };
+    let query = PolicyQuery { ids: None, offset: 20, limit: 10 };
 
     let result = service.list(&ctx, &query).await;
     assert!(result.is_ok());
@@ -978,16 +855,11 @@ async fn test_list_with_pagination() {
 /// total count.
 #[tokio::test]
 async fn test_list_limit_zero() {
-    let repo = MockPolicyRepository::new()
-        .with_list_by_user(Ok((vec![], 25)));
+    let repo = MockPolicyRepository::new().with_list_by_user(Ok((vec![], 25)));
 
     let service = make_service(repo);
     let ctx = bearer_ctx("user1", "user");
-    let query = PolicyQuery {
-        ids: None,
-        offset: 0,
-        limit: 0,
-    };
+    let query = PolicyQuery { ids: None, offset: 0, limit: 0 };
 
     let result = service.list(&ctx, &query).await;
     assert!(result.is_ok());
@@ -1002,16 +874,11 @@ async fn test_list_limit_zero() {
 /// directly (no server-side clamping; validation happens at the API layer).
 #[tokio::test]
 async fn test_list_limit_high() {
-    let repo = MockPolicyRepository::new()
-        .with_list_by_user(Ok((vec![], 0)));
+    let repo = MockPolicyRepository::new().with_list_by_user(Ok((vec![], 0)));
 
     let service = make_service(repo);
     let ctx = bearer_ctx("user1", "user");
-    let query = PolicyQuery {
-        ids: None,
-        offset: 0,
-        limit: 10000,
-    };
+    let query = PolicyQuery { ids: None, offset: 0, limit: 10000 };
 
     let result = service.list(&ctx, &query).await;
     assert!(result.is_ok());
@@ -1028,10 +895,8 @@ async fn test_list_limit_high() {
 #[tokio::test]
 async fn test_get_detail_success() {
     let entity = make_entity("pol-1", "user1", "my_policy");
-    let repo = MockPolicyRepository::new()
-        .with_find_by_id(Ok(Some(entity)));
-    let client = MockPolicyClient::new()
-        .with_relation_res_ids(Ok(vec!["uri1".into(), "uri2".into()]));
+    let repo = MockPolicyRepository::new().with_find_by_id(Ok(Some(entity)));
+    let client = MockPolicyClient::new().with_relation_res_ids(Ok(vec!["uri1".into(), "uri2".into()]));
 
     let service = make_service_with_client(repo, client);
     let ctx = bearer_ctx("user1", "user");
@@ -1039,10 +904,7 @@ async fn test_get_detail_success() {
     let result = service.get_by_id(&ctx, "pol-1").await;
     assert!(result.is_ok());
     let resp = result.unwrap();
-    assert_eq!(
-        resp.applied_resources,
-        Some(vec!["uri1".into(), "uri2".into()]),
-    );
+    assert_eq!(resp.applied_resources, Some(vec!["uri1".into(), "uri2".into()]),);
 }
 
 // ---------------------------------------------------------------------------
@@ -1057,11 +919,8 @@ async fn test_get_detail_success() {
 /// entity, the assertion should verify `captured_entity.policy_version == 3`.
 #[tokio::test]
 async fn test_version_increment_on_update() {
-    let entity = PolicyEntity {
-        policy_version: 2,
-        username: "user1".into(),
-        ..make_entity("pol-1", "user1", "my_policy")
-    };
+    let entity =
+        PolicyEntity { policy_version: 2, username: "user1".into(), ..make_entity("pol-1", "user1", "my_policy") };
 
     let repo = MockPolicyRepository::new()
         .with_find_by_id(Ok(Some(entity)))
@@ -1070,11 +929,8 @@ async fn test_version_increment_on_update() {
 
     let service = make_service(repo);
     let ctx = bearer_ctx("user1", "user");
-    let req = UpdatePolicyRequest {
-        name: "my_policy".into(),
-        content_type: "base64".into(),
-        content: VALID_REGO_B64.into(),
-    };
+    let req =
+        UpdatePolicyRequest { name: "my_policy".into(), content_type: "base64".into(), content: VALID_REGO_B64.into() };
 
     let result = service.update(&ctx, "pol-1", &req).await;
     // When the mock captures the entity passed to update_with_version:

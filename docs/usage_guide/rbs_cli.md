@@ -873,7 +873,6 @@ rbs-cli token gen
 | `--iss` | No | `rbs-cli` | JWT `iss` claim (max 128 chars) |
 | `--sub` | No | `Administrator` | JWT `sub` claim — the username (max 64 chars) |
 | `--aud` | No | `globaltrustauthority-rbs` | JWT `aud` claim; repeat the flag to add up to 16 audiences (max 128 chars each) |
-| `--role` | No | unset | Custom `role` claim (max 64 chars) |
 | `--exp` | No | now + 3600 s | JWT `exp` as a Unix timestamp in seconds |
 | `--nbf` | No | unset | JWT `nbf` as a Unix timestamp in seconds |
 | `--iat` | No | unset | JWT `iat` as a Unix timestamp in seconds; must be earlier than `exp` |
@@ -906,11 +905,14 @@ rbs-cli token gen \
   --private-key-file ./private.pem \
   --iss rbs-cli \
   --aud globaltrustauthority-rbs \
-  --role admin \
   --kid smoke-ed25519-key-1 \
   --sub Administrator \
   --claims @./claims.json
 ```
+
+RBS loads the current role from its user database. `token gen` therefore has no
+dedicated `--role` option. A `role` value supplied through `--claims` remains an
+ordinary custom claim and is ignored by RBS authorization.
 
 ---
 
