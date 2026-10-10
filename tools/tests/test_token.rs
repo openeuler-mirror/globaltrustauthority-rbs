@@ -22,7 +22,9 @@
  */
 
 use clap::Parser;
-use josekit::jws::{EdDSA, ES256, ES384, ES512};
+use josekit::jwk::alg::rsapss::RsaPssKeyPair;
+use josekit::jwk::KeyPair;
+use josekit::jws::{EdDSA, ES256, ES384, ES512, PS256};
 use josekit::jwt;
 use jsonwebtoken::{
     decode as jwt_decode, decode_header as jwt_decode_header, Algorithm as JwtAlgorithm, DecodingKey, Validation,
@@ -167,6 +169,34 @@ fn generate_rsa_pem(prefix: &str) -> (TempFile, Vec<u8>) {
     (private_file, public_pem)
 }
 
+fn assert_token_generate_with_rsa_pss_key(token_alg: TokenAlg, expected_alg: &str, key_pair: &RsaPssKeyPair) {
+    let private_pem = key_pair.to_pem_private_key();
+    let private_file = TempFile::new(&format!("rsa-pss-{expected_alg}"), &private_pem);
+    let args = base_generate_args(private_file.path(), token_alg);
+    let token = TokenGenerate::generate(&args).expect("RSA-PSS key should generate a JWT");
+
+    match expected_alg {
+        "PS256" => {
+            let verifier =
+                PS256.verifier_from_jwk(&key_pair.to_jwk_public_key()).expect("failed to build PS256 RSA-PSS verifier");
+            assert_common_claims(&token.token, expected_alg, &verifier);
+        },
+        "PS384" => {
+            let verifier = josekit::jws::PS384
+                .verifier_from_jwk(&key_pair.to_jwk_public_key())
+                .expect("failed to build PS384 RSA-PSS verifier");
+            assert_common_claims(&token.token, expected_alg, &verifier);
+        },
+        "PS512" => {
+            let verifier = josekit::jws::PS512
+                .verifier_from_jwk(&key_pair.to_jwk_public_key())
+                .expect("failed to build PS512 RSA-PSS verifier");
+            assert_common_claims(&token.token, expected_alg, &verifier);
+        },
+        _ => unreachable!("unexpected RSA-PSS algorithm"),
+    }
+}
+
 #[test]
 fn generate_token_with_ps256() {
     let (private_file, public_pem) = generate_rsa_pem("ps256-private");
@@ -189,6 +219,30 @@ fn generate_token_with_ps512() {
     let args = base_generate_args(private_file.path(), TokenAlg::Ps512);
     let token = TokenGenerate::generate(&args).expect("failed to generate PS512 token");
     assert_common_claims_with_jsonwebtoken_pss(&token.token, JwtAlgorithm::PS512, &public_pem);
+}
+
+#[test]
+fn token_generate_accepts_rsa_and_rsa_pss_private_keys() {
+    let (rsa_file, public_pem) = generate_rsa_pem("rsa-private");
+    let rsa_args = base_generate_args(rsa_file.path(), TokenAlg::Ps256);
+    let rsa_token = TokenGenerate::generate(&rsa_args).expect("generic RSA key should generate a PS256 token");
+    assert_common_claims_with_jsonwebtoken_pss(&rsa_token.token, JwtAlgorithm::PS256, &public_pem);
+
+    assert_token_generate_with_rsa_pss_key(
+        TokenAlg::Ps256,
+        "PS256",
+        &PS256.generate_key_pair(2048).expect("failed to generate RSA-PSS PS256 key"),
+    );
+    assert_token_generate_with_rsa_pss_key(
+        TokenAlg::Ps384,
+        "PS384",
+        &josekit::jws::PS384.generate_key_pair(2048).expect("failed to generate RSA-PSS PS384 key"),
+    );
+    assert_token_generate_with_rsa_pss_key(
+        TokenAlg::Ps512,
+        "PS512",
+        &josekit::jws::PS512.generate_key_pair(2048).expect("failed to generate RSA-PSS PS512 key"),
+    );
 }
 
 #[test]
@@ -345,4 +399,43 @@ fn token_gen_rejects_invalid_time_claim_order() {
     let err = TokenGenerate::generate(&args).expect_err("expected invalid iat/exp ordering to be rejected");
     let err_text = err.to_string();
     assert!(err_text.contains("iat must be earlier than exp"), "{err_text}");
+}
+
+#[test]
+fn token_generate_with_unrestricted_openssl_rsa_pss_key() {
+    let mut ctx = openssl::pkey_ctx::PkeyCtx::new_id(openssl::pkey::Id::RSA_PSS).unwrap();
+    ctx.keygen_init().unwrap();
+    ctx.set_rsa_keygen_bits(2048).unwrap();
+    let key = ctx.keygen().unwrap();
+    let file = TempFile::new("openssl-pss", &key.private_key_to_pem_pkcs8().unwrap());
+    let rsa = key.rsa().unwrap();
+    let public = Rsa::from_public_components(rsa.n().to_owned().unwrap(), rsa.e().to_owned().unwrap()).unwrap();
+    let public = PKey::from_rsa(public).unwrap().public_key_to_pem().unwrap();
+    for (alg, expected) in [
+        (TokenAlg::Ps256, JwtAlgorithm::PS256),
+        (TokenAlg::Ps384, JwtAlgorithm::PS384),
+        (TokenAlg::Ps512, JwtAlgorithm::PS512),
+    ] {
+        let token = TokenGenerate::generate(&base_generate_args(file.path(), alg)).unwrap();
+        assert_common_claims_with_jsonwebtoken_pss(&token.token, expected, &public);
+    }
+}
+
+#[test]
+fn token_generate_rejects_incompatible_rsa_pss_constraints() {
+    let key = PS256.generate_key_pair(2048).unwrap();
+    let file = TempFile::new("constrained-pss", &key.to_pem_private_key());
+    assert!(TokenGenerate::generate(&base_generate_args(file.path(), TokenAlg::Ps384)).is_err());
+}
+
+#[test]
+fn token_generate_rejects_short_rsa_keys() {
+    for kind in [openssl::pkey::Id::RSA, openssl::pkey::Id::RSA_PSS] {
+        let mut ctx = openssl::pkey_ctx::PkeyCtx::new_id(kind).unwrap();
+        ctx.keygen_init().unwrap();
+        ctx.set_rsa_keygen_bits(1024).unwrap();
+        let key = ctx.keygen().unwrap();
+        let file = TempFile::new("short-rsa", &key.private_key_to_pem_pkcs8().unwrap());
+        assert!(TokenGenerate::generate(&base_generate_args(file.path(), TokenAlg::Ps256)).is_err());
+    }
 }

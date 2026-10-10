@@ -897,6 +897,8 @@ async fn insert_bootstrap_admin(db: &sea_orm::DatabaseConnection, model: UserAct
 mod tests {
     use super::*;
     use base64::Engine;
+    use josekit::jwk::KeyPair;
+    use josekit::jws::PS256;
     use rbs_api_types::{AuthType, Role};
 
     // Generate a fresh RSA key pair for each test to avoid hard-coded keys.
@@ -939,6 +941,25 @@ mod tests {
         let (auth_value, auth_alg) = result.unwrap();
         assert!(auth_value.contains("BEGIN PUBLIC KEY"));
         assert_eq!(auth_alg, "RSA");
+    }
+
+    #[test]
+    fn extract_auth_material_accepts_rsa_pss_public_key() {
+        let key_pair = PS256.generate_key_pair(2048).expect("generate RSA-PSS key pair");
+        let public_key = key_pair.to_pem_public_key();
+        let req = UserCreateRequest {
+            username: "pss-user".to_string(),
+            role: None,
+            enabled: None,
+            auth_type: AuthType::Jwt,
+            public_key: Some(base64::engine::general_purpose::STANDARD.encode(public_key)),
+            jwk: None,
+        };
+
+        let (auth_value, auth_alg) = AdminManager::extract_auth_material(&req)
+            .expect("RSA-PSS public key should be accepted for a database user");
+        assert!(auth_value.contains("BEGIN PUBLIC KEY"));
+        assert_eq!(auth_alg, "RSA-PSS");
     }
 
     #[test]

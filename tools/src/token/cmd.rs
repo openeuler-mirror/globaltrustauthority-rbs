@@ -52,7 +52,7 @@ const KID_MAX_LEN: usize = 128;
 const CLAIMS_MAX_SIZE: u64 = 64 * 1024;
 const PASSPHRASE_MAX_LEN: usize = 1024;
 const SUPPORTED_PRIVATE_KEYS: &str =
-    "supported private keys: RSA for PS*, P-256 for ES256, P-384 for ES384, P-521 for ES512, Ed25519/Ed448 for EdDSA, SM2 for SM2";
+    "supported private keys: RSA or RSA-PSS for PS*, P-256 for ES256, P-384 for ES384, P-521 for ES512, Ed25519/Ed448 for EdDSA, SM2 for SM2";
 
 #[derive(ValueEnum, Clone, Debug, Default, PartialEq, Eq)]
 pub enum TokenAlg {
@@ -343,6 +343,9 @@ impl TokenGenerate {
         validate_audience_count(&args.aud)?;
         let private_key = Self::load_private_key(args)?;
         let alg = Self::get_alg(&args.alg, &private_key)?;
+        if matches!(private_key.id(), Id::RSA | Id::RSA_PSS) && private_key.bits() < 2048 {
+            return Err(CliError::InvalidArgument("RSA JWT keys must be at least 2048 bits".to_string()));
+        }
         let exp = args.exp.unwrap_or_else(default_exp);
         validate_time_claims(exp, args.nbf, args.iat)?;
         let mut header = JwsHeader::new();
@@ -382,13 +385,25 @@ impl TokenGenerate {
             Zeroizing::new(private_key.private_key_to_pem_pkcs8().map_err(|_err| {
                 CliError::InvalidArgument("unable to prepare the private key for signing".to_string())
             })?);
-        let token = Self::generate_token(&alg, &pem, &header, &payload)?;
+        let token = Self::generate_token(&alg, private_key.id() == Id::RSA_PSS, &pem, &header, &payload)?;
         Ok(token)
     }
 
-    fn generate_token(alg: &TokenAlg, pem: &[u8], header: &JwsHeader, payload: &JwtPayload) -> Result<Token, CliError> {
+    fn generate_token(
+        alg: &TokenAlg,
+        rsa_pss_key: bool,
+        pem: &[u8],
+        header: &JwsHeader,
+        payload: &JwtPayload,
+    ) -> Result<Token, CliError> {
         let token = match alg {
-            TokenAlg::Ps256 | TokenAlg::Ps384 | TokenAlg::Ps512 => return generate_pss_token_with_jsonwebtoken(alg, pem, header, payload),
+            TokenAlg::Ps256 | TokenAlg::Ps384 | TokenAlg::Ps512 => {
+                return if rsa_pss_key {
+                    generate_pss_token_with_openssl(alg, pem, header, payload)
+                } else {
+                    generate_pss_token_with_jsonwebtoken(alg, pem, header, payload)
+                };
+            },
             TokenAlg::Es256 => {
                 let signer = ES256
                     .signer_from_pem(pem)
@@ -491,6 +506,33 @@ fn generate_pss_token_with_jsonwebtoken(
         ))
     })?;
     Ok(Token { token })
+}
+
+fn generate_pss_token_with_openssl(
+    alg: &TokenAlg,
+    pem: &[u8],
+    header: &JwsHeader,
+    payload: &JwtPayload,
+) -> Result<Token, CliError> {
+    // Keep the original key so OpenSSL enforces any PSS parameter restrictions.
+    let digest = match alg {
+        TokenAlg::Ps256 => MessageDigest::sha256(),
+        TokenAlg::Ps384 => MessageDigest::sha384(),
+        TokenAlg::Ps512 => MessageDigest::sha512(),
+        _ => unreachable!("PSS signing only applies to PS* algorithms"),
+    };
+    let encode = &base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    let signing_input = format!("{}.{}", encode.encode(header.to_string()), encode.encode(payload.to_string()));
+    let signature = (|| -> Result<Vec<u8>, openssl::error::ErrorStack> {
+        let key = PKey::private_key_from_pem(pem)?;
+        let mut signer = Signer::new(digest, &key)?;
+        signer.set_rsa_padding(openssl::rsa::Padding::PKCS1_PSS)?;
+        signer.set_rsa_mgf1_md(digest)?;
+        signer.set_rsa_pss_saltlen(openssl::sign::RsaPssSaltlen::DIGEST_LENGTH)?;
+        signer.sign_oneshot_to_vec(signing_input.as_bytes())
+    })()
+    .map_err(|err| CliError::InvalidArgument(format!("unable to sign the token with {alg}: {err}")))?;
+    Ok(Token { token: format!("{}.{}", signing_input, encode.encode(signature)) })
 }
 
 /// GM/T 0009 default SM2 user ID used for every SM2 token signature.

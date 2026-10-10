@@ -47,4 +47,4 @@ def test_policy_list_rejects_out_of_range_limit(rbs_cli_binary: Path, argument: 
         token="token",
         check=False,
     )
-    assert_cli_rejected(result, "invalid value")
+    assert_cli_rejected(result, "limit must be between 1 and 100")

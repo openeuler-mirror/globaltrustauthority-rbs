@@ -27,7 +27,7 @@ use std::fs;
 
 use crate::auth::authn::common::{
     create_decoding_key, decode_token_header, is_es512, is_sm2, map_josekit_error, map_jwt_error,
-    to_jsonwebtoken_alg, validate_algorithm, validate_jwt_claims, validate_josekit_exp,
+    to_jsonwebtoken_alg, validate_algorithm, validate_jwt_claims, validate_josekit_exp, validate_josekit_audience, validate_rsa_key_size,
 };
 use crate::auth::authn::sm2;
 use crate::auth::authn::TokenVerifier;
@@ -163,6 +163,7 @@ impl TokenVerifier for AttestTokenVerifier {
         validation.set_issuer(&[&self.config.issuer]);
         if let Some(ref expected_aud) = self.config.audience {
             validation.set_audience(&[expected_aud]);
+            validation.required_spec_claims.insert("aud".to_string());
         }
 
         let token_data = decode::<Value>(token, &decoding_key, &validation).map_err(|e| {
@@ -227,6 +228,7 @@ impl AttestTokenVerifier {
         // to the Bearer ES512 path; then the remaining claims (iss, aud, nbf)
         // with the same pinned clock read.
         let now = validate_josekit_exp("AttestToken", &payload)?;
+        validate_josekit_audience(&payload, self.config.audience.as_deref())?;
 
         let mut validator = JwtPayloadValidator::new();
         validator.set_base_time(now);
@@ -390,6 +392,7 @@ fn classify_pem_key(
         reason: format!("failed to parse PEM public key: {}", e),
     })?;
 
+    validate_rsa_key_size(&pkey)?;
     match pkey.id() {
         openssl::pkey::Id::SM2 => Ok((None, None, Some(pem.to_vec()))),
         openssl::pkey::Id::ED25519 => {
@@ -623,6 +626,9 @@ fn encode_der_length(len: usize) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use josekit::jwk::KeyPair;
+    use josekit::jws::{JwsHeader, PS256};
+    use josekit::jwt::JwtPayload;
     use std::io::Write;
     use std::sync::OnceLock;
 
@@ -685,6 +691,38 @@ mod tests {
         let verifier = create_verifier();
         let result = verifier.verify(MALFORMED_TOKEN).await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_verify_rsa_pss_attest_token_signed_by_josekit() {
+        let key_pair = PS256.generate_key_pair(2048).expect("generate RSA-PSS key pair");
+        let mut public_key_file = tempfile::NamedTempFile::new().expect("create public key file");
+        public_key_file
+            .write_all(&key_pair.to_pem_public_key())
+            .expect("write RSA-PSS public key");
+
+        let config = AttestTokenVerificationConfig {
+            public_key_path: Some(public_key_file.path().to_string_lossy().to_string()),
+            jwks_file: None,
+            issuer: "Global Trust Authority".to_string(),
+            audience: Some("rbs".to_string()),
+        };
+        let verifier = AttestTokenVerifier::new(config).expect("create RSA-PSS verifier");
+
+        let mut payload = JwtPayload::new();
+        payload.set_issuer("Global Trust Authority");
+        payload.set_audience(vec!["rbs"]);
+        payload.set_expires_at(&(std::time::SystemTime::now() + std::time::Duration::from_secs(3600)));
+
+        let mut header = JwsHeader::new();
+        header.set_token_type("JWT");
+        header.set_algorithm("PS256");
+        let signer = PS256
+            .signer_from_pem(key_pair.to_pem_private_key())
+            .expect("create RSA-PSS signer");
+        let token = jwt::encode_with_signer(&payload, &header, &signer).expect("sign RSA-PSS JWT");
+
+        verifier.verify(&token).await.expect("RBS should verify a josekit RSA-PSS AttestToken");
     }
 
     #[tokio::test]

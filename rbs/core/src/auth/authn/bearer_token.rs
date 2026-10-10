@@ -24,17 +24,17 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use base64::Engine;
-use josekit::jws::ES512;
+use josekit::jws::{JwsVerifier, ES512};
 use josekit::jwt::{self, JwtPayloadValidator};
 use jsonwebtoken::{decode, Validation};
 use log::{debug, warn};
-use openssl::pkey::PKey;
+use openssl::pkey::{Id, PKey};
 use rbs_api_types::config::BearerTokenVerificationConfig;
 use serde_json::Value;
 
 use crate::auth::authn::common::{
     create_decoding_key, decode_token_header, is_es512, is_sm2, to_jsonwebtoken_alg,
-    validate_algorithm, validate_jwt_claims, validate_josekit_exp,
+    validate_algorithm, validate_jwt_claims, validate_josekit_exp, validate_josekit_audience, validate_rsa_key_size,
 };
 use crate::auth::authn::sm2;
 use crate::auth::authn::{LockoutTracker, TokenVerifier, UserKeyProvider};
@@ -103,13 +103,18 @@ impl TokenVerifier for BearerTokenVerifier {
                 }
             })?;
 
-        // Step 5 — Branch: SM2 goes through OpenSSL; ES512 through josekit; everything else
-        // through jsonwebtoken. SM2 and ES512 are library-unsupported (or josekit-specific) and
-        // bypass the jsonwebtoken DecodingKey path.
+        // RSA-PSS public keys use OpenSSL to preserve key restrictions; ordinary RSA uses jsonwebtoken.
+        let rsa_pss_key = matches!(header.alg.as_str(), "PS256" | "PS384" | "PS512")
+            && matches!(
+                PKey::public_key_from_pem(public_key_pem.as_bytes()).map(|key| key.id()),
+                Ok(Id::RSA_PSS)
+            );
         let result = if is_sm2(&header.alg) {
             self.verify_sm2(token, &sub, &public_key_pem).await
         } else if is_es512(&header.alg) {
             self.verify_es512(token, &sub, &public_key_pem).await
+        } else if rsa_pss_key {
+            self.verify_rsa_pss(token, &sub, &header.alg, &public_key_pem).await
         } else {
             self.verify_jsonwebtoken(token, &sub, &header.alg, &public_key_pem)
                 .await
@@ -147,18 +152,71 @@ impl BearerTokenVerifier {
                 }
             })?;
 
+        self.verify_josekit(token, sub, "ES512", &verifier)
+    }
+
+    /// Verify using the original RSA-PSS key, including its parameter restrictions.
+    async fn verify_rsa_pss(
+        &self,
+        token: &str,
+        sub: &str,
+        alg: &str,
+        public_key_pem: &str,
+    ) -> Result<BearerContext, AuthError> {
+        use openssl::{
+            hash::MessageDigest,
+            rsa::Padding,
+            sign::{RsaPssSaltlen, Verifier},
+        };
+        let invalid = || AuthError::TokenInvalid { reason: "invalid token".to_string() };
+        let digest = match alg {
+            "PS256" => MessageDigest::sha256(),
+            "PS384" => MessageDigest::sha384(),
+            "PS512" => MessageDigest::sha512(),
+            _ => return Err(invalid()),
+        };
+        let (input, signature) = token.rsplit_once('.').ok_or_else(invalid)?;
+        let decoder = &base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        let signature = decoder.decode(signature).map_err(|_| invalid())?;
+        let key = PKey::public_key_from_pem(public_key_pem.as_bytes()).map_err(|_| invalid())?;
+        validate_rsa_key_size(&key)?;
+        let verified = (|| -> Result<bool, openssl::error::ErrorStack> {
+            let mut verifier = Verifier::new(digest, &key)?;
+            verifier.set_rsa_padding(Padding::PKCS1_PSS)?;
+            verifier.set_rsa_mgf1_md(digest)?;
+            verifier.set_rsa_pss_saltlen(RsaPssSaltlen::DIGEST_LENGTH)?;
+            verifier.verify_oneshot(&signature, input.as_bytes())
+        })()
+        .map_err(|_| invalid())?;
+        if !verified {
+            return Err(invalid());
+        }
+        let (_, payload) = input.split_once('.').ok_or_else(invalid)?;
+        let payload = decoder.decode(payload).map_err(|_| invalid())?;
+        let map: serde_json::Map<String, Value> = serde_json::from_slice(&payload).map_err(|_| invalid())?;
+        let payload = jwt::JwtPayload::from_map(map).map_err(|_| invalid())?;
+        self.validate_josekit_payload(sub, alg, payload)
+    }
+
+    fn verify_josekit(
+        &self,
+        token: &str,
+        sub: &str,
+        alg: &str,
+        verifier: &dyn JwsVerifier,
+    ) -> Result<BearerContext, AuthError> {
         let (payload, _header) =
-            jwt::decode_with_verifier(token, &verifier).map_err(|e| {
+            jwt::decode_with_verifier(token, verifier).map_err(|e| {
                 use josekit::JoseError;
                 match &e {
                     JoseError::InvalidSignature(_) => {
-                        warn!("BearerToken ES512 signature verification failed");
+                        warn!("BearerToken {} signature verification failed", alg);
                         AuthError::TokenInvalid {
                             reason: "invalid token".to_string(),
                         }
                     }
                     _ => {
-                        warn!("BearerToken ES512 verification failed: {}", e);
+                        warn!("BearerToken {} verification failed: {}", alg, e);
                         AuthError::TokenInvalid {
                             reason: "invalid token".to_string(),
                         }
@@ -166,9 +224,19 @@ impl BearerTokenVerifier {
                 }
             })?;
 
+        self.validate_josekit_payload(sub, alg, payload)
+    }
+
+    fn validate_josekit_payload(
+        &self,
+        sub: &str,
+        alg: &str,
+        payload: jwt::JwtPayload,
+    ) -> Result<BearerContext, AuthError> {
         // Validate exp explicitly (see `validate_josekit_exp`), then the remaining
         // claims (iss, aud, nbf, iat) with the same pinned clock read.
         let now = validate_josekit_exp("BearerToken", &payload)?;
+        validate_josekit_audience(&payload, Some(&self.config.audience))?;
 
         let mut validator = JwtPayloadValidator::new();
         validator.set_base_time(now);
@@ -179,13 +247,13 @@ impl BearerTokenVerifier {
             use josekit::JoseError;
             match &e {
                 JoseError::InvalidSignature(_) => {
-                    warn!("BearerToken ES512 claim validation: invalid signature");
+                    warn!("BearerToken {} claim validation: invalid signature", alg);
                     AuthError::TokenInvalid {
                         reason: "invalid token".to_string(),
                     }
                 }
                 _ => {
-                    warn!("BearerToken ES512 claim validation failed: {}", e);
+                    warn!("BearerToken {} claim validation failed: {}", alg, e);
                     AuthError::TokenInvalid {
                         reason: "invalid token".to_string(),
                     }
@@ -316,7 +384,7 @@ impl BearerTokenVerifier {
         })?;
 
         let mut validation = Validation::new(jws_alg);
-        validation.set_required_spec_claims(&["exp", "iss", "sub"]);
+        validation.set_required_spec_claims(&["exp", "iss", "sub", "aud"]);
         validation.set_issuer(&[&self.config.issuer]);
         validation.set_audience(&[&self.config.audience]);
 
@@ -393,7 +461,9 @@ fn extract_sub_from_payload(token: &str) -> Result<String, AuthError> {
 mod tests {
     use super::*;
     use crate::auth::authn::common::SUPPORTED_ALGORITHMS;
-    use josekit::jws::{JwsHeader, ES512};
+    use josekit::jwk::KeyPair;
+    use josekit::jws::alg::rsassa_pss::RsassaPssJwsAlgorithm;
+    use josekit::jws::{JwsHeader, ES512, PS256, PS384, PS512};
     use josekit::jwt::{self, JwtPayload};
     use openssl::ec::{EcGroup, EcKey};
     use openssl::nid::Nid;
@@ -654,6 +724,111 @@ mod tests {
         assert!(!tracker.has_entry("testuser"),
             "successful verify() should clear lockout counter via record_success");
         assert!(!tracker.is_locked("testuser"));
+    }
+
+    async fn assert_rsa_pss_bearer_token(alg: RsassaPssJwsAlgorithm) {
+        let key_pair = alg.generate_key_pair(2048).expect("generate RSA-PSS key pair");
+        let private_pem = key_pair.to_pem_private_key();
+        let public_pem = String::from_utf8(key_pair.to_pem_public_key()).expect("RSA-PSS public key PEM");
+
+        let mut payload = JwtPayload::new();
+        payload.set_issuer("rbs-cli");
+        payload.set_subject("pss-user");
+        payload.set_claim("role", Some(serde_json::json!("operator"))).unwrap();
+        payload.set_audience(vec!["globaltrustauthority-rbs"]);
+        payload.set_expires_at(&(SystemTime::now() + Duration::from_secs(3600)));
+
+        let mut header = JwsHeader::new();
+        header.set_token_type("JWT");
+        header.set_algorithm(alg.to_string());
+        let signer = alg.signer_from_pem(&private_pem).expect("create RSA-PSS signer");
+        let token = jwt::encode_with_signer(&payload, &header, &signer).expect("sign RSA-PSS JWT");
+
+        let config = BearerTokenVerificationConfig {
+            issuer: "rbs-cli".to_string(),
+            audience: "globaltrustauthority-rbs".to_string(),
+        };
+        let verifier = BearerTokenVerifier::new(
+            config,
+            Arc::new(StubKeyProvider(public_pem)),
+            Arc::new(LockoutTracker::new()),
+        );
+
+        let context = verifier.verify(&token).await.expect("RBS should verify a josekit RSA-PSS JWT");
+        assert_eq!(context.sub, "pss-user");
+        assert_eq!(context.role, "operator");
+    }
+
+    #[tokio::test]
+    async fn test_verify_rsa_pss_bearer_tokens_signed_by_josekit() {
+        for alg in [PS256, PS384, PS512] {
+            assert_rsa_pss_bearer_token(alg).await;
+        }
+    }
+
+    fn sign_openssl_pss_test_token(
+        key: &PKey<openssl::pkey::Private>,
+        alg: &str,
+        digest: openssl::hash::MessageDigest,
+        expired: bool,
+    ) -> String {
+        let now = SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        let encode = &base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        let header = serde_json::json!({"alg": alg, "typ": "JWT"});
+        let payload = serde_json::json!({"iss": "rbs-cli", "sub": "pss-user", "aud": "globaltrustauthority-rbs", "role": "operator", "exp": if expired { now - 60 } else { now + 3600 }});
+        let input = format!("{}.{}", encode.encode(header.to_string()), encode.encode(payload.to_string()));
+        let mut signer = openssl::sign::Signer::new(digest, key).unwrap();
+        signer.set_rsa_padding(openssl::rsa::Padding::PKCS1_PSS).unwrap();
+        signer.set_rsa_mgf1_md(digest).unwrap();
+        signer.set_rsa_pss_saltlen(openssl::sign::RsaPssSaltlen::DIGEST_LENGTH).unwrap();
+        let signature = signer.sign_oneshot_to_vec(input.as_bytes()).unwrap();
+        format!("{}.{}", input, encode.encode(signature))
+    }
+
+    #[tokio::test]
+    async fn test_unrestricted_rsa_pss_bearer_tokens() {
+        let mut ctx = openssl::pkey_ctx::PkeyCtx::new_id(Id::RSA_PSS).unwrap();
+        ctx.keygen_init().unwrap();
+        ctx.set_rsa_keygen_bits(2048).unwrap();
+        let key = ctx.keygen().unwrap();
+        let verifier = BearerTokenVerifier::new(
+            BearerTokenVerificationConfig { issuer: "rbs-cli".into(), audience: "globaltrustauthority-rbs".into() },
+            Arc::new(StubKeyProvider(String::from_utf8(key.public_key_to_pem().unwrap()).unwrap())),
+            Arc::new(LockoutTracker::new()),
+        );
+        for (alg, digest) in [
+            ("PS256", openssl::hash::MessageDigest::sha256()),
+            ("PS384", openssl::hash::MessageDigest::sha384()),
+            ("PS512", openssl::hash::MessageDigest::sha512()),
+        ] {
+            let token = sign_openssl_pss_test_token(&key, alg, digest, false);
+            let result = verifier.verify(&token).await.unwrap();
+            assert_eq!(result.role, "operator");
+            let expired = sign_openssl_pss_test_token(&key, alg, digest, true);
+            assert!(matches!(verifier.verify(&expired).await, Err(AuthError::TokenExpired)));
+        }
+        let token = sign_openssl_pss_test_token(&key, "PS256", openssl::hash::MessageDigest::sha256(), false);
+        let (input, sig) = token.rsplit_once('.').unwrap();
+        let codec = &base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        let mut sig = codec.decode(sig).unwrap();
+        sig[0] ^= 1;
+        assert!(verifier.verify(&format!("{}.{}", input, codec.encode(sig))).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_rsa_pss_bearer_rejects_incompatible_key_constraints() {
+        let pair = PS256.generate_key_pair(2048).unwrap();
+        let key = PKey::private_key_from_pem(&pair.to_pem_private_key()).unwrap();
+        // Strip restrictions only in the adversarial signer; the verifier retains them.
+        let der = key.rsa().unwrap().private_key_to_der().unwrap();
+        let key = PKey::from_rsa(openssl::rsa::Rsa::private_key_from_der(&der).unwrap()).unwrap();
+        let token = sign_openssl_pss_test_token(&key, "PS384", openssl::hash::MessageDigest::sha384(), false);
+        let verifier = BearerTokenVerifier::new(
+            BearerTokenVerificationConfig { issuer: "rbs-cli".into(), audience: "globaltrustauthority-rbs".into() },
+            Arc::new(StubKeyProvider(String::from_utf8(pair.to_pem_public_key()).unwrap())),
+            Arc::new(LockoutTracker::new()),
+        );
+        assert!(verifier.verify(&token).await.is_err());
     }
 
     /// Generate an EC P-521 key pair for ES512 tests.
@@ -970,6 +1145,88 @@ mod tests {
                 AuthError::TokenInvalid { .. } => {}
                 other => panic!("expected TokenInvalid, got: {:?}", other),
             }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_rsa_pss_rejects_invalid_jwt_boundaries() {
+        use openssl::{
+            hash::MessageDigest,
+            rsa::Padding,
+            sign::{RsaPssSaltlen, Signer},
+        };
+        for case in [
+            "normal",
+            "weak1024",
+            "crit",
+            "b64false",
+            "exp_huge",
+            "nbf_huge",
+            "iat_huge",
+            "missing_exp",
+            "missing_aud",
+            "missing_iss",
+            "bad_iss",
+            "bad_aud",
+            "wrong_salt",
+            "wrong_mgf",
+        ] {
+            let mut ctx = openssl::pkey_ctx::PkeyCtx::new_id(Id::RSA_PSS).unwrap();
+            ctx.keygen_init().unwrap();
+            ctx.set_rsa_keygen_bits(if case == "weak1024" { 1024 } else { 2048 }).unwrap();
+            let key = ctx.keygen().unwrap();
+            let now = SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+            let mut header = serde_json::json!({"alg":"PS256"});
+            let mut payload = serde_json::json!({"iss":"rbs-cli","sub":"audit-user","aud":"globaltrustauthority-rbs","exp":now+3600,"role":"user"});
+            match case {
+                "crit" => {
+                    header["crit"] = serde_json::json!(["must-understand"]);
+                    header["must-understand"] = serde_json::json!(true);
+                },
+                "b64false" => {
+                    header["crit"] = serde_json::json!(["b64"]);
+                    header["b64"] = serde_json::json!(false);
+                },
+                "exp_huge" => payload["exp"] = serde_json::json!(u64::MAX),
+                "nbf_huge" => payload["nbf"] = serde_json::json!(u64::MAX),
+                "iat_huge" => payload["iat"] = serde_json::json!(u64::MAX),
+                "missing_exp" => {
+                    payload.as_object_mut().unwrap().remove("exp");
+                },
+                "missing_aud" => {
+                    payload.as_object_mut().unwrap().remove("aud");
+                },
+                "missing_iss" => {
+                    payload.as_object_mut().unwrap().remove("iss");
+                },
+                "bad_iss" => payload["iss"] = serde_json::json!("wrong"),
+                "bad_aud" => payload["aud"] = serde_json::json!("wrong"),
+                _ => {},
+            }
+            let codec = &base64::engine::general_purpose::URL_SAFE_NO_PAD;
+            let input = format!("{}.{}", codec.encode(header.to_string()), codec.encode(payload.to_string()));
+            let mut signer = Signer::new(MessageDigest::sha256(), &key).unwrap();
+            signer.set_rsa_padding(Padding::PKCS1_PSS).unwrap();
+            signer
+                .set_rsa_mgf1_md(if case == "wrong_mgf" { MessageDigest::sha384() } else { MessageDigest::sha256() })
+                .unwrap();
+            signer
+                .set_rsa_pss_saltlen(if case == "wrong_salt" {
+                    RsaPssSaltlen::custom(0)
+                } else {
+                    RsaPssSaltlen::DIGEST_LENGTH
+                })
+                .unwrap();
+            let sig = signer.sign_oneshot_to_vec(input.as_bytes()).unwrap();
+            let token = format!("{}.{}", input, codec.encode(sig));
+            let verifier = BearerTokenVerifier::new(
+                BearerTokenVerificationConfig { issuer: "rbs-cli".into(), audience: "globaltrustauthority-rbs".into() },
+                Arc::new(StubKeyProvider(String::from_utf8(key.public_key_to_pem().unwrap()).unwrap())),
+                Arc::new(LockoutTracker::new()),
+            );
+            let outcome = tokio::spawn(async move { verifier.verify(&token).await }).await;
+            let result = outcome.expect("malformed JWT must not panic");
+            assert_eq!(result.is_ok(), case == "normal", "unexpected validation result for {case}");
         }
     }
 }

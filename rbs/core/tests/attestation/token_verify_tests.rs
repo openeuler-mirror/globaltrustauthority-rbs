@@ -211,3 +211,13 @@ async fn test_token_verify_051_missing_both_claims_returns_token_invalid() {
         AuthError::TokenInvalid { .. }
     ));
 }
+
+#[tokio::test]
+async fn configured_audience_requires_an_aud_claim() {
+    let (private, public) = generate_rsa_keypair();
+    let key_file = write_key_file(&public);
+    let verifier = make_verifier(key_file.path().to_str().unwrap());
+    let mut claims = valid_claims();
+    claims.as_object_mut().unwrap().remove("aud");
+    assert!(verifier.verify(&sign_jwt(&private, &claims)).await.is_err());
+}

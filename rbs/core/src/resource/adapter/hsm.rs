@@ -342,14 +342,15 @@ mod tests {
         assert!(result.unwrap_err().contains("invalid resource_type"));
     }
 
-    // Hardware-dependent tests (require SoftHSM2) — marked #[ignore]
-    // Run with: cargo test -p rbs-core --lib resource::adapter::hsm -- --ignored
+    // External-module tests use an isolated SoftHSM2 token.
+    // Run with: ./tests/run_softhsm.sh
 
     #[tokio::test]
     #[ignore = "requires SoftHSM2 and RBS_HSM_PIN_TEST env var"]
     async fn test_softhsm2_put_get_delete() {
         let cfg = HsmConfig {
-            module_path: "/usr/lib/softhsm/libsofthsm2.so".to_string(),
+            module_path: std::env::var("RBS_HSM_MODULE_TEST")
+                .unwrap_or_else(|_| "/usr/lib/softhsm/libsofthsm2.so".to_string()),
             slot: SlotConfig { label: "rbs_test".to_string() },
             credentials: CredentialsConfig { pin_env: "RBS_HSM_PIN_TEST".to_string() },
             allowed_resource_types: vec!["key".to_string(), "secret".to_string()],
@@ -398,7 +399,8 @@ mod tests {
     #[ignore = "requires SoftHSM2 and RBS_HSM_PIN_TEST env var"]
     async fn test_softhsm2_put_rejects_oversized_content() {
         let cfg = HsmConfig {
-            module_path: "/usr/lib/softhsm/libsofthsm2.so".to_string(),
+            module_path: std::env::var("RBS_HSM_MODULE_TEST")
+                .unwrap_or_else(|_| "/usr/lib/softhsm/libsofthsm2.so".to_string()),
             slot: SlotConfig { label: "rbs_test".to_string() },
             credentials: CredentialsConfig { pin_env: "RBS_HSM_PIN_TEST".to_string() },
             allowed_resource_types: vec!["key".to_string()],
@@ -415,7 +417,8 @@ mod tests {
     #[ignore = "requires SoftHSM2 and RBS_HSM_PIN_TEST env var"]
     fn test_debug_redacts_pin() {
         let cfg = HsmConfig {
-            module_path: "/usr/lib/softhsm/libsofthsm2.so".to_string(),
+            module_path: std::env::var("RBS_HSM_MODULE_TEST")
+                .unwrap_or_else(|_| "/usr/lib/softhsm/libsofthsm2.so".to_string()),
             slot: SlotConfig { label: "rbs_test".to_string() },
             credentials: CredentialsConfig {
                 pin_env: "TEST_HSM_PIN_DEBUG".to_string(),
