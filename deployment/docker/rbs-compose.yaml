@@ -27,7 +27,7 @@ configs:
         db_type: sqlite
         max_connections: 10
         timeout: 30
-        url: "sqlite:///var/lib/rbs/rbs.db"
+        url: "sqlite:///var/lib/rbs/rbs.db?mode=rwc"
         sql_file_path: "/etc/rbs/sqlite_rbs.sql"
 
 services:
