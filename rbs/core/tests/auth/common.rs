@@ -19,12 +19,11 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use rbs_api_types::config::{
-    AdminConfig, AdminKeyConfig, AttestationBackendConfig, AttestationBackendMode,
-    AttestationBuiltinConfig, AttestationConfig, AttestationCredentials, AttestationRestConfig,
-    AuthConfig, BearerTokenVerificationConfig, AttestTokenVerificationConfig, LoggingConfig,
-    PolicyLimitsConfig, RbsConfig, Sensitive,
+    AdminConfig, AdminKeyConfig, AttestTokenVerificationConfig, AttestationBackendConfig, AttestationBackendMode,
+    AttestationBuiltinConfig, AttestationConfig, AttestationCredentials, AttestationRestConfig, AuthConfig,
+    BearerTokenVerificationConfig, LoggingConfig, PolicyLimitsConfig, RbsConfig, Sensitive,
 };
-use rbs_core::auth::{BearerTokenVerifier, LockoutTracker, UserKeyProvider};
+use rbs_core::auth::{BearerTokenVerifier, LockoutTracker, UserAuthInfo, UserAuthProvider};
 use rbs_core::AuthError;
 
 // ---------------------------------------------------------------------------
@@ -40,34 +39,37 @@ pub(crate) fn generate_rsa_keypair() -> (String, String) {
 }
 
 // ---------------------------------------------------------------------------
-// Stub UserKeyProvider
+// Stub UserAuthProvider
 // ---------------------------------------------------------------------------
 
 #[derive(Debug)]
-pub(crate) struct StubKeyProvider(pub String);
+pub(crate) struct StubAuthProvider {
+    pub public_key: String,
+    pub role: String,
+}
 
 #[async_trait]
-impl UserKeyProvider for StubKeyProvider {
-    async fn get_public_key(&self, _sub: &str) -> Result<String, AuthError> {
-        Ok(self.0.clone())
+impl UserAuthProvider for StubAuthProvider {
+    async fn get_user_auth(&self, _sub: &str) -> Result<UserAuthInfo, AuthError> {
+        Ok(UserAuthInfo { public_key: self.public_key.clone(), role: self.role.clone() })
     }
 }
 
 /// Key provider that returns errors for subs in `nonexistent_subs`,
 /// and a valid PEM for all other subs.
 #[derive(Debug)]
-pub(crate) struct SelectiveStubKeyProvider {
+pub(crate) struct SelectiveStubAuthProvider {
     pub pem: String,
     pub nonexistent_subs: Vec<String>,
 }
 
 #[async_trait]
-impl UserKeyProvider for SelectiveStubKeyProvider {
-    async fn get_public_key(&self, sub: &str) -> Result<String, AuthError> {
+impl UserAuthProvider for SelectiveStubAuthProvider {
+    async fn get_user_auth(&self, sub: &str) -> Result<UserAuthInfo, AuthError> {
         if self.nonexistent_subs.contains(&sub.to_string()) {
             Err(AuthError::TokenInvalid { reason: "user not found".to_string() })
         } else {
-            Ok(self.pem.clone())
+            Ok(UserAuthInfo { public_key: self.pem.clone(), role: "user".to_string() })
         }
     }
 }
@@ -82,12 +84,20 @@ pub(crate) fn make_bearer_verifier(
     audience: &str,
     tracker: Arc<LockoutTracker>,
 ) -> BearerTokenVerifier {
-    let config = BearerTokenVerificationConfig {
-        issuer: issuer.to_string(),
-        audience: audience.to_string(),
-    };
-    let key_provider: Arc<dyn UserKeyProvider> = Arc::new(StubKeyProvider(pub_pem.to_string()));
-    BearerTokenVerifier::new(config, key_provider, tracker)
+    make_bearer_verifier_with_role(pub_pem, issuer, audience, "user", tracker)
+}
+
+pub(crate) fn make_bearer_verifier_with_role(
+    pub_pem: &str,
+    issuer: &str,
+    audience: &str,
+    role: &str,
+    tracker: Arc<LockoutTracker>,
+) -> BearerTokenVerifier {
+    let config = BearerTokenVerificationConfig { issuer: issuer.to_string(), audience: audience.to_string() };
+    let auth_provider: Arc<dyn UserAuthProvider> =
+        Arc::new(StubAuthProvider { public_key: pub_pem.to_string(), role: role.to_string() });
+    BearerTokenVerifier::new(config, auth_provider, tracker)
 }
 
 // ---------------------------------------------------------------------------
@@ -130,10 +140,7 @@ pub(crate) fn sign_es512_jwt(priv_pem: &str, claims: Value) -> String {
 }
 
 pub(crate) fn now_secs() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
 }
 
 // ---------------------------------------------------------------------------
@@ -194,10 +201,7 @@ pub(crate) fn make_valid_rbs_config() -> RbsConfig {
         rest: None,
         logging: LoggingConfig::default(),
         storage: None,
-        attestation: AttestationConfig {
-            default_as_provider: "gta".to_string(),
-            backends,
-        },
+        attestation: AttestationConfig { default_as_provider: "gta".to_string(), backends },
         auth: AuthConfig {
             attest_token: AttestTokenVerificationConfig {
                 public_key_path: Some("/tmp/dummy_attest.pem".to_string()),
@@ -212,10 +216,7 @@ pub(crate) fn make_valid_rbs_config() -> RbsConfig {
         },
         admin: AdminConfig {
             max_users: 10,
-            admin_key: AdminKeyConfig {
-                public_key_path: Some("/tmp/dummy_admin.pem".to_string()),
-                jwks_file: None,
-            },
+            admin_key: AdminKeyConfig { public_key_path: Some("/tmp/dummy_admin.pem".to_string()), jwks_file: None },
         },
         policy: PolicyLimitsConfig::default(),
         resource: None,

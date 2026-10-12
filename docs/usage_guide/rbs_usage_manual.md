@@ -288,10 +288,12 @@ all commands pass `-b http://127.0.0.1:6666`.
 # Sign with the admin private key from section 4 (use an absolute path if you changed directory)
 # The unset clears a stale empty value: an empty BEARER_TOKEN makes rbs-cli fail with "value is empty"
 unset BEARER_TOKEN
-export BEARER_TOKEN="$(rbs-cli token gen --private-key-file admin_private.pem --role admin)"
+export BEARER_TOKEN="$(rbs-cli token gen --private-key-file admin_private.pem)"
 ```
 
-> The token expires after 1 hour by default — just run it again. Other options: `rbs-cli token gen --help`.
+> The token expires after 1 hour by default — just run it again. RBS loads the
+> user's current role from the database and ignores any JWT `role` custom claim.
+> Other options: `rbs-cli token gen --help`.
 
 ### 5.2 Create and query users
 

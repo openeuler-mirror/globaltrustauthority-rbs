@@ -13,7 +13,7 @@
 //! Validation tests for user request types and admin authorization.
 
 use rbs_api_types::error::RbsError;
-use rbs_api_types::{AuthType, Role, UserCreateRequest, UserListQuery, UserUpdateRequest, validate_username};
+use rbs_api_types::{validate_username, AuthType, Role, UserCreateRequest, UserListQuery, UserUpdateRequest};
 use serde_json::json;
 use validator::Validate;
 
@@ -168,13 +168,8 @@ fn test_user_create_002_both_keys_rejected() {
 /// (see commit c8fce1f — `validate_update_role` was removed).
 #[test]
 fn test_user_update_002_role_admin_rejected() {
-    let req = UserUpdateRequest {
-        role: Some(Role::Admin),
-        enabled: None,
-        auth_type: None,
-        public_key: None,
-        jwk: None,
-    };
+    let req =
+        UserUpdateRequest { role: Some(Role::Admin), enabled: None, auth_type: None, public_key: None, jwk: None };
     assert!(Validate::validate(&req).is_ok());
 }
 
@@ -201,13 +196,7 @@ fn test_user_update_003_both_keys_rejected() {
 /// Empty update body (no fields) → validate_cross_fields rejects.
 #[test]
 fn test_user_update_003_empty_body_rejected() {
-    let req = UserUpdateRequest {
-        role: None,
-        enabled: None,
-        auth_type: None,
-        public_key: None,
-        jwk: None,
-    };
+    let req = UserUpdateRequest { role: None, enabled: None, auth_type: None, public_key: None, jwk: None };
     let err = req.validate_cross_fields().unwrap_err();
     assert!(matches!(err, RbsError::InvalidParameter(msg) if msg.contains("At least one")));
 }
@@ -258,13 +247,8 @@ fn test_user_sec_001_create_role_admin_rejected() {
 /// (see commit c8fce1f — `validate_update_role` was removed).
 #[test]
 fn test_user_sec_001_update_role_admin_rejected() {
-    let req = UserUpdateRequest {
-        role: Some(Role::Admin),
-        enabled: None,
-        auth_type: None,
-        public_key: None,
-        jwk: None,
-    };
+    let req =
+        UserUpdateRequest { role: Some(Role::Admin), enabled: None, auth_type: None, public_key: None, jwk: None };
     assert!(Validate::validate(&req).is_ok());
 }
 
@@ -310,8 +294,11 @@ async fn test_user_auth_001_user_role_list_denied() {
     let mgr = make_manager(10);
     mgr.bootstrap_admin().await.ok();
     let ctx = AuthContext::Bearer(BearerContext {
-        iss: "test".into(), sub: "nonexistent".into(), role: "user".into(),
-        claims: json!({}), token_type: TokenType::Bearer,
+        iss: "test".into(),
+        sub: "nonexistent".into(),
+        role: "user".into(),
+        claims: json!({}),
+        token_type: TokenType::Bearer,
     });
     let query = UserListQuery { limit: None, offset: None, role: None, enabled: None };
     let result = mgr.list_users(&query, &ctx).await;
@@ -326,9 +313,7 @@ async fn test_user_auth_001_attest_token_rejected() {
     ensure_db().await;
     let mgr = make_manager(10);
     mgr.bootstrap_admin().await.ok();
-    let ctx = AuthContext::Attest(AttestContext {
-        claims: json!({}), token_type: TokenType::Attest,
-    });
+    let ctx = AuthContext::Attest(AttestContext { claims: json!({}), token_type: TokenType::Attest });
     let query = UserListQuery { limit: None, offset: None, role: None, enabled: None };
     let result = mgr.list_users(&query, &ctx).await;
     assert!(result.is_err(), "Attest token should be rejected for user management");
@@ -347,8 +332,11 @@ async fn test_user_list_003_non_admin_denied() {
     let mgr = make_manager(10);
     mgr.bootstrap_admin().await.ok();
     let ctx = AuthContext::Bearer(BearerContext {
-        iss: "test".into(), sub: "regularuser".into(), role: "user".into(),
-        claims: json!({}), token_type: TokenType::Bearer,
+        iss: "test".into(),
+        sub: "regularuser".into(),
+        role: "user".into(),
+        claims: json!({}),
+        token_type: TokenType::Bearer,
     });
     let query = UserListQuery { limit: None, offset: None, role: None, enabled: None };
     let result = mgr.list_users(&query, &ctx).await;
@@ -356,18 +344,18 @@ async fn test_user_list_003_non_admin_denied() {
 }
 
 // ===========================================================================
-// RUST_GTA_RBS_TP_USER_KeyProvider_001 — UserKeyProvider-正常与异常
+// RUST_GTA_RBS_TP_USER_AuthProvider_001 — UserAuthProvider-正常与异常
 // ===========================================================================
 
-/// test_point_id: RUST_GTA_RBS_TP_USER_KeyProvider_001
-/// get_public_key for non-existent user returns AuthError::TokenInvalid.
+/// test_point_id: RUST_GTA_RBS_TP_USER_AuthProvider_001
+/// get_user_auth for non-existent user returns AuthError::TokenInvalid.
 #[tokio::test]
-async fn test_user_key_provider_001_nonexistent_user() {
-    use rbs_core::auth::UserKeyProvider;
+async fn test_user_auth_provider_001_nonexistent_user() {
+    use rbs_core::auth::UserAuthProvider;
     ensure_db().await;
     let mgr = make_manager(10);
     mgr.bootstrap_admin().await.ok();
-    let result = mgr.get_public_key("ghost_user").await;
+    let result = mgr.get_user_auth("ghost_user").await;
     assert!(result.is_err());
     assert!(matches!(result, Err(rbs_core::AuthError::TokenInvalid { .. })));
 }

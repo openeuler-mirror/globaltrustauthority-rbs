@@ -16,18 +16,18 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use actix_web::{web, App, HttpServer, middleware::Logger};
+use actix_web::{middleware::Logger, web, App, HttpServer};
 use anyhow::{bail, Context};
 use openssl::ssl::{SslAcceptor, SslAcceptorBuilder, SslFiletype, SslMethod};
 use rbs_api_types::config::{AuthConfig, RestConfig};
-use rbs_core::auth::{Auth, LockoutTracker, UserKeyProvider};
+use rbs_core::auth::{Auth, LockoutTracker, UserAuthProvider};
 use rbs_core::{auth::Authenticator, RbsCore};
 use socket2::{Domain, Socket, Type};
 
 #[cfg(feature = "per-ip-rate-limit")]
 use super::rate_limit;
-use crate::routes::{config as routes_config, not_found, version};
 use crate::routes::error::{json_error_handler, query_error_handler};
+use crate::routes::{config as routes_config, not_found, version};
 use actix_web::middleware::from_fn;
 use rbs_api_types::ErrorBody;
 
@@ -63,7 +63,7 @@ pub struct Server {
     core: Arc<RbsCore>,
     rest_config: RestConfig,
     auth_config: AuthConfig,
-    key_provider: Arc<dyn UserKeyProvider>,
+    auth_provider: Arc<dyn UserAuthProvider>,
     lockout_tracker: Arc<LockoutTracker>,
 }
 
@@ -73,10 +73,10 @@ impl Server {
         core: Arc<RbsCore>,
         rest_config: RestConfig,
         auth_config: AuthConfig,
-        key_provider: Arc<dyn UserKeyProvider>,
+        auth_provider: Arc<dyn UserAuthProvider>,
         lockout_tracker: Arc<LockoutTracker>,
     ) -> Self {
-        Self { core, rest_config, auth_config, key_provider, lockout_tracker }
+        Self { core, rest_config, auth_config, auth_provider, lockout_tracker }
     }
 
     /// Binds to the configured listen address with the configured backlog; then call `.run().await?`.
@@ -111,7 +111,14 @@ impl Server {
         socket.set_nonblocking(true).with_context(|| "set nonblocking")?;
         let std_listener: std::net::TcpListener = socket.into();
 
-        Ok(BoundServer { std_listener, core: self.core, rest_config: self.rest_config, auth_config: self.auth_config, key_provider: self.key_provider, lockout_tracker: self.lockout_tracker })
+        Ok(BoundServer {
+            std_listener,
+            core: self.core,
+            rest_config: self.rest_config,
+            auth_config: self.auth_config,
+            auth_provider: self.auth_provider,
+            lockout_tracker: self.lockout_tracker,
+        })
     }
 }
 
@@ -122,7 +129,7 @@ pub struct BoundServer {
     core: Arc<RbsCore>,
     rest_config: RestConfig,
     auth_config: AuthConfig,
-    key_provider: Arc<dyn UserKeyProvider>,
+    auth_provider: Arc<dyn UserAuthProvider>,
     lockout_tracker: Arc<LockoutTracker>,
 }
 
@@ -148,7 +155,7 @@ impl BoundServer {
         let core = self.core;
         let std_listener = self.std_listener;
         let auth_config = self.auth_config;
-        let key_provider = self.key_provider;
+        let auth_provider = self.auth_provider;
         let lockout_tracker = self.lockout_tracker;
 
         #[cfg(feature = "per-ip-rate-limit")]
@@ -191,7 +198,7 @@ impl BoundServer {
 
         let app_factory = move || {
             // Create Authenticator for this worker
-            let authenticator = Authenticator::new(auth_config.clone(), key_provider.clone(), lockout_tracker.clone())
+            let authenticator = Authenticator::new(auth_config.clone(), auth_provider.clone(), lockout_tracker.clone())
                 .expect("failed to initialize authenticator: invalid auth configuration");
             let auth: Arc<dyn Auth> = Arc::new(authenticator);
 
@@ -200,26 +207,16 @@ impl BoundServer {
                 .app_data(web::Data::new(auth))
                 .app_data(web::PayloadConfig::new(body_limit))
                 .app_data(web::Data::new(max_uri_len as usize))
-                .app_data(
-                    web::JsonConfig::default()
-                        .limit(body_limit)
-                        .error_handler(json_error_handler)
-                )
-                .app_data(
-                    web::QueryConfig::default()
-                        .error_handler(query_error_handler)
-                )
+                .app_data(web::JsonConfig::default().limit(body_limit).error_handler(json_error_handler))
+                .app_data(web::QueryConfig::default().error_handler(query_error_handler))
                 .wrap(Logger::default())
                 .wrap(from_fn(uri_length_guard_middleware))
                 .wrap(from_fn(crate::middleware::auth_middleware));
             #[cfg(feature = "per-ip-rate-limit")]
             let app = {
                 let app = app.app_data(web::Data::new(trusted_proxy_set.clone()));
-                let app = if let Some(ref lim) = limiter_opt {
-                    app.app_data(web::Data::new(Arc::clone(lim)))
-                } else {
-                    app
-                };
+                let app =
+                    if let Some(ref lim) = limiter_opt { app.app_data(web::Data::new(Arc::clone(lim))) } else { app };
                 app.wrap(from_fn(rate_limit::per_ip_rate_limit_middleware))
             };
             app.service(
@@ -261,9 +258,8 @@ where
     let max = req.app_data::<web::Data<usize>>().map_or(DEFAULT_MAX_URI_LEN, |d| *d.as_ref());
     let total = req.path().len() + req.query_string().len();
     if total > max {
-        let res = req.into_response(actix_web::HttpResponse::UriTooLong().json(ErrorBody {
-            error: "URI Too Long".to_string(),
-        }));
+        let res = req
+            .into_response(actix_web::HttpResponse::UriTooLong().json(ErrorBody { error: "URI Too Long".to_string() }));
         return Ok(res.map_body(|_, b| actix_web::body::BoxBody::new(b)));
     }
     let res = next.call(req).await?;

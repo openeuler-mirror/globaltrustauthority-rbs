@@ -14,8 +14,8 @@
 
 use actix_web::{test, web, App, HttpResponse};
 use rbs_api_types::config::{AuthConfig, RestConfig};
-use rbs_core::RbsCore;
 use rbs_core::auth::LockoutTracker;
+use rbs_core::RbsCore;
 use rbs_rest::server::{http::uri_length_guard_middleware, Server};
 use serde_json::Value;
 use std::sync::Arc;
@@ -38,16 +38,16 @@ async fn uri_length_guard_returns_414_json_error_body() {
     assert_eq!(v.get("error").and_then(|x| x.as_str()), Some("URI Too Long"));
 }
 
-fn stub_key_provider() -> Arc<dyn rbs_core::auth::UserKeyProvider> {
+fn stub_auth_provider() -> Arc<dyn rbs_core::auth::UserAuthProvider> {
     use async_trait::async_trait;
-    use rbs_core::auth::{AuthError, UserKeyProvider};
+    use rbs_core::auth::{AuthError, UserAuthInfo, UserAuthProvider};
 
     #[derive(Debug, Clone, Default)]
     struct Stub;
 
     #[async_trait]
-    impl UserKeyProvider for Stub {
-        async fn get_public_key(&self, _sub: &str) -> Result<String, AuthError> {
+    impl UserAuthProvider for Stub {
+        async fn get_user_auth(&self, _sub: &str) -> Result<UserAuthInfo, AuthError> {
             Err(AuthError::TokenInvalid { reason: "stub".to_string() })
         }
     }
@@ -62,7 +62,8 @@ async fn bind_fails_when_https_enabled_but_cert_file_empty() {
     rest.https.cert_file = String::new();
     rest.https.key_file = rbs_api_types::config::Sensitive::new("/dev/null".to_string());
     let lockout_tracker = LockoutTracker::new_shared();
-    let server = Server::new(Arc::new(RbsCore::default()), rest, AuthConfig::default(), stub_key_provider(), lockout_tracker);
+    let server =
+        Server::new(Arc::new(RbsCore::default()), rest, AuthConfig::default(), stub_auth_provider(), lockout_tracker);
     let result = server.bind().await;
     assert!(result.is_err());
     let err_msg = result.unwrap_err().to_string();
@@ -80,7 +81,8 @@ async fn bind_fails_when_https_enabled_but_key_file_empty() {
     rest.https.cert_file = "/dev/null".to_string();
     rest.https.key_file = rbs_api_types::config::Sensitive::new(String::new());
     let lockout_tracker = LockoutTracker::new_shared();
-    let server = Server::new(Arc::new(RbsCore::default()), rest, AuthConfig::default(), stub_key_provider(), lockout_tracker);
+    let server =
+        Server::new(Arc::new(RbsCore::default()), rest, AuthConfig::default(), stub_auth_provider(), lockout_tracker);
     let result = server.bind().await;
     assert!(result.is_err());
     let err_msg = result.unwrap_err().to_string();

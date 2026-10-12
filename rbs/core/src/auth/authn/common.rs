@@ -42,6 +42,8 @@ struct RawHeaderJson {
     alg: String,
     #[serde(default)]
     kid: Option<String>,
+    #[serde(flatten)]
+    extensions: serde_json::Map<String, serde_json::Value>,
 }
 
 /// Decode the JWT header without verifying the signature.
@@ -64,6 +66,15 @@ pub fn decode_token_header(token: &str) -> Result<RawHeader, AuthError> {
             reason: format!("failed to parse token header: {}", e),
         }
     })?;
+
+    // No critical JWS extensions or unencoded payloads are supported.
+    if header.extensions.contains_key("crit")
+        || header.extensions.get("b64").is_some_and(|value| value != &serde_json::Value::Bool(true))
+    {
+        return Err(AuthError::TokenInvalid {
+            reason: "unsupported critical header or payload encoding".to_string(),
+        });
+    }
 
     Ok(RawHeader {
         alg: header.alg,
@@ -128,7 +139,11 @@ pub fn create_decoding_key(alg: &str, pem: &[u8]) -> Result<DecodingKey, AuthErr
             })
         }
         _ => {
-            // RSA-PSS algorithms use RSA keys
+            // RSA-PSS algorithms require RSA keys of at least 2048 bits.
+            let key = openssl::pkey::PKey::public_key_from_pem(pem).map_err(|_| AuthError::TokenInvalid {
+                reason: "invalid RSA public key".to_string(),
+            })?;
+            validate_rsa_key_size(&key)?;
             DecodingKey::from_rsa_pem(pem).map_err(|e| AuthError::TokenInvalid {
                 reason: format!("failed to create RSA decoding key: {}", e),
             })
@@ -187,13 +202,54 @@ pub fn validate_jwt_claims(
     Ok(())
 }
 
-/// Explicitly validate `exp` on a josekit-decoded JWT payload (ES512 paths).
+/// Reject weak RSA keys before any JWT signature operation.
+pub(crate) fn validate_rsa_key_size<T: openssl::pkey::HasPublic>(
+    key: &openssl::pkey::PKeyRef<T>,
+) -> Result<(), AuthError> {
+    if matches!(key.id(), openssl::pkey::Id::RSA | openssl::pkey::Id::RSA_PSS) && key.bits() < 2048 {
+        return Err(AuthError::TokenInvalid { reason: "RSA JWT keys must be at least 2048 bits".to_string() });
+    }
+    Ok(())
+}
+
+/// Validate NumericDate bounds before josekit performs unchecked time conversions.
+/// The upper bound is 9999-12-31T23:59:59Z, also safe for its diagnostic formatter.
+fn validate_josekit_dates(payload: &josekit::jwt::JwtPayload) -> Result<(), AuthError> {
+    for name in ["exp", "nbf", "iat"] {
+        if let Some(value) = payload.claim(name) {
+            let valid = value
+                .as_f64()
+                .is_some_and(|seconds| seconds.is_finite() && (0.0..=253_402_300_799.0).contains(&seconds));
+            if !valid {
+                return Err(AuthError::TokenInvalid {
+                    reason: format!("{name} is outside the supported NumericDate range"),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Require an audience match when one is configured; josekit permits a missing aud.
+pub(crate) fn validate_josekit_audience(
+    payload: &josekit::jwt::JwtPayload,
+    expected: Option<&str>,
+) -> Result<(), AuthError> {
+    if let Some(expected) = expected {
+        if !payload.audience().is_some_and(|values| values.contains(&expected)) {
+            return Err(AuthError::TokenInvalid { reason: "missing or invalid aud claim".to_string() });
+        }
+    }
+    Ok(())
+}
+
+/// Explicitly validate date bounds and required `exp` for josekit payloads.
 ///
 /// josekit's `JwtPayloadValidator` only checks `exp` when the claim is present
 /// and reports expiry as a generic `InvalidClaim`, so presence and expiry are
 /// handled here — matching the jsonwebtoken paths' required-claims behavior —
 /// before iss/aud/nbf are delegated to the validator. The shared
-/// implementation keeps the Bearer and Attest ES512 paths from drifting apart.
+/// implementation protects Bearer RSA-PSS and both ES512 paths.
 ///
 /// Returns the pinned `now` used for the expiry comparison so the caller can
 /// pass the same clock read to `JwtPayloadValidator::set_base_time` (every
@@ -202,16 +258,17 @@ pub fn validate_josekit_exp(
     label: &str,
     payload: &josekit::jwt::JwtPayload,
 ) -> Result<std::time::SystemTime, AuthError> {
+    validate_josekit_dates(payload)?;
     let now = std::time::SystemTime::now();
     match payload.expires_at() {
         None => {
-            log::warn!("{} ES512 rejected: missing exp claim", label);
+            log::warn!("{} rejected: missing exp claim", label);
             Err(AuthError::TokenInvalid {
                 reason: "missing exp claim".to_string(),
             })
         }
         Some(exp) if exp <= now => {
-            log::warn!("{} ES512 rejected: token expired", label);
+            log::warn!("{} rejected: token expired", label);
             Err(AuthError::TokenExpired)
         }
         _ => Ok(now),
@@ -368,5 +425,56 @@ mod tests {
     fn test_decode_token_header_malformed() {
         assert!(decode_token_header("not.a.token").is_err());
         assert!(decode_token_header("").is_err());
+    }
+
+    #[test]
+    fn test_reject_unsupported_jws_header_extensions() {
+        for extra in [
+            serde_json::json!({"crit": ["unknown"], "unknown": true}),
+            serde_json::json!({"crit": []}),
+            serde_json::json!({"crit": null}),
+            serde_json::json!({"b64": false}),
+            serde_json::json!({"b64": "true"}),
+            serde_json::json!({"b64": null}),
+        ] {
+            let mut header = serde_json::json!({"alg": "PS256"});
+            header.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            let token =
+                format!("{}.e30.sig", base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(header.to_string()));
+            assert!(decode_token_header(&token).is_err(), "{header}");
+        }
+        let header = r#"{"alg":"PS256","b64":true,"custom":"ignored"}"#;
+        let token = format!("{}.e30.sig", base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(header));
+        assert!(decode_token_header(&token).is_ok());
+    }
+
+    #[test]
+    fn test_josekit_numeric_dates_are_bounded_before_conversion() {
+        for name in ["exp", "nbf", "iat"] {
+            for value in [serde_json::json!(u64::MAX), serde_json::json!(1e300), serde_json::json!(253_402_300_800u64)]
+            {
+                let mut payload = josekit::jwt::JwtPayload::new();
+                payload.set_expires_at(&(std::time::SystemTime::now() + std::time::Duration::from_secs(3600)));
+                payload.set_claim(name, Some(value)).unwrap();
+                assert!(matches!(validate_josekit_exp("test", &payload), Err(AuthError::TokenInvalid { .. })));
+            }
+        }
+        let mut payload = josekit::jwt::JwtPayload::new();
+        payload.set_claim("exp", Some(serde_json::json!(253_402_300_799u64))).unwrap();
+        payload.set_claim("iat", Some(serde_json::json!(1.5))).unwrap();
+        assert!(validate_josekit_exp("test", &payload).is_ok());
+    }
+
+    #[test]
+    fn test_josekit_audience_is_required_only_when_configured() {
+        let mut payload = josekit::jwt::JwtPayload::new();
+        assert!(validate_josekit_audience(&payload, None).is_ok());
+        assert!(validate_josekit_audience(&payload, Some("rbs")).is_err());
+        for value in [serde_json::json!("rbs"), serde_json::json!(["other", "rbs"])] {
+            payload.set_claim("aud", Some(value)).unwrap();
+            assert!(validate_josekit_audience(&payload, Some("rbs")).is_ok());
+        }
+        payload.set_claim("aud", Some(serde_json::json!([]))).unwrap();
+        assert!(validate_josekit_audience(&payload, Some("rbs")).is_err());
     }
 }

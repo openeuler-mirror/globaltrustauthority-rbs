@@ -13,25 +13,34 @@
 //! Authentication module.
 
 pub mod authenticator;
-pub mod common;
 pub mod bearer_token;
+pub mod common;
 pub mod lockout;
 pub mod sm2;
 pub mod token;
 
-use async_trait::async_trait;
 use crate::auth::error::AuthError;
+use async_trait::async_trait;
 
 pub use authenticator::{Auth, Authenticator};
 pub use bearer_token::BearerTokenVerifier;
 pub use lockout::LockoutTracker;
 pub use token::AttestTokenVerifier;
 
-/// Provides a per-user public key (PEM) for BearerToken signature verification.
+/// Authentication data loaded from the authoritative user store.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UserAuthInfo {
+    /// PEM-encoded public key used to verify the user's Bearer token.
+    pub public_key: String,
+    /// Current role from the user store (`"admin"` or `"user"`).
+    pub role: String,
+}
+
+/// Provides per-user authentication data for BearerToken verification.
 #[async_trait]
-pub trait UserKeyProvider: Send + Sync + std::fmt::Debug {
-    /// Look up the PEM-encoded public key for the given user `sub`.
-    async fn get_public_key(&self, sub: &str) -> Result<String, AuthError>;
+pub trait UserAuthProvider: Send + Sync + std::fmt::Debug {
+    /// Look up the public key and current role for the given user `sub`.
+    async fn get_user_auth(&self, sub: &str) -> Result<UserAuthInfo, AuthError>;
 }
 
 /// Token verifier trait for different token types.

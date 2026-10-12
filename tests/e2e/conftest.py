@@ -55,7 +55,7 @@ class RbsApi:
         self,
         subject: str,
         *,
-        role: str | None = "user",
+        role: str | None = None,
         expires_in: int = 300,
         enc_pubkey: Any | None = None,
         include_enc_pubkey: bool = True,

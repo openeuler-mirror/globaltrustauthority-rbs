@@ -46,13 +46,12 @@ const ISS_MAX_LEN: usize = 128;
 const SUB_MAX_LEN: usize = 64;
 const AUD_MAX_LEN: usize = 128;
 const AUD_MAX_COUNT: usize = 16;
-const ROLE_MAX_LEN: usize = 64;
 const JTI_MAX_LEN: usize = 128;
 const KID_MAX_LEN: usize = 128;
 const CLAIMS_MAX_SIZE: u64 = 64 * 1024;
 const PASSPHRASE_MAX_LEN: usize = 1024;
 const SUPPORTED_PRIVATE_KEYS: &str =
-    "supported private keys: RSA for PS*, P-256 for ES256, P-384 for ES384, P-521 for ES512, Ed25519/Ed448 for EdDSA, SM2 for SM2";
+    "supported private keys: RSA or RSA-PSS for PS*, P-256 for ES256, P-384 for ES384, P-521 for ES512, Ed25519/Ed448 for EdDSA, SM2 for SM2";
 
 #[derive(ValueEnum, Clone, Debug, Default, PartialEq, Eq)]
 pub enum TokenAlg {
@@ -119,8 +118,6 @@ pub enum TokenCommand {
 /// - `sub`: JWT `sub` claim, carrying the username associated with the token.
 /// - `aud`: JWT `aud` claim. One value is serialized as a string; multiple
 ///   values are serialized as an array.
-/// - `role`: optional custom business claim added to the payload so downstream
-///   services can identify the caller's role.
 /// - `exp`: JWT `exp` claim. When omitted, the generator uses the default
 ///   expiration policy defined by the CLI.
 /// - `nbf`: optional JWT `nbf` claim, restricting token usage before a given
@@ -182,13 +179,6 @@ pub struct GenerateArgs {
     )]
     pub aud: Vec<String>,
 
-    #[arg(
-        long,
-        value_parser = |value: &str| validate_string_max_len(value, ROLE_MAX_LEN),
-        help = "Optional role claim added to the token payload"
-    )]
-    pub role: Option<String>,
-
     #[arg(long, help = "JWT expiration time as a Unix timestamp in seconds")]
     pub exp: Option<u64>,
 
@@ -226,7 +216,6 @@ impl Default for GenerateArgs {
             iss: DEFAULT_ISSUER.to_string(),
             sub: DEFAULT_SUBJECT.to_string(),
             aud: vec![DEFAULT_AUDIENCE.to_string()],
-            role: None,
             private_key_file: None,
             private_key_passphrase: None,
             exp: None,
@@ -343,6 +332,9 @@ impl TokenGenerate {
         validate_audience_count(&args.aud)?;
         let private_key = Self::load_private_key(args)?;
         let alg = Self::get_alg(&args.alg, &private_key)?;
+        if matches!(private_key.id(), Id::RSA | Id::RSA_PSS) && private_key.bits() < 2048 {
+            return Err(CliError::InvalidArgument("RSA JWT keys must be at least 2048 bits".to_string()));
+        }
         let exp = args.exp.unwrap_or_else(default_exp);
         validate_time_claims(exp, args.nbf, args.iat)?;
         let mut header = JwsHeader::new();
@@ -356,9 +348,6 @@ impl TokenGenerate {
         payload.insert("iss".to_string(), Value::String(args.iss.clone()));
         payload.insert("sub".to_string(), Value::String(args.sub.clone()));
         payload.insert("aud".to_string(), audience_value(&args.aud));
-        if let Some(role) = &args.role {
-            payload.insert("role".to_string(), Value::String(role.clone()));
-        }
         payload.insert("exp".to_string(), Value::Number(exp.into()));
 
         if let Some(nbf) = args.nbf {
@@ -382,13 +371,25 @@ impl TokenGenerate {
             Zeroizing::new(private_key.private_key_to_pem_pkcs8().map_err(|_err| {
                 CliError::InvalidArgument("unable to prepare the private key for signing".to_string())
             })?);
-        let token = Self::generate_token(&alg, &pem, &header, &payload)?;
+        let token = Self::generate_token(&alg, private_key.id() == Id::RSA_PSS, &pem, &header, &payload)?;
         Ok(token)
     }
 
-    fn generate_token(alg: &TokenAlg, pem: &[u8], header: &JwsHeader, payload: &JwtPayload) -> Result<Token, CliError> {
+    fn generate_token(
+        alg: &TokenAlg,
+        rsa_pss_key: bool,
+        pem: &[u8],
+        header: &JwsHeader,
+        payload: &JwtPayload,
+    ) -> Result<Token, CliError> {
         let token = match alg {
-            TokenAlg::Ps256 | TokenAlg::Ps384 | TokenAlg::Ps512 => return generate_pss_token_with_jsonwebtoken(alg, pem, header, payload),
+            TokenAlg::Ps256 | TokenAlg::Ps384 | TokenAlg::Ps512 => {
+                return if rsa_pss_key {
+                    generate_pss_token_with_openssl(alg, pem, header, payload)
+                } else {
+                    generate_pss_token_with_jsonwebtoken(alg, pem, header, payload)
+                };
+            },
             TokenAlg::Es256 => {
                 let signer = ES256
                     .signer_from_pem(pem)
@@ -491,6 +492,33 @@ fn generate_pss_token_with_jsonwebtoken(
         ))
     })?;
     Ok(Token { token })
+}
+
+fn generate_pss_token_with_openssl(
+    alg: &TokenAlg,
+    pem: &[u8],
+    header: &JwsHeader,
+    payload: &JwtPayload,
+) -> Result<Token, CliError> {
+    // Keep the original key so OpenSSL enforces any PSS parameter restrictions.
+    let digest = match alg {
+        TokenAlg::Ps256 => MessageDigest::sha256(),
+        TokenAlg::Ps384 => MessageDigest::sha384(),
+        TokenAlg::Ps512 => MessageDigest::sha512(),
+        _ => unreachable!("PSS signing only applies to PS* algorithms"),
+    };
+    let encode = &base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    let signing_input = format!("{}.{}", encode.encode(header.to_string()), encode.encode(payload.to_string()));
+    let signature = (|| -> Result<Vec<u8>, openssl::error::ErrorStack> {
+        let key = PKey::private_key_from_pem(pem)?;
+        let mut signer = Signer::new(digest, &key)?;
+        signer.set_rsa_padding(openssl::rsa::Padding::PKCS1_PSS)?;
+        signer.set_rsa_mgf1_md(digest)?;
+        signer.set_rsa_pss_saltlen(openssl::sign::RsaPssSaltlen::DIGEST_LENGTH)?;
+        signer.sign_oneshot_to_vec(signing_input.as_bytes())
+    })()
+    .map_err(|err| CliError::InvalidArgument(format!("unable to sign the token with {alg}: {err}")))?;
+    Ok(Token { token: format!("{}.{}", signing_input, encode.encode(signature)) })
 }
 
 /// GM/T 0009 default SM2 user ID used for every SM2 token signature.
@@ -735,8 +763,6 @@ mod tests {
         assert!(validate_string_max_len(&"i".repeat(ISS_MAX_LEN + 1), ISS_MAX_LEN).is_err());
         assert!(validate_string_max_len(&"s".repeat(SUB_MAX_LEN), SUB_MAX_LEN).is_ok());
         assert!(validate_string_max_len(&"s".repeat(SUB_MAX_LEN + 1), SUB_MAX_LEN).is_err());
-        assert!(validate_string_max_len(&"r".repeat(ROLE_MAX_LEN), ROLE_MAX_LEN).is_ok());
-        assert!(validate_string_max_len(&"r".repeat(ROLE_MAX_LEN + 1), ROLE_MAX_LEN).is_err());
         assert!(validate_string_max_len(&"k".repeat(KID_MAX_LEN), KID_MAX_LEN).is_ok());
         assert!(validate_string_max_len(&"k".repeat(KID_MAX_LEN + 1), KID_MAX_LEN).is_err());
     }

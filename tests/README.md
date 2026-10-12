@@ -66,7 +66,7 @@ Workspace tests use **two layers**:
 | `rbs_binary` | session | Build `target/debug/rbs` once; missing prerequisites or build failures fail the selected E2E suite |
 | `rbs_environment` | session | Shared RBS, Fake GTA, OpenBao, and cryptographic material; SQLite API data resets per test |
 | `rbc_tools_environment` | session | Shared high-quota HTTP RBS deployment; SQLite API data resets per test |
-| `https_rbc_tools_environment` | session | Shared HTTPS RBS deployment with a generated CA certificate; SQLite API data resets per test |
+| `https_rbc_tools_environment` | session | Shared HTTPS RBS deployment with an explicitly trusted self-signed server certificate (`CA:FALSE`, `serverAuth`); SQLite API data resets per test |
 | `swtpm_instance` | session | Provisioned TPM 2.0 socket with a persistent AK, matching certificate, and temporary boot/IMA log files for GTA's real unified `tpm` plugin |
 | `rbs_api` | function | Lazily selects `rbs_environment` for RBS or `rbc_tools_environment` for RBC/tools without starting an unused deployment |
 | `reset_e2e_database` | autouse function | Clears mutable SQLite API rows after tests that use a shared deployment, preserving the bootstrap administrator |
@@ -108,6 +108,28 @@ Also required on `PATH`: `openssl`, `cargo` (with the `rest` feature), `bao` or 
 Python packages (`tests/requirements.txt`): `pytest`, `httpx`, `PyYAML`, `jwcrypto`.
 
 Optional env: `PYTHON_BIN` (override Python), `E2E_VENV_DIR` (auto-created environment), `E2E_AUTO_SETUP=0` (disable automatic dependency setup), `E2E_PORT_HTTP` / `E2E_PORT_HTTPS` / `E2E_WAIT_SECS` (integers; invalid values fail at import with a clear message), `E2E_SUITES` / `E2E_PATTERN` (see `run_e2e.sh`).
+
+### Optional SoftHSM2 integration tests
+
+Three `rbs-core` HSM tests are ignored by the default Cargo run because they
+load an external PKCS#11 module: resource put/get/delete, oversized-content
+rejection, and PIN redaction in Debug output. The Debug test also constructs a
+real backend, so it needs the module even though it does not log in.
+
+After installing SoftHSM2, run them separately:
+
+```bash
+./tests/run_softhsm.sh
+```
+
+The script creates a temporary token store and test PIN, initializes a token
+named `rbs_test`, runs all three tests serially, and removes the store on exit.
+It overrides `SOFTHSM2_CONF` to isolate the tests from existing software tokens.
+For a nonstandard installation, set `SOFTHSM_UTIL` to the utility path and
+`RBS_HSM_MODULE_TEST` to its `libsofthsm2.so`. Use only a SoftHSM2 module with
+this script. Missing dependencies fail explicitly rather than reporting a pass.
+The default merge gate still reports these three as ignored; the separate
+SoftHSM2 run is needed to validate them.
 
 ## Merge gate (`test_all.sh`)
 

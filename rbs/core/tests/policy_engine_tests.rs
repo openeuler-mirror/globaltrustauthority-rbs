@@ -14,10 +14,10 @@
 //!
 //! Scenarios UT-PE-001 through UT-PE-009.
 
-use rbs_core::*;
-use std::sync::Arc;
 use rbs_core::auth::authz::{Action, AuthzError, RequiredRole};
 use rbs_core::policy_engine;
+use rbs_core::*;
+use std::sync::Arc;
 
 // ===========================================================================
 // Helpers
@@ -88,7 +88,6 @@ async fn test_admin_role_with_admin_only_allows() {
         .check(&admin_bearer())
         .action(Action::Create)
         .required_role(RequiredRole::AdminOnly)
-        
         .ensure_allowed()
         .await;
 
@@ -111,7 +110,6 @@ async fn test_user_role_with_admin_only_denies() {
         .check(&user_bearer("user1"))
         .action(Action::Delete)
         .required_role(RequiredRole::AdminOnly)
-        
         .ensure_allowed()
         .await;
 
@@ -136,10 +134,7 @@ async fn test_syntax_error_rego_evaluation_fails() {
     let invalid_rego = "this is not valid rego syntax {";
 
     let result = policy_engine::evaluate_policy(&input, invalid_rego, true);
-    assert!(
-        result.is_err(),
-        "Invalid rego syntax should produce an evaluation error"
-    );
+    assert!(result.is_err(), "Invalid rego syntax should produce an evaluation error");
 }
 
 // ===========================================================================
@@ -154,16 +149,9 @@ async fn test_syntax_error_rego_evaluation_fails() {
 #[tokio::test]
 async fn test_missing_action_returns_missing_field() {
     let facade = AuthzFacade::new(Arc::new(policy_engine::RealPolicyEngine));
-    let result = facade
-        .check(&user_bearer("user1"))
-        
-        .ensure_allowed()
-        .await;
+    let result = facade.check(&user_bearer("user1")).ensure_allowed().await;
 
-    assert!(matches!(
-        result,
-        Err(AuthzError::MissingField("action"))
-    ));
+    assert!(matches!(result, Err(AuthzError::MissingField("action"))));
 }
 
 // ===========================================================================
@@ -221,7 +209,6 @@ async fn test_bearer_user_scoped_allows() {
         .check(&user_bearer("user1"))
         .action(Action::Get)
         .required_role(RequiredRole::UserScoped)
-        
         .ensure_allowed()
         .await;
 
@@ -232,7 +219,6 @@ async fn test_bearer_user_scoped_allows() {
         .check(&user_bearer("user2"))
         .action(Action::List)
         .required_role(RequiredRole::UserScoped)
-        
         .ensure_allowed()
         .await;
     assert!(allowed.is_ok());
@@ -265,13 +251,7 @@ async fn test_user_scoped_cross_user_sub_mismatch() {
     // Bearer sub="user1" -- the resource owner is "user2"
     let ctx = user_bearer("user1");
 
-    let result = facade
-        .check(&ctx)
-        .action(Action::Get)
-        .required_role(RequiredRole::UserScoped)
-        
-        .ensure_allowed()
-        .await;
+    let result = facade.check(&ctx).action(Action::Get).required_role(RequiredRole::UserScoped).ensure_allowed().await;
 
     // DESIRED ASSERTION (uncomment when sub-matching is implemented):
     //   assert_eq!(result, Err(AuthzError::Denied));
@@ -287,13 +267,11 @@ async fn test_user_scoped_cross_user_sub_mismatch() {
 }
 
 // ===========================================================================
-// UT-PE-010: forged role=admin with non-Administrator sub on UserScoped -> Deny
+// UT-PE-010: database admin with a non-bootstrap username on UserScoped -> Allow
 // ===========================================================================
 
-/// A bearer with a forged `role="admin"` but a non-Administrator `sub`. Because
-/// the per-user signing key is held by the subject, a normal user can mint such
-/// a token; the policy must not trust the `role` claim alone.
-fn forged_admin_bearer(sub: &str) -> AuthContext {
+/// Authentication constructs this context using the current database role.
+fn db_admin_bearer(sub: &str) -> AuthContext {
     AuthContext::Bearer(BearerContext {
         iss: "https://auth.example.com".to_string(),
         sub: sub.to_string(),
@@ -303,33 +281,22 @@ fn forged_admin_bearer(sub: &str) -> AuthContext {
     })
 }
 
-/// UT-PE-010: UserScoped + forged role=admin + sub != Administrator -> Deny
-///
-/// `admin_policy.rego` enforces role/sub consistency on the UserScoped path:
-/// when `role == "admin"`, `sub` must equal `"Administrator"`. A forged admin
-/// role on a normal subject is rejected at the policy layer, so downstream
-/// Rust handlers that branch on `bearer.role == "admin"` cannot be bypassed.
+/// UT-PE-010: UserScoped + database admin + sub != Administrator -> Allow.
 #[tokio::test]
-async fn test_user_scoped_forged_admin_role_denies() {
+async fn test_user_scoped_database_admin_allows() {
     let facade = AuthzFacade::new(Arc::new(policy_engine::RealPolicyEngine));
 
     let result = facade
-        .check(&forged_admin_bearer("user1"))
+        .check(&db_admin_bearer("admin1"))
         .action(Action::Get)
         .required_role(RequiredRole::UserScoped)
         .ensure_allowed()
         .await;
 
-    assert!(
-        matches!(result, Err(AuthzError::Denied)),
-        "forged role=admin with sub='user1' must be denied on UserScoped"
-    );
+    assert_eq!(result, Ok(()));
 }
 
-/// UT-PE-011: UserScoped + legitimate Administrator (role=admin, sub=Administrator) -> Allow
-///
-/// The consistency check must not block the real bootstrap Administrator from
-/// reaching UserScoped handlers as an admin.
+/// UT-PE-011: UserScoped + bootstrap Administrator's database role -> Allow.
 #[tokio::test]
 async fn test_user_scoped_legitimate_admin_allows() {
     let facade = AuthzFacade::new(Arc::new(policy_engine::RealPolicyEngine));
@@ -338,6 +305,21 @@ async fn test_user_scoped_legitimate_admin_allows() {
         .check(&admin_bearer())
         .action(Action::Get)
         .required_role(RequiredRole::UserScoped)
+        .ensure_allowed()
+        .await;
+
+    assert_eq!(result, Ok(()));
+}
+
+/// UT-PE-012: AdminOnly trusts the database-derived role, not a special username.
+#[tokio::test]
+async fn test_admin_only_database_admin_with_non_bootstrap_username_allows() {
+    let facade = AuthzFacade::new(Arc::new(policy_engine::RealPolicyEngine));
+
+    let result = facade
+        .check(&db_admin_bearer("admin1"))
+        .action(Action::Get)
+        .required_role(RequiredRole::AdminOnly)
         .ensure_allowed()
         .await;
 

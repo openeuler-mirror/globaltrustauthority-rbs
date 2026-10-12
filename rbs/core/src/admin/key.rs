@@ -45,7 +45,7 @@ pub fn decode_base64_input(input: &str, field_name: &str) -> Result<String> {
         })
 }
 
-/// Validate a PEM public key and return its JWS algorithm identifier.
+/// Validate a PEM public key and return its key algorithm identifier.
 pub fn validate_and_derive_alg(pem: &str) -> Result<String> {
     if pem.len() > MAX_KEY_SIZE {
         log::error!("Public key validation failed: size {} exceeds limit {}", pem.len(), MAX_KEY_SIZE);
@@ -59,8 +59,12 @@ pub fn validate_and_derive_alg(pem: &str) -> Result<String> {
             RbsError::InvalidParameter("Invalid public key format".to_string())
         })?;
 
+    if matches!(pkey.id(), openssl::pkey::Id::RSA | openssl::pkey::Id::RSA_PSS) && pkey.bits() < 2048 {
+        return Err(RbsError::InvalidParameter("RSA JWT keys must be at least 2048 bits".to_string()));
+    }
     match pkey.id() {
         openssl::pkey::Id::RSA => Ok("RSA".to_string()),
+        openssl::pkey::Id::RSA_PSS => Ok("RSA-PSS".to_string()),
         openssl::pkey::Id::EC => {
             let ec_key = pkey.ec_key()
                 .map_err(|_| RbsError::InvalidParameter("Invalid EC key".to_string()))?;
@@ -249,6 +253,8 @@ fn jwk_ec_to_pem(jwk: &Value) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use josekit::jwk::KeyPair;
+    use josekit::jws::PS256;
 
     #[test]
     fn validate_and_derive_alg_rejects_invalid_pem() {
@@ -266,6 +272,16 @@ mod tests {
         let result = validate_and_derive_alg(&pem_str);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "RSA");
+    }
+
+    #[test]
+    fn validate_and_derive_alg_returns_rsa_pss_for_rsa_pss_key() {
+        let key_pair = PS256.generate_key_pair(2048).expect("generate RSA-PSS key pair");
+        let pem = String::from_utf8(key_pair.to_pem_public_key()).expect("RSA-PSS public key PEM");
+
+        let result = validate_and_derive_alg(&pem);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "RSA-PSS");
     }
 
     #[test]
@@ -396,5 +412,17 @@ mod tests {
         let result = validate_and_derive_alg(&pem_str);
         assert!(result.is_ok(), "SM2 key should be accepted: {:?}", result.err());
         assert_eq!(result.unwrap(), "SM2");
+    }
+
+    #[test]
+    fn reject_short_rsa_authentication_keys() {
+        for kind in [openssl::pkey::Id::RSA, openssl::pkey::Id::RSA_PSS] {
+            let mut ctx = openssl::pkey_ctx::PkeyCtx::new_id(kind).unwrap();
+            ctx.keygen_init().unwrap();
+            ctx.set_rsa_keygen_bits(1024).unwrap();
+            let key = ctx.keygen().unwrap();
+            let pem = String::from_utf8(key.public_key_to_pem().unwrap()).unwrap();
+            assert!(validate_and_derive_alg(&pem).is_err());
+        }
     }
 }

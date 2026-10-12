@@ -364,4 +364,3 @@ fn test_sm2_from_jwk_json_infers_sm2_and_validates() {
     assert_eq!(pub_key.key_type(), KeyType::Sm2);
     pub_key.validate_params().expect("SM2 tee-pubkey should validate");
 }
-

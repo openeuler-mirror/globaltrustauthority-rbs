@@ -184,7 +184,7 @@ class FakeGta:
         encryption_jwk: dict[str, str],
         *,
         subject: str = "Administrator",
-        role: str | None = "admin",
+        role: str | None = None,
         issuer: str = "rbs-cli",
         audience: str = "globaltrustauthority-rbs",
         expires_in: int = 300,

@@ -188,10 +188,22 @@ For both bearer and attest tokens: `PS256`, `PS384`, `PS512`, `ES256`, `ES384`, 
 
 Any other `alg` value is rejected with `unsupported algorithm` before signature verification — in particular `RS256`/`RS384`/`RS512` and all HMAC variants (`HS256`/`HS384`/`HS512`) are not accepted.
 
+RSA and RSA-PSS JWT keys must be at least 2048 bits. This is checked during
+user-key registration and token verification. Bearer tokens require `aud` to
+match the configured audience; attest tokens require it when
+`auth.attest_token.audience` is configured.
+
+Critical JWS extensions (`crit`) and unencoded payloads (`b64: false`) are not
+supported and are rejected. For josekit-based claim validation (ES512 and the
+OpenSSL RSA-PSS Bearer path), `exp`, `nbf`, and `iat` must fall between Unix epoch
+and 9999-12-31T23:59:59Z. Out-of-range values return authentication errors before
+any time conversion.
+
 Verification is dispatched per algorithm family:
 
 | Algorithms | Verification path |
 |---|---|
-| `PS256`, `PS384`, `PS512`, `ES256`, `ES384`, `EdDSA` | `jsonwebtoken` crate |
+| `PS256`, `PS384`, `PS512` | Bearer: `jsonwebtoken` for ordinary RSA keys; OpenSSL for RSA-PSS PEM keys, preserving key restrictions. Attest: `jsonwebtoken` (RSA-PSS PEM keys are converted to RSA modulus/exponent). |
+| `ES256`, `ES384`, `EdDSA` | `jsonwebtoken` crate |
 | `ES512` | Dedicated `josekit` path |
 | `SM2` | Vendored OpenSSL — SM2 ECDSA over the SM3 digest (GM/T 0003); the GM/T 0009 default user ID `1234567812345678` is pinned because OpenSSL ≥ 3.5 no longer applies it implicitly |
