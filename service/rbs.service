@@ -5,6 +5,7 @@ After=network.target
 
 [Service]
 Type=simple
+UMask=0077
 ExecStart=/usr/bin/rbs
 Restart=always
 RestartSec=10s

@@ -57,7 +57,7 @@ class RbsServer:
         return "; ".join(parts) if parts else "no server log captured"
 
     def ensure_e2e_materials(self) -> None:
-        """Generate RSA public key and sqlite DB file required by RBS startup."""
+        """Generate the RSA public key required by RBS startup."""
         if not self._pub_key_path.is_file():
             subprocess.run(
                 ["openssl", "genrsa", "-out", str(self._private_key_path), "2048"],
@@ -69,7 +69,6 @@ class RbsServer:
                 check=True,
                 capture_output=True,
             )
-        self._db_path.touch(exist_ok=True)
 
     @property
     def attestation_signing_key_path(self) -> Path:
@@ -115,7 +114,7 @@ class RbsServer:
     ) -> Path:
         self.ensure_e2e_materials()
         pub_key = str(self._pub_key_path)
-        db_url = f"sqlite:///{self._db_path}"
+        db_url = f"sqlite:///{self._db_path}?mode=rwc"
         self._log_path = self._scratch_dir / log_name
         config: dict[str, Any] = {
             "rest": {
