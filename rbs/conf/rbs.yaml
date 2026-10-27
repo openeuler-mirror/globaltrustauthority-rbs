@@ -2,6 +2,13 @@
 # Global Trust Authority (GTA) Resource Broker Service — runtime configuration
 # Override path via -c/--config or env RBS_CONFIG
 
+# Health check listener (optional; omit the section to disable). Serves GET /livez and
+# GET /readyz (plain HTTP, no TLS, no auth) for Kubernetes liveness/readiness probes.
+# Upgrade order: upgrade the binary BEFORE enabling this section (older binaries reject
+# unknown top-level keys).
+# health:
+#   listen_addr: "0.0.0.0:6667"
+
 # REST server (required when rest feature is enabled)
 rest:
   listen_addr: "127.0.0.1:6666"   # listen address

@@ -14,7 +14,7 @@
 //! Provides unified database connection pool management functionality
 
 use std::error::Error;
-use sea_orm::{ConnectionTrait, DatabaseConnection, ConnectOptions, Database as Db,TransactionTrait};
+use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, ConnectOptions, Database as Db, Statement, TransactionTrait};
 use std::sync::Arc;
 use tokio::sync::OnceCell;
 use log::{info, error};
@@ -64,6 +64,27 @@ pub fn get_connection_from_pool() -> Result<Arc<DatabaseConnection>, DbError> {
     DB_CONN.get().cloned().ok_or_else(|| {
         DbError::ConfigError("Database connection not initialized".to_string())
     })
+}
+
+/// Probe the database with a lightweight read query through the global connection pool.
+///
+/// A real query round-trip is used instead of the sqlx channel ping: for SQLite the
+/// sqlx ping is a pure worker-channel round-trip that never touches the database file,
+/// so file-level faults would not surface. SQLite reads the schema root page
+/// (`SELECT count(*) FROM sqlite_master`); other backends use `SELECT 1` (a network
+/// round-trip already validates connectivity there).
+pub async fn ping() -> Result<(), DbError> {
+    let conn = get_connection_from_pool()?;
+    let backend = conn.get_database_backend();
+    let sql = match backend {
+        DatabaseBackend::Sqlite => "SELECT count(*) FROM sqlite_master",
+        _ => "SELECT 1",
+    };
+    let stmt = Statement::from_string(backend, sql);
+    conn.query_one(stmt)
+        .await
+        .map(|_| ())
+        .map_err(|e| DbError::ConnectionError(e.to_string()))
 }
 
 /// Initialize and get the database connection pool

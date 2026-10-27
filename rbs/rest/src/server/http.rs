@@ -19,13 +19,14 @@ use std::time::Duration;
 use actix_web::{middleware::Logger, web, App, HttpServer};
 use anyhow::{bail, Context};
 use openssl::ssl::{SslAcceptor, SslAcceptorBuilder, SslFiletype, SslMethod};
-use rbs_api_types::config::{AuthConfig, RestConfig};
+use rbs_api_types::config::{AuthConfig, HealthConfig, RestConfig};
 use rbs_core::auth::{Auth, LockoutTracker, UserAuthProvider};
 use rbs_core::{auth::Authenticator, RbsCore};
 use socket2::{Domain, Socket, Type};
 
 #[cfg(feature = "per-ip-rate-limit")]
 use super::rate_limit;
+use super::health;
 use crate::routes::error::{json_error_handler, query_error_handler};
 use crate::routes::{config as routes_config, not_found, version};
 use actix_web::middleware::from_fn;
@@ -59,9 +60,11 @@ fn request_timeout_duration(secs: u32) -> Duration {
 }
 
 /// HTTP server holding `Arc<RbsCore>` and its own REST config (passed from main).
+/// When `health_config` is present, `bind()` also binds the dedicated health listener.
 pub struct Server {
     core: Arc<RbsCore>,
     rest_config: RestConfig,
+    health_config: Option<HealthConfig>,
     auth_config: AuthConfig,
     auth_provider: Arc<dyn UserAuthProvider>,
     lockout_tracker: Arc<LockoutTracker>,
@@ -72,14 +75,19 @@ impl Server {
     pub fn new(
         core: Arc<RbsCore>,
         rest_config: RestConfig,
+        health_config: Option<HealthConfig>,
         auth_config: AuthConfig,
         auth_provider: Arc<dyn UserAuthProvider>,
         lockout_tracker: Arc<LockoutTracker>,
     ) -> Self {
-        Self { core, rest_config, auth_config, auth_provider, lockout_tracker }
+        Self { core, rest_config, health_config, auth_config, auth_provider, lockout_tracker }
     }
 
     /// Binds to the configured listen address with the configured backlog; then call `.run().await?`.
+    ///
+    /// When a health listener is configured it is bound after the business listener; any
+    /// failure on either is fatal (fail-fast), the health listener error carrying a
+    /// "bind health listener" context so the failing listener is identifiable.
     ///
     /// # Errors
     /// Fails if HTTPS is enabled but cert/key paths are empty or files are not readable; if
@@ -100,19 +108,19 @@ impl Server {
             let _ = std::fs::File::open(rest.https.key_file.get().trim())
                 .map_err(|_e| anyhow::anyhow!("rest.https.key_file not readable (path redacted)"))?;
         }
-        let addr = rest.listen_addr.as_str();
-        let socket_addr: SocketAddr = addr.parse().with_context(|| format!("invalid listen address: {}", addr))?;
-        let backlog = rest.listen_backlog as i32;
+        let std_listener = bind_tcp_listener(rest.listen_addr.as_str(), rest.listen_backlog)?;
 
-        let socket = Socket::new(Domain::for_address(socket_addr), Type::STREAM, None)
-            .with_context(|| format!("create socket for {}", addr))?;
-        socket.bind(&socket_addr.into()).with_context(|| format!("bind to {}", addr))?;
-        socket.listen(backlog).with_context(|| format!("listen with backlog {} on {}", backlog, addr))?;
-        socket.set_nonblocking(true).with_context(|| "set nonblocking")?;
-        let std_listener: std::net::TcpListener = socket.into();
+        let health_listener = match self.health_config.as_ref() {
+            Some(hc) => Some(
+                bind_tcp_listener(hc.listen_addr.as_str(), health::HEALTH_LISTEN_BACKLOG)
+                    .context("bind health listener")?,
+            ),
+            None => None,
+        };
 
         Ok(BoundServer {
             std_listener,
+            health_listener,
             core: self.core,
             rest_config: self.rest_config,
             auth_config: self.auth_config,
@@ -122,10 +130,23 @@ impl Server {
     }
 }
 
+/// Create a bound, listening, non-blocking TCP listener for the given address.
+/// Shared by the business and health listeners; error messages carry the address.
+fn bind_tcp_listener(addr: &str, backlog: u32) -> anyhow::Result<std::net::TcpListener> {
+    let socket_addr: SocketAddr = addr.parse().with_context(|| format!("invalid listen address: {}", addr))?;
+    let socket = Socket::new(Domain::for_address(socket_addr), Type::STREAM, None)
+        .with_context(|| format!("create socket for {}", addr))?;
+    socket.bind(&socket_addr.into()).with_context(|| format!("bind to {}", addr))?;
+    socket.listen(backlog as i32).with_context(|| format!("listen with backlog {} on {}", backlog as i32, addr))?;
+    socket.set_nonblocking(true).with_context(|| "set nonblocking")?;
+    Ok(socket.into())
+}
+
 /// Server after bind; call `.run().await?` to serve.
 #[derive(Debug)]
 pub struct BoundServer {
     std_listener: std::net::TcpListener,
+    health_listener: Option<std::net::TcpListener>,
     core: Arc<RbsCore>,
     rest_config: RestConfig,
     auth_config: AuthConfig,
@@ -154,6 +175,7 @@ impl BoundServer {
         let key_file = rest.https.key_file.get().clone();
         let core = self.core;
         let std_listener = self.std_listener;
+        let health_listener = self.health_listener;
         let auth_config = self.auth_config;
         let auth_provider = self.auth_provider;
         let lockout_tracker = self.lockout_tracker;
@@ -241,7 +263,24 @@ impl BoundServer {
             builder.listen(std_listener).context("actix_web listen")?
         };
 
-        server.run().await.context("RBS REST server error")?;
+        if let Some(health_listener) = health_listener {
+            // Dedicated health listener: plain HTTP, no TLS, no middleware; a single
+            // worker (probe traffic is tiny) and a bounded shutdown (probes are
+            // stateless, so teardown must not extend the process graceful-exit time).
+            let health_addr = health_listener.local_addr().context("health listener local_addr")?;
+            let health_server = HttpServer::new(|| App::new().configure(health::configure_health_routes))
+                .workers(1)
+                .shutdown_timeout(1)
+                .listen(health_listener)
+                .context("actix_web listen (health)")?;
+            log::info!("RBS health server listening on http://{}", health_addr);
+            // Drive both servers concurrently: an error on either fails the process.
+            let biz_run = server.run();
+            let health_run = health_server.run();
+            tokio::try_join!(biz_run, health_run).context("RBS REST/health server error")?;
+        } else {
+            server.run().await.context("RBS REST server error")?;
+        }
         Ok(())
     }
 }

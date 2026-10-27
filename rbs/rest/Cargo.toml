@@ -31,3 +31,7 @@ validator.workspace = true
 [dev-dependencies]
 async-trait.workspace = true
 actix-http = "3"
+# Test-only: used by health_probe_timeout_tests to hold the single pooled connection
+# (TransactionTrait::begin). Never linked into the server library — the HTTP layer has
+# no runtime sea-orm dependency.
+sea-orm.workspace = true

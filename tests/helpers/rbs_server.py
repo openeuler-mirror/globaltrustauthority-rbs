@@ -102,6 +102,7 @@ class RbsServer:
         cert_file: str = "",
         key_file: str = "",
         log_name: str = "rbs.log",
+        health_listen_addr: str | None = None,
         gta_base_url: str = "http://127.0.0.1:9",
         openbao_base_url: str | None = None,
         openbao_token: str = "",
@@ -181,6 +182,10 @@ class RbsServer:
                 },
             },
         }
+        if health_listen_addr is not None:
+            # Optional health listener section; absent -> the key is not written at all
+            # (identical config shape to pre-health deployments).
+            config["health"] = {"listen_addr": health_listen_addr}
         if openbao_base_url is not None:
             config["resource"] = {
                 "backends": {
