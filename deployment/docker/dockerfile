@@ -1,6 +1,18 @@
 # RBS (Resource Broker Service) Dockerfile
-FROM rust:1.88 as builder
+FROM rust:1.88 AS builder
+
+# Optional proxy CA bundle (PEM, may be multi-line) for networks whose proxy intercepts
+# TLS with its own certificate. Empty in normal environments - the conditional below is
+# a no-op then. Passed via: --build-arg CA_BUNDLE="$(cat host-ca-bundle.pem)"
+ARG CA_BUNDLE=
+
 WORKDIR /build
+
+# bindgen (used by the cryptoki HSM dependency) requires libclang at build time.
+# When a proxy CA bundle is provided it is trusted system-wide, so apt and cargo
+# (both use the system trust store) work through the intercepting proxy.
+RUN if [ -n "$CA_BUNDLE" ]; then printf '%s\n' "$CA_BUNDLE" > /usr/local/share/ca-certificates/proxy-ca.crt && update-ca-certificates; fi \
+    && apt-get update && apt-get install -y --no-install-recommends clang libclang-dev
 
 # Copy workspace config
 COPY Cargo.toml ./
@@ -28,7 +40,12 @@ RUN cargo build --release --bin rbs
 # Runtime image (OpenEuler)
 FROM openeuler/openeuler:24.03-lts
 
-RUN dnf install -y ca-certificates && dnf clean all
+# Optional proxy CA bundle (see builder stage); trusted before dnf runs.
+ARG CA_BUNDLE=
+
+# ca-certificates: TLS to GTA/backends; shadow-utils: useradd (absent from the minimal base image)
+RUN if [ -n "$CA_BUNDLE" ]; then printf '%s\n' "$CA_BUNDLE" > /etc/pki/ca-trust/source/anchors/proxy-ca.crt && update-ca-trust extract; fi \
+    && dnf install -y ca-certificates shadow-utils && dnf clean all
 
 WORKDIR /app
 
@@ -38,14 +55,24 @@ COPY --from=builder /build/target/release/rbs /usr/local/bin/rbs
 # Copy config files
 COPY rbs/conf /etc/rbs/
 
+# SQL schema scripts (self-contained image: SQLite migration does not depend on
+# host files; layout matches the RPM install /usr/share/rbs/)
+COPY rbs/rdb_sql /usr/share/rbs/
+
 # Create runtime user
-RUN useradd -r -s /bin/false rbs && \
+# Pin UID/GID to 999 so that compose configs (uid/gid) and k8s fsGroup always match.
+RUN groupadd -r -g 999 rbs && \
+    useradd -r -u 999 -g 999 -s /bin/false rbs && \
     chown -R rbs:rbs /etc/rbs
+
+# Data directory with correct ownership (named volumes inherit it on first use;
+# matches the RPM install layout)
+RUN mkdir -p /var/lib/rbs && chown rbs:rbs /var/lib/rbs
 
 USER rbs
 
 ENV RBS_CONFIG=/etc/rbs/rbs.yaml
 
-EXPOSE 8080
+EXPOSE 6666 6667
 
 CMD ["rbs"]

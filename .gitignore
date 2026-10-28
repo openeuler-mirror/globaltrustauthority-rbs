@@ -40,3 +40,6 @@ about.hbs
 about.toml
 scripts/generate_third_party_notice.sh
 scripts/html_to_notice.py
+
+# Local smoke-test key pair for docker compose (generated, never committed)
+deployment/docker/keys/

@@ -1,0 +1,20 @@
+# RBS Kubernetes deployment — business entry point.
+# NodePort 30666 -> container 6666 (HTTPS). The health port (6667) is intentionally NOT
+# exposed here: kubelet probes talk to the pod IP directly. For network-level exposure
+# control see networkpolicy.yaml (optional).
+apiVersion: v1
+kind: Service
+metadata:
+  name: rbs
+  namespace: rbs
+  labels:
+    app: rbs
+spec:
+  type: NodePort
+  selector:
+    app: rbs
+  ports:
+    - name: https
+      port: 6666
+      targetPort: https
+      nodePort: 30666

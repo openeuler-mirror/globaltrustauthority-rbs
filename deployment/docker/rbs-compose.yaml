@@ -2,33 +2,63 @@
 # Compose V2 uses BuildKit for `build` when the Engine supports it.
 # On older setups: export DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 before `docker compose ... up --build`.
 #
-# RBS listens on 127.0.0.1:8080; bridge + published ports would not reach that listener, so this
-# file uses network_mode: host (Linux). Host network is for open-source demos and local testing
-# only—not a production pattern.
+# Smoke semantics: attestation runs in `builtin` mode (no GTA needed); a locally generated
+# key pair is bind-mounted and shared by attest_token/admin_key verification. The image is
+# self-contained (SQL schema at /usr/share/rbs/sqlite_rbs.sql — no SQL bind mount).
+#
+# Prerequisite — generate the smoke key pair BEFORE `docker compose up` (a bind mount of a
+# missing file creates an empty directory and startup fails fast):
+#   cd deployment/docker
+#   mkdir -p keys
+#   openssl genrsa -out keys/smoke_key.pem 2048
+#   openssl rsa -in keys/smoke_key.pem -pubout -out keys/smoke_pub.pem
+#
+# RBS listens on 127.0.0.1:6666 (host network, Linux only). Host network is for open-source
+# demos and local testing only—not a production pattern.
 
 version: "3.8"
 
 configs:
   rbs_runtime_yaml:
     content: |
-      # RBS runtime config (embedded in rbs-compose.yaml). Local smoke / dev.
-      # REST on 127.0.0.1:8080 with host network (see services.rbs.network_mode).
-      # Host network: open-source demos / local testing only—not production.
-      # SQLite DB on the compose volume (/var/lib/rbs in the container).
+      # RBS runtime config (embedded in rbs-compose.yaml). Local smoke / dev:
+      # builtin attestation, local smoke keys. SQLite DB on the compose volume
+      # (/var/lib/rbs in the container); SQL schema comes from the image.
 
       rest:
-        listen_addr: "127.0.0.1:8080"
+        listen_addr: "127.0.0.1:6666"
 
       logging:
         level: info
         format: text
+
+      attestation:
+        default_as_provider: gta
+        backends:
+          gta:
+            mode: builtin
+
+      auth:
+        attest_token:
+          public_key_path: "/etc/rbs/keys/smoke_pub.pem"
+          issuer: "Global Trust Authority"
+        bearer_token:
+          issuer: "rbs-cli"
+          audience: "globaltrustauthority-rbs"
+
+      admin:
+        admin_key:
+          public_key_path: "/etc/rbs/keys/smoke_pub.pem"
+
+      policy:
+        max_per_user: 10
 
       storage:
         db_type: sqlite
         max_connections: 10
         timeout: 30
         url: "sqlite:///var/lib/rbs/rbs.db?mode=rwc"
-        sql_file_path: "/etc/rbs/sqlite_rbs.sql"
+        sql_file_path: "/usr/share/rbs/sqlite_rbs.sql"
 
 services:
   rbs:
@@ -41,8 +71,11 @@ services:
     configs:
       - source: rbs_runtime_yaml
         target: /etc/rbs/rbs.yaml
+        uid: "999"
+        gid: "999"
+        mode: 0440
     volumes:
-      - ../../rbs/conf/sqlite_rbs.sql:/etc/rbs/sqlite_rbs.sql:ro
+      - ./keys/smoke_pub.pem:/etc/rbs/keys/smoke_pub.pem:ro
       - rbs-data:/var/lib/rbs
     environment:
       - RUST_LOG=info

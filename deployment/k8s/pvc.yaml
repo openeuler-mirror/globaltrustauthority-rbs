@@ -1,0 +1,18 @@
+# RBS Kubernetes deployment — SQLite data volume.
+# ReadWriteOnce: SQLite is a single-writer, single-file database (also the reason the
+# Deployment uses Recreate with a single replica).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rbs-data
+  namespace: rbs
+  labels:
+    app: rbs
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  # storageClassName intentionally omitted -> the cluster default StorageClass is used.
+  # To pin a specific class, set storageClassName here.

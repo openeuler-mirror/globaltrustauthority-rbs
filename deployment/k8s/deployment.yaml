@@ -1,0 +1,106 @@
+# RBS Kubernetes deployment — the broker itself.
+# Single replica + Recreate: SQLite is a single-writer database on an RWO volume, so the
+# old pod must terminate before a new one starts (no rolling overlap, no storage races).
+# Secrets are NOT defined here: rbs-tls and rbs-config are created via kubectl commands
+# AFTER the namespace exists (see docs/build/k8s.md) — the manifests stay plaintext-free.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rbs
+  namespace: rbs
+  labels:
+    app: rbs
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: rbs
+  template:
+    metadata:
+      labels:
+        app: rbs
+    spec:
+      securityContext:
+        fsGroup: 999
+      containers:
+        - name: rbs
+          image: globaltrustauthority-rbs/rbs:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: https
+              containerPort: 6666
+            - name: health
+              containerPort: 6667
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: health
+              scheme: HTTP
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+              scheme: HTTP
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/rbs
+            - name: keys
+              mountPath: /etc/rbs/keys
+              readOnly: true
+            - name: tls
+              mountPath: /etc/rbs/tls
+              readOnly: true
+            - name: config
+              mountPath: /etc/rbs/rbs.yaml
+              subPath: rbs.yaml
+              readOnly: true
+            # Optional: GTA mTLS certificates (uncomment after creating the gta-certs secret; see §6.3)
+            # - name: gta-certs
+            #   mountPath: /etc/rbs/gta-certs
+            #   readOnly: true
+          # Optional HSM PIN injection — uncomment after creating the secret:
+          #   kubectl create secret generic rbs-hsm-pin -n rbs --from-literal=pin=<pin>
+          # env:
+          #   - name: RBS_HSM_PIN   # must equal resource.backends.hsm.credentials.pin_env in rbs.yaml
+          #     valueFrom:
+          #       secretKeyRef:
+          #         name: rbs-hsm-pin
+          #         key: pin
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: rbs-data
+        - name: keys
+          configMap:
+            name: rbs-keys
+        - name: tls
+          secret:
+            secretName: rbs-tls
+        - name: config
+          secret:
+            secretName: rbs-config
+        # Optional: GTA mTLS certificates (see docs/build/k8s.md chapter 6).
+        # Create the secret first: kubectl create secret generic gta-certs -n rbs \
+        #   --from-file=ca.crt=<path>/ca.crt --from-file=client.crt=<path>/client.crt --from-file=client.key=<path>/client.key
+        # - name: gta-certs
+        #   secret:
+        #     secretName: gta-certs
