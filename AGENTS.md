@@ -34,7 +34,9 @@ globaltrustauthority-rbs/
 │   ├── design/            # Architecture and design docs
 │   └── api/rbs/           # Generated API docs (Markdown, HTML)
 ├── tests/                 # Merge gate + pytest e2e (see tests/README.md)
-└── service/               # Service deployment configurations
+├── service/               # Service deployment configurations (systemd unit)
+├── deployment/            # Container & k8s deployment (docker/, k8s/)
+└── rpm/                   # RPM spec files (rbs, rbc, rbs-cli)
 ```
 
 ## Key Modules
@@ -93,6 +95,9 @@ cargo build --release --workspace
 
 # Build RPM packages
 ./scripts/build-rpm.sh
+
+# Build Docker image
+./scripts/build-docker.sh
 ```
 
 See also: [`docs/build/build_and_install.md`](docs/build/build_and_install.md), [`docs/build/rpm.md`](docs/build/rpm.md).
@@ -185,7 +190,7 @@ See [`docs/design/architecture.md` §10](docs/design/architecture.md#10-security
 ### Module Visibility
 
 - `rbs/rest/src/lib.rs` exposes `routes`, `server`, and `middleware` for integration tests
-- `rbs/rest/src/server/mod.rs` exposes `http` and (when enabled) `rate_limit` only
+- `rbs/rest/src/server/mod.rs` exposes `http`, `health`, and (when enabled) `rate_limit` only
 - Route modules: `admin`, `attestation`, `attestation_mgmt`, `error`, `policy`, `resource`, `version` — auth lives in `middleware/auth.rs`, not `routes/`
 
 ### Naming
