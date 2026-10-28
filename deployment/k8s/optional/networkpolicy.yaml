@@ -1,0 +1,39 @@
+# RBS Kubernetes deployment — OPTIONAL ingress hardening (NOT applied by `kubectl apply -f deployment/k8s/`).
+# Requires a CNI with NetworkPolicy support (silently ineffective otherwise).
+# Apply SEPARATELY after editing the CIDR: kubectl apply -f deployment/k8s/optional/networkpolicy.yaml
+# WARNING: the default CIDR only allows the minikube node network — replace it with your
+# cluster's node network AND the networks of external clients before applying.
+# Kubelet health probes and kube-proxy NodePort traffic originate from node IPs, so the
+# ipBlock rule below must match your cluster's node network: find it with
+#   kubectl get nodes -o wide   (INTERNAL-IP column)
+# and replace the CIDR before applying.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: rbs-ingress
+  namespace: rbs
+spec:
+  podSelector:
+    matchLabels:
+      app: rbs
+  policyTypes:
+    - Ingress
+  ingress:
+    # 1) Same-namespace pods (in-cluster clients).
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 6666
+        - protocol: TCP
+          port: 6667
+    # 2) Node network (kubelet probes + kube-proxy NodePort traffic).
+    #    Replace the CIDR with your cluster's node network before applying.
+    - from:
+        - ipBlock:
+            cidr: 192.168.49.0/24   # minikube default; adjust for your cluster
+      ports:
+        - protocol: TCP
+          port: 6666
+        - protocol: TCP
+          port: 6667

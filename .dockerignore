@@ -1,0 +1,17 @@
+# Keep the build context small: only the sources COPYed by deployment/docker/dockerfile
+# are needed (workspace manifests + crate sources + rbs/conf + rbs/rdb_sql).
+.git
+.sdd
+.aaw
+target
+node_modules
+docs
+tests
+deployment
+rpm
+service
+scripts
+rbs-k8s-deploy
+*.log
+*.md
+!README.md

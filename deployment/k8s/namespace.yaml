@@ -1,0 +1,8 @@
+# RBS Kubernetes deployment — Namespace.
+# Applied first (Secrets are namespaced and must be created after the Namespace exists).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: rbs
+  labels:
+    app: rbs
