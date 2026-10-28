@@ -13,11 +13,12 @@
 //! HTTP server integration tests.
 
 use actix_web::{test, web, App, HttpResponse};
-use rbs_api_types::config::{AuthConfig, RestConfig};
+use rbs_api_types::config::{AuthConfig, HealthConfig, RestConfig};
 use rbs_core::auth::LockoutTracker;
 use rbs_core::RbsCore;
 use rbs_rest::server::{http::uri_length_guard_middleware, Server};
 use serde_json::Value;
+use std::net::TcpListener;
 use std::sync::Arc;
 
 #[actix_web::test]
@@ -62,8 +63,14 @@ async fn bind_fails_when_https_enabled_but_cert_file_empty() {
     rest.https.cert_file = String::new();
     rest.https.key_file = rbs_api_types::config::Sensitive::new("/dev/null".to_string());
     let lockout_tracker = LockoutTracker::new_shared();
-    let server =
-        Server::new(Arc::new(RbsCore::default()), rest, AuthConfig::default(), stub_auth_provider(), lockout_tracker);
+    let server = Server::new(
+        Arc::new(RbsCore::default()),
+        rest,
+        None,
+        AuthConfig::default(),
+        stub_auth_provider(),
+        lockout_tracker,
+    );
     let result = server.bind().await;
     assert!(result.is_err());
     let err_msg = result.unwrap_err().to_string();
@@ -81,8 +88,14 @@ async fn bind_fails_when_https_enabled_but_key_file_empty() {
     rest.https.cert_file = "/dev/null".to_string();
     rest.https.key_file = rbs_api_types::config::Sensitive::new(String::new());
     let lockout_tracker = LockoutTracker::new_shared();
-    let server =
-        Server::new(Arc::new(RbsCore::default()), rest, AuthConfig::default(), stub_auth_provider(), lockout_tracker);
+    let server = Server::new(
+        Arc::new(RbsCore::default()),
+        rest,
+        None,
+        AuthConfig::default(),
+        stub_auth_provider(),
+        lockout_tracker,
+    );
     let result = server.bind().await;
     assert!(result.is_err());
     let err_msg = result.unwrap_err().to_string();
@@ -91,4 +104,60 @@ async fn bind_fails_when_https_enabled_but_key_file_empty() {
         "error should mention empty key_file, got: {}",
         err_msg
     );
+}
+
+/// Bind a loopback socket on an OS-assigned port, return the port, and close the socket.
+fn free_port() -> u16 {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind ephemeral listener");
+    listener.local_addr().expect("local addr").port()
+}
+
+fn server_with(rest_port: u16, health: Option<HealthConfig>) -> Server {
+    let mut rest = RestConfig::default();
+    rest.listen_addr = format!("127.0.0.1:{rest_port}");
+    Server::new(
+        Arc::new(RbsCore::default()),
+        rest,
+        health,
+        AuthConfig::default(),
+        stub_auth_provider(),
+        LockoutTracker::new_shared(),
+    )
+}
+
+// TC15: health listener on an occupied port -> bind fails fast, error identifies the listener.
+#[actix_web::test]
+async fn bind_fails_when_health_port_occupied() {
+    let rest_port = free_port();
+    // Occupy a port and keep it bound for the duration of the test.
+    let holder = TcpListener::bind(("127.0.0.1", 0)).expect("bind holder");
+    let health_addr = holder.local_addr().expect("local addr").to_string();
+
+    let result = server_with(rest_port, Some(HealthConfig { listen_addr: health_addr })).bind().await;
+    let msg = format!("{:#}", result.unwrap_err());
+    assert!(msg.contains("bind health listener"), "error should mention the health listener, got: {msg}");
+}
+
+// TC16: health address that passes string-level validation but is not a valid SocketAddr
+// -> bind fails with the invalid-address error (runtime guard behind the config validation).
+#[actix_web::test]
+async fn bind_fails_when_health_addr_not_parseable() {
+    let result = server_with(free_port(), Some(HealthConfig { listen_addr: "invalid:addr".to_string() }))
+        .bind()
+        .await;
+    let msg = format!("{:#}", result.unwrap_err());
+    assert!(msg.contains("invalid listen address"), "error should mention invalid listen address, got: {msg}");
+}
+
+// TC17: dual-listener happy path — both listeners on free ports binds successfully.
+#[actix_web::test]
+async fn bind_succeeds_with_health_listener_on_free_ports() {
+    let result = server_with(
+        free_port(),
+        Some(HealthConfig { listen_addr: format!("127.0.0.1:{}", free_port()) }),
+    )
+    .bind()
+    .await;
+    assert!(result.is_ok(), "dual bind on free ports must succeed");
+    // BoundServer dropped without run(); both listeners close.
 }

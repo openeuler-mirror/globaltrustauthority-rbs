@@ -10,10 +10,12 @@
  * See the Mulan PSL v2 for more details.
  */
 
-//! HTTP server: bind, TLS, actix `HttpServer`, and optional per-IP rate limiting.
+//! HTTP server: bind, TLS, actix `HttpServer`, health endpoints, and optional per-IP rate limiting.
 
 #[cfg(feature = "per-ip-rate-limit")]
 pub mod rate_limit;
+
+pub mod health;
 
 pub mod http;
 

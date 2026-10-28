@@ -101,6 +101,7 @@ async fn main() -> anyhow::Result<()> {
         let server = rbs_rest::Server::new(
             core.clone(),
             rest_config.clone(),
+            config.health.clone(),
             config.auth.clone(),
             auth_provider,
             lockout_tracker,

@@ -129,7 +129,7 @@ impl Default for Database {
     }
 }
 
-/// Top-level run configuration (`rbs.yaml`). Only **`rest`**, **`logging`**, **`storage`**, **`attestation`**, **`auth`**, **`admin`**, **`policy`**, and **`resource`** are deserialized;
+/// Top-level run configuration (`rbs.yaml`). Only **`rest`**, **`logging`**, **`storage`**, **`attestation`**, **`auth`**, **`admin`**, **`policy`**, **`resource`**, and **`health`** are deserialized;
 /// any other top-level key is rejected (`deny_unknown_fields`).
 ///
 /// In YAML, `rest` may be omitted or null (deserializes as `None`). The `rbs` binary's `load_config`
@@ -154,6 +154,9 @@ pub struct RbsConfig {
     /// Resource provider backends (optional).
     #[serde(default)]
     pub resource: Option<ResourceProvidersConfig>,
+    /// Health check listener (optional; absent = not enabled).
+    #[serde(default)]
+    pub health: Option<HealthConfig>,
 }
 
 /// For programmatic use; YAML omitting `rest` deserializes to `None` via `default_rest_option`.
@@ -168,8 +171,18 @@ impl Default for RbsConfig {
             admin: AdminConfig::default(),
             policy: PolicyLimitsConfig::default(),
             resource: None,
+            health: None,
         }
     }
+}
+
+/// Health check listener configuration (optional top-level `health` section).
+/// When the section is absent, no health listener is started.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HealthConfig {
+    /// Listen address for /livez and /readyz (plain HTTP, no TLS, no auth), e.g. "0.0.0.0:6667".
+    pub listen_addr: String,
 }
 
 impl Default for LoggingConfig {

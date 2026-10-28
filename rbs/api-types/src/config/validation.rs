@@ -15,7 +15,7 @@
 use super::{
     AdminConfig, AdminKeyConfig, AttestTokenVerificationConfig, AttestationBackendConfig,
     AttestationBackendMode, AttestationConfig, AttestationCredentials, AttestationRestConfig,
-    AuthConfig, BearerTokenVerificationConfig, CaConfig, Database, HsmConfig,
+    AuthConfig, BearerTokenVerificationConfig, CaConfig, Database, HealthConfig, HsmConfig,
     LogRotationConfig, LoggingConfig, PerIpRateLimitConfig, PolicyLimitsConfig,
     ResourceProviderConfig, ResourceProvidersConfig, RbsConfig, RestConfig, VaultConfig,
 };
@@ -60,6 +60,14 @@ const REST_LISTEN_ADDR_MAX_LEN: usize = 128;
 
 /// Maximum value for the listen backlog (connection queue size). Linux caps this at 65535.
 const REST_BACKLOG_MAX: u32 = 65535;
+
+// =============================================================================
+// HealthConfig limits
+// =============================================================================
+
+/// Maximum length of a health listen address string (e.g., "0.0.0.0:6667"). Mirrors the REST
+/// limit but kept as an independent constant so the two sections do not become coupled.
+const HEALTH_LISTEN_ADDR_MAX_LEN: usize = 128;
 
 // =============================================================================
 // PerIpRateLimit limits
@@ -885,6 +893,26 @@ impl ResourceProvidersConfig {
     }
 }
 
+impl HealthConfig {
+    fn validate(&self) {
+        // listen_addr: non-empty, length limit, must contain ':' (string-level checks only;
+        // SocketAddr parsing happens at bind time, mirroring the rest.listen_addr precedent).
+        if self.listen_addr.is_empty() {
+            panic!("health.listen_addr must not be empty");
+        }
+        if self.listen_addr.len() > HEALTH_LISTEN_ADDR_MAX_LEN {
+            panic!(
+                "health.listen_addr length {} exceeds maximum {}",
+                self.listen_addr.len(),
+                HEALTH_LISTEN_ADDR_MAX_LEN
+            );
+        }
+        if !self.listen_addr.contains(':') {
+            panic!("health.listen_addr must be in host:port format, got '{}'", self.listen_addr);
+        }
+    }
+}
+
 impl RbsConfig {
     /// Validates all configuration fields and panics if any constraint is violated.
     /// Called at startup before building the core to fail-fast on bad configuration.
@@ -902,6 +930,19 @@ impl RbsConfig {
         }
         if let Some(ref resource) = self.resource {
             resource.validate();
+        }
+        if let Some(ref health) = self.health {
+            health.validate();
+        }
+        // The health and business listeners must not share an address: reject at validation
+        // time with a clear message instead of failing later at bind time (EADDRINUSE).
+        if let (Some(ref rest), Some(ref health)) = (&self.rest, &self.health) {
+            if rest.listen_addr == health.listen_addr {
+                panic!(
+                    "health.listen_addr must differ from rest.listen_addr (both are '{}')",
+                    health.listen_addr
+                );
+            }
         }
     }
 }

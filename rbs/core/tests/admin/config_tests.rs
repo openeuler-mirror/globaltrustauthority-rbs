@@ -74,6 +74,7 @@ fn make_valid_rbs_config() -> RbsConfig {
         },
         policy: PolicyLimitsConfig::default(),
         resource: None,
+        health: None,
     }
 }
 
