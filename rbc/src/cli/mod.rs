@@ -11,6 +11,7 @@
  */
 
 pub mod args;
+mod command;
 pub mod context;
 pub mod execute;
 pub mod output;
@@ -25,3 +26,5 @@ pub use context::{
 };
 pub use execute::{execute_action, CliError};
 pub use output::{ClientOutput, OutputFormat};
+
+pub use command::{Cli, GlobalArgs};

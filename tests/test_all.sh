@@ -9,7 +9,7 @@
 # PURPOSE.
 # See the Mulan PSL v2 for more details.
 #
-# Merge gate: Cargo workspace tests, OpenAPI drift check, pytest e2e.
+# Merge gate: Cargo workspace tests, generated documentation drift checks, pytest e2e.
 # Invoke from anywhere; the script cd's to the repo root.
 
 set -euo pipefail
@@ -51,23 +51,29 @@ Environment variables (default: both enabled):
 EOF
 }
 
-assert_openapi_yaml_matches_build() {
-  echo ""
-  echo "=== OpenAPI: docs/proto/rbs_rest_api.yaml matches rbs build output ==="
-  local before_yaml
-  before_yaml="$(mktemp)"
-  cp "$REPO_ROOT/docs/proto/rbs_rest_api.yaml" "$before_yaml"
-  cargo build -p rbs --features rest -q
-  if ! cmp -s "$before_yaml" "$REPO_ROOT/docs/proto/rbs_rest_api.yaml"; then
-    echo "error: docs/proto/rbs_rest_api.yaml differs from \`cargo build -p rbs --features rest\`." >&2
-    echo "Regenerate: cargo build -p rbs --features rest" >&2
-    diff -u "$before_yaml" "$REPO_ROOT/docs/proto/rbs_rest_api.yaml" >&2 || true
-    rm -f "$before_yaml"
-    exit 1
+# The baseline must be captured before cargo test: it can run rbs/build.rs too.
+assert_openapi_docs_match_build() {
+  local baseline=$1 path failed=0
+  echo "=== OpenAPI: YAML, Markdown and HTML match generated output ==="
+  "$REPO_ROOT/scripts/generate-api-docs.sh"
+  for path in "${OPENAPI_DOC_PATHS[@]}"; do
+    if ! cmp -s "$baseline/$path" "$REPO_ROOT/$path"; then
+      echo "error: $path differs from generated output." >&2
+      failed=1
+    fi
+  done
+  if [[ "$failed" -ne 0 ]]; then
+    echo "Review and commit the output of ./scripts/generate-api-docs.sh, then rerun the gate." >&2
+    return 1
   fi
-  rm -f "$before_yaml"
-  echo "OpenAPI YAML is in sync with the rbs crate build."
+  echo "OpenAPI documentation is in sync."
 }
+
+readonly OPENAPI_DOC_PATHS=(
+  docs/proto/rbs_rest_api.yaml
+  docs/api/rbs/md/rbs_rest_api.md
+  docs/api/rbs/html/rbs_rest_api.html
+)
 
 apply_suite_token() {
   local token=$1
@@ -98,16 +104,17 @@ apply_suite_token() {
   esac
 }
 
-run_cargo_section() {
+run_cargo_section() (
   local label=$1
   local openapi_check=$2
-  shift 2
+  local client_docs_check=$3
+  shift 3
   local -a cargo_args=("$@")
 
   if [[ "$ENABLE_CARGO_TESTS" != "1" ]]; then
     echo "=== Cargo tests SKIPPED (ENABLE_CARGO_TESTS=$ENABLE_CARGO_TESTS) ==="
     if [[ "$openapi_check" -eq 1 ]]; then
-      echo "(OpenAPI YAML drift check also skipped; requires Cargo build)"
+      echo "(OpenAPI documentation drift check also skipped; requires Cargo build)"
     fi
     return 0
   fi
@@ -117,6 +124,17 @@ run_cargo_section() {
     return 0
   fi
 
+  local baseline=""
+  if [[ "$openapi_check" -eq 1 ]]; then
+    baseline="$(mktemp -d)"
+    trap 'rm -rf "$baseline"' EXIT
+    local path
+    for path in "${OPENAPI_DOC_PATHS[@]}"; do
+      mkdir -p "$baseline/$(dirname "$path")"
+      cp "$REPO_ROOT/$path" "$baseline/$path"
+    done
+  fi
+
   if [[ "$label" == "workspace" ]]; then
     echo "=== Cargo tests (workspace) ==="
   else
@@ -124,9 +142,12 @@ run_cargo_section() {
   fi
   cargo test "${cargo_args[@]}"
   if [[ "$openapi_check" -eq 1 ]]; then
-    assert_openapi_yaml_matches_build
+    assert_openapi_docs_match_build "$baseline"
   fi
-}
+  if [[ "$client_docs_check" -eq 1 ]]; then
+    "$REPO_ROOT/scripts/generate-cli-docs.sh" --check
+  fi
+)
 
 run_e2e_section() {
   local suites_name=$1 patterns_name=$2 empty_policy=${3:-skip}
@@ -192,7 +213,7 @@ main() {
   fi
 
   if [[ ${#suites[@]} -eq 0 ]]; then
-    run_cargo_section workspace 1 --workspace
+    run_cargo_section workspace 1 1 --workspace
     run_e2e_section e2e_suites e2e_patterns skip
   else
     local s
@@ -200,14 +221,17 @@ main() {
       apply_suite_token "$s"
     done
     local -a cargo_args=()
-    local p openapi_check=0
+    local p openapi_check=0 client_docs_check=0
     for p in "${cargo_packages[@]}"; do
       cargo_args+=(-p "$p")
+      if [[ "$p" == "rbc" || "$p" == "rbs-cli" ]]; then
+        client_docs_check=1
+      fi
     done
     if e2e_suites_include_rbs "${suites[@]}"; then
       openapi_check=1
     fi
-    run_cargo_section selected "$openapi_check" "${cargo_args[@]}"
+    run_cargo_section selected "$openapi_check" "$client_docs_check" "${cargo_args[@]}"
 
     local e2e_empty_policy
     e2e_empty_policy="$(resolve_test_all_e2e_empty_policy ${#e2e_patterns[@]} "${suites[@]}")"

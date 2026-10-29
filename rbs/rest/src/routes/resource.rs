@@ -63,6 +63,8 @@ fn build_uri(path: &str) -> String { format!("/rbs/v0/{}", path) }
         ("resource_name" = String, Path, description = "Resource name (1-32 chars; only letters, digits, `_`, `-` and `.`)", min_length = 1, max_length = 32, pattern = "^[A-Za-z0-9_.-]+$"),
     ),
     responses(
+        (status = 502, description = "Resource backend error", body = ErrorBody),
+        (status = 400, description = "Invalid request parameters or body", body = ErrorBody),
         (status = 201, description = "Resource created", body = ResourceResponse),
         (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody),
@@ -107,6 +109,10 @@ pub async fn create_resource(
         ("resource_name" = String, Path, description = "Resource name (1-32 chars; only letters, digits, `_`, `-` and `.`)", min_length = 1, max_length = 32, pattern = "^[A-Za-z0-9_.-]+$"),
     ),
     responses(
+        (status = 429, description = "CA backend saturated, or per-IP rate limit exceeded when enabled; retry later", body = ErrorBody),
+        (status = 202, description = "CA request pending; retry later", body = ErrorBody),
+        (status = 502, description = "Resource backend error", body = ErrorBody),
+        (status = 400, description = "Invalid request parameters or body", body = ErrorBody),
         (status = 200, description = "Resource content (base64-encoded JWE)", body = ResourceContentResponse),
         (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody),
@@ -146,6 +152,8 @@ pub async fn get_resource(
         ("resource_name" = String, Path, description = "Resource name (1-32 chars; only letters, digits, `_`, `-` and `.`)", min_length = 1, max_length = 32, pattern = "^[A-Za-z0-9_.-]+$"),
     ),
     responses(
+        (status = 502, description = "Resource backend error", body = ErrorBody),
+        (status = 400, description = "Invalid request parameters or body", body = ErrorBody),
         (status = 200, description = "Resource updated", body = ResourceResponse),
         (status = 201, description = "Resource created", body = ResourceResponse),
         (status = 401, description = "Unauthorized", body = ErrorBody),
@@ -196,6 +204,8 @@ pub async fn update_resource(
         ("resource_name" = String, Path, description = "Resource name (1-32 chars; only letters, digits, `_`, `-` and `.`)", min_length = 1, max_length = 32, pattern = "^[A-Za-z0-9_.-]+$"),
     ),
     responses(
+        (status = 502, description = "Resource backend error", body = ErrorBody),
+        (status = 400, description = "Invalid request parameters or body", body = ErrorBody),
         (status = 204, description = "Resource deleted"),
         (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody),
@@ -234,6 +244,8 @@ pub async fn delete_resource(
         ("resource_name" = String, Path, description = "Resource name (1-32 chars; only letters, digits, `_`, `-` and `.`)", min_length = 1, max_length = 32, pattern = "^[A-Za-z0-9_.-]+$"),
     ),
     responses(
+        (status = 502, description = "Resource backend error", body = ErrorBody),
+        (status = 400, description = "Invalid request parameters or body", body = ErrorBody),
         (status = 200, description = "Resource metadata", body = ResourceResponse),
         (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody),
@@ -267,6 +279,7 @@ pub async fn get_resource_info(
     security(("bearerAuth" = [])),
     params(ResourceListQuery),
     responses(
+        (status = 400, description = "Invalid request parameters or body", body = ErrorBody),
         (status = 200, description = "Resource list", body = ResourceListResponse),
         (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody),
@@ -317,9 +330,11 @@ pub async fn list_resources(
         ("resource_name" = String, Path, description = "Resource name (1-32 chars; only letters, digits, `_`, `-` and `.`)", min_length = 1, max_length = 32, pattern = "^[A-Za-z0-9_.-]+$"),
     ),
     responses(
+        (status = 202, description = "CA request pending; retry later", body = ErrorBody),
+        (status = 400, description = "Invalid request parameters or body", body = ErrorBody),
         (status = 200, description = "Resource content (base64-encoded JWE)", body = ResourceContentResponse),
         (status = 404, description = "Resource not found or access denied", body = ErrorBody),
-        (status = 429, description = "CA backend saturated: too many concurrent certificate issuance requests in flight, retry later.", body = ErrorBody),
+        (status = 429, description = "CA backend saturated, or per-IP rate limit exceeded when enabled; retry later", body = ErrorBody),
         (status = 502, description = "Attestation backend error, forwarded verbatim: RBS returns GTA's non-2xx status code (502 shown as an example; statuses such as 400 or 500 are returned as-is) and wraps GTA's body in the error field.", body = ErrorBody),
         (status = 503, description = "Attestation provider unreachable or timed out.", body = ErrorBody),
         (status = 501, description = "Builtin attestation backend mode is configured but not implemented.", body = ErrorBody),

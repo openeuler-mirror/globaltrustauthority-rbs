@@ -31,6 +31,7 @@ use crate::routes::error::rbs_error_response;
         ("as_provider" = Option<String>, Query, description = "Target provider ID for challenge")
     ),
     responses(
+        (status = 400, description = "Invalid query parameters", body = ErrorBody),
         (status = 200, description = "Challenge payload with nonce (JSON).", body = AuthChallengeResponse),
         (status = 502, description = "Attestation backend error, forwarded verbatim: RBS returns GTA's non-2xx status code (502 shown as an example; statuses such as 400 or 500 are returned as-is) and wraps GTA's body in the error field.", body = ErrorBody),
         (status = 503, description = "Attestation provider unreachable or timed out.", body = ErrorBody),

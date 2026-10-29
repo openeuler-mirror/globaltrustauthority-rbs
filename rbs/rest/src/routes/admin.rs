@@ -48,6 +48,7 @@ fn error_response(e: impl ToString, status: u16) -> HttpResponse {
     security(("bearerAuth" = [])),
     params(UserListQuery),
     responses(
+        (status = 400, description = "Invalid request parameters or body", body = ErrorBody),
         (status = 200, description = "Paginated user list", body = UserListResponse),
         (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody),
@@ -130,6 +131,7 @@ pub async fn create_user(
         ("username" = String, Path, description = "Username"),
     ),
     responses(
+        (status = 400, description = "Invalid request parameters or body", body = ErrorBody),
         (status = 200, description = "User found", body = UserResponse),
         (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody),
@@ -223,6 +225,7 @@ pub async fn update_user(
         ("username" = String, Path, description = "Username"),
     ),
     responses(
+        (status = 400, description = "Invalid request parameters or body", body = ErrorBody),
         (status = 204, description = "User deleted (no body)"),
         (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody),

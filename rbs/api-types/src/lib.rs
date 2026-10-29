@@ -29,7 +29,7 @@
 //!
 //! # API Contract
 //!
-//! The types in this crate are derived from the OpenAPI 3.0 specification.
+//! The types in this crate provide schemas for the OpenAPI 3.1 specification.
 //! The checked-in contract in this repository is [`docs/proto/rbs_rest_api.yaml`](../../../docs/proto/rbs_rest_api.yaml),
 //! emitted when building the `rbs` crate with the `rest` feature (`rbs/build.rs`).
 //!

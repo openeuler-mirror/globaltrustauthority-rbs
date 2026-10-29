@@ -14,8 +14,8 @@ License: [Mulan Permissive Software License, Version 2](http://license.coscl.org
 
 ## Authentication
 
-- **attestAuth** — HTTP bearer token (Attest). Attest token. Send as `Authorization: Attest <token>`. Obtain via `POST /rbs/v0/attest`.
-- **bearerAuth** — HTTP bearer token (JWT). JWT Bearer token. Send as `Authorization: Bearer <token>`. Obtain via Admin API or attestation.
+- **attestAuth** — API key in header `Authorization`. Enter the complete header value: `Attest <token>`. Obtain the token via `POST /rbs/v0/attest`.
+- **bearerAuth** — HTTP bearer token (JWT). JWT Bearer token. Send as `Authorization: Bearer <token>`. Sign with the JWT key configured for the user.
 
 ## Endpoints
 
@@ -96,6 +96,8 @@ Operation ID: `rbsVersion`
 | Status | Description | Content |
 |---|---|---|
 | 200 | Version payload: service name, API contract version, and build metadata (JSON). | [RbsVersion](#rbsversion) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 
 Example response (200):
 
@@ -139,8 +141,11 @@ Security: **bearerAuth**
 | Status | Description | Content |
 |---|---|---|
 | 200 | Paginated user list | [UserListResponse](#userlistresponse) |
+| 400 | Invalid request parameters or body | [ErrorBody](#errorbody) |
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 
 Example response (200):
@@ -212,6 +217,8 @@ Example request:
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 409 | Username already exists | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 
 Example response (201):
@@ -248,9 +255,12 @@ Security: **bearerAuth**
 | Status | Description | Content |
 |---|---|---|
 | 200 | User found | [UserResponse](#userresponse) |
+| 400 | Invalid request parameters or body | [ErrorBody](#errorbody) |
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | User not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 
 Example response (200):
@@ -319,6 +329,8 @@ Example request:
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden — caller is neither admin nor self; a non-admin self-update attempted to change `role`/`enabled`; an attempt to modify the built-in Administrator's `role`/`enabled`; or an attempt to assign the `admin` role (pre-configured, no-op on the built-in admin only) | [ErrorBody](#errorbody) |
 | 404 | User not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 
 Example response (200):
@@ -355,9 +367,12 @@ Security: **bearerAuth**
 | Status | Description | Content |
 |---|---|---|
 | 204 | User deleted (no body) | — |
+| 400 | Invalid request parameters or body | [ErrorBody](#errorbody) |
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | User not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 
 ## Policy
@@ -387,8 +402,11 @@ Security: **bearerAuth**
 | Status | Description | Content |
 |---|---|---|
 | 200 | Policy list | [PolicyListResponse](#policylistresponse) |
+| 400 | Invalid request parameters or body | [ErrorBody](#errorbody) |
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 
 Example response (200):
@@ -457,6 +475,8 @@ Example request:
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 409 | Conflict (name duplicate / count exceeded) | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 
 Example response (201):
@@ -501,6 +521,8 @@ Security: **bearerAuth**
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Not found | [ErrorBody](#errorbody) |
 | 409 | Policy is referenced by resources | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 
 ### GET /rbs/v0/resource/policy/{policy_id}
@@ -524,9 +546,12 @@ Security: **bearerAuth**
 | Status | Description | Content |
 |---|---|---|
 | 200 | Policy detail | [PolicyResponse](#policyresponse) |
+| 400 | Invalid policy ID | [ErrorBody](#errorbody) |
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 
 Example response (200):
@@ -595,6 +620,8 @@ Example request:
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Not found | [ErrorBody](#errorbody) |
 | 409 | Version conflict | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 
 Example response (200):
@@ -634,10 +661,13 @@ Security: **bearerAuth**
 | Status | Description | Content |
 |---|---|---|
 | 204 | Policy deleted | — |
+| 400 | Invalid policy ID | [ErrorBody](#errorbody) |
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Not found | [ErrorBody](#errorbody) |
 | 409 | Policy is referenced by resources | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 
 ## Resource
@@ -666,8 +696,11 @@ Security: **bearerAuth**
 | Status | Description | Content |
 |---|---|---|
 | 200 | Resource list | [ResourceListResponse](#resourcelistresponse) |
+| 400 | Invalid request parameters or body | [ErrorBody](#errorbody) |
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 
 Example response (200):
@@ -719,10 +752,15 @@ Security: **bearerAuth**, **attestAuth**
 | Status | Description | Content |
 |---|---|---|
 | 200 | Resource content (base64-encoded JWE) | [ResourceContentResponse](#resourcecontentresponse) |
+| 202 | CA request pending; retry later | [ErrorBody](#errorbody) |
+| 400 | Invalid request parameters or body | [ErrorBody](#errorbody) |
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Resource not found or access denied | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | CA backend saturated, or per-IP rate limit exceeded when enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
+| 502 | Resource backend error | [ErrorBody](#errorbody) |
 
 Example response (200):
 
@@ -788,10 +826,14 @@ Example request:
 |---|---|---|
 | 200 | Resource updated | [ResourceResponse](#resourceresponse) |
 | 201 | Resource created | [ResourceResponse](#resourceresponse) |
+| 400 | Invalid request parameters or body | [ErrorBody](#errorbody) |
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 409 | Conflict (version conflict / resource already exists / count exceeded) | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
+| 502 | Resource backend error | [ErrorBody](#errorbody) |
 
 Example response (200):
 
@@ -863,10 +905,14 @@ Example request:
 | Status | Description | Content |
 |---|---|---|
 | 201 | Resource created | [ResourceResponse](#resourceresponse) |
+| 400 | Invalid request parameters or body | [ErrorBody](#errorbody) |
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 409 | Conflict (resource already exists / count exceeded) | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
+| 502 | Resource backend error | [ErrorBody](#errorbody) |
 
 Example response (201):
 
@@ -910,10 +956,14 @@ Security: **bearerAuth**
 | Status | Description | Content |
 |---|---|---|
 | 204 | Resource deleted | — |
+| 400 | Invalid request parameters or body | [ErrorBody](#errorbody) |
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Resource not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
+| 502 | Resource backend error | [ErrorBody](#errorbody) |
 
 ### GET /rbs/v0/{res_provider}/{repository_name}/{resource_type}/{resource_name}/info
 
@@ -939,10 +989,14 @@ Security: **bearerAuth**, **attestAuth**
 | Status | Description | Content |
 |---|---|---|
 | 200 | Resource metadata | [ResourceResponse](#resourceresponse) |
+| 400 | Invalid request parameters or body | [ErrorBody](#errorbody) |
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Resource not found or access denied | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
+| 502 | Resource backend error | [ErrorBody](#errorbody) |
 
 Example response (200):
 
@@ -1025,8 +1079,11 @@ Example request:
 | Status | Description | Content |
 |---|---|---|
 | 200 | Resource content (base64-encoded JWE) | [ResourceContentResponse](#resourcecontentresponse) |
+| 202 | CA request pending; retry later | [ErrorBody](#errorbody) |
+| 400 | Invalid request parameters or body | [ErrorBody](#errorbody) |
 | 404 | Resource not found or access denied | [ErrorBody](#errorbody) |
-| 429 | CA backend saturated: too many concurrent certificate issuance requests in flight, retry later. | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | CA backend saturated, or per-IP rate limit exceeded when enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 | 501 | Builtin attestation backend mode is configured but not implemented. | [ErrorBody](#errorbody) |
 | 502 | Attestation backend error, forwarded verbatim: RBS returns GTA's non-2xx status code (502 shown as an example; statuses such as 400 or 500 are returned as-is) and wraps GTA's body in the error field. | [ErrorBody](#errorbody) |
@@ -1097,6 +1154,8 @@ Example request:
 |---|---|---|
 | 200 | Attestation token (JSON). | [AttestResponse](#attestresponse) |
 | 400 | Invalid request. | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal server error. | [ErrorBody](#errorbody) |
 | 501 | Builtin attestation backend mode is configured but not implemented. | [ErrorBody](#errorbody) |
 | 502 | Attestation backend error, forwarded verbatim: RBS returns GTA's non-2xx status code (502 shown as an example; statuses such as 400 or 500 are returned as-is) and wraps GTA's body in the error field. A GTA 200 response whose token list carries no non-empty token is likewise rejected as 502. | [ErrorBody](#errorbody) |
@@ -1138,6 +1197,8 @@ Security: **bearerAuth**
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Provider not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 | 503 | GTA unreachable or timeout; other GTA statuses forwarded as-is | [ErrorBody](#errorbody) |
 
@@ -1227,6 +1288,8 @@ Example request:
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 | 503 | GTA unreachable or timeout; other GTA statuses forwarded as-is | [ErrorBody](#errorbody) |
 
@@ -1288,6 +1351,8 @@ Example request:
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Provider not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 | 503 | GTA unreachable or timeout; other GTA statuses forwarded as-is | [ErrorBody](#errorbody) |
 
@@ -1345,6 +1410,8 @@ Example request:
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 | 503 | GTA unreachable or timeout; other GTA statuses forwarded as-is | [ErrorBody](#errorbody) |
 
@@ -1372,6 +1439,8 @@ Security: **bearerAuth**
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 | 503 | GTA unreachable or timeout; other GTA statuses forwarded as-is | [ErrorBody](#errorbody) |
 
@@ -1434,6 +1503,8 @@ Security: **bearerAuth**
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 | 503 | GTA unreachable or timeout; other GTA statuses forwarded as-is | [ErrorBody](#errorbody) |
 
@@ -1465,6 +1536,8 @@ Security: **bearerAuth**
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Provider not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 | 503 | GTA unreachable or timeout; other GTA statuses forwarded as-is | [ErrorBody](#errorbody) |
 
@@ -1544,6 +1617,8 @@ Example request:
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 | 503 | GTA unreachable or timeout; other GTA statuses forwarded as-is | [ErrorBody](#errorbody) |
 
@@ -1608,6 +1683,8 @@ Example request:
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Provider not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 | 503 | GTA unreachable or timeout; other GTA statuses forwarded as-is | [ErrorBody](#errorbody) |
 
@@ -1668,6 +1745,8 @@ Example request:
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 | 503 | GTA unreachable or timeout; other GTA statuses forwarded as-is | [ErrorBody](#errorbody) |
 
@@ -1695,6 +1774,8 @@ Security: **bearerAuth**
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 | 503 | GTA unreachable or timeout; other GTA statuses forwarded as-is | [ErrorBody](#errorbody) |
 
@@ -1745,6 +1826,8 @@ Security: **bearerAuth**
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 | 503 | GTA unreachable or timeout; other GTA statuses forwarded as-is | [ErrorBody](#errorbody) |
 
@@ -1776,6 +1859,8 @@ Security: **bearerAuth**
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Provider not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 | 503 | GTA unreachable or timeout; other GTA statuses forwarded as-is | [ErrorBody](#errorbody) |
 
@@ -1851,6 +1936,8 @@ Example request:
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 | 503 | GTA unreachable or timeout; other GTA statuses forwarded as-is | [ErrorBody](#errorbody) |
 
@@ -1913,6 +2000,8 @@ Example request:
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Provider not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 | 503 | GTA unreachable or timeout; other GTA statuses forwarded as-is | [ErrorBody](#errorbody) |
 
@@ -1973,6 +2062,8 @@ Example request:
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 | 503 | GTA unreachable or timeout; other GTA statuses forwarded as-is | [ErrorBody](#errorbody) |
 
@@ -2000,6 +2091,8 @@ Security: **bearerAuth**
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 | 503 | GTA unreachable or timeout; other GTA statuses forwarded as-is | [ErrorBody](#errorbody) |
 
@@ -2050,6 +2143,8 @@ Security: **bearerAuth**
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 | 503 | GTA unreachable or timeout; other GTA statuses forwarded as-is | [ErrorBody](#errorbody) |
 
@@ -2082,6 +2177,8 @@ Security: **bearerAuth**
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Provider not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 | 503 | GTA unreachable or timeout; other GTA statuses forwarded as-is | [ErrorBody](#errorbody) |
 
@@ -2177,6 +2274,8 @@ Example request:
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 | 503 | GTA unreachable or timeout; other GTA statuses forwarded as-is | [ErrorBody](#errorbody) |
 
@@ -2244,6 +2343,8 @@ Example request:
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Provider not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 | 503 | GTA unreachable or timeout; other GTA statuses forwarded as-is | [ErrorBody](#errorbody) |
 
@@ -2307,6 +2408,8 @@ Example request:
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 | 503 | GTA unreachable or timeout; other GTA statuses forwarded as-is | [ErrorBody](#errorbody) |
 
@@ -2335,6 +2438,8 @@ Security: **bearerAuth**
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 | 503 | GTA unreachable or timeout; other GTA statuses forwarded as-is | [ErrorBody](#errorbody) |
 
@@ -2398,6 +2503,8 @@ Security: **bearerAuth**
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 | 503 | GTA unreachable or timeout; other GTA statuses forwarded as-is | [ErrorBody](#errorbody) |
 
@@ -2430,6 +2537,8 @@ Security: **bearerAuth**
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Provider not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 | 503 | GTA unreachable or timeout; other GTA statuses forwarded as-is | [ErrorBody](#errorbody) |
 
@@ -2515,6 +2624,8 @@ Example request:
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 | 503 | GTA unreachable or timeout; other GTA statuses forwarded as-is | [ErrorBody](#errorbody) |
 
@@ -2585,6 +2696,8 @@ Example request:
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Provider not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 | 503 | GTA unreachable or timeout; other GTA statuses forwarded as-is | [ErrorBody](#errorbody) |
 
@@ -2651,6 +2764,8 @@ Example request:
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 | 503 | GTA unreachable or timeout; other GTA statuses forwarded as-is | [ErrorBody](#errorbody) |
 
@@ -2679,6 +2794,8 @@ Security: **bearerAuth**
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 | 503 | GTA unreachable or timeout; other GTA statuses forwarded as-is | [ErrorBody](#errorbody) |
 
@@ -2730,6 +2847,8 @@ Security: **bearerAuth**
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 | 503 | GTA unreachable or timeout; other GTA statuses forwarded as-is | [ErrorBody](#errorbody) |
 
@@ -2762,6 +2881,8 @@ Security: **bearerAuth**
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Provider not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 | 503 | GTA unreachable or timeout; other GTA statuses forwarded as-is | [ErrorBody](#errorbody) |
 
@@ -2843,6 +2964,8 @@ Example request:
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 | 503 | GTA unreachable or timeout; other GTA statuses forwarded as-is | [ErrorBody](#errorbody) |
 
@@ -2911,6 +3034,8 @@ Example request:
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Provider not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 | 503 | GTA unreachable or timeout; other GTA statuses forwarded as-is | [ErrorBody](#errorbody) |
 
@@ -2977,6 +3102,8 @@ Example request:
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 | 503 | GTA unreachable or timeout; other GTA statuses forwarded as-is | [ErrorBody](#errorbody) |
 
@@ -3005,6 +3132,8 @@ Security: **bearerAuth**
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 | 503 | GTA unreachable or timeout; other GTA statuses forwarded as-is | [ErrorBody](#errorbody) |
 
@@ -3056,6 +3185,8 @@ Security: **bearerAuth**
 | 401 | Unauthorized | [ErrorBody](#errorbody) |
 | 403 | Forbidden | [ErrorBody](#errorbody) |
 | 404 | Not found | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal error | [ErrorBody](#errorbody) |
 | 503 | GTA unreachable or timeout; other GTA statuses forwarded as-is | [ErrorBody](#errorbody) |
 
@@ -3078,6 +3209,9 @@ Operation ID: `getAuthChallenge`
 | Status | Description | Content |
 |---|---|---|
 | 200 | Challenge payload with nonce (JSON). | [AuthChallengeResponse](#authchallengeresponse) |
+| 400 | Invalid query parameters | [ErrorBody](#errorbody) |
+| 414 | Request path and query string exceed the URI length limit | [ErrorBody](#errorbody) |
+| 429 | Rate limit exceeded when per-IP rate limiting is enabled; retry later | [ErrorBody](#errorbody) |
 | 500 | Internal server error. | [ErrorBody](#errorbody) |
 | 501 | Builtin attestation backend mode is configured but not implemented. | [ErrorBody](#errorbody) |
 | 502 | Attestation backend error, forwarded verbatim: RBS returns GTA's non-2xx status code (502 shown as an example; statuses such as 400 or 500 are returned as-is) and wraps GTA's body in the error field. | [ErrorBody](#errorbody) |
@@ -3537,20 +3671,6 @@ Resource content returned by GET and POST .../retrieve.
 | `content` | string | yes | Base64-encoded JWE ciphertext. |
 | `content_type` | string | no | Content type label (`jwt`, `json`, `text`, `binary`, `jwk`, `jwe`) for decoding the decrypted content. |
 | `export_mode` | string | yes | Export mode; always `jwe`. |
-
-### ResourceInfoResponse
-
-Resource metadata returned by GET .../info (no secret material).
-
-| Property | Type | Required | Description |
-|---|---|---|---|
-| `uri` | string | yes | Canonical resource URI. |
-| `user_id` | string | yes | Username of the resource owner. |
-| `policy_id` | string | yes | UUID of the policy bound to this resource. |
-| `created_at` | string | yes | Creation time (RFC 3339). |
-| `updated_at` | string | yes | Last update time (RFC 3339). |
-| `content_type` | string | no | Content type label (`jwt`, `json`, `text`, `binary`, `jwk`, `jwe`), if set. |
-| `export_mode` | string | yes | Export mode of the resource; always `jwe`. |
 
 ### ResourceListResponse
 

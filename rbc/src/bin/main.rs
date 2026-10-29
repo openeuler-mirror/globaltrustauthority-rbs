@@ -11,56 +11,14 @@
  */
 use clap::Parser;
 use rbc::cli::{
-    build_client_context, execute_action, ClientAction, ClientCommandContext, ClientOutput, ClientRuntimeInputs,
-    ExecutionOptions, OutputFormat,
+    build_client_context, execute_action, Cli, ClientAction, ClientCommandContext, ClientOutput, ClientRuntimeInputs,
+    ExecutionOptions, GlobalArgs, OutputFormat,
 };
+#[cfg(test)]
 use rbc::tools::tee_key::KeyType;
 
 #[cfg(test)]
 use rbc::ProviderType;
-
-#[derive(Parser, Debug)]
-#[command(name = "rbc-cli", about = "Run RBC CLI commands")]
-pub struct Cli {
-    #[command(flatten)]
-    pub global: GlobalArgs,
-
-    #[command(subcommand)]
-    pub command: ClientAction,
-}
-
-#[derive(clap::Args, Debug, Clone)]
-pub struct GlobalArgs {
-    #[arg(short = 'b', long, value_parser = validate_base_url, help = "Base URL of the RBS service")]
-    pub base_url: Option<String>,
-
-    #[arg(long, value_parser = rbc::cli::execute::validate_file_path, help = "CA certificate file used to verify the RBS server")]
-    pub cert: Option<String>,
-
-    #[arg(long, help = "Request timeout in seconds")]
-    pub timeout_secs: Option<u64>,
-
-    #[arg(long, value_parser = parse_key_algorithm, help = "Key algorithm used for TEE key generation")]
-    pub key_algorithm: Option<KeyType>,
-
-    #[arg(long, default_value = "gta", help = "Provider identifier sent to RBS APIs")]
-    pub as_provider: String,
-
-    #[arg(short, long, global = true, value_enum, default_value_t = OutputFormat::Text, help = "Output format")]
-    pub format: OutputFormat,
-
-    #[arg(short, long, global = true, value_parser = rbc::cli::execute::validate_file_path, help = "Write command output to a file")]
-    pub output_file: Option<String>,
-
-    #[arg(long, global = true, help = "Do not print command output")]
-    pub noout: bool,
-
-    #[arg(short, long, global = true, conflicts_with = "verbose", help = "Suppress non-essential output")]
-    pub quiet: bool,
-
-    #[arg(short, long, global = true, help = "Enable verbose diagnostics")]
-    pub verbose: bool,
-}
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
@@ -149,26 +107,6 @@ fn resolve_context(
         command,
     )
     .map_err(|err| err.into())
-}
-
-fn parse_key_algorithm(value: &str) -> Result<KeyType, String> {
-    match value {
-        "rsa" => Ok(KeyType::Rsa),
-        "ec" => Ok(KeyType::Ec),
-        "sm2" => Ok(KeyType::Sm2),
-        _ => Err(format!("invalid key algorithm `{value}`; expected `rsa`, `ec`, or `sm2`")),
-    }
-}
-
-fn validate_base_url(value: &str) -> Result<String, String> {
-    if value.trim().is_empty() {
-        return Err("base URL must not be empty".to_string());
-    }
-    let url = reqwest::Url::parse(value).map_err(|err| format!("invalid base URL: {err}"))?;
-    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
-        return Err("base URL must use http or https and include a host".to_string());
-    }
-    Ok(value.to_string())
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -404,16 +342,6 @@ mod tests {
                 .map(|provider| provider.provider_type),
             Some(ProviderType::Rbs)
         );
-    }
-
-    // Validate RBC's base URL parser for valid schemes and malformed inputs.
-    #[test]
-    fn base_url_validator_matrix() {
-        assert!(validate_base_url("http://127.0.0.1:8080").is_ok());
-        assert!(validate_base_url("https://rbs.example.com").is_ok());
-        assert!(validate_base_url("").is_err());
-        assert!(validate_base_url("not a url").is_err());
-        assert!(validate_base_url("ftp://rbs.example.com").is_err());
     }
 
     #[test]

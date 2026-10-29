@@ -39,7 +39,7 @@ cd globaltrustauthority-rbs
 - `openssl`、`git`（构建与 RBS e2e 所需；git 为 `GIT_HASH` 嵌入所需）
 - `bao` 或 `openbao`、C 编译器（e2e 所需）；RBC/tools 原生证明 e2e 还需要 `swtpm` 与 `tpm2-tools`
 - **cargo-deny**（运行 §4 中的 `cargo deny check` / `cargo deny-all` 前需安装；合并门本身不包含此项）
-- **Node.js** >= 22.12（经 `./scripts/generate-api-docs.sh` 生成 API 文档；合并门 OpenAPI 检查仅比对 YAML，不调用 Node）
+- **Node.js** >= 22.12（用于 `./scripts/generate-api-docs.sh` 和合并门中的 API 文档漂移检查）
 - Python 3 + `tests/requirements.txt` 中的包（`pytest`、`httpx`、`PyYAML`、`jwcrypto`）（e2e 层）：
 
   `python3 -m pip install -r tests/requirements.txt`
@@ -111,16 +111,17 @@ RBS 有两层测试，请在对应层覆盖您的变更：
 
 4. 提交重新生成的 `docs/proto/rbs_rest_api.yaml`、`docs/api/rbs/md/rbs_rest_api.md`、`docs/api/rbs/html/rbs_rest_api.html`。
 
-> `test_all.sh` 的 OpenAPI 检查只比对 YAML。CI（`CI=true`）下 `./scripts/generate-api-docs.sh` 还会校验 `docs/api/rbs/` 下 Markdown/HTML 是否同步；仅更新 YAML 可能导致流水线失败。
+> `test_all.sh` 在 Cargo 测试前保存 YAML、Markdown 和 HTML 的基线，重新生成后比对三份文档；任一产物过期都会导致合并门失败。
 
 #### RBC SDK / `rbc-cli`（`rbc`）
 
 - 行为、配置、`rbc-cli` 参数变更：更新 [`docs/usage_guide/rbc.md`](docs/usage_guide/rbc.md)。
-- 公开 SDK 类型或 FFI 面变更：运行 `python3 scripts/gen-rbc-sdk-docs.py`，提交 `docs/api/rbc/sdk.md`。
+- CLI 或 SDK 变更：运行 `./scripts/generate-cli-docs.sh`，提交 `docs/api/rbc/cli.md`、`docs/api/rbs-cli/cli.md` 和 `docs/api/rbc/sdk.md`。`--check` 只读检查文档是否过期。
+- SDK 脚本覆盖 `rbc/src/sdk.rs` 中的类型和方法，不覆盖独立的 C FFI 函数；FFI 变更须同步检查 `rbc/include/rbc.h` 和用法指南。
 
 #### `rbs-cli` / admin client（`tools`）
 
-- 命令、子命令、flag 或环境变量变更：更新 [`docs/usage_guide/rbs_cli.md`](docs/usage_guide/rbs_cli.md)。
+- 命令、子命令、flag 或环境变量变更：更新 [`docs/usage_guide/rbs_cli.md`](docs/usage_guide/rbs_cli.md)，并运行 `./scripts/generate-cli-docs.sh`。完整合并门及 `--suite rbc`、`--suite tools` 会检查生成文档。
 
 #### 项目与维护者文档
 
@@ -139,10 +140,10 @@ RBS 有两层测试，请在对应层覆盖您的变更：
 
 ### 7. 运行合并门
 
-**合并门**（提交前必须通过）：`./tests/test_all.sh` 依次运行 Cargo workspace 测试、OpenAPI **YAML** 漂移检查、pytest e2e。它**不**运行 `cargo clippy` 或 `cargo deny check`。
+**合并门**（提交前必须通过）：`./tests/test_all.sh` 依次运行 Cargo workspace 测试、OpenAPI **YAML/Markdown/HTML** 漂移检查、pytest e2e。它**不**运行 `cargo clippy` 或 `cargo deny check`。
 
 ```bash
-# 默认：Cargo workspace 测试 + OpenAPI YAML 漂移 + pytest e2e
+# 默认：Cargo workspace 测试 + OpenAPI YAML/Markdown/HTML 漂移 + pytest e2e
 ./tests/test_all.sh
 ```
 
@@ -217,7 +218,7 @@ git push origin feature/your-feature-name
 
 - [ ] `./tests/test_all.sh` 通过
 - [ ] API 变更（`rbs`）：已按 §6 运行 `generate-api-docs.sh` 并提交全部产物
-- [ ] SDK / CLI 变更（`rbc`、`tools`）：已按 §6 更新用法指南与（如适用）`docs/api/rbc/sdk.md`
+- [ ] SDK / CLI 变更（`rbc`、`tools`）：已按 §6 更新用法指南并生成 CLI / SDK 文档
 
 质量门（§4）：
 
@@ -304,8 +305,8 @@ prerequisites:
   e2e flows also require `swtpm` and `tpm2-tools`
 - **cargo-deny** (install it before running `cargo deny check` / `cargo deny-all`
   in §4; the merge gate does not run this step)
-- **Node.js** >= 22.12 (used by `./scripts/generate-api-docs.sh`; the merge gate
-  only checks OpenAPI YAML drift and does not invoke Node)
+- **Node.js** >= 22.12 (used by `./scripts/generate-api-docs.sh` and the merge gate
+  to check YAML/Markdown/HTML drift)
 - Python 3 + packages from `tests/requirements.txt` (`pytest`, `httpx`, `PyYAML`, `jwcrypto`)
   for the e2e layer:
 
@@ -403,21 +404,25 @@ If you add or modify API endpoints or parameters:
 4. Commit the regenerated `docs/proto/rbs_rest_api.yaml`,
    `docs/api/rbs/md/rbs_rest_api.md`, and `docs/api/rbs/html/rbs_rest_api.html`.
 
-> `test_all.sh` checks OpenAPI **YAML** drift only. In CI (`CI=true`),
-> `./scripts/generate-api-docs.sh` also verifies Markdown/HTML under
-> `docs/api/rbs/`; updating YAML alone can still fail the pipeline.
+> `test_all.sh` captures YAML, Markdown, and HTML before Cargo tests and
+> compares all three against regenerated output. Any stale artifact fails the gate.
 
 #### RBC SDK / `rbc-cli` (`rbc`)
 
 - For behavior, configuration, or `rbc-cli` flag changes, update
   [`docs/usage_guide/rbc.md`](docs/usage_guide/rbc.md).
-- For public SDK type or FFI surface changes, run `python3 scripts/gen-rbc-sdk-docs.py`
-  and commit the updated `docs/api/rbc/sdk.md`.
+- For CLI or SDK changes, run `./scripts/generate-cli-docs.sh` and commit
+  `docs/api/rbc/cli.md`, `docs/api/rbs-cli/cli.md`, and `docs/api/rbc/sdk.md`.
+  Add `--check` for a read-only drift check.
+- The SDK script covers types and methods in `rbc/src/sdk.rs`, not standalone C FFI
+  functions; review `rbc/include/rbc.h` and the usage guide for FFI changes.
 
 #### `rbs-cli` / admin client (`tools`)
 
 - For command, subcommand, flag, or environment variable changes, update
-  [`docs/usage_guide/rbs_cli.md`](docs/usage_guide/rbs_cli.md).
+  [`docs/usage_guide/rbs_cli.md`](docs/usage_guide/rbs_cli.md), then run
+  `./scripts/generate-cli-docs.sh`. The full merge gate and `--suite rbc` /
+  `--suite tools` check the generated client references.
 
 #### Project & maintainer docs
 
@@ -440,11 +445,11 @@ checked the documented commands, paths, and dependencies against the repository.
 ### 7. Run the Merge Gate
 
 **Merge gate** (required before submission): `./tests/test_all.sh` runs Cargo
-workspace tests, an OpenAPI **YAML** drift check, and then pytest e2e. It does
+workspace tests, an OpenAPI **YAML/Markdown/HTML** drift check, and then pytest e2e. It does
 **not** run `cargo clippy` or `cargo deny check`.
 
 ```bash
-# Default: Cargo workspace tests + OpenAPI YAML drift + pytest e2e
+# Default: Cargo workspace tests + OpenAPI YAML/Markdown/HTML drift + pytest e2e
 ./tests/test_all.sh
 ```
 
@@ -539,7 +544,7 @@ Merge gate:
 
 - [ ] `./tests/test_all.sh` passes
 - [ ] API changes (`rbs`): `generate-api-docs.sh` was run per §6, and all artifacts are committed
-- [ ] SDK / CLI changes (`rbc`, `tools`): usage guides are updated per §6, and `docs/api/rbc/sdk.md` is updated when applicable
+- [ ] SDK / CLI changes (`rbc`, `tools`): usage guides and generated CLI / SDK references are updated per §6
 
 Quality gates (§4):
 

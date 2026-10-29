@@ -137,7 +137,8 @@ pub struct ResourceContentResponse {
 
 // ── Info (metadata) ─────────────────────────────────────────────────────────
 
-/// Resource metadata returned by GET .../info (no secret material).
+/// Legacy resource metadata shape retained for Rust API compatibility.
+/// The REST `GET .../info` endpoint returns [`ResourceResponse`].
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct ResourceInfoResponse {

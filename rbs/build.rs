@@ -43,15 +43,17 @@ fn openapi_generate() -> anyhow::Result<()> {
         manifest_dir.parent().expect("rbs crate manifest should have a parent (workspace root)");
 
     // rbs-rest: OpenAPI document definition and every route that contributes to it.
-    let rest = workspace_root.join("rest");
+    let rest = manifest_dir.join("rest");
     println!("cargo:rerun-if-changed={}", rest.join("src").display());
 
     // rbs-api-types: `utoipa::ToSchema` types included in `ApiDoc`; without these, Cargo may skip
     // rerunning this script when only api-types changes, leaving `docs/proto/rbs_rest_api.yaml` stale.
-    let api_types = workspace_root.join("api-types");
+    let api_types = manifest_dir.join("api-types");
     println!("cargo:rerun-if-changed={}", api_types.join("src").display());
 
     let yaml_path = workspace_root.join("docs/proto/rbs_rest_api.yaml");
+    // A warm Cargo cache must not preserve edited or deleted generated YAML.
+    println!("cargo:rerun-if-changed={}", yaml_path.display());
 
     if let Some(p) = yaml_path.parent() {
         std::fs::create_dir_all(p).with_context(|| format!("create {}", p.display()))?;
@@ -59,7 +61,10 @@ fn openapi_generate() -> anyhow::Result<()> {
 
     let openapi = ApiDoc::openapi();
     let yaml = serde_yaml::to_string(&openapi).context("serialize OpenAPI to YAML")?;
-    std::fs::write(&yaml_path, yaml).with_context(|| format!("write {}", yaml_path.display()))?;
+    // Keep the output timestamp stable when the schema has not changed.
+    if std::fs::read(&yaml_path).ok().as_deref() != Some(yaml.as_bytes()) {
+        std::fs::write(&yaml_path, yaml).with_context(|| format!("write {}", yaml_path.display()))?;
+    }
 
     Ok(())
 }
