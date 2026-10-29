@@ -72,3 +72,54 @@ impl TokenProvider for NativeTokenProvider {
         self.client.get_token(req).await.map_err(|e| RbcError::ProviderError(e.to_string()))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn new_rejects_malformed_provider_config() {
+        let err = NativeTokenProvider::new(json!({"config_path": 42})).err().expect("config_path must be a string");
+        assert!(matches!(err, RbcError::ConfigError(_)), "expected ConfigError, got {err:?}");
+        assert!(err.to_string().contains("NativeTokenProvider config"), "unexpected message: {err}");
+    }
+
+    #[test]
+    fn new_maps_agent_config_init_failure_to_provider_error() {
+        let err = NativeTokenProvider::new(json!({"config_path": "/nonexistent/rbc-agent-config.yaml"}))
+            .err().expect("missing agent config must fail");
+        assert!(matches!(err, RbcError::ProviderError(_)), "expected ProviderError, got {err:?}");
+        assert!(err.to_string().contains("attestation_client init failed"), "unexpected message: {err}");
+    }
+
+    #[test]
+    fn new_reports_unparsable_agent_config_as_provider_error() {
+        // `rbc/tests/data/agent_config.yaml` is a partial agent config: it is found on disk but
+        // cannot be parsed, which must be reported as a provider initialization error.
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/data/agent_config.yaml");
+        let err = NativeTokenProvider::new(json!({"config_path": path})).err().expect("partial config must fail");
+        assert!(matches!(err, RbcError::ProviderError(_)), "expected ProviderError, got {err:?}");
+    }
+
+    #[test]
+    fn get_token_serializes_attester_data() {
+        let provider = NativeTokenProvider { client: AttestationClient };
+        let attester_data = AttesterData { runtime_data: Some(serde_json::Map::new()) };
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("runtime");
+
+        let err = rt.block_on(provider.get_token(None, Some(&attester_data))).err().expect("attestation flow must fail");
+        assert!(matches!(err, RbcError::ProviderError(_)), "expected ProviderError, got {err:?}");
+    }
+
+    #[test]
+    fn get_token_maps_client_failure_to_provider_error() {
+        // `AttestationClient` is a fieldless handle; the attestation flow then fails on the
+        // unconfigured agent client and must be reported as a provider error.
+        let provider = NativeTokenProvider { client: AttestationClient };
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("runtime");
+
+        let err = rt.block_on(provider.get_token(None, None)).err().expect("attestation flow must fail");
+        assert!(matches!(err, RbcError::ProviderError(_)), "expected ProviderError, got {err:?}");
+    }
+}

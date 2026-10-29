@@ -267,6 +267,14 @@ mod tests {
     }
 
     #[test]
+    fn string_free_empty_string_does_not_panic() {
+        // Only the NUL terminator is zeroized; the length must still cover it.
+        let raw = std::ffi::CString::new("").unwrap().into_raw();
+        assert_eq!(unsafe { zero_c_string(raw) }, 1);
+        rbc_string_free(raw);
+    }
+
+    #[test]
     fn zero_c_string_clears_contents_and_terminator_in_place() {
         let secret = "secret-attest-token";
         let raw = std::ffi::CString::new(secret).unwrap().into_raw();

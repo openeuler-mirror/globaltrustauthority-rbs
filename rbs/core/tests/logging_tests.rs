@@ -12,7 +12,7 @@
 
 //! Logging integration tests.
 
-use rbs_core::{init_logging, LogRotationConfig, LoggingConfig};
+use rbs_core::{init_logging, LogRotationConfig, LoggingConfig, RotationCompression};
 use serial_test::serial;
 use std::fs;
 use tempfile::tempdir;
@@ -84,6 +84,151 @@ fn init_logging_fails_when_log_directory_does_not_exist() {
         "error should mention missing directory: {}",
         msg
     );
+}
+
+/// A whitespace-only `file_path` means "not configured": the logger falls back
+/// to stderr instead of trying to open a blank path.
+#[test]
+#[serial]
+fn init_logging_whitespace_file_path_falls_back_to_stderr() {
+    let config = LoggingConfig { file_path: Some("   ".to_string()), ..LoggingConfig::default() };
+    init_logging(&config).expect("whitespace-only path must be treated as unset");
+}
+
+/// An unopenable target (a directory) surfaces the open error instead of
+/// panicking; the root path also has no parent directory.
+#[test]
+#[serial]
+fn init_logging_unopenable_file_path_returns_error() {
+    let config = LoggingConfig { file_path: Some("/".to_string()), ..LoggingConfig::default() };
+    let err = init_logging(&config).expect_err("a directory is not a writable log target");
+    assert!(err.to_string().to_lowercase().contains("directory"), "error should come from the open call: {err}");
+}
+
+// ============ Level Filtering Tests ============
+
+/// `init_logging` maps every accepted level string onto `log::max_level`; the
+/// fallback for unknown strings is `Info`.
+#[test]
+#[serial]
+fn init_logging_maps_every_level_string_to_max_level() {
+    let cases = [
+        ("trace", log::LevelFilter::Trace),
+        ("debug", log::LevelFilter::Debug),
+        ("info", log::LevelFilter::Info),
+        ("warn", log::LevelFilter::Warn),
+        ("error", log::LevelFilter::Error),
+        ("off", log::LevelFilter::Off),
+        ("WARN", log::LevelFilter::Warn),
+        ("not-a-level", log::LevelFilter::Info),
+    ];
+
+    for (level, expected) in cases {
+        let config = LoggingConfig { level: level.to_string(), ..LoggingConfig::default() };
+        init_logging(&config).expect("init_logging should accept every level string");
+        assert_eq!(log::max_level(), expected, "level string '{level}' must map to {expected:?}");
+    }
+
+    // Leave the process-global max level at the library default for later tests.
+    init_logging(&LoggingConfig::default()).expect("reset logging");
+}
+
+/// Records below the configured level are dropped by the logger itself, not only
+/// by the `log` facade macros (the file target keeps its own filter).
+#[test]
+#[serial]
+fn write_record_drops_records_below_configured_level() {
+    let dir = tempdir().expect("create temp dir");
+    let log_file = dir.path().join("level-filter.log");
+    let config = LoggingConfig {
+        level: "warn".to_string(),
+        format: "text".to_string(),
+        file_path: Some(log_file.to_string_lossy().to_string()),
+        enable_rotation: false,
+        rotation: LogRotationConfig::default(),
+        file_mode: 0o600,
+    };
+    init_logging(&config).expect("init_logging should succeed");
+
+    // Bypass the facade's own max-level check so the record reaches the logger
+    // and its internal level filter is exercised.
+    log::set_max_level(log::LevelFilter::Trace);
+    log::info!("dropped-because-below-level");
+    log::warn!("kept-by-level-filter");
+    log::logger().flush();
+    log::set_max_level(log::LevelFilter::Info);
+
+    let content = fs::read_to_string(&log_file).expect("read log file");
+    assert!(content.contains("kept-by-level-filter"), "warn record must be written; got: {content:?}");
+    assert!(
+        !content.contains("dropped-because-below-level"),
+        "info record below the configured level must be dropped; got: {content:?}"
+    );
+}
+
+/// `RouterLogger::enabled` reports whether a level passes the global max level.
+#[test]
+#[serial]
+fn router_logger_enabled_compares_against_max_level() {
+    init_logging(&LoggingConfig { level: "info".to_string(), ..LoggingConfig::default() })
+        .expect("init_logging should succeed");
+
+    let mut builder = log::MetadataBuilder::new();
+    builder.level(log::Level::Info);
+    builder.target("logging_tests");
+    let metadata = builder.build();
+    assert!(log::logger().enabled(&metadata), "info must be enabled at max level info");
+
+    let mut builder = log::MetadataBuilder::new();
+    builder.level(log::Level::Debug);
+    builder.target("logging_tests");
+    let metadata = builder.build();
+    assert!(!log::logger().enabled(&metadata), "debug must be disabled at max level info");
+}
+
+// ============ Rotation / Compression Tests ============
+
+/// Gzip rotation: each archived generation is compressed to `<file>.N.gz`, the
+/// uncompressed generation is removed, and existing archives are shifted up.
+#[test]
+#[serial]
+fn rotation_with_gzip_compresses_archives_and_shifts_generations() {
+    let dir = tempdir().expect("create temp dir");
+    let log_file = dir.path().join("rbs-gzip.log");
+
+    let config = LoggingConfig {
+        level: "info".to_string(),
+        format: "text".to_string(),
+        file_path: Some(log_file.to_string_lossy().to_string()),
+        enable_rotation: true,
+        rotation: LogRotationConfig {
+            max_file_size_bytes: 1024,
+            max_files: 3,
+            compression: RotationCompression::Gzip,
+            file_mode: 0o440,
+        },
+        file_mode: 0o600,
+    };
+    init_logging(&config).expect("init_logging should succeed");
+
+    // Enough lines for several rotations (each line is well under 100 bytes).
+    for i in 0..200 {
+        log::info!("gzip rotation test line number {} with some padding", i);
+    }
+    log::logger().flush();
+
+    let archive = dir.path().join("rbs-gzip.log.1.gz");
+    assert!(archive.exists(), "first gzip archive should exist: {archive:?}");
+    let shifted = dir.path().join("rbs-gzip.log.2.gz");
+    assert!(shifted.exists(), "older gzip archive should be shifted to .2.gz: {shifted:?}");
+    assert!(
+        !dir.path().join("rbs-gzip.log.1").exists(),
+        "the uncompressed generation must be removed after compression"
+    );
+
+    let bytes = fs::read(&archive).expect("read gzip archive");
+    assert!(bytes.len() > 2, "gzip archive must not be empty");
+    assert_eq!(&bytes[..2], &[0x1f, 0x8b], "archive must carry the gzip magic header");
 }
 
 // ============ Log Injection Tests ============
@@ -240,7 +385,6 @@ fn init_logging_stderr_succeeds_without_file_path() {
 #[cfg(unix)]
 mod permissions {
     use super::*;
-    use rbs_core::RotationCompression;
 
     use std::os::unix::fs::PermissionsExt;
 

@@ -1162,4 +1162,82 @@ mod tests {
             assert_eq!(result.is_ok(), case == "normal", "unexpected validation result for {case}");
         }
     }
+    fn unsigned_token(alg: &str, claims: serde_json::Value) -> String {
+        let enc = &base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        format!(
+            "{}.{}.{}",
+            enc.encode(serde_json::json!({"alg": alg, "typ": "JWT"}).to_string()),
+            enc.encode(claims.to_string()),
+            enc.encode([0u8; 32])
+        )
+    }
+
+    fn active_claims() -> serde_json::Value {
+        let now = SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        serde_json::json!({
+            "sub": "user-1",
+            "iss": "https://auth.example.com",
+            "aud": "globaltrustauthority-rbs",
+            "exp": now + 3600,
+        })
+    }
+
+    #[test]
+    fn test_debug_reports_issuer_without_key_material() {
+        let verifier = create_verifier();
+        let rendered = format!("{verifier:?}");
+        assert!(rendered.contains("https://auth.example.com"));
+        assert!(!rendered.contains("BEGIN PUBLIC KEY"));
+    }
+
+    #[tokio::test]
+    async fn test_es512_with_rsa_key_is_rejected() {
+        let verifier = create_verifier();
+        let token = unsigned_token("ES512", active_claims());
+        assert!(matches!(verifier.verify(&token).await, Err(AuthError::TokenInvalid { .. })));
+    }
+
+    #[tokio::test]
+    async fn test_unsupported_jsonwebtoken_algorithm_is_rejected() {
+        let verifier = create_verifier();
+        let token = unsigned_token("HS256", active_claims());
+        assert!(matches!(verifier.verify(&token).await, Err(AuthError::TokenInvalid { .. })));
+    }
+
+    #[tokio::test]
+    async fn test_sm2_token_with_wrong_part_count_is_rejected() {
+        let verifier = create_verifier();
+        assert!(matches!(verifier.verify("a.b").await, Err(AuthError::TokenInvalid { .. })));
+    }
+
+    #[tokio::test]
+    async fn test_sm2_signature_base64_error_is_rejected() {
+        let verifier = create_verifier();
+        let enc = &base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        let header = enc.encode(serde_json::json!({"alg": "SM2", "typ": "JWT"}).to_string());
+        let payload = enc.encode(active_claims().to_string());
+        assert!(matches!(
+            verifier.verify(&format!("{header}.{payload}.!!!")).await,
+            Err(AuthError::TokenInvalid { .. })
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_sm2_verification_failure_is_rejected() {
+        let group = EcGroup::from_curve_name(Nid::SM2).unwrap();
+        let sm2_key = PKey::from_ec_key(EcKey::generate(&group).unwrap()).unwrap();
+        let pem = String::from_utf8(sm2_key.public_key_to_pem().unwrap()).unwrap();
+        let verifier = BearerTokenVerifier::new(
+            BearerTokenVerificationConfig {
+                issuer: "https://auth.example.com".to_string(),
+                audience: "globaltrustauthority-rbs".to_string(),
+            },
+            Arc::new(StubKeyProvider(pem)),
+            Arc::new(LockoutTracker::new()),
+        );
+        let token = unsigned_token("SM2", active_claims());
+        assert!(matches!(verifier.verify(&token).await, Err(AuthError::TokenInvalid { .. })));
+    }
+
+
 }

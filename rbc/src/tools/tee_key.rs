@@ -448,3 +448,139 @@ impl TeePublicKey {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build a PKCS#8 PEM private key on the given named curve.
+    fn ec_private_pem(nid: Nid) -> String {
+        let group = EcGroup::from_curve_name(nid).expect("ec group");
+        let key = EcKey::generate(&group).expect("ec key");
+        let pkey = PKey::from_ec_key(key).expect("pkey");
+        String::from_utf8(pkey.private_key_to_pem_pkcs8().expect("pkcs8 pem")).expect("utf8 pem")
+    }
+
+    /// Build an SM2 `TeePublicKey` with caller-controlled `crv` / `alg` parameters, so the
+    /// SM2 validation arms that `from_jwk_json` can never produce become reachable.
+    fn sm2_public_key(crv: Option<&str>, alg: Option<&str>) -> TeePublicKey {
+        let mut jwk = Jwk::new("EC");
+        if let Some(crv) = crv {
+            jwk.set_parameter("crv", Some(Value::String(crv.to_string()))).expect("crv");
+        }
+        let coord = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([7u8; 32]);
+        jwk.set_parameter("x", Some(Value::String(coord.clone()))).expect("x");
+        jwk.set_parameter("y", Some(Value::String(coord))).expect("y");
+        if let Some(alg) = alg {
+            jwk.set_parameter("alg", Some(Value::String(alg.to_string()))).expect("alg");
+        }
+        TeePublicKey { key_type: KeyType::Sm2, public_jwk: jwk }
+    }
+
+    #[test]
+    fn curve_mapping_accepts_supported_nids() {
+        assert_eq!(ec_curve_from_openssl_nid(Some(Nid::X9_62_PRIME256V1)).unwrap(), EcCurve::P256);
+        assert_eq!(ec_curve_from_openssl_nid(Some(Nid::SECP384R1)).unwrap(), EcCurve::P384);
+        assert_eq!(ec_curve_from_openssl_nid(Some(Nid::SECP521R1)).unwrap(), EcCurve::P521);
+    }
+
+    #[test]
+    fn curve_mapping_rejects_unsupported_and_missing_curve() {
+        let err = ec_curve_from_openssl_nid(Some(Nid::SECP256K1)).unwrap_err();
+        assert!(matches!(err, RbcError::KeyGenError(_)), "expected KeyGenError, got {err:?}");
+        assert!(err.to_string().contains("unsupported EC curve"), "unexpected message: {err}");
+
+        let err = ec_curve_from_openssl_nid(None).unwrap_err();
+        assert!(matches!(err, RbcError::KeyGenError(_)), "expected KeyGenError, got {err:?}");
+        assert!(err.to_string().contains("missing named curve"), "unexpected message: {err}");
+    }
+
+    #[test]
+    fn p384_private_pem_round_trips_through_jwe() {
+        let kp = TeeKeyPair::from_private_pem(&ec_private_pem(Nid::SECP384R1), None).expect("load P-384");
+        let json = kp.public_jwk_json().expect("jwk json");
+        assert_eq!(kp.public_key().key_type(), KeyType::Ec);
+        assert!(json.contains("P-384"), "unexpected curve in JWK: {json}");
+
+        TeePublicKey::from_jwk_json(&json).expect("parse").validate_params().expect("P-384 must validate");
+
+        let plaintext = b"P-384 envelope payload";
+        let public = TeePublicKey::from_jwk_json(&json).expect("parse");
+        let jwe = public.encrypt_jwe(plaintext).expect("encrypt");
+        assert_eq!(kp.decrypt_jwe(&jwe).expect("decrypt"), plaintext);
+    }
+
+    #[test]
+    fn p521_private_pem_round_trips_through_jwe() {
+        let kp = TeeKeyPair::from_private_pem(&ec_private_pem(Nid::SECP521R1), None).expect("load P-521");
+        let json = kp.public_jwk_json().expect("jwk json");
+        assert!(json.contains("P-521"), "unexpected curve in JWK: {json}");
+
+        let public = TeePublicKey::from_jwk_json(&json).expect("parse");
+        public.validate_params().expect("P-521 must validate");
+
+        let plaintext = b"P-521 envelope payload";
+        let jwe = public.encrypt_jwe(plaintext).expect("encrypt");
+        assert_eq!(kp.decrypt_jwe(&jwe).expect("decrypt"), plaintext);
+    }
+
+    #[test]
+    fn ec_private_pem_with_unlisted_curve_is_rejected() {
+        let pem = ec_private_pem(Nid::SECP256K1);
+        let err = TeeKeyPair::from_private_pem(&pem, None).err().expect("secp256k1 must be rejected");
+        assert!(matches!(err, RbcError::KeyGenError(_)), "expected KeyGenError, got {err:?}");
+        assert!(err.to_string().contains("unsupported EC curve"), "unexpected message: {err}");
+    }
+
+    #[test]
+    fn generated_rsa_public_jwk_passes_validation() {
+        let kp = TeeKeyPair::generate(KeyType::Rsa).expect("rsa keygen");
+        let json = kp.public_jwk_json().expect("jwk json");
+        TeePublicKey::from_jwk_json(&json).expect("parse").validate_params().expect("RSA-4096 must validate");
+    }
+
+    #[test]
+    fn rsa_public_jwk_without_alg_passes_validation() {
+        let n_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([0x5au8; DEFAULT_RSA_KEY_BYTE_SIZE as usize]);
+        let json = format!(r#"{{"kty":"RSA","n":"{n_b64}","e":"AQAB"}}"#);
+        TeePublicKey::from_jwk_json(&json).expect("parse").validate_params().expect("RSA-4096 without alg must validate");
+    }
+
+    #[test]
+    fn generated_ec_public_jwk_passes_validation() {
+        let kp = TeeKeyPair::generate(KeyType::Ec).expect("ec keygen");
+        let json = kp.public_jwk_json().expect("jwk json");
+        TeePublicKey::from_jwk_json(&json).expect("parse").validate_params().expect("P-256 must validate");
+    }
+
+    #[test]
+    fn ed25519_private_pem_is_an_unsupported_key_type() {
+        let key = PKey::generate_ed25519().expect("ed25519 keygen");
+        let pem = String::from_utf8(key.private_key_to_pem_pkcs8().expect("pkcs8 pem")).expect("utf8 pem");
+
+        let err = TeeKeyPair::from_private_pem(&pem, None).err().expect("ed25519 must be rejected");
+        assert!(matches!(err, RbcError::KeyGenError(_)), "expected KeyGenError, got {err:?}");
+        assert!(err.to_string().contains("unsupported private key type"), "unexpected message: {err}");
+    }
+
+    #[test]
+    fn sm2_public_key_with_unexpected_curve_is_rejected() {
+        let err = sm2_public_key(Some("P-256"), None).validate_params().unwrap_err();
+        assert!(matches!(err, RbcError::InvalidInput(_)), "expected InvalidInput, got {err:?}");
+        assert!(err.to_string().contains("unexpected curve"), "unexpected message: {err}");
+    }
+
+    #[test]
+    fn sm2_public_key_without_curve_is_rejected() {
+        let err = sm2_public_key(None, None).validate_params().unwrap_err();
+        assert!(matches!(err, RbcError::InvalidInput(_)), "expected InvalidInput, got {err:?}");
+        assert!(err.to_string().contains("missing parameter 'crv'"), "unexpected message: {err}");
+    }
+
+    #[test]
+    fn sm2_public_key_with_envelope_algorithm_is_rejected() {
+        let err = sm2_public_key(Some(SM2_CRV), Some("ECDH-ES+A256KW")).validate_params().unwrap_err();
+        assert!(matches!(err, RbcError::InvalidInput(_)), "expected InvalidInput, got {err:?}");
+        assert!(err.to_string().contains("JWE does not support SM2"), "unexpected message: {err}");
+    }
+}

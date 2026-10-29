@@ -753,6 +753,101 @@ fn default_exp() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
+
+    /// Temporary file that is removed when dropped.
+    struct TempFile {
+        path: PathBuf,
+    }
+
+    impl TempFile {
+        fn new(prefix: &str, contents: &[u8]) -> Self {
+            let unique = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!("rbs-cli-token-{prefix}-{}-{unique}.pem", std::process::id()));
+            fs::write(&path, contents).expect("failed to write temporary file");
+            Self { path }
+        }
+
+        fn display(&self) -> String {
+            self.path.display().to_string()
+        }
+    }
+
+    impl Drop for TempFile {
+        fn drop(&mut self) {
+            let _ = fs::remove_file(&self.path);
+        }
+    }
+
+    /// Returns a path that is guaranteed not to exist, for file read error paths.
+    fn absent_path(prefix: &str) -> PathBuf {
+        let unique = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!("rbs-cli-token-{prefix}-{}-{unique}.pem", std::process::id()))
+    }
+
+    fn ed25519_private_pem() -> Vec<u8> {
+        PKey::generate_ed25519()
+            .expect("failed to generate Ed25519 key")
+            .private_key_to_pem_pkcs8()
+            .expect("failed to export Ed25519 private key")
+    }
+
+    fn rsa_private_key(bits: u32) -> PKey<Private> {
+        PKey::from_rsa(openssl::rsa::Rsa::generate(bits).expect("failed to generate RSA key"))
+            .expect("failed to convert RSA key")
+    }
+
+    fn ec_private_key(curve: Nid) -> PKey<Private> {
+        let group = openssl::ec::EcGroup::from_curve_name(curve).expect("failed to load EC group");
+        let ec_key = openssl::ec::EcKey::generate(&group).expect("failed to generate EC key");
+        PKey::from_ec_key(ec_key).expect("failed to convert EC private key")
+    }
+
+    fn sm2_private_key() -> PKey<Private> {
+        ec_private_key(Nid::SM2)
+    }
+
+    /// Builds generate arguments that only carry the given private key file.
+    fn key_args(file: &TempFile) -> GenerateArgs {
+        GenerateArgs { private_key_file: Some(file.display()), ..GenerateArgs::default() }
+    }
+
+    /// Serializes tests that temporarily replace the process stdin.
+    #[cfg(unix)]
+    static STDIN_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Restores the original stdin file descriptor when dropped.
+    #[cfg(unix)]
+    struct StdinGuard {
+        saved: libc::c_int,
+    }
+
+    #[cfg(unix)]
+    impl StdinGuard {
+        /// Points stdin at `/dev/null` so terminal detection never prompts.
+        fn dev_null() -> Self {
+            let saved = unsafe { libc::dup(0) };
+            assert!(saved >= 0, "failed to duplicate stdin");
+            let dev_null = unsafe { libc::open(b"/dev/null\0".as_ptr() as *const libc::c_char, libc::O_RDONLY) };
+            assert!(dev_null >= 0, "failed to open /dev/null");
+            assert_eq!(unsafe { libc::dup2(dev_null, 0) }, 0, "failed to replace stdin");
+            assert_eq!(unsafe { libc::close(dev_null) }, 0, "failed to close /dev/null");
+            Self { saved }
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for StdinGuard {
+        fn drop(&mut self) {
+            unsafe {
+                libc::dup2(self.saved, 0);
+                libc::close(self.saved);
+            }
+        }
+    }
 
     // Cover JWT string claim lengths at max-1, normal, max, and max+1.
     #[test]
@@ -870,5 +965,369 @@ mod tests {
             ossl::EVP_DigestVerifyFinal(md_ctx.as_ptr(), signature.as_ptr(), signature.len()) == 1
         };
         assert!(verified, "SM2 signature must verify under the standard user ID");
+    }
+
+    // Every algorithm variant renders the standard JWA header string.
+    #[test]
+    fn token_alg_display_matches_jwa_names() {
+        let expected = [
+            (TokenAlg::Ps256, "PS256"),
+            (TokenAlg::Ps384, "PS384"),
+            (TokenAlg::Ps512, "PS512"),
+            (TokenAlg::Es256, "ES256"),
+            (TokenAlg::Es384, "ES384"),
+            (TokenAlg::Es512, "ES512"),
+            (TokenAlg::Eddsa, "EdDSA"),
+            (TokenAlg::Sm2, "SM2"),
+        ];
+        for (alg, name) in expected {
+            assert_eq!(alg.to_string(), name);
+        }
+        assert_eq!(TokenAlg::default(), TokenAlg::Eddsa);
+    }
+
+    // Cover the missing --private-key-file input and an unreadable key file.
+    #[test]
+    fn load_private_key_reports_missing_key_inputs() {
+        let err = TokenGenerate::load_private_key(&GenerateArgs::default()).expect_err("absent key input must fail");
+        assert!(matches!(err, CliError::Message(_)), "unexpected error: {err}");
+        assert!(err.to_string().contains("missing private key"));
+
+        let args = GenerateArgs {
+            private_key_file: Some(absent_path("absent-key").display().to_string()),
+            ..GenerateArgs::default()
+        };
+        let err = TokenGenerate::load_private_key(&args).expect_err("unreadable key file must fail");
+        assert!(matches!(err, CliError::FileReadError(_)), "unexpected error: {err}");
+        assert!(err.to_string().contains("unable to read private key file"));
+    }
+
+    // Encrypted PKCS#8 keys load from a passphrase file with CR/LF trimming.
+    #[test]
+    fn load_private_key_reads_passphrase_from_file() {
+        let private_key = PKey::generate_ed25519().expect("failed to generate Ed25519 key");
+        let encrypted_pem = private_key
+            .private_key_to_pem_pkcs8_passphrase(openssl::symm::Cipher::aes_128_cbc(), b"s3cr3t")
+            .expect("failed to export encrypted private key");
+        let key_file = TempFile::new("encrypted-key", &encrypted_pem);
+        let passphrase_file = TempFile::new("passphrase", b"s3cr3t\r\n\r\n");
+
+        let args = GenerateArgs {
+            private_key_passphrase: Some(Some(format!("@{}", passphrase_file.display()))),
+            ..key_args(&key_file)
+        };
+        let loaded =
+            TokenGenerate::load_private_key(&args).expect("encrypted key should load with the passphrase file");
+        assert_eq!(loaded.id(), Id::ED25519);
+
+        let wrong_passphrase = TempFile::new("wrong-passphrase", b"not-the-passphrase\n");
+        let args = GenerateArgs {
+            private_key_passphrase: Some(Some(format!("@{}", wrong_passphrase.display()))),
+            ..key_args(&key_file)
+        };
+        let err = TokenGenerate::load_private_key(&args).expect_err("wrong passphrase must fail");
+        assert!(matches!(err, CliError::InvalidArgument(_)), "unexpected error: {err}");
+        assert!(err.to_string().contains("unable to read the encrypted private key"));
+    }
+
+    // Reject a bare passphrase value, a missing passphrase file, and invalid PEM text.
+    #[test]
+    fn load_private_key_rejects_invalid_passphrase_inputs() {
+        let key_file = TempFile::new("plain-key", &ed25519_private_pem());
+        let base = key_args(&key_file);
+
+        let args = GenerateArgs { private_key_passphrase: Some(Some("plain-value".to_string())), ..base.clone() };
+        let err = TokenGenerate::load_private_key(&args).expect_err("bare passphrase must fail");
+        assert!(matches!(err, CliError::InvalidArgument(_)), "unexpected error: {err}");
+        assert!(err.to_string().contains("private key passphrase must be provided as"));
+
+        let args = GenerateArgs {
+            private_key_passphrase: Some(Some(format!("@{}", absent_path("absent-passphrase").display()))),
+            ..base
+        };
+        let err = TokenGenerate::load_private_key(&args).expect_err("missing passphrase file must fail");
+        assert!(matches!(err, CliError::FileReadError(_)), "unexpected error: {err}");
+        assert!(err.to_string().contains("unable to read private key passphrase file"));
+
+        let garbage_file = TempFile::new("garbage-key", b"not a private key");
+        let err = TokenGenerate::load_private_key(&key_args(&garbage_file)).expect_err("garbage PEM must fail");
+        assert!(matches!(err, CliError::InvalidArgument(_)), "unexpected error: {err}");
+        assert!(err.to_string().contains("failed to parse private key PEM"));
+    }
+
+    // Stdin is redirected to /dev/null, so the non-interactive passphrase branch is used.
+    #[cfg(unix)]
+    #[test]
+    fn load_private_key_reads_passphrase_from_non_terminal_stdin() {
+        let private_key = PKey::generate_ed25519().expect("failed to generate Ed25519 key");
+        let encrypted_pem = private_key
+            .private_key_to_pem_pkcs8_passphrase(openssl::symm::Cipher::aes_128_cbc(), b"s3cr3t")
+            .expect("failed to export encrypted private key");
+        let key_file = TempFile::new("stdin-key", &encrypted_pem);
+        let args = GenerateArgs { private_key_passphrase: Some(None), ..key_args(&key_file) };
+
+        let guard = STDIN_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let result = {
+            let _stdin = StdinGuard::dev_null();
+            TokenGenerate::load_private_key(&args)
+        };
+        drop(guard);
+
+        let err = result.expect_err("an empty stdin passphrase cannot decrypt the key");
+        assert!(matches!(err, CliError::InvalidArgument(_)), "unexpected error: {err}");
+        assert!(err.to_string().contains("unable to read the encrypted private key"));
+    }
+
+    // Infer the default algorithm from RSA, RSA-PSS, Ed25519/Ed448, and EC key types.
+    #[test]
+    fn get_alg_infers_default_from_private_key_type() {
+        let rsa = rsa_private_key(2048);
+        assert_eq!(TokenGenerate::get_alg(&None, &rsa).expect("RSA default"), TokenAlg::Ps256);
+
+        let mut ctx = openssl::pkey_ctx::PkeyCtx::new_id(Id::RSA_PSS).expect("RSA-PSS context");
+        ctx.keygen_init().expect("RSA-PSS keygen init");
+        ctx.set_rsa_keygen_bits(2048).expect("RSA-PSS keygen bits");
+        let rsa_pss = ctx.keygen().expect("RSA-PSS key");
+        assert_eq!(TokenGenerate::get_alg(&None, &rsa_pss).expect("RSA-PSS default"), TokenAlg::Ps256);
+
+        let ed25519 = PKey::generate_ed25519().expect("failed to generate Ed25519 key");
+        assert_eq!(TokenGenerate::get_alg(&None, &ed25519).expect("Ed25519 default"), TokenAlg::Eddsa);
+        let ed448 = PKey::generate_ed448().expect("failed to generate Ed448 key");
+        assert_eq!(TokenGenerate::get_alg(&None, &ed448).expect("Ed448 default"), TokenAlg::Eddsa);
+
+        for (curve, expected) in [
+            (Nid::X9_62_PRIME256V1, TokenAlg::Es256),
+            (Nid::SECP384R1, TokenAlg::Es384),
+            (Nid::SECP521R1, TokenAlg::Es512),
+        ] {
+            let key = ec_private_key(curve);
+            assert_eq!(TokenGenerate::get_alg(&None, &key).expect("EC default"), expected);
+            assert_eq!(TokenGenerate::get_alg(&Some(expected.clone()), &key).expect("explicit EC alg"), expected);
+        }
+    }
+
+    // Reject EC curves without a JWA mapping and key types without JWT support.
+    #[test]
+    fn get_alg_rejects_unsupported_key_types() {
+        let secp256k1 = ec_private_key(Nid::SECP256K1);
+        let err = TokenGenerate::get_alg(&None, &secp256k1).expect_err("secp256k1 keys must be rejected");
+        assert!(err.to_string().contains("unsupported EC private key curve"));
+
+        let x25519 = PKey::generate_x25519().expect("failed to generate X25519 key");
+        let err = TokenGenerate::get_alg(&None, &x25519).expect_err("X25519 keys must be rejected");
+        assert!(err.to_string().contains("unsupported private key type"));
+    }
+
+    // Detect SM2 keys both in memory and after a PEM round trip (unknown OpenSSL id).
+    #[test]
+    fn get_alg_detects_sm2_private_keys() {
+        let in_memory = sm2_private_key();
+        assert_eq!(TokenGenerate::get_alg(&None, &in_memory).expect("SM2 default"), TokenAlg::Sm2);
+        assert_eq!(TokenGenerate::get_alg(&Some(TokenAlg::Sm2), &in_memory).expect("explicit SM2"), TokenAlg::Sm2);
+
+        let pem = in_memory.private_key_to_pem_pkcs8().expect("failed to export SM2 private key");
+        let reparsed = PKey::private_key_from_pem(&pem).expect("failed to re-parse SM2 private key");
+        assert_eq!(TokenGenerate::get_alg(&None, &reparsed).expect("re-parsed SM2 default"), TokenAlg::Sm2);
+        assert_eq!(TokenGenerate::get_alg(&Some(TokenAlg::Sm2), &reparsed).expect("re-parsed SM2"), TokenAlg::Sm2);
+    }
+
+    // Reject explicit algorithms that do not match the private key type or curve.
+    #[test]
+    fn get_alg_rejects_key_alg_mismatch() {
+        let ed25519 = PKey::generate_ed25519().expect("failed to generate Ed25519 key");
+        let err = TokenGenerate::get_alg(&Some(TokenAlg::Ps256), &ed25519).expect_err("Ed25519 cannot sign PS256");
+        assert!(err.to_string().contains("does not match alg `PS256`"));
+        let err = TokenGenerate::get_alg(&Some(TokenAlg::Sm2), &ed25519).expect_err("Ed25519 is not an SM2 key");
+        assert!(err.to_string().contains("does not match alg `SM2`"));
+
+        let rsa = rsa_private_key(2048);
+        let err = TokenGenerate::get_alg(&Some(TokenAlg::Es256), &rsa).expect_err("RSA cannot sign ES256");
+        assert!(err.to_string().contains("does not match alg `ES256`"));
+        let err = TokenGenerate::get_alg(&Some(TokenAlg::Eddsa), &rsa).expect_err("RSA cannot sign EdDSA");
+        assert!(err.to_string().contains("does not match alg `EdDSA`"));
+
+        let p256 = ec_private_key(Nid::X9_62_PRIME256V1);
+        let err = TokenGenerate::get_alg(&Some(TokenAlg::Es384), &p256).expect_err("P-256 cannot sign ES384");
+        assert!(err.to_string().contains("does not match alg `ES384`"));
+
+        assert_eq!(TokenGenerate::get_alg(&Some(TokenAlg::Ps512), &rsa).expect("RSA PS512"), TokenAlg::Ps512);
+        assert_eq!(TokenGenerate::get_alg(&Some(TokenAlg::Eddsa), &ed25519).expect("Ed25519 EdDSA"), TokenAlg::Eddsa);
+    }
+
+    // Generate tokens while the algorithm is inferred from the key, with a single audience.
+    #[test]
+    fn generate_infers_algorithm_when_not_specified() {
+        let ed25519_file = TempFile::new("infer-ed25519", &ed25519_private_pem());
+        let token = TokenGenerate::generate(&key_args(&ed25519_file)).expect("EdDSA token with inferred alg");
+        assert_eq!(token.token.split('.').count(), 3);
+        let header = decode_header_segment(&token.token);
+        assert_eq!(header["alg"], Value::String("EdDSA".to_string()));
+
+        let rsa = rsa_private_key(2048);
+        let rsa_file = TempFile::new("infer-rsa", &rsa.private_key_to_pem_pkcs8().expect("export RSA key"));
+        let token = TokenGenerate::generate(&key_args(&rsa_file)).expect("PS256 token with inferred alg");
+        let header = decode_header_segment(&token.token);
+        assert_eq!(header["alg"], Value::String("PS256".to_string()));
+    }
+
+    // Generate an SM2 token from a PEM file and check the forced JWS header fields.
+    #[test]
+    fn generate_signs_sm2_token_from_private_key_file() {
+        let pem = sm2_private_key().private_key_to_pem_pkcs8().expect("failed to export SM2 private key");
+        let key_file = TempFile::new("sm2-generate", &pem);
+        let args = GenerateArgs {
+            alg: Some(TokenAlg::Sm2),
+            kid: Some("sm2-kid".to_string()),
+            exp: Some(4_000_000_000),
+            ..key_args(&key_file)
+        };
+
+        let token = TokenGenerate::generate(&args).expect("SM2 key file should generate an SM2 token");
+        assert_eq!(token.token.split('.').count(), 3, "compact JWS must have 3 segments");
+        let header = decode_header_segment(&token.token);
+        assert_eq!(header["alg"], Value::String("SM2".to_string()));
+        assert_eq!(header["kid"], Value::String("sm2-kid".to_string()));
+        assert_eq!(header["typ"], Value::String("JWT".to_string()));
+    }
+
+    // Report invalid PEM material and keys that cannot produce an SM2 signature.
+    #[test]
+    fn generate_sm2_token_reports_invalid_inputs() {
+        let header = sm2_test_header();
+        let payload = sm2_test_payload();
+
+        let err = generate_sm2_token(b"not a private key", &header, &payload).expect_err("invalid PEM must fail");
+        assert!(err.to_string().contains("unable to load the SM2 private key"));
+
+        let rsa = rsa_private_key(2048);
+        let rsa_pem = rsa.private_key_to_pem_pkcs8().expect("failed to export RSA private key");
+        for (label, pem) in [("Ed25519", ed25519_private_pem()), ("RSA", rsa_pem)] {
+            let err = generate_sm2_token(&pem, &header, &payload).expect_err("non-SM2 key must fail");
+            assert!(err.to_string().contains("unable to sign the token with SM2"), "{label}: {err}");
+            assert!(err.to_string().contains("alg `SM2`"), "{label}: {err}");
+        }
+    }
+
+    // Report JSON Web Key failures before signing the RSA-PSS token.
+    #[test]
+    fn generate_pss_token_with_jsonwebtoken_reports_key_errors() {
+        let mut header = JwsHeader::new();
+        header.set_token_type("JWT");
+        header.set_algorithm("PS256");
+        let payload = JwtPayload::from_map(Map::new()).expect("empty payload");
+
+        let err = generate_pss_token_with_jsonwebtoken(&TokenAlg::Ps256, b"not a private key", &header, &payload)
+            .expect_err("invalid PEM must fail");
+        assert!(err.to_string().contains("unable to load the RSA private key for PS256"));
+
+        let rsa = rsa_private_key(2048);
+        let rsa_pem = rsa.private_key_to_pem_pkcs8().expect("failed to export RSA private key");
+        let token = generate_pss_token_with_jsonwebtoken(&TokenAlg::Ps256, &rsa_pem, &header, &payload)
+            .expect("valid RSA key should sign a PS256 token");
+        assert_eq!(token.token.split('.').count(), 3, "compact JWS must have 3 segments");
+    }
+
+    // Dispatch `token gen` through the command entry point, including custom claims.
+    #[test]
+    fn run_dispatches_generate_subcommand() {
+        let key_file = TempFile::new("run-ed25519", &ed25519_private_pem());
+        let claims_file = TempFile::new("run-claims", br#"{"cluster":"c1","enabled":true}"#);
+        let cli = TokenCli {
+            command: TokenCommand::Generate(GenerateArgs {
+                alg: Some(TokenAlg::Eddsa),
+                kid: Some("run-kid".to_string()),
+                jti: Some("run-jti".to_string()),
+                exp: Some(4_000_000_000),
+                claims: Some(format!("@{}", claims_file.display())),
+                ..key_args(&key_file)
+            }),
+        };
+
+        let formatter = run(&cli, &GlobalOptions::default()).expect("token gen should return a formatter");
+        let rendered = formatter.render_text().expect("token should render as text");
+        assert_eq!(rendered.split('.').count(), 3, "compact JWS must have 3 segments");
+
+        let payload = decode_payload_segment(&rendered);
+        assert_eq!(payload["cluster"], Value::String("c1".to_string()));
+        assert_eq!(payload["enabled"], Value::Bool(true));
+        assert_eq!(payload["jti"], Value::String("run-jti".to_string()));
+
+        // Failing generation is propagated through the dispatcher.
+        let cli = TokenCli {
+            command: TokenCommand::Generate(GenerateArgs {
+                aud: vec!["aud".to_string(); AUD_MAX_COUNT + 1],
+                ..key_args(&key_file)
+            }),
+        };
+        assert!(run(&cli, &GlobalOptions::default()).is_err());
+    }
+
+    // Serialize one audience as a string and zero or many audiences as an array.
+    #[test]
+    fn audience_value_serializes_single_and_multiple() {
+        assert_eq!(audience_value(&["only".to_string()]), Value::String("only".to_string()));
+        assert_eq!(
+            audience_value(&["first".to_string(), "second".to_string()]),
+            Value::Array(vec![Value::String("first".to_string()), Value::String("second".to_string())])
+        );
+        assert_eq!(audience_value(&[]), Value::Array(Vec::new()));
+    }
+
+    // Strip every trailing CR/LF without touching other characters.
+    #[test]
+    fn trim_line_end_strips_trailing_line_endings() {
+        let mut value = "secret\r\n\n".to_string();
+        trim_line_end(&mut value);
+        assert_eq!(value, "secret");
+
+        let mut value = "secret".to_string();
+        trim_line_end(&mut value);
+        assert_eq!(value, "secret");
+
+        let mut value = "\r\n".to_string();
+        trim_line_end(&mut value);
+        assert!(value.is_empty());
+    }
+
+    // Accept an existing claims file and reject a missing one.
+    #[test]
+    fn validate_claims_input_accepts_existing_claims_file() {
+        let claims_file = TempFile::new("claims-file", br#"{"cluster":"c1"}"#);
+        let value = format!("@{}", claims_file.display());
+        assert_eq!(validate_claims_input(&value).expect("claims file should be accepted"), value);
+
+        let missing = format!("@{}", absent_path("absent-claims").display());
+        let err = validate_claims_input(&missing).expect_err("missing claims file must fail");
+        assert!(matches!(err, CliError::FileReadError(_)), "unexpected error: {err}");
+    }
+
+    /// Decodes the JWS header segment of a compact token.
+    fn decode_header_segment(token: &str) -> Value {
+        let segment = token.split('.').next().expect("compact JWS has a header segment");
+        let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(segment).expect("decode header segment");
+        serde_json::from_slice(&bytes).expect("header segment is JSON")
+    }
+
+    /// Decodes the JWS payload segment of a compact token.
+    fn decode_payload_segment(token: &str) -> Value {
+        let segment = token.split('.').nth(1).expect("compact JWS has a payload segment");
+        let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(segment).expect("decode payload segment");
+        serde_json::from_slice(&bytes).expect("payload segment is JSON")
+    }
+
+    /// Builds the SM2 JWS header used by the SM2 helper tests.
+    fn sm2_test_header() -> JwsHeader {
+        let mut header = JwsHeader::new();
+        header.set_token_type("JWT");
+        header.set_algorithm("SM2");
+        header
+    }
+
+    /// Builds a minimal SM2 JWT payload used by the SM2 helper tests.
+    fn sm2_test_payload() -> JwtPayload {
+        let mut payload = Map::new();
+        payload.insert("iss".to_string(), Value::String(DEFAULT_ISSUER.to_string()));
+        payload.insert("aud".to_string(), Value::String(DEFAULT_AUDIENCE.to_string()));
+        JwtPayload::from_map(payload).expect("payload")
     }
 }

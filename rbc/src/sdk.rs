@@ -919,4 +919,237 @@ token_provider:
         let decrypted = session.decrypt_content(&jwe, Some(enc_pem), Some(b"rsa-passphrase")).unwrap();
         assert_eq!(decrypted.as_slice(), plaintext.as_ref());
     }
+
+    // ── Config file loading ──
+
+    fn temp_config_file(name: &str, contents: &str) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(format!("rbc-sdk-{}-{name}.yaml", std::process::id()));
+        std::fs::write(&path, contents).expect("write temp config");
+        path
+    }
+
+    #[test]
+    fn config_from_file_loads_yaml() {
+        let path = temp_config_file("valid", "rbs:\n  base_url: http://127.0.0.1:1\n");
+        let cfg = Config::from_file(path.to_str().expect("utf8 path")).expect("load config");
+
+        assert_eq!(cfg.rbs.base_url, "http://127.0.0.1:1");
+        assert!(cfg.evidence_provider.is_none());
+        assert!(cfg.token_provider.is_none());
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn config_from_file_missing_path_returns_config_error() {
+        let path = std::env::temp_dir().join(format!("rbc-sdk-{}-absent.yaml", std::process::id()));
+        let err = Config::from_file(path.to_str().expect("utf8 path")).err().expect("missing config file");
+
+        assert!(matches!(err, RbcError::ConfigError(_)), "expected ConfigError, got {err:?}");
+        assert!(err.to_string().contains("read"), "unexpected message: {err}");
+    }
+
+    #[test]
+    fn config_from_file_invalid_yaml_returns_config_error() {
+        let path = temp_config_file("invalid", "rbs: [unterminated\n");
+        let err = Config::from_file(path.to_str().expect("utf8 path")).err().expect("invalid yaml");
+
+        assert!(matches!(err, RbcError::ConfigError(_)), "expected ConfigError, got {err:?}");
+        assert!(err.to_string().contains("parse"), "unexpected message: {err}");
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn client_from_config_builds_client_without_providers() {
+        let path = temp_config_file("client", "rbs:\n  base_url: http://127.0.0.1:1\n  timeout_secs: 5\n");
+
+        let client = Client::from_config(path.to_str().expect("utf8 path")).expect("build client");
+        assert!(client.inner.evidence_provider.is_none());
+        assert!(client.inner.token_provider.is_none());
+        assert_eq!(client.inner.timeout_secs, Some(5));
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    // ── Provider construction from config ──
+
+    fn provider_cfg(typ: ProviderType) -> ProviderRawConfig {
+        let mut rest = serde_json::Map::new();
+        rest.insert("config_path".into(), json!("/nonexistent/rbc-agent-config.yaml"));
+        ProviderRawConfig { provider_type: typ, enabled: true, rest }
+    }
+
+    #[test]
+    fn client_new_reports_native_evidence_provider_init_failure() {
+        let cfg = Config::builder()
+            .base_url("http://127.0.0.1:1")
+            .evidence_provider(vec![provider_cfg(ProviderType::Native)])
+            .build()
+            .expect("config");
+
+        let err = Client::new(cfg).err().expect("native provider cannot initialize without the agent");
+        assert!(matches!(err, RbcError::ProviderError(_)), "expected ProviderError, got {err:?}");
+        assert!(err.to_string().contains("attestation_client init failed"), "unexpected message: {err}");
+    }
+
+    #[test]
+    fn client_new_rejects_rbs_evidence_provider() {
+        let cfg = Config::builder()
+            .base_url("http://127.0.0.1:1")
+            .evidence_provider(vec![provider_cfg(ProviderType::Rbs)])
+            .build()
+            .expect("config");
+
+        let err = Client::new(cfg).err().expect("evidence provider must be native");
+        assert!(matches!(err, RbcError::ConfigError(_)), "expected ConfigError, got {err:?}");
+        assert!(err.to_string().contains("does not support type 'rbs'"), "unexpected message: {err}");
+    }
+
+    #[test]
+    fn client_new_reports_native_token_provider_init_failure() {
+        let cfg = Config::builder()
+            .base_url("http://127.0.0.1:1")
+            .token_provider(vec![provider_cfg(ProviderType::Native)])
+            .build()
+            .expect("config");
+
+        let err = Client::new(cfg).err().expect("native provider cannot initialize without the agent");
+        assert!(matches!(err, RbcError::ProviderError(_)), "expected ProviderError, got {err:?}");
+    }
+
+    // ── Session timeouts ──
+
+    struct SlowEvidenceProvider;
+
+    #[async_trait]
+    impl EvidenceProvider for SlowEvidenceProvider {
+        async fn collect_evidence(
+            &self,
+            _challenge: &AuthChallengeResponse,
+            _attester_data: Option<&AttesterData>,
+        ) -> Result<Value, RbcError> {
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            Ok(json!({"never": "returned"}))
+        }
+    }
+
+    struct SlowTokenProvider;
+
+    #[async_trait]
+    impl TokenProvider for SlowTokenProvider {
+        async fn get_token(
+            &self,
+            _evidence: Option<&Value>,
+            _attester_data: Option<&AttesterData>,
+        ) -> Result<String, RbcError> {
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            Ok("never.returned".to_string())
+        }
+    }
+
+    fn make_slow_client(timeout_secs: u64) -> Client {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+
+        Client {
+            inner: Rc::new(ClientInner {
+                rest_client: RbsRestClient::new("http://127.0.0.1:1", None, None).unwrap(),
+                evidence_provider: Some(Arc::new(SlowEvidenceProvider)),
+                token_provider: Some(Arc::new(SlowTokenProvider)),
+                key_type: KeyType::Ec,
+                timeout_secs: Some(timeout_secs),
+                runtime,
+            }),
+            _marker: std::marker::PhantomData,
+        }
+    }
+
+    #[test]
+    fn collect_evidence_times_out_after_configured_timeout() {
+        let client = make_slow_client(0);
+        let session = Session::create(Rc::clone(&client.inner), None, KeyType::Ec).expect("session");
+
+        let err = session
+            .collect_evidence(&AuthChallengeResponse { nonce: "timeout-nonce".to_string() })
+            .err()
+            .expect("slow provider must hit the timeout");
+        assert!(matches!(err, RbcError::TimeoutError(_)), "expected TimeoutError, got {err:?}");
+        assert!(err.to_string().contains("collect evidence timed out"), "unexpected message: {err}");
+    }
+
+    #[test]
+    fn attest_times_out_after_configured_timeout() {
+        let client = make_slow_client(0);
+        let session = Session::create(Rc::clone(&client.inner), None, KeyType::Ec).expect("session");
+
+        let err = session.attest(None).err().expect("slow provider must hit the timeout");
+        assert!(matches!(err, RbcError::TimeoutError(_)), "expected TimeoutError, got {err:?}");
+        assert!(err.to_string().contains("attest timed out"), "unexpected message: {err}");
+    }
+
+    // ── get_resource: inline-evidence retrieval ──
+
+    fn make_test_client_with_base_url(base_url: &str) -> Client {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+
+        Client {
+            inner: Rc::new(ClientInner {
+                rest_client: RbsRestClient::new(base_url, None, None).unwrap(),
+                evidence_provider: None,
+                token_provider: None,
+                key_type: KeyType::Ec,
+                timeout_secs: None,
+                runtime,
+            }),
+            _marker: std::marker::PhantomData,
+        }
+    }
+
+    #[test]
+    fn get_resource_by_evidence_posts_evidence_and_decodes_content() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server_rt = tokio::runtime::Runtime::new().expect("mock server runtime");
+        let server = server_rt.block_on(async {
+            let server = MockServer::start().await;
+            let content = base64::engine::general_purpose::STANDARD.encode(b"secret-value");
+            Mock::given(method("POST"))
+                .and(path("/rbs/v0/vault/default/secret/key/retrieve"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "uri": "vault/default/secret/key",
+                    "content": content,
+                    "content_type": "jwe",
+                    "export_mode": "jwe"
+                })))
+                .mount(&server)
+                .await;
+            server
+        });
+
+        let client = make_test_client_with_base_url(&server.uri());
+        let session = Session::create(Rc::clone(&client.inner), None, KeyType::Ec).expect("session");
+        let evidence = json!({"agent_version": "test", "measurements": []});
+
+        let resource = session
+            .get_resource("vault/default/secret/key", GetResourceRequest::ByEvidence { value: &evidence })
+            .expect("retrieve by evidence");
+        assert_eq!(resource.uri, "vault/default/secret/key");
+        assert_eq!(resource.content.as_slice(), b"secret-value");
+        assert_eq!(resource.content_type.as_deref(), Some("jwe"));
+    }
+
+    #[test]
+    fn get_resource_by_evidence_rejects_malformed_evidence() {
+        let client = make_test_client_with_base_url("http://127.0.0.1:1");
+        let session = Session::create(Rc::clone(&client.inner), None, KeyType::Ec).expect("session");
+        let evidence = json!({"measurements": "not-a-list"});
+
+        let err = session
+            .get_resource("vault/default/secret/key", GetResourceRequest::ByEvidence { value: &evidence })
+            .err()
+            .expect("malformed evidence must be rejected");
+        assert!(matches!(err, RbcError::InvalidInput(_)), "expected InvalidInput, got {err:?}");
+        assert!(err.to_string().contains("invalid evidence"), "unexpected message: {err}");
+    }
 }

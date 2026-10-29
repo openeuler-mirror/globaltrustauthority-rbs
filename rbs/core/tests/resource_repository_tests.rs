@@ -10,7 +10,7 @@ use std::sync::Arc;
 use rbs_core::rdb::execute_sql_file_path;
 use rbs_core::resource::error::ResourceError;
 use rbs_core::resource::repository::{ResourceEntity, ResourceRepository, SeaOrmResourceRepository};
-use sea_orm::{Database, DatabaseConnection};
+use sea_orm::{ConnectionTrait, Database, DatabaseConnection, Statement};
 
 async fn setup() -> (SeaOrmResourceRepository, Arc<DatabaseConnection>) {
     let db = Database::connect("sqlite::memory:")
@@ -433,4 +433,180 @@ async fn create_with_user_limit_check_concurrent_cross_user_single_winner() {
         + repo.count_by_user("user-b").await.unwrap() as i64
         + repo.count_by_user("user-c").await.unwrap() as i64;
     assert_eq!(total_rows, 1, "exactly one row persisted across all users");
+}
+
+// ── error mapping ──────────────────────────────────────────────────────
+//
+// The helpers below deliberately drive the repository onto a connection whose
+// SQL layer cannot succeed (missing schema or a closed pool), so every
+// `map_err` arm that turns a sea-orm error into `ResourceError::BackendError`
+// is exercised. They use their own connection: the shared in-memory DB of the
+// other tests is never closed or mutated.
+
+/// A repository over a connection that never ran the schema — every statement
+/// fails with "no such table".
+async fn setup_unmigrated() -> (SeaOrmResourceRepository, Arc<DatabaseConnection>) {
+    let db = Database::connect("sqlite::memory:")
+        .await
+        .expect("sqlite connect");
+    let db = Arc::new(db);
+    (SeaOrmResourceRepository::new(db.clone()), db)
+}
+
+/// Insert one owning user row so the per-user row-lock UPDATE in
+/// `create_with_user_limit_check` matches.
+async fn insert_user(db: &DatabaseConnection, user_id: &str, username: &str) {
+    db.execute(Statement::from_sql_and_values(
+        db.get_database_backend(),
+        "INSERT INTO t_user_info (user_id, username, role, auth_type, auth_value, auth_alg, status, created_at, updated_at) \
+         VALUES (?, ?, 'user', 'jwt', 'pubkey', 'EdDSA', 1, 1, 1)",
+        [user_id.into(), username.into()],
+    ))
+    .await
+    .expect("insert user");
+}
+
+/// Schema-migrated DB plus one owning user row.
+async fn setup_with_user(user_id: &str, username: &str) -> (SeaOrmResourceRepository, Arc<DatabaseConnection>) {
+    let (repo, db) = setup().await;
+    insert_user(&db, user_id, username).await;
+    (repo, db)
+}
+
+/// Assert a `ResourceError::BackendError` carrying a non-empty SQL detail.
+fn assert_backend_error<T>(result: Result<T, ResourceError>, what: &str) {
+    match result {
+        Err(ResourceError::BackendError { detail }) => {
+            assert!(!detail.is_empty(), "{what}: BackendError detail must not be empty");
+        }
+        Err(other) => panic!("{what}: expected BackendError, got {other:?}"),
+        Ok(_) => panic!("{what}: expected BackendError, got Ok"),
+    }
+}
+
+fn assert_uri_param_invalid<T>(result: Result<T, ResourceError>, what: &str) {
+    match result {
+        Err(ResourceError::ParamInvalid { field }) => {
+            assert_eq!(field, "uri", "{what}: unexpected invalid field");
+        }
+        Err(other) => panic!("{what}: expected ParamInvalid(uri), got {other:?}"),
+        Ok(_) => panic!("{what}: expected ParamInvalid(uri), got Ok"),
+    }
+}
+
+/// SQL-E-01: every query path maps a missing schema to `BackendError` instead
+/// of panicking or leaking the sea-orm error type.
+#[tokio::test]
+async fn db_errors_map_to_backend_error() {
+    let (repo, _db) = setup_unmigrated().await;
+    let entity = make_entity("/rbs/v0/vault/default/secret/mykey", "user1", "pol-1");
+
+    assert_backend_error(repo.insert(&entity).await, "insert");
+    assert_backend_error(repo.find_by_uri("/rbs/v0/vault/default/secret/mykey").await, "find_by_uri");
+    assert_backend_error(repo.update("/rbs/v0/vault/default/secret/mykey", &entity, 1000).await, "update");
+    assert_backend_error(repo.delete("/rbs/v0/vault/default/secret/mykey", "user1").await, "delete");
+    assert_backend_error(repo.list_by_user("user1", 0, 10).await, "list_by_user");
+    assert_backend_error(repo.find_by_policy_id("pol-1").await, "find_by_policy_id");
+    assert_backend_error(repo.count_by_user("user1").await, "count_by_user");
+}
+
+/// SQL-E-02: a closed pool maps to `BackendError` on every path, including the
+/// transaction begin in `create_with_user_limit_check` (no SQL is issued at all
+/// once the pool is closed).
+#[tokio::test]
+async fn closed_connection_maps_to_backend_error() {
+    let db = Database::connect("sqlite::memory:")
+        .await
+        .expect("sqlite connect");
+    db.close_by_ref().await.expect("close pool");
+    let repo = SeaOrmResourceRepository::new(Arc::new(db));
+    let entity = make_entity("/rbs/v0/vault/default/secret/mykey", "user1", "pol-1");
+
+    assert_backend_error(repo.insert(&entity).await, "insert");
+    assert_backend_error(repo.find_by_uri("/rbs/v0/vault/default/secret/mykey").await, "find_by_uri");
+    assert_backend_error(repo.update("/rbs/v0/vault/default/secret/mykey", &entity, 1000).await, "update");
+    assert_backend_error(repo.delete("/rbs/v0/vault/default/secret/mykey", "user1").await, "delete");
+    assert_backend_error(repo.list_by_user("user1", 0, 10).await, "list_by_user");
+    assert_backend_error(repo.find_by_policy_id("pol-1").await, "find_by_policy_id");
+    assert_backend_error(repo.count_by_user("user1").await, "count_by_user");
+    assert_backend_error(
+        repo.create_with_user_limit_check("/rbs/v0/vault/default/secret/mykey", &entity, 10).await,
+        "create_with_user_limit_check",
+    );
+}
+
+/// SQL-E-03: a URI that is not exactly four path segments is rejected by the
+/// shared `parse_uri` helper on every URI-taking method.
+#[tokio::test]
+async fn malformed_uri_maps_to_param_invalid() {
+    let (repo, _db) = setup_with_user("uid-uri", "uri-user").await;
+    let entity = make_entity("/rbs/v0/vault/default/secret/mykey", "uri-user", "pol-1");
+
+    for bad in ["/rbs/v0/vault/default/secret", "/rbs/v0/vault/default/secret/mykey/extra"] {
+        assert_uri_param_invalid(repo.find_by_uri(bad).await, "find_by_uri");
+        assert_uri_param_invalid(repo.update(bad, &entity, entity.updated_at).await, "update");
+        assert_uri_param_invalid(repo.delete(bad, "uri-user").await, "delete");
+        assert_uri_param_invalid(repo.create_with_user_limit_check(bad, &entity, 10).await, "create");
+    }
+}
+
+/// SQL-E-04: a failure of the in-transaction duplicate check surfaces as
+/// `BackendError`. Dropping only `t_res_info` keeps `t_user_info` (and thus the
+/// per-user lock) working, so the failure is isolated to the dup-check query.
+#[tokio::test]
+async fn create_with_user_limit_check_dup_check_db_error() {
+    let (repo, db) = setup_with_user("uid-dup", "dup-user").await;
+    db.execute(Statement::from_string(
+        db.get_database_backend(),
+        "DROP TABLE t_res_info".to_owned(),
+    ))
+    .await
+    .expect("drop resource table");
+
+    let uri = "/rbs/v0/vault/default/secret/any";
+    assert_backend_error(
+        repo.create_with_user_limit_check(uri, &make_entity(uri, "dup-user", "pol-1"), 10).await,
+        "create_with_user_limit_check",
+    );
+}
+
+/// SQL-E-05: the 4-column primary key is the authoritative uniqueness guard.
+/// When the caller's `uri` and the inserted entity disagree, the fast-path
+/// duplicate check looks at the wrong URI and the insert reaches the PK, which
+/// must still be reported as `AlreadyExists` (the same mapping a lost
+/// cross-user race produces).
+#[tokio::test]
+async fn create_with_user_limit_check_pk_violation_maps_to_already_exists() {
+    let (repo, _db) = setup_with_user("uid-pk", "pk-user").await;
+    let taken = "/rbs/v0/vault/default/secret/taken";
+    repo.insert(&make_entity(taken, "pk-user", "pol-1")).await.unwrap();
+
+    // Dup-check runs against `/secret/free`, which does not exist; the insert
+    // carries the entity addressing `/secret/taken`, which does.
+    let uri = "/rbs/v0/vault/default/secret/free";
+    let result = repo
+        .create_with_user_limit_check(uri, &make_entity(taken, "pk-user", "pol-1"), 10)
+        .await;
+
+    assert!(
+        matches!(&result, Err(ResourceError::AlreadyExists { uri: u }) if u == uri),
+        "expected AlreadyExists for the requested uri, got {result:?}"
+    );
+    assert_eq!(repo.count_by_user("pk-user").await.unwrap(), 1, "no second row may be persisted");
+    assert!(repo.find_by_uri("/rbs/v0/vault/default/secret/free").await.unwrap().is_none());
+}
+
+/// SQL-E-06: the per-user count check inside the transaction reports
+/// `CountExceed` with the current count and the limit.
+#[tokio::test]
+async fn create_with_user_limit_check_count_exceed_reports_limits() {
+    let (repo, _db) = setup_with_user("uid-limit", "limit-user").await;
+    repo.insert(&make_entity("/rbs/v0/vault/default/secret/a", "limit-user", "pol-1")).await.unwrap();
+
+    let uri = "/rbs/v0/vault/default/secret/b";
+    let result = repo.create_with_user_limit_check(uri, &make_entity(uri, "limit-user", "pol-1"), 1).await;
+    assert!(
+        matches!(result, Err(ResourceError::CountExceed { max: 1, current: 1 })),
+        "expected CountExceed {{ max: 1, current: 1 }}, got {result:?}"
+    );
 }

@@ -1654,6 +1654,63 @@ resource:\n  max_per_user: 101\n  backends:\n    vault:\n      type: vault\n    
         backends.insert("vault".to_string(), valid_resource_backend());
         ResourceProvidersConfig { max_per_user: 10, backends }.validate();
     }
+
+    fn valid_ca_config() -> CaConfig {
+        CaConfig {
+            url: "https://ca.example.com".to_string(),
+            https: Default::default(),
+            message_protection_cert_file: "/tmp/cert.pem".to_string(),
+            message_protection_key_file: "/tmp/key.pem".to_string(),
+            response_protection_trust_anchors_file: "/tmp/anchors.pem".to_string(),
+            cert_profile: String::new(),
+            allowed_resource_types: vec!["cert".to_string()],
+            max_response_bytes: 1024 * 1024,
+            timeout: 30,
+            idempotency: Default::default(),
+        }
+    }
+
+    #[test]
+    fn ca_provider_valid_passes() {
+        ResourceProviderConfig::Ca(valid_ca_config()).validate("ca");
+    }
+
+    #[test]
+    #[should_panic(expected = ".url must not be empty")]
+    fn ca_provider_rejects_empty_url() {
+        let mut cfg = valid_ca_config();
+        cfg.url = String::new();
+        ResourceProviderConfig::Ca(cfg).validate("ca");
+    }
+
+    #[test]
+    #[should_panic(expected = ".url must start with http:// or https://")]
+    fn ca_provider_rejects_bad_url_scheme() {
+        let mut cfg = valid_ca_config();
+        cfg.url = "ftp://ca.example.com".to_string();
+        ResourceProviderConfig::Ca(cfg).validate("ca");
+    }
+
+    /// An empty key string short-circuits the format check: the helper is shared
+    /// by both API key fields and must not panic on the "absent" case.
+    #[test]
+    fn api_key_format_check_skips_empty_key() {
+        AttestationCredentials::validate_api_key_if_present(
+            "main_api_key",
+            &super::super::Sensitive::new(String::new()),
+            ATTEST_API_KEY_PREFIX_MAIN,
+        );
+    }
+
+    /// A valid burst keeps the enable+burst path going past the range check.
+    #[test]
+    fn rate_limit_valid_burst_and_rps_passes() {
+        let mut rl = PerIpRateLimitConfig::default();
+        rl.enabled = true;
+        rl.requests_per_sec = 60;
+        rl.burst = Some(120);
+        rl.validate();
+    }
 }
 
     #[test]

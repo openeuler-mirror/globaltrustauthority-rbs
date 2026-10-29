@@ -74,3 +74,65 @@ impl EvidenceProvider for NativeEvidenceProvider {
             .map_err(|e| RbcError::EvidenceError(format!("serialize evidence response failed: {e}")))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn new_rejects_malformed_provider_config() {
+        let err = NativeEvidenceProvider::new(json!({"config_path": 42})).err().expect("config_path must be a string");
+        assert!(matches!(err, RbcError::ConfigError(_)), "expected ConfigError, got {err:?}");
+        assert!(err.to_string().contains("NativeEvidenceProvider config"), "unexpected message: {err}");
+    }
+
+    #[test]
+    fn new_maps_agent_config_init_failure_to_provider_error() {
+        // The attestation agent config does not exist, so `AttestationClient::new` fails and the
+        // error must surface as a provider error rather than a panic.
+        let err = NativeEvidenceProvider::new(json!({"config_path": "/nonexistent/rbc-agent-config.yaml"}))
+            .err().expect("missing agent config must fail");
+        assert!(matches!(err, RbcError::ProviderError(_)), "expected ProviderError, got {err:?}");
+        assert!(err.to_string().contains("attestation_client init failed"), "unexpected message: {err}");
+    }
+
+    #[test]
+    fn collect_evidence_rejects_invalid_nonce() {
+        // `AttestationClient` is a fieldless handle, so the provider can be built without a
+        // usable agent configuration to exercise the nonce validation error mapping.
+        let provider = NativeEvidenceProvider { client: AttestationClient };
+        let challenge = AuthChallengeResponse { nonce: "not base64 !!".to_string() };
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("runtime");
+
+        let err = rt.block_on(provider.collect_evidence(&challenge, None)).err().expect("invalid nonce must fail");
+        assert!(matches!(err, RbcError::EvidenceError(_)), "expected EvidenceError, got {err:?}");
+    }
+
+    #[test]
+    fn collect_evidence_serializes_attester_data() {
+        let provider = NativeEvidenceProvider { client: AttestationClient };
+        let challenge = AuthChallengeResponse { nonce: "not base64 !!".to_string() };
+        let attester_data = AttesterData { runtime_data: Some(serde_json::Map::new()) };
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("runtime");
+
+        // Supplying attester data drives the serialization branch before the nonce check fails.
+        let err = rt
+            .block_on(provider.collect_evidence(&challenge, Some(&attester_data)))
+            .err()
+            .expect("invalid nonce must fail");
+        assert!(matches!(err, RbcError::EvidenceError(_)), "expected EvidenceError, got {err:?}");
+    }
+
+    #[test]
+    fn collect_evidence_with_valid_nonce_reports_missing_plugins() {
+        let provider = NativeEvidenceProvider { client: AttestationClient };
+        let challenge = AuthChallengeResponse { nonce: "YWJjZA==".to_string() };
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("runtime");
+
+        // No attester plugins are installed, so evidence collection fails and is mapped to
+        // `EvidenceError` instead of propagating the underlying client error.
+        let err = rt.block_on(provider.collect_evidence(&challenge, None)).err().expect("plugin manager unset");
+        assert!(matches!(err, RbcError::EvidenceError(_)), "expected EvidenceError, got {err:?}");
+    }
+}

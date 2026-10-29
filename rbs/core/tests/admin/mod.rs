@@ -13,6 +13,7 @@
 //! Admin module integration tests.
 
 mod common;
-mod key_tests;
-mod validation_tests;
 mod config_tests;
+mod key_tests;
+mod lifecycle_tests;
+mod validation_tests;

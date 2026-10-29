@@ -532,4 +532,69 @@ mod tests {
         let content = result.unwrap();
         assert_eq!(&content[..], br#"{"secret":"value"}"#);
     }
+    #[test]
+    fn ut_vb_debug_redacts_token_and_reports_config() {
+        let cfg = cfg("http://127.0.0.1:8200", 1);
+        let backend = VaultBackend::new(&cfg).expect("init");
+        let rendered = format!("{backend:?}");
+        assert!(rendered.contains("http://127.0.0.1:8200"));
+        assert!(rendered.contains("[redacted]"));
+        assert!(!rendered.contains("s.test"));
+    }
+
+    #[test]
+    fn ut_vb_rejects_invalid_resource_type() {
+        let mut cfg = cfg("http://127.0.0.1:8200", 1);
+        cfg.allowed_resource_types = vec!["key".to_string()];
+        let err = VaultBackend::new(&cfg).err().expect("must reject");
+        assert!(err.contains("invalid resource_type"), "unexpected error: {err}");
+    }
+
+    #[tokio::test]
+    async fn ut_vb_rejects_oversized_response_body() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(DATA_PATH))
+            .respond_with(ResponseTemplate::new(200).set_body_string("x".repeat(4096)))
+            .mount(&server)
+            .await;
+
+        let mut cfg = cfg(&server.uri(), 0);
+        cfg.max_response_body_bytes = 128;
+        let backend = VaultBackend::new(&cfg).expect("init");
+        let result = backend.get_resource_content(&desc(), GetResourceOptions { csr_der: None }).await;
+        assert!(matches!(result, Err(ResourceError::BackendError { .. })), "got {result:?}");
+    }
+
+    #[tokio::test]
+    async fn ut_vb_reports_missing_data_field() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(DATA_PATH))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {}})))
+            .mount(&server)
+            .await;
+
+        let backend = VaultBackend::new(&cfg(&server.uri(), 0)).expect("init");
+        let result = backend.get_resource_content(&desc(), GetResourceOptions { csr_der: None }).await;
+        match result {
+            Err(ResourceError::BackendError { detail }) => assert!(detail.contains("missing 'data'")),
+            other => panic!("expected BackendError, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn ut_vb_reports_invalid_json_body() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(DATA_PATH))
+            .respond_with(ResponseTemplate::new(200).set_body_string("not-json"))
+            .mount(&server)
+            .await;
+
+        let backend = VaultBackend::new(&cfg(&server.uri(), 0)).expect("init");
+        let result = backend.get_resource_content(&desc(), GetResourceOptions { csr_der: None }).await;
+        assert!(matches!(result, Err(ResourceError::BackendError { .. })), "got {result:?}");
+    }
+
 }

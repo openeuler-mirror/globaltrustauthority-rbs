@@ -572,3 +572,107 @@ async fn ca_backend_rejects_recip_nonce_mismatch() {
         other => panic!("Expected BackendError (recip_nonce mismatch), got {:?}", other),
     }
 }
+
+#[test]
+fn ca_backend_debug_redacts_protection_material() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let key = PKey::from_rsa(openssl::rsa::Rsa::generate(2048).unwrap()).unwrap();
+    let cert = self_signed(&key, "debug-cert");
+    let cert_file = write_cert_pem(&cert, dir.path(), "debug.pem");
+    let key_file = write_key_pem(&key, dir.path(), "debug.key");
+    let anchors_file = write_cert_pem(&cert, dir.path(), "debug-anchor.pem");
+
+    let cfg = make_ca_config("https://ca.example.test".to_string(), cert_file, key_file, anchors_file);
+    let backend = rbs_core::resource::adapter::CABackend::new(&cfg).expect("init");
+    let rendered = format!("{backend:?}");
+    assert!(rendered.contains("https://ca.example.test"));
+    assert!(rendered.contains("[redacted]"));
+    assert!(!rendered.contains("BEGIN PRIVATE KEY"));
+}
+
+#[test]
+fn ca_backend_rejects_invalid_resource_type() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let key = PKey::from_rsa(openssl::rsa::Rsa::generate(2048).unwrap()).unwrap();
+    let cert = self_signed(&key, "rt-cert");
+    let cert_file = write_cert_pem(&cert, dir.path(), "rt.pem");
+    let key_file = write_key_pem(&key, dir.path(), "rt.key");
+    let anchors_file = write_cert_pem(&cert, dir.path(), "rt-anchor.pem");
+
+    let mut cfg = make_ca_config("https://ca.example.test".to_string(), cert_file, key_file, anchors_file);
+    cfg.allowed_resource_types = vec!["key".to_string()];
+    let err = rbs_core::resource::adapter::CABackend::new(&cfg).err().expect("must reject");
+    assert!(err.contains("invalid resource_type"), "unexpected error: {err}");
+}
+
+#[test]
+fn ca_backend_rejects_empty_protection_cert_file() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let empty = dir.path().join("empty.pem");
+    std::fs::write(&empty, b"").unwrap();
+    let anchors = dir.path().join("anchors.pem");
+    std::fs::copy(&empty, &anchors).unwrap();
+
+    let cfg = make_ca_config(
+        "https://ca.example.test".to_string(),
+        empty.to_string_lossy().to_string(),
+        empty.to_string_lossy().to_string(),
+        anchors.to_string_lossy().to_string(),
+    );
+    let err = rbs_core::resource::adapter::CABackend::new(&cfg).err().expect("must reject");
+    assert!(err.contains("parse protection cert"), "unexpected error: {err}");
+}
+
+#[test]
+fn ca_backend_rejects_protection_key_cert_mismatch() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let key_a = PKey::from_rsa(openssl::rsa::Rsa::generate(2048).unwrap()).unwrap();
+    let key_b = PKey::from_rsa(openssl::rsa::Rsa::generate(2048).unwrap()).unwrap();
+    let cert_a = self_signed(&key_a, "cert-a");
+    let cert_b = self_signed(&key_b, "cert-b");
+    let cert_file = write_cert_pem(&cert_a, dir.path(), "a.pem");
+    let key_file = write_key_pem(&key_b, dir.path(), "b.key");
+    let anchors_file = write_cert_pem(&cert_b, dir.path(), "b-anchor.pem");
+
+    let cfg = make_ca_config("https://ca.example.test".to_string(), cert_file, key_file, anchors_file);
+    let err = rbs_core::resource::adapter::CABackend::new(&cfg).err().expect("must reject");
+    assert!(err.contains("does not match"), "unexpected error: {err}");
+}
+
+#[test]
+fn ca_backend_rejects_missing_trust_anchors() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let key = PKey::from_rsa(openssl::rsa::Rsa::generate(2048).unwrap()).unwrap();
+    let cert = self_signed(&key, "anchor-cert");
+    let cert_file = write_cert_pem(&cert, dir.path(), "anchor.pem");
+    let key_file = write_key_pem(&key, dir.path(), "anchor.key");
+    let empty_anchor = dir.path().join("empty-anchors.pem");
+    std::fs::write(&empty_anchor, b"").unwrap();
+
+    let cfg = make_ca_config(
+        "https://ca.example.test".to_string(),
+        cert_file,
+        key_file,
+        empty_anchor.to_string_lossy().to_string(),
+    );
+    let err = rbs_core::resource::adapter::CABackend::new(&cfg).err().expect("must reject");
+    assert!(err.contains("parse trust anchors"), "unexpected error: {err}");
+}
+
+#[test]
+fn ca_backend_loads_https_ca_bundle_and_rejects_missing_bundle() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let key = PKey::from_rsa(openssl::rsa::Rsa::generate(2048).unwrap()).unwrap();
+    let cert = self_signed(&key, "https-cert");
+    let cert_file = write_cert_pem(&cert, dir.path(), "https.pem");
+    let key_file = write_key_pem(&key, dir.path(), "https.key");
+    let anchors_file = write_cert_pem(&cert, dir.path(), "https-anchor.pem");
+
+    let mut cfg = make_ca_config("https://ca.example.test".to_string(), cert_file, key_file, anchors_file);
+    cfg.https.ca_file = write_cert_pem(&cert, dir.path(), "ca-bundle.pem");
+    rbs_core::resource::adapter::CABackend::new(&cfg).expect("valid CA bundle");
+
+    cfg.https.ca_file = dir.path().join("missing-bundle.pem").to_string_lossy().to_string();
+    let err = rbs_core::resource::adapter::CABackend::new(&cfg).err().expect("must reject");
+    assert!(err.contains("read ca_file"), "unexpected error: {err}");
+}
