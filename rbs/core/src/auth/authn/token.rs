@@ -686,6 +686,174 @@ mod tests {
         AttestTokenVerifier::new(config).expect("failed to create verifier")
     }
 
+    // ── Helpers for JWKS / ES512 / error-path tests ──
+
+    /// Current UNIX time in seconds, used for `exp` claims.
+    fn now_secs() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock after the UNIX epoch")
+            .as_secs()
+    }
+
+    /// Write `contents` to a uniquely named file in the system temp directory.
+    /// The file is removed when the returned handle is dropped.
+    fn write_temp_file(contents: &[u8]) -> tempfile::NamedTempFile {
+        let mut file = tempfile::NamedTempFile::new().expect("create temp file");
+        file.write_all(contents).expect("write temp file");
+        file.flush().expect("flush temp file");
+        file
+    }
+
+    /// Serialize public JWKs into a `{"keys":[...]}` JWKS document.
+    fn jwks_document(keys: Vec<serde_json::Value>) -> Vec<u8> {
+        serde_json::to_vec(&serde_json::json!({ "keys": keys })).expect("serialize JWKS")
+    }
+
+    /// AttestToken verifier backed by a JWKS file holding `keys`.
+    fn jwks_verifier(keys: Vec<serde_json::Value>, audience: Option<&str>) -> AttestTokenVerifier {
+        let file = write_temp_file(&jwks_document(keys));
+        let config = AttestTokenVerificationConfig {
+            public_key_path: None,
+            jwks_file: Some(file.path().to_string_lossy().to_string()),
+            issuer: "Global Trust Authority".to_string(),
+            audience: audience.map(str::to_string),
+        };
+        AttestTokenVerifier::new(config).expect("create JWKS verifier")
+    }
+
+    /// AttestToken verifier backed by a PEM public key file.
+    fn pem_verifier(pem: &[u8], audience: Option<&str>) -> AttestTokenVerifier {
+        let file = write_temp_file(pem);
+        let config = AttestTokenVerificationConfig {
+            public_key_path: Some(file.path().to_string_lossy().to_string()),
+            jwks_file: None,
+            issuer: "Global Trust Authority".to_string(),
+            audience: audience.map(str::to_string),
+        };
+        AttestTokenVerifier::new(config).expect("create PEM verifier")
+    }
+
+    /// Claims accepted by every AttestToken verification path.
+    fn attest_claims(expires_in: u64) -> serde_json::Value {
+        serde_json::json!({
+            "iss": "Global Trust Authority",
+            "sub": "attest-sub",
+            "aud": "rbs",
+            "exp": now_secs() + expires_in,
+        })
+    }
+
+    /// Fresh P-521 key pair for the ES512 (josekit) paths.
+    fn generate_p521_key_pair() -> Box<dyn KeyPair> {
+        Box::new(
+            josekit::jws::ES512
+                .generate_key_pair()
+                .expect("generate P-521 key pair"),
+        )
+    }
+
+    /// RSA key pair for the jsonwebtoken RSA-PSS paths: PKCS#1 private key PEM
+    /// plus the matching public JWK (`kty` RSA with `n`/`e`).
+    fn generate_rsa_key_pair() -> (Vec<u8>, serde_json::Value) {
+        let rsa = openssl::rsa::Rsa::generate(2048).expect("generate RSA key");
+        let private_pem = rsa.private_key_to_pem().expect("RSA private key PEM");
+        let modulus = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(rsa.n().to_vec());
+        let exponent = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(rsa.e().to_vec());
+        (
+            private_pem,
+            serde_json::json!({ "kty": "RSA", "n": modulus, "e": exponent }),
+        )
+    }
+
+    /// Sign an ES512 JWT with a P-521 private key PEM, setting `kid` when given.
+    fn sign_es512_jwt(priv_pem: &[u8], claims: serde_json::Value, kid: Option<&str>) -> String {
+        let mut header = JwsHeader::new();
+        header.set_token_type("JWT");
+        header.set_algorithm("ES512");
+        if let Some(kid) = kid {
+            header.set_key_id(kid);
+        }
+        let map = claims
+            .as_object()
+            .cloned()
+            .expect("claims must be a JSON object");
+        let payload = JwtPayload::from_map(map).expect("create JWT payload");
+        let signer = josekit::jws::ES512
+            .signer_from_pem(priv_pem)
+            .expect("create ES512 signer");
+        jwt::encode_with_signer(&payload, &header, &signer).expect("sign ES512 JWT")
+    }
+
+    /// Sign a PS256 JWT with an RSA private key PEM (jsonwebtoken header, so
+    /// `kid` is carried in the protected header for JWKS lookups).
+    fn sign_ps256_jwt(priv_pem: &[u8], claims: serde_json::Value, kid: Option<&str>) -> String {
+        let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::PS256);
+        header.kid = kid.map(str::to_string);
+        let key = jsonwebtoken::EncodingKey::from_rsa_pem(priv_pem).expect("RSA encoding key");
+        jsonwebtoken::encode(&header, &claims, &key).expect("sign PS256 JWT")
+    }
+
+    /// Compact JWS with an SM2 header and a caller-supplied signature segment,
+    /// used to exercise the signature-decoding failure branches.
+    fn sm2_jws_with_signature(claims: serde_json::Value, signature_segment: &str) -> String {
+        let header = serde_json::json!({ "alg": "SM2", "typ": "JWT" });
+        let header_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(serde_json::to_vec(&header).expect("encode SM2 header"));
+        let payload_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(serde_json::to_vec(&claims).expect("encode claims"));
+        format!("{}.{}.{}", header_b64, payload_b64, signature_segment)
+    }
+
+    /// SM2 public JWK (crv "sm2p256v1") plus the matching private key PEM.
+    fn sm2_jwk_with_private_pem(kid: Option<&str>) -> (serde_json::Value, String) {
+        let group = openssl::ec::EcGroup::from_curve_name(openssl::nid::Nid::SM2).expect("SM2 group");
+        let ec_key = openssl::ec::EcKey::generate(&group).expect("generate SM2 EC key");
+        let mut ctx = openssl::bn::BigNumContext::new().expect("big number context");
+        let mut x = openssl::bn::BigNum::new().expect("big number x");
+        let mut y = openssl::bn::BigNum::new().expect("big number y");
+        ec_key
+            .public_key()
+            .affine_coordinates(&group, &mut x, &mut y, &mut ctx)
+            .expect("SM2 affine coordinates");
+        let pkey = openssl::pkey::PKey::from_ec_key(ec_key).expect("SM2 PKey");
+        let priv_pem =
+            String::from_utf8(pkey.private_key_to_pem_pkcs8().expect("SM2 private key PEM"))
+                .expect("SM2 private key PEM is UTF-8");
+        let mut jwk = serde_json::json!({
+            "kty": "EC",
+            "crv": "sm2p256v1",
+            "use": "sig",
+            "x": base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(x.to_vec()),
+            "y": base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(y.to_vec()),
+        });
+        if let Some(kid) = kid {
+            jwk["kid"] = serde_json::Value::String(kid.to_string());
+        }
+        (jwk, priv_pem)
+    }
+
+    /// Build a compact SM2 JWS, placing `kid` in the header when given.
+    fn sign_sm2_jws(priv_pem: &str, kid: Option<&str>, claims: serde_json::Value) -> String {
+        let pkey =
+            openssl::pkey::PKey::private_key_from_pem(priv_pem.as_bytes()).expect("load SM2 key");
+        let mut header = serde_json::json!({ "alg": "SM2", "typ": "JWT" });
+        if let Some(kid) = kid {
+            header["kid"] = serde_json::Value::String(kid.to_string());
+        }
+        let header_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(serde_json::to_vec(&header).expect("encode SM2 header"));
+        let payload_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(serde_json::to_vec(&claims).expect("encode claims"));
+        let signing_input = format!("{}.{}", header_b64, payload_b64);
+        let signature = sm2::sign(&pkey, signing_input.as_bytes()).expect("sign SM2 JWS");
+        format!(
+            "{}.{}",
+            signing_input,
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(signature)
+        )
+    }
+
     #[tokio::test]
     async fn test_attest_token_malformed_format() {
         let verifier = create_verifier();
@@ -964,8 +1132,7 @@ mod tests {
 
     /// Generate an SM2 key pair (EC key on the SM2 curve wrapped in PKey).
     fn generate_test_sm2_key_pair() -> (String, String) {
-        let group = openssl::ec::EcGroup::from_curve_name(openssl::nid::Nid::SM2)
-            .expect("SM2 group");
+        let group = openssl::ec::EcGroup::from_curve_name(openssl::nid::Nid::SM2).expect("SM2 group");
         let ec = openssl::ec::EcKey::generate(&group).expect("generate SM2 EC key");
         let pkey = openssl::pkey::PKey::from_ec_key(ec).expect("PKey from SM2 EC key");
         let pub_pem = String::from_utf8(pkey.public_key_to_pem().expect("pub pem")).unwrap();
@@ -1188,5 +1355,576 @@ mod tests {
         let (dk, es512, sm2) = classify_pem_key(&result).unwrap();
         assert!(dk.is_none() && es512.is_none() && sm2.is_some());
         let _ = parsed;
+    }
+
+    // ── Debug / Clone impls ──
+
+    #[test]
+    fn test_attest_token_verifier_debug_and_clone() {
+        let verifier = create_verifier();
+        let debug = format!("{:?}", verifier);
+        assert!(debug.contains("AttestTokenVerifier"), "unexpected Debug output: {debug}");
+        assert!(debug.contains("has_decoding_key: true"), "unexpected Debug output: {debug}");
+        assert!(debug.contains("has_es512_verifier: false"), "unexpected Debug output: {debug}");
+        assert!(debug.contains("has_sm2_key: false"), "unexpected Debug output: {debug}");
+        assert!(debug.contains("has_jwk_set: false"), "unexpected Debug output: {debug}");
+
+        let cloned = verifier.clone();
+        assert!(cloned.decoding_key.is_some(), "clone must keep the PEM decoding key");
+        assert!(cloned.jwk_set.is_none(), "clone must keep the absent JWKS");
+        assert_eq!(format!("{:?}", cloned), debug, "clone must match the original");
+    }
+
+    // ── Construction: key file read/parse failures ──
+
+    #[test]
+    fn test_new_rejects_unreadable_public_key_file() {
+        let config = AttestTokenVerificationConfig {
+            public_key_path: Some(
+                std::env::temp_dir()
+                    .join("rbs_test_attest_missing_pubkey.pem")
+                    .to_string_lossy()
+                    .to_string(),
+            ),
+            jwks_file: None,
+            issuer: "Global Trust Authority".to_string(),
+            audience: None,
+        };
+        match AttestTokenVerifier::new(config) {
+            Err(AuthError::TokenInvalid { reason }) => {
+                assert!(
+                    reason.contains("failed to read AttestToken public key file"),
+                    "unexpected reason: {reason}"
+                );
+            }
+            other => panic!("expected TokenInvalid, got: {:?}", other.map(|_| ())),
+        }
+    }
+
+    #[test]
+    fn test_new_rejects_unreadable_jwks_file() {
+        let config = AttestTokenVerificationConfig {
+            public_key_path: None,
+            jwks_file: Some(
+                std::env::temp_dir()
+                    .join("rbs_test_attest_missing_jwks.json")
+                    .to_string_lossy()
+                    .to_string(),
+            ),
+            issuer: "Global Trust Authority".to_string(),
+            audience: None,
+        };
+        match AttestTokenVerifier::new(config) {
+            Err(AuthError::TokenInvalid { reason }) => {
+                assert!(
+                    reason.contains("failed to read JWKS file"),
+                    "unexpected reason: {reason}"
+                );
+            }
+            other => panic!("expected TokenInvalid, got: {:?}", other.map(|_| ())),
+        }
+    }
+
+    #[test]
+    fn test_new_rejects_malformed_jwks_file() {
+        let file = write_temp_file(b"this is not a JWKS document");
+        let config = AttestTokenVerificationConfig {
+            public_key_path: None,
+            jwks_file: Some(file.path().to_string_lossy().to_string()),
+            issuer: "Global Trust Authority".to_string(),
+            audience: None,
+        };
+        match AttestTokenVerifier::new(config) {
+            Err(AuthError::TokenInvalid { reason }) => {
+                assert!(
+                    reason.contains("failed to parse JWKS file"),
+                    "unexpected reason: {reason}"
+                );
+            }
+            other => panic!("expected TokenInvalid, got: {:?}", other.map(|_| ())),
+        }
+    }
+
+    // ── ES512 verification via JWKS ──
+
+    /// ES512 AttestToken verifies against a JWKS selected by the header `kid`.
+    #[tokio::test]
+    async fn test_es512_via_jwks_with_kid() {
+        let key_pair = generate_p521_key_pair();
+        let mut jwk = key_pair.to_jwk_public_key();
+        jwk.set_key_id("es512-kid-1");
+        let verifier = jwks_verifier(
+            vec![serde_json::to_value(jwk).expect("JWK to JSON")],
+            Some("rbs"),
+        );
+
+        let token = sign_es512_jwt(
+            &key_pair.to_pem_private_key(),
+            attest_claims(3600),
+            Some("es512-kid-1"),
+        );
+        let context = verifier
+            .verify(&token)
+            .await
+            .expect("ES512 AttestToken should verify via JWKS");
+        assert_eq!(context.token_type, TokenType::Attest);
+        assert_eq!(context.claims["sub"], "attest-sub");
+    }
+
+    /// Without a `kid`, the first P-521 key in the JWKS is used.
+    #[tokio::test]
+    async fn test_es512_via_jwks_without_kid() {
+        let key_pair = generate_p521_key_pair();
+        // No `kid` on the JWK either: josekit would otherwise require the
+        // token header to carry the same key ID.
+        let jwk = key_pair.to_jwk_public_key();
+        let verifier = jwks_verifier(
+            vec![serde_json::to_value(jwk).expect("JWK to JSON")],
+            Some("rbs"),
+        );
+
+        let token = sign_es512_jwt(&key_pair.to_pem_private_key(), attest_claims(3600), None);
+        let context = verifier
+            .verify(&token)
+            .await
+            .expect("ES512 AttestToken without kid should verify via JWKS");
+        assert_eq!(context.token_type, TokenType::Attest);
+    }
+
+    /// A `kid` that is absent from the JWKS is rejected.
+    #[tokio::test]
+    async fn test_es512_via_jwks_rejects_unknown_kid() {
+        let key_pair = generate_p521_key_pair();
+        let mut jwk = key_pair.to_jwk_public_key();
+        jwk.set_key_id("es512-kid-1");
+        let verifier = jwks_verifier(
+            vec![serde_json::to_value(jwk).expect("JWK to JSON")],
+            Some("rbs"),
+        );
+
+        let token = sign_es512_jwt(
+            &key_pair.to_pem_private_key(),
+            attest_claims(3600),
+            Some("unknown-kid"),
+        );
+        match verifier.verify(&token).await {
+            Err(AuthError::TokenInvalid { reason }) => assert!(
+                reason.contains("not found in JWKS"),
+                "unexpected reason: {reason}"
+            ),
+            other => panic!("expected TokenInvalid, got: {:?}", other.map(|_| ())),
+        }
+    }
+
+    /// A `kid` that maps to a non-P-521 EC key cannot be used for ES512.
+    #[tokio::test]
+    async fn test_es512_via_jwks_rejects_kid_of_non_p521_key() {
+        let p256_key_pair = josekit::jws::ES256
+            .generate_key_pair()
+            .expect("generate P-256 key pair");
+        let mut p256_jwk = p256_key_pair.to_jwk_public_key();
+        p256_jwk.set_key_id("p256-kid");
+        let verifier = jwks_verifier(
+            vec![serde_json::to_value(p256_jwk).expect("JWK to JSON")],
+            Some("rbs"),
+        );
+
+        let key_pair = generate_p521_key_pair();
+        let token = sign_es512_jwt(
+            &key_pair.to_pem_private_key(),
+            attest_claims(3600),
+            Some("p256-kid"),
+        );
+        match verifier.verify(&token).await {
+            Err(AuthError::TokenInvalid { reason }) => assert!(
+                reason.contains("not found in JWKS"),
+                "unexpected reason: {reason}"
+            ),
+            other => panic!("expected TokenInvalid, got: {:?}", other.map(|_| ())),
+        }
+    }
+
+    /// A JWKS without any P-521 key cannot verify an ES512 AttestToken that
+    /// carries no `kid`.
+    #[tokio::test]
+    async fn test_es512_via_jwks_without_es512_key() {
+        let rsa_key_pair = PS256.generate_key_pair(2048).expect("generate RSA key pair");
+        let verifier = jwks_verifier(
+            vec![serde_json::to_value(rsa_key_pair.to_jwk_public_key()).expect("JWK to JSON")],
+            Some("rbs"),
+        );
+
+        let key_pair = generate_p521_key_pair();
+        let token = sign_es512_jwt(&key_pair.to_pem_private_key(), attest_claims(3600), None);
+        match verifier.verify(&token).await {
+            Err(AuthError::TokenInvalid { reason }) => assert!(
+                reason.contains("no ES512 key in JWKS"),
+                "unexpected reason: {reason}"
+            ),
+            other => panic!("expected TokenInvalid, got: {:?}", other.map(|_| ())),
+        }
+    }
+
+    /// A P-521 JWK selected by `kid` but lacking key material fails to produce
+    /// a verifier instead of panicking.
+    #[tokio::test]
+    async fn test_es512_via_jwks_rejects_incomplete_jwk() {
+        let verifier = jwks_verifier(
+            vec![serde_json::json!({
+                "kty": "EC", "crv": "P-521", "alg": "ES512", "kid": "broken-kid",
+            })],
+            Some("rbs"),
+        );
+
+        let key_pair = generate_p521_key_pair();
+        let token = sign_es512_jwt(
+            &key_pair.to_pem_private_key(),
+            attest_claims(3600),
+            Some("broken-kid"),
+        );
+        match verifier.verify(&token).await {
+            Err(AuthError::TokenInvalid { reason }) => assert!(
+                reason.contains("failed to create ES512 verifier from JWK"),
+                "unexpected reason: {reason}"
+            ),
+            other => panic!("expected TokenInvalid, got: {:?}", other.map(|_| ())),
+        }
+    }
+
+    /// A verifier holding only a non-EC key has no ES512 key at all.
+    #[tokio::test]
+    async fn test_es512_without_any_configured_key() {
+        let verifier = create_verifier();
+        let key_pair = generate_p521_key_pair();
+        let token = sign_es512_jwt(
+            &key_pair.to_pem_private_key(),
+            attest_claims(3600),
+            Some("es512-kid-1"),
+        );
+        match verifier.verify(&token).await {
+            Err(AuthError::TokenInvalid { reason }) => assert!(
+                reason.contains("no key configured for ES512 verification"),
+                "unexpected reason: {reason}"
+            ),
+            other => panic!("expected TokenInvalid, got: {:?}", other.map(|_| ())),
+        }
+    }
+
+    /// An ES512 AttestToken signed by an untrusted key is rejected.
+    #[tokio::test]
+    async fn test_es512_rejects_invalid_signature() {
+        let trusted = generate_p521_key_pair();
+        let attacker = generate_p521_key_pair();
+        let verifier = pem_verifier(&trusted.to_pem_public_key(), Some("rbs"));
+        let token = sign_es512_jwt(&attacker.to_pem_private_key(), attest_claims(3600), None);
+
+        match verifier.verify(&token).await {
+            Err(AuthError::TokenInvalid { reason }) => {
+                assert_eq!(reason, "invalid signature");
+            }
+            other => panic!("expected TokenInvalid, got: {:?}", other.map(|_| ())),
+        }
+    }
+
+    /// An ES512 AttestToken without an `iss` claim is rejected even though the
+    /// signature and the other claims are valid.
+    #[tokio::test]
+    async fn test_es512_rejects_missing_iss_claim() {
+        let key_pair = generate_p521_key_pair();
+        let verifier = pem_verifier(&key_pair.to_pem_public_key(), Some("rbs"));
+        let claims = serde_json::json!({
+            "sub": "attest-sub",
+            "aud": "rbs",
+            "exp": now_secs() + 3600,
+        });
+        let token = sign_es512_jwt(&key_pair.to_pem_private_key(), claims, None);
+
+        match verifier.verify(&token).await {
+            Err(AuthError::TokenInvalid { reason }) => assert_eq!(reason, "missing iss claim"),
+            other => panic!("expected TokenInvalid, got: {:?}", other.map(|_| ())),
+        }
+    }
+
+    /// An ES512 AttestToken issued by another party fails the issuer check of
+    /// the shared josekit payload validator.
+    #[tokio::test]
+    async fn test_es512_rejects_issuer_mismatch() {
+        let key_pair = generate_p521_key_pair();
+        let verifier = pem_verifier(&key_pair.to_pem_public_key(), Some("rbs"));
+        let mut claims = attest_claims(3600);
+        claims["iss"] = serde_json::Value::String("another issuer".to_string());
+        let token = sign_es512_jwt(&key_pair.to_pem_private_key(), claims, None);
+
+        match verifier.verify(&token).await {
+            Err(AuthError::TokenInvalid { reason }) => assert!(
+                reason.contains("issuer"),
+                "unexpected reason: {reason}"
+            ),
+            other => panic!("expected TokenInvalid, got: {:?}", other.map(|_| ())),
+        }
+    }
+
+    // ── SM2 key resolution and signature decoding ──
+
+    /// `verify_sm2` requires the compact JWS shape; `verify` already rejects
+    /// shorter tokens, so the check is exercised directly.
+    #[tokio::test]
+    async fn test_verify_sm2_rejects_malformed_compact_jws() {
+        let verifier = create_verifier();
+        match verifier.verify_sm2("not-a-compact-jws", None).await {
+            Err(AuthError::TokenInvalid { reason }) => assert_eq!(reason, "invalid token"),
+            other => panic!("expected TokenInvalid, got: {:?}", other.map(|_| ())),
+        }
+    }
+
+    /// A signature segment that is not base64url is rejected before any key is
+    /// resolved.
+    #[tokio::test]
+    async fn test_sm2_rejects_undecodable_signature() {
+        let verifier = create_verifier();
+        let token = sm2_jws_with_signature(attest_claims(3600), "!!not-base64!!");
+        match verifier.verify(&token).await {
+            Err(AuthError::TokenInvalid { reason }) => assert_eq!(reason, "invalid token"),
+            other => panic!("expected TokenInvalid, got: {:?}", other.map(|_| ())),
+        }
+    }
+
+    /// Signature bytes that OpenSSL cannot decode are reported as an invalid
+    /// token rather than an internal error.
+    #[tokio::test]
+    async fn test_sm2_rejects_undecodable_signature_bytes() {
+        let (pub_pem, _) = generate_test_sm2_key_pair();
+        let verifier = pem_verifier(pub_pem.as_bytes(), Some("rbs"));
+        let signature = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([0u8; 100]);
+        let token = sm2_jws_with_signature(attest_claims(3600), &signature);
+
+        match verifier.verify(&token).await {
+            Err(AuthError::TokenInvalid { reason }) => assert_eq!(reason, "invalid token"),
+            other => panic!("expected TokenInvalid, got: {:?}", other.map(|_| ())),
+        }
+    }
+
+    /// A verifier configured with a non-SM2 PEM has no SM2 key to use.
+    #[tokio::test]
+    async fn test_sm2_without_configured_sm2_key() {
+        let verifier = create_verifier();
+        let (_, priv_pem) = sm2_jwk_with_private_pem(None);
+        let token = sign_sm2_jws(&priv_pem, None, attest_claims(3600));
+
+        match verifier.verify(&token).await {
+            Err(AuthError::TokenInvalid { reason }) => assert!(
+                reason.contains("no key configured for SM2 verification"),
+                "unexpected reason: {reason}"
+            ),
+            other => panic!("expected TokenInvalid, got: {:?}", other.map(|_| ())),
+        }
+    }
+
+    /// Without a `kid`, the SM2 key is found by scanning the JWKS keys.
+    #[tokio::test]
+    async fn test_sm2_via_jwks_without_kid_selects_sm2_key() {
+        let (sm2_jwk, priv_pem) = sm2_jwk_with_private_pem(Some("sm2-kid-1"));
+        let rsa_key_pair = PS256.generate_key_pair(2048).expect("generate RSA key pair");
+        // The RSA key comes first so the SM2 key is not simply the first entry.
+        let verifier = jwks_verifier(
+            vec![
+                serde_json::to_value(rsa_key_pair.to_jwk_public_key()).expect("JWK to JSON"),
+                sm2_jwk,
+            ],
+            Some("rbs"),
+        );
+
+        let token = sign_sm2_jws(&priv_pem, None, attest_claims(3600));
+        let context = verifier
+            .verify(&token)
+            .await
+            .expect("SM2 AttestToken should verify via JWKS");
+        assert_eq!(context.token_type, TokenType::Attest);
+    }
+
+    /// A JWKS holding no SM2-curve key is reported as such, both for a `kid`
+    /// lookup and for a full scan.
+    #[tokio::test]
+    async fn test_sm2_via_jwks_without_sm2_key() {
+        let rsa_key_pair = PS256.generate_key_pair(2048).expect("generate RSA key pair");
+        let verifier = jwks_verifier(
+            vec![serde_json::to_value(rsa_key_pair.to_jwk_public_key()).expect("JWK to JSON")],
+            Some("rbs"),
+        );
+        let (_, priv_pem) = sm2_jwk_with_private_pem(None);
+
+        for kid in [Some("sm2-kid-1"), None] {
+            let token = sign_sm2_jws(&priv_pem, kid, attest_claims(3600));
+            match verifier.verify(&token).await {
+                Err(AuthError::TokenInvalid { reason }) => assert!(
+                    reason.contains("no SM2 key found in JWKS"),
+                    "unexpected reason: {reason}"
+                ),
+                other => panic!("expected TokenInvalid, got: {:?}", other.map(|_| ())),
+            }
+        }
+    }
+
+    // ── Decoding key resolution via JWKS ──
+
+    /// An SM2 PEM key cannot verify an RSA-PSS token: neither a PEM decoding
+    /// key nor a JWKS is available.
+    #[tokio::test]
+    async fn test_ps256_with_sm2_pem_reports_no_jwks() {
+        let (pub_pem, _) = generate_test_sm2_key_pair();
+        let verifier = pem_verifier(pub_pem.as_bytes(), Some("rbs"));
+        let (private_pem, _) = generate_rsa_key_pair();
+        let token = sign_ps256_jwt(&private_pem, attest_claims(3600), None);
+
+        match verifier.verify(&token).await {
+            Err(AuthError::TokenInvalid { reason }) => assert_eq!(reason, "no JWKS loaded"),
+            other => panic!("expected TokenInvalid, got: {:?}", other.map(|_| ())),
+        }
+    }
+
+    /// RSA-PSS AttestToken verifies against a JWKS selected by the header `kid`.
+    #[tokio::test]
+    async fn test_ps256_via_jwks_with_kid() {
+        let (private_pem, mut jwk) = generate_rsa_key_pair();
+        jwk["kid"] = serde_json::Value::String("rsa-kid-1".to_string());
+        let verifier = jwks_verifier(vec![jwk], Some("rbs"));
+
+        let token = sign_ps256_jwt(&private_pem, attest_claims(3600), Some("rsa-kid-1"));
+        let context = verifier
+            .verify(&token)
+            .await
+            .expect("RSA-PSS AttestToken should verify via JWKS");
+        assert_eq!(context.token_type, TokenType::Attest);
+    }
+
+    /// A `kid` that is absent from the JWKS is rejected.
+    #[tokio::test]
+    async fn test_ps256_via_jwks_rejects_unknown_kid() {
+        let (private_pem, mut jwk) = generate_rsa_key_pair();
+        jwk["kid"] = serde_json::Value::String("rsa-kid-1".to_string());
+        let verifier = jwks_verifier(vec![jwk], Some("rbs"));
+
+        let token = sign_ps256_jwt(&private_pem, attest_claims(3600), Some("unknown-kid"));
+        match verifier.verify(&token).await {
+            Err(AuthError::TokenInvalid { reason }) => assert!(
+                reason.contains("not found in JWKS"),
+                "unexpected reason: {reason}"
+            ),
+            other => panic!("expected TokenInvalid, got: {:?}", other.map(|_| ())),
+        }
+    }
+
+    /// Without a `kid`, the first key in the JWKS is used.
+    #[tokio::test]
+    async fn test_ps256_via_jwks_without_kid() {
+        let (private_pem, jwk) = generate_rsa_key_pair();
+        let verifier = jwks_verifier(vec![jwk], Some("rbs"));
+
+        let token = sign_ps256_jwt(&private_pem, attest_claims(3600), None);
+        let context = verifier
+            .verify(&token)
+            .await
+            .expect("RSA-PSS AttestToken without kid should verify via JWKS");
+        assert_eq!(context.token_type, TokenType::Attest);
+    }
+
+    /// An empty JWKS cannot resolve any key.
+    #[tokio::test]
+    async fn test_ps256_via_jwks_rejects_empty_key_set() {
+        let verifier = jwks_verifier(Vec::new(), Some("rbs"));
+        let (private_pem, _) = generate_rsa_key_pair();
+        let token = sign_ps256_jwt(&private_pem, attest_claims(3600), None);
+
+        match verifier.verify(&token).await {
+            Err(AuthError::TokenInvalid { reason }) => assert_eq!(reason, "no keys in JWKS"),
+            other => panic!("expected TokenInvalid, got: {:?}", other.map(|_| ())),
+        }
+    }
+
+    // ── PEM classification of unsupported keys ──
+
+    #[test]
+    fn test_classify_pem_key_unsupported_ec_curve() {
+        let group = openssl::ec::EcGroup::from_curve_name(openssl::nid::Nid::SECP256K1)
+            .expect("secp256k1 group");
+        let ec_key = openssl::ec::EcKey::generate(&group).expect("generate secp256k1 key");
+        let pem = openssl::pkey::PKey::from_ec_key(ec_key)
+            .expect("wrap secp256k1 key")
+            .public_key_to_pem()
+            .expect("secp256k1 PEM");
+
+        match classify_pem_key(&pem) {
+            Err(AuthError::TokenInvalid { reason }) => assert!(
+                reason.contains("unsupported EC curve"),
+                "unexpected reason: {reason}"
+            ),
+            other => panic!("expected TokenInvalid, got: {:?}", other.map(|_| ())),
+        }
+    }
+
+    #[test]
+    fn test_classify_pem_key_unsupported_key_type() {
+        let x25519 = openssl::pkey::PKey::generate_x25519().expect("generate X25519 key");
+        let pem = x25519.public_key_to_pem().expect("X25519 PEM");
+
+        match classify_pem_key(&pem) {
+            Err(AuthError::TokenInvalid { reason }) => assert_eq!(
+                reason, "unsupported key type for AttestToken",
+                "unexpected reason"
+            ),
+            other => panic!("expected TokenInvalid, got: {:?}", other.map(|_| ())),
+        }
+    }
+
+    // ── JWK-to-PEM conversion failures ──
+
+    #[test]
+    fn test_get_jwk_base64_param_rejects_non_string_parameter() {
+        let mut jwk = josekit::jwk::Jwk::new("RSA");
+        jwk.set_parameter("n", Some(serde_json::json!(123)))
+            .expect("set numeric n parameter");
+
+        match get_jwk_base64_param(&jwk, "n") {
+            Err(AuthError::TokenInvalid { reason }) => assert!(
+                reason.contains("must be a string in JWK"),
+                "unexpected reason: {reason}"
+            ),
+            other => panic!("expected TokenInvalid, got: {:?}", other.map(|_| ())),
+        }
+    }
+
+    #[test]
+    fn test_josekit_jwk_ec_to_pem_rejects_point_off_curve() {
+        // Coordinates in range for P-256 but not a point on the curve.
+        let x_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([1u8; 32]);
+        let y_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([1u8; 32]);
+        let jwk: josekit::jwk::Jwk = josekit::jwk::Jwk::from_bytes(
+            serde_json::to_vec(
+                &serde_json::json!({"kty": "EC", "crv": "P-256", "x": x_b64, "y": y_b64}),
+            )
+            .expect("serialize JWK"),
+        )
+        .expect("parse JWK");
+
+        match josekit_jwk_ec_to_pem(&jwk) {
+            Err(AuthError::TokenInvalid { reason }) => assert!(
+                reason.contains("invalid EC public key"),
+                "unexpected reason: {reason}"
+            ),
+            other => panic!("expected TokenInvalid, got: {:?}", other.map(|_| ())),
+        }
+    }
+
+    #[test]
+    fn test_josekit_jwk_okp_to_pem_missing_crv() {
+        let jwk = josekit::jwk::Jwk::new("OKP");
+
+        match josekit_jwk_okp_to_pem(&jwk) {
+            Err(AuthError::TokenInvalid { reason }) => assert_eq!(
+                reason, "missing crv in OKP JWK",
+                "unexpected reason"
+            ),
+            other => panic!("expected TokenInvalid, got: {:?}", other.map(|_| ())),
+        }
     }
 }

@@ -301,3 +301,100 @@ async fn delete_by_ids_txn_empty_ids() {
     assert_eq!(affected, 0);
     txn.commit().await.unwrap();
 }
+
+// ── error mapping ──────────────────────────────────────────────────────
+//
+// These tests drive the repository onto a connection whose SQL layer cannot
+// succeed (missing schema or a closed pool) so every `map_err` arm that turns
+// a sea-orm error into `PolicyError::BackendError` is exercised. They build
+// their own connection; the shared in-memory DB of the other tests is left
+// untouched.
+
+/// A repository over a connection that never ran the schema — every statement
+/// fails with "no such table".
+async fn setup_unmigrated() -> (SeaOrmPolicyRepository, Arc<DatabaseConnection>) {
+    let db = Database::connect("sqlite::memory:")
+        .await
+        .expect("sqlite connect");
+    let db = Arc::new(db);
+    (SeaOrmPolicyRepository::new(db.clone()), db)
+}
+
+/// Assert a `PolicyError::BackendError` carrying a non-empty SQL detail.
+fn assert_backend_error<T>(result: Result<T, PolicyError>, what: &str) {
+    match result {
+        Err(PolicyError::BackendError { detail }) => {
+            assert!(!detail.is_empty(), "{what}: BackendError detail must not be empty");
+        }
+        Err(other) => panic!("{what}: expected BackendError, got {other:?}"),
+        Ok(_) => panic!("{what}: expected BackendError, got Ok"),
+    }
+}
+
+/// SQL-E-01: every query path maps a missing schema to `BackendError` instead
+/// of panicking or leaking the sea-orm error type.
+#[tokio::test]
+async fn db_errors_map_to_backend_error() {
+    let (repo, _db) = setup_unmigrated().await;
+    let entity = make_entity("p1", "user1", "policy-one");
+
+    assert_backend_error(repo.insert(&entity).await, "insert");
+    assert_backend_error(repo.find_by_id("p1").await, "find_by_id");
+    assert_backend_error(repo.find_by_name_and_user("policy-one", "user1").await, "find_by_name_and_user");
+    assert_backend_error(repo.find_by_ids_and_user(&["p1".into()], "user1").await, "find_by_ids_and_user");
+    assert_backend_error(repo.list_by_user("user1", 0, 10).await, "list_by_user");
+    assert_backend_error(repo.count_by_user("user1").await, "count_by_user");
+    assert_backend_error(repo.update_with_version("p1", 1, entity.clone()).await, "update_with_version");
+    assert_backend_error(repo.delete("p1").await, "delete");
+}
+
+/// SQL-E-02: the transactional delete path maps a failing statement to
+/// `BackendError` (the transaction itself opens fine on the empty schema).
+#[tokio::test]
+async fn delete_by_ids_txn_db_error_maps_to_backend_error() {
+    let (repo, db) = setup_unmigrated().await;
+    let txn = db.begin().await.expect("begin transaction");
+    assert_backend_error(
+        repo.delete_by_ids_txn(&txn, &["p1".into()], "user1").await,
+        "delete_by_ids_txn",
+    );
+    let _ = txn.rollback().await;
+}
+
+/// SQL-E-03: a closed pool maps to `BackendError` on every path.
+#[tokio::test]
+async fn closed_connection_maps_to_backend_error() {
+    let db = Database::connect("sqlite::memory:")
+        .await
+        .expect("sqlite connect");
+    db.close_by_ref().await.expect("close pool");
+    let repo = SeaOrmPolicyRepository::new(Arc::new(db));
+    let entity = make_entity("p1", "user1", "policy-one");
+
+    assert_backend_error(repo.insert(&entity).await, "insert");
+    assert_backend_error(repo.find_by_id("p1").await, "find_by_id");
+    assert_backend_error(repo.find_by_name_and_user("policy-one", "user1").await, "find_by_name_and_user");
+    assert_backend_error(repo.find_by_ids_and_user(&["p1".into()], "user1").await, "find_by_ids_and_user");
+    assert_backend_error(repo.list_by_user("user1", 0, 10).await, "list_by_user");
+    assert_backend_error(repo.count_by_user("user1").await, "count_by_user");
+    assert_backend_error(repo.update_with_version("p1", 1, entity.clone()).await, "update_with_version");
+    assert_backend_error(repo.delete("p1").await, "delete");
+}
+
+/// SQL-01b: the `(username, policy_name)` unique index rejects a second policy
+/// with the same name for the same user, mapped onto `NameDuplicate` (the
+/// name-level duplicate check the service performs before inserting).
+#[tokio::test]
+async fn insert_duplicate_name_same_user_rejected() {
+    let (repo, _db) = setup().await;
+    repo.insert(&make_entity("p1", "user1", "same-name")).await.unwrap();
+
+    let result = repo.insert(&make_entity("p2", "user1", "same-name")).await;
+    assert!(
+        matches!(&result, Err(PolicyError::NameDuplicate { name }) if name == "same-name"),
+        "expected NameDuplicate, got {result:?}"
+    );
+
+    // Another user may reuse the name: the index is user-scoped.
+    repo.insert(&make_entity("p3", "user2", "same-name")).await.expect("other user may reuse the name");
+}

@@ -7,6 +7,8 @@
 
 use std::sync::Arc;
 
+use base64::Engine as _;
+
 use rbs_core::policy::repository::{PolicyEntity, PolicyRepository, SeaOrmPolicyRepository};
 use rbs_core::rdb::execute_sql_file_path;
 use rbs_core::resource::adapter::{DbPolicyClient, PolicyClient};
@@ -99,4 +101,35 @@ async fn relation_res_ids_empty_when_no_match() {
     let (client, _repo, _res_repo) = setup().await;
     let uris = client.relation_res_ids("no-such", "u1").await.unwrap();
     assert!(uris.is_empty());
+}
+
+#[tokio::test]
+async fn db_errors_map_to_backend_error() {
+    // A connection without the RBS schema makes every query fail.
+    let db = Arc::new(Database::connect("sqlite::memory:").await.expect("sqlite connect"));
+    let client = DbPolicyClient::new(db);
+
+    assert!(matches!(client.validate_policy("p1", "user1").await, Err(rbs_core::resource::ResourceError::BackendError { .. })));
+    assert!(matches!(client.relation_res_ids("p1", "user1").await, Err(rbs_core::resource::ResourceError::BackendError { .. })));
+}
+
+#[tokio::test]
+async fn get_policy_content_rejects_invalid_base64_and_utf8() {
+    let (client, repo, _res_repo) = setup().await;
+
+    let mut invalid_b64 = make_entity("p-b64", "user1", "bad-b64");
+    invalid_b64.policy_content = "!!!not-base64!!!".into();
+    repo.insert(&invalid_b64).await.unwrap();
+    assert!(matches!(
+        client.get_policy_content("p-b64").await,
+        Err(rbs_core::resource::ResourceError::BackendError { .. })
+    ));
+
+    let mut invalid_utf8 = make_entity("p-utf8", "user1", "bad-utf8");
+    invalid_utf8.policy_content = base64::engine::general_purpose::STANDARD.encode([0xff, 0xfe]);
+    repo.insert(&invalid_utf8).await.unwrap();
+    assert!(matches!(
+        client.get_policy_content("p-utf8").await,
+        Err(rbs_core::resource::ResourceError::BackendError { .. })
+    ));
 }

@@ -12,10 +12,13 @@
 
 //! Service-level tests for `PolicyService` update and delete operations.
 
+use std::sync::Arc;
+
 use base64::Engine as _;
 
 use rbs_core::policy::PolicyError;
-use rbs_core::policy::service::UpdatePolicyRequest;
+use rbs_core::policy::service::{CreatePolicyRequest, PolicyQuery, UpdatePolicyRequest};
+use rbs_core::resource::error::ResourceError;
 
 use super::common::*;
 
@@ -135,4 +138,150 @@ async fn test_policy_delete_001_single_delete_success() {
 
     let result = service.delete(&ctx, &ids).await;
     assert!(result.is_ok());
+}
+
+// ===========================================================================
+// Error mapping around validation, authorization faults and transaction setup
+// ===========================================================================
+
+/// A create whose name fails validation is rejected before the duplicate/quota
+/// checks (no repository call is needed).
+#[tokio::test]
+async fn test_policy_create_invalid_name_rejected() {
+    let service = make_service(MockPolicyRepository::new());
+    let ctx = bearer_ctx("user1", "user");
+    let req = CreatePolicyRequest {
+        name: "bad<name".into(),
+        content_type: "base64".into(),
+        content: VALID_REGO_B64.into(),
+    };
+
+    let result = service.create(&ctx, &req).await;
+    assert!(matches!(result, Err(PolicyError::NameInvalid { .. })), "got {result:?}");
+}
+
+/// Update is denied for an Attest token (the authz facade requires a Bearer
+/// user subject for policy administration).
+#[tokio::test]
+async fn test_policy_update_attest_ctx_denied() {
+    let service = make_service(MockPolicyRepository::new().with_find_by_id(Ok(Some(make_entity("pol-1", "user1", "my_policy")))));
+    let ctx = attest_ctx();
+    let req = UpdatePolicyRequest {
+        name: "my_policy".into(),
+        content_type: "base64".into(),
+        content: VALID_REGO_B64.into(),
+    };
+
+    let result = service.update(&ctx, "pol-1", &req).await;
+    assert!(matches!(result, Err(PolicyError::PermissionDenied)), "got {result:?}");
+}
+
+/// Renaming a policy onto a name already used by another policy of the same
+/// user is rejected as NameDuplicate (the conflict check only runs on rename).
+#[tokio::test]
+async fn test_policy_update_rename_conflict_rejected() {
+    let repo = MockPolicyRepository::new()
+        .with_find_by_id(Ok(Some(make_entity("pol-1", "user1", "my_policy"))))
+        .with_find_by_name_and_user(Ok(Some(make_entity("pol-2", "user1", "taken_name"))));
+
+    let service = make_service(repo);
+    let ctx = bearer_ctx("user1", "user");
+    let req = UpdatePolicyRequest {
+        name: "taken_name".into(),
+        content_type: "base64".into(),
+        content: VALID_REGO_B64.into(),
+    };
+
+    let result = service.update(&ctx, "pol-1", &req).await;
+    assert!(
+        matches!(&result, Err(PolicyError::NameDuplicate { name }) if name == "taken_name"),
+        "got {result:?}"
+    );
+}
+
+/// A failing resource-relation lookup during delete aborts the delete with the
+/// underlying error (the policy stays referenced-or-unknown, never deleted).
+#[tokio::test]
+async fn test_policy_delete_relation_check_error() {
+    let repo = MockPolicyRepository::new()
+        .with_find_by_ids_and_user(Ok(vec![make_entity("pol-1", "user1", "my_policy")]));
+    let client = MockPolicyClient::new()
+        .with_relation_res_ids(Err(ResourceError::BackendError { detail: "db down".into() }));
+
+    let service = make_service_with_client(repo, client);
+    let ctx = bearer_ctx("user1", "user");
+
+    let result = service.delete(&ctx, &["pol-1".to_string()]).await;
+    assert!(result.is_err(), "relation lookup failure must abort the delete");
+}
+
+/// When the transactional delete removes fewer rows than requested (a row
+/// vanished between the pre-check and the transaction), the delete is reported
+/// as NotFound and rolled back.
+#[tokio::test]
+async fn test_policy_delete_affected_mismatch_returns_not_found() {
+    let repo = MockPolicyRepository::new()
+        .with_find_by_ids_and_user(Ok(vec![make_entity("pol-1", "user1", "my_policy")]))
+        .with_delete_by_ids_txn(Ok(0));
+
+    let service = make_service_with_client(repo, MockPolicyClient::new());
+    let ctx = bearer_ctx("user1", "user");
+
+    let result = service.delete(&ctx, &["pol-1".to_string()]).await;
+    assert!(matches!(result, Err(PolicyError::NotFound)), "got {result:?}");
+}
+
+/// A transaction that cannot even begin surfaces as a database parameter
+/// failure (the only 4xx-shaped error the service has for storage faults).
+#[tokio::test]
+async fn test_policy_delete_txn_begin_error() {
+    let db = sea_orm::Database::connect("sqlite::memory:")
+        .await
+        .expect("sqlite connect");
+    db.close_by_ref().await.expect("close pool");
+
+    let repo = MockPolicyRepository::new()
+        .with_find_by_ids_and_user(Ok(vec![make_entity("pol-1", "user1", "my_policy")]))
+        .with_db_connection(Arc::new(db));
+
+    let service = make_service_with_client(repo, MockPolicyClient::new());
+    let ctx = bearer_ctx("user1", "user");
+
+    let result = service.delete(&ctx, &["pol-1".to_string()]).await;
+    assert!(
+        matches!(&result, Err(PolicyError::ParamInvalid { field }) if *field == "db"),
+        "got {result:?}"
+    );
+}
+
+/// An explicitly empty `ids` filter is a valid (empty) query and must not fall
+/// through to the unfiltered list.
+#[tokio::test]
+async fn test_policy_list_empty_ids_filter_returns_empty() {
+    let repo = MockPolicyRepository::new()
+        .with_find_by_ids_and_user(Ok(vec![make_entity("pol-1", "user1", "my_policy")]));
+
+    let service = make_service(repo);
+    let ctx = bearer_ctx("user1", "user");
+    let query = PolicyQuery { ids: Some(vec![]), offset: 0, limit: 10 };
+
+    let resp = service.list(&ctx, &query).await.expect("empty filter list");
+    assert!(resp.items.is_empty(), "empty id filter must return no items");
+    assert_eq!(resp.total_count, 0);
+}
+
+/// get_by_id surfaces a failing resource-relation lookup instead of returning
+/// a policy without its applied resources.
+#[tokio::test]
+async fn test_policy_get_by_id_relation_error() {
+    let repo = MockPolicyRepository::new()
+        .with_find_by_id(Ok(Some(make_entity("pol-1", "user1", "my_policy"))));
+    let client = MockPolicyClient::new()
+        .with_relation_res_ids(Err(ResourceError::BackendError { detail: "db down".into() }));
+
+    let service = make_service_with_client(repo, client);
+    let ctx = bearer_ctx("user1", "user");
+
+    let result = service.get_by_id(&ctx, "pol-1").await;
+    assert!(result.is_err(), "relation lookup failure must abort get_by_id");
 }

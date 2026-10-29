@@ -26,7 +26,7 @@ use rbs_core::policy::service::PolicyService;
 use rbs_core::policy_engine::RealPolicyEngine;
 use rbs_core::resource::adapter::PolicyClient;
 use rbs_core::resource::error::ResourceError;
-use rbs_core::{AuthContext, BearerContext, TokenType};
+use rbs_core::{AttestContext, AuthContext, BearerContext, TokenType};
 
 // ---------------------------------------------------------------------------
 // MockPolicyRepository
@@ -105,6 +105,13 @@ impl MockPolicyRepository {
     pub(crate) fn with_delete_by_ids_txn(self, result: Result<u64, PolicyError>) -> Self {
         *self.delete_by_ids_txn.lock().unwrap() = result;
         self
+    }
+
+    /// Replace the connection handed to the service for transaction control
+    /// (`db_connection`). Used to drive the transaction-begin failure path with
+    /// an isolated, already-closed pool.
+    pub(crate) fn with_db_connection(self, db: Arc<sea_orm::DatabaseConnection>) -> Self {
+        Self { db, ..self }
     }
 }
 
@@ -229,6 +236,12 @@ pub(crate) fn bearer_ctx(sub: &str, role: &str) -> AuthContext {
         claims: Value::Null,
         token_type: TokenType::Bearer,
     })
+}
+
+/// Attestation context. The authz facade denies every admin/policy action for
+/// Attest tokens (no user subject), which is the deny path of every service method.
+pub(crate) fn attest_ctx() -> AuthContext {
+    AuthContext::Attest(AttestContext { claims: Value::Null, token_type: TokenType::Attest })
 }
 
 pub(crate) fn make_entity(policy_id: &str, username: &str, policy_name: &str) -> PolicyEntity {

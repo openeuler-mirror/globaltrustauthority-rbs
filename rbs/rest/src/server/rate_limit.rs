@@ -194,6 +194,20 @@ mod tests {
         assert_eq!(ip, Some(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 50))));
     }
 
+    /// A trusted peer whose forwarded value is not a socket address or IP (e.g.
+    /// a malformed header) falls back to the peer address instead of dropping
+    /// the key or trusting garbage.
+    #[test]
+    fn client_ip_trusted_peer_unparsable_realip_falls_back_to_peer() {
+        let trusted = TrustedProxySet::from_addrs(&["127.0.0.1".to_string()]);
+        let ip = client_ip_for_request(
+            Some("127.0.0.1:8080".parse().unwrap()),
+            Some("not-an-ip"),
+            &trusted,
+        );
+        assert_eq!(ip, Some(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))));
+    }
+
     #[test]
     fn client_ip_untrusted_peer_ignores_realip() {
         let trusted = TrustedProxySet::from_addrs(&["10.0.0.1".to_string()]);

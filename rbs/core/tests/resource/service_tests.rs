@@ -12,6 +12,7 @@
 
 //! Service-level tests for `ResourceService`.
 
+use base64::Engine as _;
 use serde_json::json;
 
 use rbs_core::auth::context::{AuthContext, BearerContext, TokenType};
@@ -288,4 +289,377 @@ async fn test_res_delete_002_not_found() {
 
     let result = svc.delete(&ctx, TEST_URI).await;
     assert!(matches!(result, Err(ResourceError::NotFound)));
+}
+
+// ===========================================================================
+// Service error mapping — validation, backend lookup, authorization faults
+// ===========================================================================
+
+/// RSA-2048 public JWK (`RSA-OAEP-256`): exercises the RSA branch of the JWE
+/// encrypter, which the EC-only fixtures never reach.
+const RSA_PUBLIC_JWK: &str = r#"{"kty":"RSA","n":"2gV4W_VYSGUHtGOg8iLxwIZ8d7Bml29h_sHQUbixU-sAvmFZMvFkKed-GC9rMyAsKNyg7b_KZew8wrr7zVxBvysnYXpIoLDqysLHP66B1BPYuqNuFtdR6DcblFvjTcT_3lQ7icSfa14oCUQUYCOmRyjDevNvtCe6P2Bx7NDS5wQK5ib6kJB-be_QsFaISHf2nw8rrvN9em8YBtgULsO-S7VUCfqy9T9CvlitHxqkykAWURv2qzD8z1tgI3oEkRvhSYyXyBxHhAgV6nwtxGGK6C1UKZ4hhcmqIvcTGPJd5hFDo4qJqOqkEG9aP0MQxXelO8XU20xTQ8LEQf1cZIbUUw","e":"AQAB"}"#;
+
+fn bearer_with_claims(claims: serde_json::Value) -> AuthContext {
+    AuthContext::Bearer(BearerContext {
+        iss: "test-issuer".to_string(),
+        sub: TEST_USER.to_string(),
+        role: "user".to_string(),
+        claims,
+        token_type: TokenType::Bearer,
+    })
+}
+
+fn repo_with(entity: Option<rbs_core::resource::repository::ResourceEntity>) -> MockResourceRepository {
+    let r = MockResourceRepository::new();
+    *r.find_by_uri_result.lock().unwrap() = Ok(entity);
+    r
+}
+
+/// Create rejects content that is not valid base64 before touching the backend.
+#[tokio::test]
+async fn test_res_create_invalid_content_base64_rejected() {
+    let svc = default_service();
+    let ctx = bearer_ctx(TEST_USER);
+    let mut req = create_req();
+    req.content = Some("not-base64!!!".to_string());
+
+    let result = svc.create(&ctx, TEST_URI, &req).await;
+    assert!(
+        matches!(&result, Err(ResourceError::ParamInvalid { field }) if *field == "content"),
+        "expected ParamInvalid(content), got {:?}", result.as_ref().err()
+    );
+}
+
+/// An explicitly empty policy_id on update is rejected (it is neither "rebind"
+/// nor "keep", and would otherwise unbind the resource).
+#[tokio::test]
+async fn test_res_update_empty_policy_id_rejected() {
+    let svc = make_service(
+        repo_with(Some(make_entity())),
+        MockPolicyClient::new(),
+        MockAuthzChecker::new(),
+        MockResourceBackend::new(),
+    );
+    let ctx = bearer_ctx(TEST_USER);
+    let mut req = update_req();
+    req.policy_id = Some(String::new());
+
+    let result = svc.update(&ctx, TEST_URI, &req).await;
+    assert!(
+        matches!(&result, Err(ResourceError::ParamInvalid { field }) if *field == "policy_id"),
+        "expected ParamInvalid(policy_id), got {:?}", result.as_ref().err()
+    );
+}
+
+/// Update rejects content that is not valid base64.
+#[tokio::test]
+async fn test_res_update_invalid_content_base64_rejected() {
+    let svc = make_service(
+        repo_with(Some(make_entity())),
+        MockPolicyClient::new(),
+        MockAuthzChecker::new(),
+        MockResourceBackend::new(),
+    );
+    let ctx = bearer_ctx(TEST_USER);
+    let mut req = update_req();
+    req.content = Some("not-base64!!!".to_string());
+
+    let result = svc.update(&ctx, TEST_URI, &req).await;
+    assert!(
+        matches!(&result, Err(ResourceError::ParamInvalid { field }) if *field == "content"),
+        "expected ParamInvalid(content), got {:?}", result.as_ref().err()
+    );
+}
+
+/// Update for a provider that passes URI validation but has no registered
+/// backend adapter fails with BackendUnsupported (and never writes the DB).
+#[tokio::test]
+async fn test_res_update_unregistered_backend_rejected() {
+    let svc = make_service_with_config(
+        MockResourceRepository::new(),
+        MockPolicyClient::new(),
+        MockAuthzChecker::new(),
+        MockResourceBackend::new(),
+        config_with_unregistered_hsm(),
+    );
+    let ctx = bearer_ctx(TEST_USER);
+
+    let result = svc.update(&ctx, HSM_URI, &update_req()).await;
+    assert!(
+        matches!(&result, Err(ResourceError::BackendUnsupported { provider }) if provider == "hsm"),
+        "expected BackendUnsupported(hsm), got {:?}", result.as_ref().err()
+    );
+}
+
+/// Create via the update path (upsert): a backend put failure after the DB row
+/// is reserved rolls the row back and surfaces the backend error.
+#[tokio::test]
+async fn test_res_update_create_path_put_failure_rolls_back_row() {
+    use rbs_core::resource::adapter::BackendCapabilities;
+
+    let repo = MockResourceRepository::new(); // find_by_uri → None: create path
+    let delete_handle = repo.delete_call_handle();
+    let backend = MockResourceBackend::new()
+        .with_capabilities(BackendCapabilities::PUT)
+        .with_put_result(Err(ResourceError::BackendError { detail: "put failed".to_string() }));
+    let svc = make_service(repo, MockPolicyClient::new(), MockAuthzChecker::new(), backend);
+    let ctx = bearer_ctx(TEST_USER);
+    let mut req = update_req();
+    req.content = Some(base64::engine::general_purpose::STANDARD.encode(b"payload"));
+
+    let result = svc.update(&ctx, TEST_URI, &req).await;
+    assert!(
+        matches!(&result, Err(ResourceError::BackendError { detail }) if detail == "put failed"),
+        "expected the backend error, got {:?}", result.as_ref().err()
+    );
+    assert_eq!(*delete_handle.lock().unwrap(), 1, "the reserved DB row must be rolled back");
+}
+
+/// Delete is denied at the authorization layer with 403 (not the read-path 404),
+/// because the caller targets an operation, not a specific inventory entry.
+#[tokio::test]
+async fn test_res_delete_authz_denied_returns_403() {
+    let svc = make_service(
+        repo_with(Some(make_entity())),
+        MockPolicyClient::new(),
+        MockAuthzChecker::denying(),
+        MockResourceBackend::new(),
+    );
+    let ctx = bearer_ctx(TEST_USER);
+
+    let result = svc.delete(&ctx, TEST_URI).await;
+    assert!(matches!(result, Err(ResourceError::PermissionDenied)),
+        "expected PermissionDenied, got {:?}", result.as_ref().err());
+}
+
+/// Delete for a provider without a registered adapter fails with
+/// BackendUnsupported after the ownership check.
+#[tokio::test]
+async fn test_res_delete_unregistered_backend_rejected() {
+    let mut entity = make_entity();
+    entity.provider_name = "hsm".to_string();
+    let svc = make_service_with_config(
+        repo_with(Some(entity)),
+        MockPolicyClient::new(),
+        MockAuthzChecker::new(),
+        MockResourceBackend::new(),
+        config_with_unregistered_hsm(),
+    );
+    let ctx = bearer_ctx(TEST_USER);
+
+    let result = svc.delete(&ctx, HSM_URI).await;
+    assert!(
+        matches!(&result, Err(ResourceError::BackendUnsupported { provider }) if provider == "hsm"),
+        "expected BackendUnsupported(hsm), got {:?}", result.as_ref().err()
+    );
+}
+
+/// get_content for a provider without a registered adapter fails with
+/// BackendUnsupported after policy authorization.
+#[tokio::test]
+async fn test_res_get_content_unregistered_backend_rejected() {
+    let mut entity = make_entity();
+    entity.provider_name = "hsm".to_string();
+    let svc = make_service_with_config(
+        repo_with(Some(entity)),
+        MockPolicyClient::new(),
+        MockAuthzChecker::new(),
+        MockResourceBackend::new(),
+        config_with_unregistered_hsm(),
+    );
+    let ctx = bearer_with_claims(json!({ "enc-pubkey": EC_P256_JWK }));
+
+    let result = svc.get_content(&ctx, HSM_URI).await;
+    assert!(
+        matches!(&result, Err(ResourceError::BackendUnsupported { provider }) if provider == "hsm"),
+        "expected BackendUnsupported(hsm), got {:?}", result.as_ref().err()
+    );
+}
+
+/// A non-`Denied` authorization error (broken policy / missing input) is a
+/// server-side fault: it must map to PolicyEvaluationFailed (500), not to the
+/// anti-enumeration 404.
+#[tokio::test]
+async fn test_res_get_content_policy_fault_maps_to_evaluation_failed() {
+    let svc = make_service(
+        repo_with(Some(make_entity())),
+        MockPolicyClient::new(),
+        MockAuthzChecker::new().with_get_error(GetErrorKind::PolicyEvaluationFailed),
+        MockResourceBackend::new(),
+    );
+    let ctx = bearer_with_claims(json!({ "enc-pubkey": EC_P256_JWK }));
+
+    let result = svc.get_content(&ctx, TEST_URI).await;
+    assert!(matches!(result, Err(ResourceError::PolicyEvaluationFailed)),
+        "expected PolicyEvaluationFailed, got {:?}", result.as_ref().err());
+}
+
+/// Any other authorization error variant (e.g. missing claim) also maps to
+/// PolicyEvaluationFailed.
+#[tokio::test]
+async fn test_res_get_content_other_authz_error_maps_to_evaluation_failed() {
+    let svc = make_service(
+        repo_with(Some(make_entity())),
+        MockPolicyClient::new(),
+        MockAuthzChecker::new().with_get_error(GetErrorKind::MissingField),
+        MockResourceBackend::new(),
+    );
+    let ctx = bearer_with_claims(json!({ "enc-pubkey": EC_P256_JWK }));
+
+    let result = svc.get_content(&ctx, TEST_URI).await;
+    assert!(matches!(result, Err(ResourceError::PolicyEvaluationFailed)),
+        "expected PolicyEvaluationFailed, got {:?}", result.as_ref().err());
+}
+
+/// retrieve validates the URI before any lookup.
+#[tokio::test]
+async fn test_res_retrieve_invalid_uri_rejected() {
+    let svc = default_service();
+    let ctx = attest_ctx(json!({}));
+
+    let result = svc.retrieve(&ctx, "/rbs/v0/vault/default/secret").await;
+    assert!(
+        matches!(&result, Err(ResourceError::ParamInvalid { field }) if *field == "uri"),
+        "expected ParamInvalid(uri), got {:?}", result.as_ref().err()
+    );
+}
+
+/// retrieve for a provider without a registered adapter fails with
+/// BackendUnsupported after policy authorization.
+#[tokio::test]
+async fn test_res_retrieve_unregistered_backend_rejected() {
+    let mut entity = make_entity();
+    entity.provider_name = "hsm".to_string();
+    let svc = make_service_with_config(
+        repo_with(Some(entity)),
+        MockPolicyClient::new(),
+        MockAuthzChecker::new(),
+        MockResourceBackend::new(),
+        config_with_unregistered_hsm(),
+    );
+    let ctx = attest_ctx(json!({}));
+
+    let result = svc.retrieve(&ctx, HSM_URI).await;
+    assert!(
+        matches!(&result, Err(ResourceError::BackendUnsupported { provider }) if provider == "hsm"),
+        "expected BackendUnsupported(hsm), got {:?}", result.as_ref().err()
+    );
+}
+
+// ===========================================================================
+// JWE encryption key handling
+// ===========================================================================
+
+/// An RSA JWK supplied as a JSON object claim is serialized back to text and
+/// accepted by the RSA-OAEP-256 encrypter (object-valued claims are legal JWKs).
+#[tokio::test]
+async fn test_res_get_content_rsa_jwk_object_encrypts() {
+    let rsajwk: serde_json::Value = serde_json::from_str(RSA_PUBLIC_JWK).unwrap();
+    let svc = make_service(
+        repo_with(Some(make_entity())),
+        MockPolicyClient::new(),
+        MockAuthzChecker::new(),
+        MockResourceBackend::new(),
+    );
+    let ctx = bearer_with_claims(json!({ "enc-pubkey": rsajwk }));
+
+    let result = svc.get_content(&ctx, TEST_URI).await;
+    assert!(result.is_ok(), "RSA JWK object should encrypt, got {:?}", result.as_ref().err());
+    let resp = result.unwrap();
+    assert!(!resp.content.is_empty());
+    // A compact JWE is five base64url segments separated by '.'.
+    let decoded = base64::engine::general_purpose::STANDARD.decode(&resp.content).expect("base64 JWE");
+    let compact = String::from_utf8(decoded).expect("utf8 JWE");
+    assert_eq!(compact.split('.').count(), 5, "expected a compact JWE, got {compact}");
+}
+
+/// A claim that is not a JWK at all fails encryption with JweEncryptionFailed.
+#[tokio::test]
+async fn test_res_get_content_invalid_jwk_rejected() {
+    let svc = make_service(
+        repo_with(Some(make_entity())),
+        MockPolicyClient::new(),
+        MockAuthzChecker::new(),
+        MockResourceBackend::new(),
+    );
+    let ctx = bearer_with_claims(json!({ "enc-pubkey": "this-is-not-a-jwk" }));
+
+    let result = svc.get_content(&ctx, TEST_URI).await;
+    match result {
+        Err(ResourceError::JweEncryptionFailed { reason }) => {
+            assert!(reason.contains("invalid JWK"), "unexpected reason: {reason}");
+        }
+        other => panic!("expected JweEncryptionFailed(invalid JWK), got {:?}", other.err()),
+    }
+}
+
+/// A structurally valid JWK with an unsupported key type ("oct") is rejected
+/// rather than silently downgraded.
+#[tokio::test]
+async fn test_res_get_content_unsupported_jwk_key_type_rejected() {
+    let svc = make_service(
+        repo_with(Some(make_entity())),
+        MockPolicyClient::new(),
+        MockAuthzChecker::new(),
+        MockResourceBackend::new(),
+    );
+    let ctx = bearer_with_claims(json!({
+        "enc-pubkey": { "kty": "oct", "k": "c2VjcmV0LWtleS1tYXRlcmlhbA" }
+    }));
+
+    let result = svc.get_content(&ctx, TEST_URI).await;
+    match result {
+        Err(ResourceError::JweEncryptionFailed { reason }) => {
+            assert!(reason.contains("unsupported JWK key type"), "unexpected reason: {reason}");
+        }
+        other => panic!("expected JweEncryptionFailed, got {:?}", other.err()),
+    }
+}
+
+/// An EC JWK whose material cannot build an encrypter (invalid point) fails
+/// with JweEncryptionFailed instead of panicking.
+#[tokio::test]
+async fn test_res_get_content_broken_ec_jwk_rejected() {
+    let svc = make_service(
+        repo_with(Some(make_entity())),
+        MockPolicyClient::new(),
+        MockAuthzChecker::new(),
+        MockResourceBackend::new(),
+    );
+    let ctx = bearer_with_claims(json!({
+        "enc-pubkey": { "kty": "EC", "crv": "P-256", "x": "AA", "y": "AA" }
+    }));
+
+    let result = svc.get_content(&ctx, TEST_URI).await;
+    match result {
+        Err(ResourceError::JweEncryptionFailed { reason }) => {
+            // The JWK parses (base64url x/y), but the point cannot build an
+            // encrypter — the EC encrypter-creation arm, not a parse failure.
+            assert!(reason.contains("EC encrypter"), "unexpected reason: {reason}");
+        }
+        other => panic!("expected JweEncryptionFailed(EC encrypter), got {:?}", other.err()),
+    }
+}
+
+/// A failing backend delete aborts the delete before the DB row is removed:
+/// the backend object is the source of truth, so the metadata must survive so
+/// the delete can be retried.
+#[tokio::test]
+async fn test_res_delete_backend_error_keeps_db_row() {
+    use rbs_core::resource::adapter::BackendCapabilities;
+
+    let repo = repo_with(Some(make_entity()));
+    let delete_handle = repo.delete_call_handle();
+    let backend = MockResourceBackend::new()
+        .with_capabilities(BackendCapabilities::DELETE)
+        .with_delete_result(Err(ResourceError::BackendError { detail: "vault down".to_string() }));
+    let svc = make_service(repo, MockPolicyClient::new(), MockAuthzChecker::new(), backend);
+    let ctx = bearer_ctx(TEST_USER);
+
+    let result = svc.delete(&ctx, TEST_URI).await;
+    assert!(
+        matches!(&result, Err(ResourceError::BackendError { detail }) if detail == "vault down"),
+        "expected the backend error, got {:?}", result.as_ref().err()
+    );
+    assert_eq!(*delete_handle.lock().unwrap(), 0, "the DB row must not be deleted when the backend fails");
 }

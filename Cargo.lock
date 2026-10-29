@@ -3437,6 +3437,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "wiremock",
  "zeroize",
 ]
 
@@ -3488,6 +3489,7 @@ dependencies = [
  "actix-web",
  "anyhow",
  "async-trait",
+ "base64 0.22.1",
  "governor",
  "log",
  "openssl",
@@ -3497,6 +3499,7 @@ dependencies = [
  "serde",
  "serde_json",
  "socket2 0.5.10",
+ "tempfile",
  "tokio",
  "utoipa",
  "validator",

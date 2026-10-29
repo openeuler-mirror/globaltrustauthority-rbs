@@ -415,4 +415,17 @@ mod tests {
         assert!(validate_base_url("not a url").is_err());
         assert!(validate_base_url("ftp://rbs.example.com").is_err());
     }
+
+    #[test]
+    fn emit_output_prints_to_stdout_without_a_file() {
+        let output = ClientOutput::Auth(rbs_api_types::AuthChallengeResponse { nonce: "stdout-nonce".to_string() });
+        emit_output(&output, &OutputFormat::Text, None, false, false).expect("emit output");
+    }
+
+    #[test]
+    fn emit_output_suppresses_stdout_for_noout_and_quiet() {
+        let output = ClientOutput::Auth(rbs_api_types::AuthChallengeResponse { nonce: "suppressed-nonce".to_string() });
+        emit_output(&output, &OutputFormat::Text, None, true, false).expect("noout must be accepted");
+        emit_output(&output, &OutputFormat::Text, None, false, true).expect("quiet must be accepted");
+    }
 }

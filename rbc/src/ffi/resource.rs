@@ -208,6 +208,51 @@ mod tests {
         rbc_resource_free(&mut h);
     }
 
+    #[test]
+    fn resource_get_content_with_empty_payload_reports_zero_length() {
+        let mut h = make_resource_handle("rbs://x", vec![], None);
+        let mut len: usize = usize::MAX;
+        let ptr = rbc_resource_get_content(h, &mut len);
+        assert_eq!(len, 0, "empty content must report a zero length");
+        assert!(!ptr.is_null(), "accessor never returns NULL for a valid handle");
+        rbc_resource_free(&mut h);
+    }
+
+    // ── wrap_resource ─────────────────────────────────────────────────────
+
+    // A NUL byte cannot be represented in a C string, so such a resource must be
+    // rejected instead of handing out a truncated pointer.
+    #[test]
+    fn wrap_resource_rejects_uri_with_nul() {
+        let r = Resource {
+            uri: "rbs://x/\0tail".to_string(),
+            content: zeroize::Zeroizing::new(vec![1]),
+            content_type: None,
+        };
+
+        assert_eq!(wrap_resource(r).err(), Some(RbcErrorCode::Internal));
+    }
+
+    #[test]
+    fn wrap_resource_rejects_content_type_with_nul() {
+        let r = Resource {
+            uri: "rbs://x".to_string(),
+            content: zeroize::Zeroizing::new(vec![1]),
+            content_type: Some("text/\0plain".to_string()),
+        };
+
+        assert_eq!(wrap_resource(r).err(), Some(RbcErrorCode::Internal));
+    }
+
+    #[test]
+    fn wrap_resource_keeps_content_type_when_absent() {
+        let r = Resource { uri: "rbs://x".to_string(), content: zeroize::Zeroizing::new(vec![7]), content_type: None };
+
+        let ctx = wrap_resource(r).expect("resource without content type must wrap");
+        assert!(ctx.content_type_c.is_none());
+        assert_eq!(ctx.inner.content.as_slice(), &[7]);
+    }
+
     // ── rbc_resource_free ─────────────────────────────────────────────────
 
     #[test]

@@ -346,6 +346,40 @@ mod tests {
         );
     }
 
+    /// Rotating a logger that has no file target is a defensive no-op (the
+    /// rotation path is only reachable through `write_record` when a file is
+    /// configured, so the guard is exercised directly here).
+    #[test]
+    fn rotate_current_file_without_path_is_a_noop() {
+        let mut inner = LoggerInner {
+            level_filter: log::LevelFilter::Info,
+            active_file: None,
+            bytes_written: 0,
+            path: None,
+            config: LoggingConfig::default(),
+        };
+        inner.rotate_current_file().expect("rotation without a file path must succeed");
+    }
+
+    /// Rotation with no existing file to archive (e.g. the active file was
+    /// removed by an external log shipper) recreates the file and produces no
+    /// archive instead of failing.
+    #[test]
+    fn rotate_current_file_recreates_missing_file() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("missing.log");
+        let mut inner = LoggerInner {
+            level_filter: log::LevelFilter::Info,
+            active_file: None,
+            bytes_written: 0,
+            path: Some(path.clone()),
+            config: LoggingConfig { enable_rotation: true, ..LoggingConfig::default() },
+        };
+        inner.rotate_current_file().expect("rotation must recreate a missing log file");
+        assert!(path.exists(), "rotation must create a fresh active log file");
+        assert!(!numbered_path(&path, 1).exists(), "nothing to archive when the active file is missing");
+    }
+
     /// The JSON branch keeps the same forged message inside one parseable
     /// record via serde_json escaping (no pre-escaping needed there).
     #[test]

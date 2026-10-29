@@ -172,3 +172,155 @@ impl RbsRestClient {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wiremock::matchers::{method, path, query_param};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    const UNREACHABLE_BASE_URL: &str = "http://127.0.0.1:1";
+
+    /// Write a self-signed certificate and return its path; the crate has no `tempfile`
+    /// dev-dependency, so temp paths are derived from the process id and a caller-supplied name.
+    fn self_signed_cert(name: &str) -> std::path::PathBuf {
+        use openssl::asn1::Asn1Time;
+        use openssl::hash::MessageDigest;
+        use openssl::pkey::PKey;
+        use openssl::rsa::Rsa;
+        use openssl::x509::{X509NameBuilder, X509};
+
+        let key = PKey::from_rsa(Rsa::generate(2048).expect("rsa keygen")).expect("pkey");
+        let mut name_builder = X509NameBuilder::new().expect("x509 name");
+        name_builder.append_entry_by_text("CN", "rbc-test-ca").expect("cn");
+        let subject = name_builder.build();
+
+        let mut builder = X509::builder().expect("x509 builder");
+        builder.set_version(2).expect("version");
+        let serial = openssl::bn::BigNum::from_u32(1).expect("serial").to_asn1_integer().expect("asn1 int");
+        builder.set_serial_number(&serial).expect("serial");
+        builder.set_subject_name(&subject).expect("subject");
+        builder.set_issuer_name(&subject).expect("issuer");
+        builder.set_pubkey(&key).expect("pubkey");
+        builder.set_not_before(&Asn1Time::days_from_now(0).expect("not before")).expect("not before");
+        builder.set_not_after(&Asn1Time::days_from_now(1).expect("not after")).expect("not after");
+        builder.sign(&key, MessageDigest::sha256()).expect("sign");
+
+        let cert_path = std::env::temp_dir().join(format!("rbc-rest-ca-{}-{name}.pem", std::process::id()));
+        std::fs::write(&cert_path, builder.build().to_pem().expect("cert pem")).expect("write cert");
+        cert_path
+    }
+
+    fn temp_pem(name: &str, contents: &[u8]) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(format!("rbc-rest-{}-{name}.pem", std::process::id()));
+        std::fs::write(&path, contents).expect("write temp pem");
+        path
+    }
+
+    #[tokio::test]
+    async fn new_loads_custom_ca_certificate() {
+        let cert_path = self_signed_cert("valid");
+        let tls = TlsConfig { ca_cert: Some(cert_path.to_str().expect("utf8 path").to_string()) };
+
+        RbsRestClient::new(UNREACHABLE_BASE_URL, Some(&tls), None).expect("valid CA certificate must be accepted");
+
+        let _ = std::fs::remove_file(cert_path);
+    }
+
+    #[tokio::test]
+    async fn new_reports_unreadable_ca_certificate() {
+        let tls = TlsConfig { ca_cert: Some("/nonexistent/rbc-ca.pem".to_string()) };
+
+        let err = RbsRestClient::new(UNREACHABLE_BASE_URL, Some(&tls), None).err().expect("missing CA must fail");
+        assert!(matches!(err, RbcError::TlsError(_)), "expected TlsError, got {err:?}");
+        assert!(err.to_string().contains("read CA cert"), "unexpected message: {err}");
+    }
+
+    #[tokio::test]
+    async fn new_reports_unparsable_ca_certificate() {
+        let cert_path = temp_pem("garbage", b"not a certificate\n");
+        let tls = TlsConfig { ca_cert: Some(cert_path.to_str().expect("utf8 path").to_string()) };
+
+        let err = RbsRestClient::new(UNREACHABLE_BASE_URL, Some(&tls), None).err().expect("invalid CA must fail");
+        assert!(matches!(err, RbcError::TlsError(_)), "expected TlsError, got {err:?}");
+        assert!(err.to_string().contains("parse CA cert"), "unexpected message: {err}");
+
+        let _ = std::fs::remove_file(cert_path);
+    }
+
+    #[tokio::test]
+    async fn new_applies_request_timeout() {
+        RbsRestClient::new(UNREACHABLE_BASE_URL, None, Some(5)).expect("timeout must be accepted");
+    }
+
+    #[tokio::test]
+    async fn get_nonce_sends_provider_query_parameter() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/rbs/v0/challenge"))
+            .and(query_param("as_provider", "gta"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"nonce": "provider-nonce"})))
+            .mount(&server)
+            .await;
+
+        let client = RbsRestClient::new(&server.uri(), None, None).expect("client");
+        let challenge = client.get_nonce(Some("gta".to_string())).await.expect("challenge");
+        assert_eq!(challenge.nonce, "provider-nonce");
+    }
+
+    #[tokio::test]
+    async fn get_resource_rejects_control_characters_in_uri() {
+        let client = RbsRestClient::new(UNREACHABLE_BASE_URL, None, None).expect("client");
+
+        let err = client.get_resource("vault/default/secret/ke\u{1}y", "token").await.err().expect("control char");
+        assert!(matches!(err, RbcError::InvalidInput(_)), "expected InvalidInput, got {err:?}");
+        assert!(err.to_string().contains("control characters"), "unexpected message: {err}");
+    }
+
+    #[tokio::test]
+    async fn http_auth_statuses_map_to_auth_error() {
+        for status in [401u16, 403] {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/rbs/v0/challenge"))
+                .respond_with(ResponseTemplate::new(status).set_body_string("denied"))
+                .mount(&server)
+                .await;
+
+            let client = RbsRestClient::new(&server.uri(), None, None).expect("client");
+            let err = client.get_nonce(None).await.err().expect("auth status must fail");
+            assert!(matches!(err, RbcError::AuthError(_)), "status {status}: expected AuthError, got {err:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn http_timeout_statuses_map_to_timeout_error() {
+        for status in [408u16, 504] {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/rbs/v0/challenge"))
+                .respond_with(ResponseTemplate::new(status).set_body_string("timeout"))
+                .mount(&server)
+                .await;
+
+            let client = RbsRestClient::new(&server.uri(), None, None).expect("client");
+            let err = client.get_nonce(None).await.err().expect("timeout status must fail");
+            assert!(matches!(err, RbcError::TimeoutError(_)), "status {status}: expected TimeoutError, got {err:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn unknown_client_status_maps_to_attest_error() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/rbs/v0/challenge"))
+            .respond_with(ResponseTemplate::new(418).set_body_string("teapot"))
+            .mount(&server)
+            .await;
+
+        let client = RbsRestClient::new(&server.uri(), None, None).expect("client");
+        let err = client.get_nonce(None).await.err().expect("unexpected status must fail");
+        assert!(matches!(err, RbcError::AttestError(_)), "expected AttestError, got {err:?}");
+        assert!(err.to_string().contains("HTTP 418"), "unexpected message: {err}");
+    }
+}

@@ -34,9 +34,16 @@ pub(crate) async fn ensure_db() {
     INIT.call_once(|| {
         std::thread::spawn(|| {
             tokio::runtime::Runtime::new().unwrap().block_on(async {
+                // A file-backed SQLite database keeps the schema visible to every
+                // pooled connection; `sqlite::memory:` hands each connection its
+                // own private database.
+                let path = std::env::temp_dir().join("rbs_core_admin_lifecycle.sqlite");
+                for suffix in ["", "-wal", "-shm"] {
+                    let _ = std::fs::remove_file(format!("{}{}", path.to_string_lossy(), suffix));
+                }
                 let config = Database {
                     db_type: "sqlite".to_string(),
-                    url: "sqlite::memory:".to_string(),
+                    url: format!("sqlite:{}?mode=rwc", path.to_string_lossy()),
                     max_connections: 1,
                     timeout: 30,
                     sql_file_path: String::new(),
@@ -71,16 +78,49 @@ pub(crate) fn make_manager(max_users: u32) -> AdminManager {
         std::fs::write(&p, &pem).unwrap();
         p.to_string_lossy().to_string()
     });
-    let config = AdminConfig {
-        max_users,
-        admin_key: AdminKeyConfig {
-            public_key_path: Some(path.clone()),
-            jwks_file: None,
-        },
-    };
+    let config =
+        AdminConfig { max_users, admin_key: AdminKeyConfig { public_key_path: Some(path.clone()), jwks_file: None } };
     let engine = Arc::new(RealPolicyEngine);
     let authz = AuthzFacade::new(engine);
     AdminManager::new(config, authz)
+}
+
+// ---------------------------------------------------------------------------
+// Auth context and seeded users
+// ---------------------------------------------------------------------------
+
+pub(crate) fn bearer_ctx(sub: &str, role: &str) -> rbs_core::AuthContext {
+    rbs_core::AuthContext::Bearer(rbs_core::BearerContext {
+        iss: "test-issuer".to_string(),
+        sub: sub.to_string(),
+        role: role.to_string(),
+        claims: Value::Null,
+        token_type: rbs_core::TokenType::Bearer,
+    })
+}
+
+/// Insert an enabled user row directly so `ensure_enabled` has a matching
+/// record. The key material is irrelevant for authorization checks.
+pub(crate) async fn seed_enabled_user(username: &str, role: &str) {
+    ensure_db().await;
+    seed_user_row(username, role, 1).await;
+}
+
+pub(crate) async fn seed_disabled_user(username: &str, role: &str) {
+    ensure_db().await;
+    seed_user_row(username, role, 0).await;
+}
+
+async fn seed_user_row(username: &str, role: &str, status: i32) {
+    use sea_orm::ConnectionTrait;
+    let db = rbs_core::rdb::get_connection_from_pool().expect("db pool");
+    let backend = db.get_database_backend();
+    let escaped = username.replace('\'', "''");
+    let sql = format!(
+        "INSERT OR IGNORE INTO t_user_info (user_id, username, role, auth_type, auth_value, auth_alg, status, created_at, updated_at) \
+         VALUES ('id-{escaped}', '{escaped}', '{role}', 'jwt', 'stub', 'RSA', {status}, 0, 0)"
+    );
+    db.execute(sea_orm::Statement::from_string(backend, sql)).await.expect("seed user row");
 }
 
 // ---------------------------------------------------------------------------

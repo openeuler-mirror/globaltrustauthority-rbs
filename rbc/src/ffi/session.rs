@@ -302,8 +302,13 @@ pub extern "C" fn rbc_session_decrypt_content(
 #[cfg(test)]
 mod tests {
     use super::super::client::{rbc_client_free as ffi_client_free, rbc_client_new_from_yaml};
+    use super::super::resource::{
+        rbc_resource_free as ffi_resource_free, rbc_resource_get_content, rbc_resource_get_content_type,
+        rbc_resource_get_uri,
+    };
     use super::super::{
-        rbc_buffer_data, rbc_buffer_free as ffi_buffer_free, rbc_buffer_len, rbc_string_free, RbcBuffer, RbcClient,
+        rbc_buffer_data, rbc_buffer_free as ffi_buffer_free, rbc_buffer_len, rbc_last_error_clear,
+        rbc_last_error_message, rbc_string_free, RbcBuffer, RbcClient,
     };
     use super::*;
     use crate::client::RbsRestClient;
@@ -313,12 +318,15 @@ mod tests {
     use crate::token::TokenProvider;
     use crate::tools::tee_key::{KeyType, TeePublicKey};
     use async_trait::async_trait;
+    use base64::Engine;
     use rbs_api_types::{AttesterData, AuthChallengeResponse};
     use serde_json::json;
     use std::ffi::{CStr, CString};
     use std::ptr;
     use std::rc::Rc;
     use std::sync::Arc;
+    use wiremock::matchers::{header, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn rbc_client_free(mut client: *mut RbcClient) {
         ffi_client_free(&mut client);
@@ -398,6 +406,86 @@ mod tests {
         let code = rbc_session_new(client, ptr::null(), &mut out);
         assert_eq!(code, RbcErrorCode::Ok, "expected Ok creating session");
         out
+    }
+
+    /// Create a client handle from an in-memory YAML config pointing at `base_url`.
+    fn make_no_provider_client_for_url(base_url: &str) -> *mut RbcClient {
+        let yaml = CString::new(format!("rbs:\n  base_url: {base_url}\n")).unwrap();
+        let mut out: *mut RbcClient = ptr::null_mut();
+        let code = rbc_client_new_from_yaml(yaml.as_ptr(), &mut out);
+        assert_eq!(code, RbcErrorCode::Ok, "expected Ok creating client for {base_url}");
+        out
+    }
+
+    /// Create a client handle whose mock token provider returns `token`.
+    fn make_mock_client_handle_with_token(token: &str) -> *mut RbcClient {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let client = Client::new_for_test(Rc::new(ClientInner {
+            rest_client: RbsRestClient::new("http://localhost:9999", None, None).unwrap(),
+            evidence_provider: Some(Arc::new(MockEvidenceProvider { result: json!({"mock": true}) })),
+            token_provider: Some(Arc::new(MockTokenProvider { token: token.to_string() })),
+            key_type: KeyType::Ec,
+            timeout_secs: None,
+            runtime,
+        }));
+        super::super::box_client_into_handle(client)
+    }
+
+    /// Return the last FFI error message recorded on the current thread.
+    fn last_error_message() -> Option<String> {
+        let raw = rbc_last_error_message();
+        if raw.is_null() {
+            return None;
+        }
+        Some(unsafe { CStr::from_ptr(raw) }.to_str().expect("error message is not valid UTF-8").to_string())
+    }
+
+    /// Clear the thread-local error slot so tests do not observe stale messages.
+    fn clear_last_error() {
+        rbc_last_error_clear();
+        assert!(last_error_message().is_none(), "error slot must be empty after clear");
+    }
+
+    /// Read a borrowed `const char *` accessor result, treating NULL as `None`.
+    unsafe fn borrow_optional_string(raw: *const c_char) -> Option<String> {
+        if raw.is_null() {
+            None
+        } else {
+            Some(CStr::from_ptr(raw).to_str().expect("accessor string is not valid UTF-8").to_string())
+        }
+    }
+
+    /// Mount `GET /rbs/v0/<uri>` returning `template` and hand back the base URL.
+    async fn mount_get_resource(uri: &str, token: &str, template: ResponseTemplate) -> MockServer {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(format!("/rbs/v0/{uri}")))
+            .and(header("Authorization", format!("Attest {token}")))
+            .respond_with(template)
+            .mount(&server)
+            .await;
+        server
+    }
+
+    /// Mount `POST /rbs/v0/<uri>/retrieve` returning `template` and hand back the base URL.
+    async fn mount_post_retrieve(uri: &str, template: ResponseTemplate) -> MockServer {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path(format!("/rbs/v0/{uri}/retrieve")))
+            .respond_with(template)
+            .mount(&server)
+            .await;
+        server
+    }
+
+    /// Successful resource response for `uri` with base64-encoded `content`.
+    fn resource_response(uri: &str, content: &[u8], content_type: Option<&str>) -> ResponseTemplate {
+        let content = base64::engine::general_purpose::STANDARD.encode(content);
+        let body = match content_type {
+            Some(ct) => json!({"uri": uri, "content": content, "content_type": ct, "export_mode": "jwe"}),
+            None => json!({"uri": uri, "content": content, "export_mode": "jwe"}),
+        };
+        ResponseTemplate::new(200).set_body_json(body)
     }
 
     // ── rbc_session_new ───────────────────────────────────────────────────
@@ -768,6 +856,568 @@ mod tests {
         assert_eq!(got, plaintext.as_ref());
 
         rbc_buffer_free(buffer);
+        rbc_session_free(session);
+        rbc_client_free(client);
+    }
+
+    // ── Error branches of the single-argument paths ───────────────────────
+
+    #[test]
+    fn session_new_invalid_tee_pubkey_returns_invalid_arg() {
+        let client = make_no_provider_client_handle();
+        let attester_data = CString::new(r#"{"runtime_data":{"tee-pubkey":{"kty":"unsupported"}}}"#).unwrap();
+        let mut session: *mut RbcSession = ptr::null_mut();
+
+        let code = rbc_session_new(client, attester_data.as_ptr(), &mut session);
+
+        assert_eq!(code, RbcErrorCode::InvalidArg);
+        assert!(session.is_null());
+        assert!(last_error_message().is_some(), "the failure reason must be recorded");
+        rbc_client_free(client);
+    }
+
+    #[test]
+    fn session_collect_evidence_without_provider_returns_provider_error() {
+        let client = make_no_provider_client_handle();
+        let session = unsafe { make_mock_session_handle(client) };
+        let nonce = CString::new("no-provider-nonce").unwrap();
+        let mut out: *mut c_char = ptr::null_mut();
+
+        clear_last_error();
+        let code = rbc_session_collect_evidence(session, nonce.as_ptr(), &mut out);
+
+        assert_eq!(code, RbcErrorCode::Provider);
+        assert!(out.is_null());
+        let message = last_error_message().expect("missing provider must be reported");
+        assert!(message.contains("evidence provider"), "unexpected message: {message}");
+        rbc_session_free(session);
+        rbc_client_free(client);
+    }
+
+    #[test]
+    fn session_attest_without_provider_returns_provider_error() {
+        let client = make_no_provider_client_handle();
+        let session = unsafe { make_mock_session_handle(client) };
+        let mut out: *mut c_char = ptr::null_mut();
+
+        clear_last_error();
+        let code = rbc_session_attest(session, ptr::null(), &mut out);
+
+        assert_eq!(code, RbcErrorCode::Provider);
+        assert!(out.is_null());
+        let message = last_error_message().expect("missing provider must be reported");
+        assert!(message.contains("token provider"), "unexpected message: {message}");
+        rbc_session_free(session);
+        rbc_client_free(client);
+    }
+
+    #[test]
+    fn session_collect_evidence_non_utf8_nonce_returns_invalid_arg() {
+        let client = make_mock_client_handle();
+        let session = unsafe { make_mock_session_handle(client) };
+        let nonce = CString::new(vec![0xff, 0xfe]).unwrap();
+        let mut out: *mut c_char = ptr::null_mut();
+
+        let code = rbc_session_collect_evidence(session, nonce.as_ptr(), &mut out);
+
+        assert_eq!(code, RbcErrorCode::InvalidArg);
+        assert!(out.is_null());
+        rbc_session_free(session);
+        rbc_client_free(client);
+    }
+
+    #[test]
+    fn session_attest_non_utf8_evidence_returns_invalid_arg() {
+        let client = make_mock_client_handle();
+        let session = unsafe { make_mock_session_handle(client) };
+        let evidence = CString::new(vec![0xff, 0xfe]).unwrap();
+        let mut out: *mut c_char = ptr::null_mut();
+
+        let code = rbc_session_attest(session, evidence.as_ptr(), &mut out);
+
+        assert_eq!(code, RbcErrorCode::InvalidArg);
+        assert!(out.is_null());
+        rbc_session_free(session);
+        rbc_client_free(client);
+    }
+
+    // A token provider may hand back arbitrary bytes; a NUL cannot be stored in
+    // the C string returned to the caller, and nothing may leak on failure.
+    #[test]
+    fn session_attest_token_with_nul_returns_internal() {
+        let client = make_mock_client_handle_with_token("mock\u{0}token");
+        let session = unsafe { make_mock_session_handle(client) };
+        let mut out: *mut c_char = ptr::null_mut();
+
+        let code = rbc_session_attest(session, ptr::null(), &mut out);
+
+        assert_eq!(code, RbcErrorCode::Internal);
+        assert!(out.is_null());
+        rbc_session_free(session);
+        rbc_client_free(client);
+    }
+
+    #[test]
+    fn get_resource_by_token_non_utf8_uri_returns_invalid_arg() {
+        let client = make_mock_client_handle();
+        let session = unsafe { make_mock_session_handle(client) };
+        let uri = CString::new(vec![b'/', 0xff, 0xfe]).unwrap();
+        let token = CString::new("tok").unwrap();
+        let mut out: *mut RbcResource = ptr::null_mut();
+
+        let code = rbc_session_get_resource_by_token(session, uri.as_ptr(), token.as_ptr(), &mut out);
+
+        assert_eq!(code, RbcErrorCode::InvalidArg);
+        assert!(out.is_null());
+        rbc_session_free(session);
+        rbc_client_free(client);
+    }
+
+    #[test]
+    fn get_resource_by_token_non_utf8_token_returns_invalid_arg() {
+        let client = make_mock_client_handle();
+        let session = unsafe { make_mock_session_handle(client) };
+        let uri = CString::new("vault/default/secret/key").unwrap();
+        let token = CString::new(vec![0xff, 0xfe]).unwrap();
+        let mut out: *mut RbcResource = ptr::null_mut();
+
+        let code = rbc_session_get_resource_by_token(session, uri.as_ptr(), token.as_ptr(), &mut out);
+
+        assert_eq!(code, RbcErrorCode::InvalidArg);
+        assert!(out.is_null());
+        rbc_session_free(session);
+        rbc_client_free(client);
+    }
+
+    #[test]
+    fn get_resource_by_token_rejected_uri_returns_invalid_arg() {
+        let client = make_mock_client_handle();
+        let session = unsafe { make_mock_session_handle(client) };
+        let uri = CString::new("../secret").unwrap();
+        let token = CString::new("tok").unwrap();
+        let mut out: *mut RbcResource = ptr::null_mut();
+
+        let code = rbc_session_get_resource_by_token(session, uri.as_ptr(), token.as_ptr(), &mut out);
+
+        assert_eq!(code, RbcErrorCode::InvalidArg);
+        assert!(out.is_null());
+        assert!(last_error_message().is_some(), "the rejected URI must be reported");
+        rbc_session_free(session);
+        rbc_client_free(client);
+    }
+
+    #[test]
+    fn get_resource_by_evidence_non_utf8_uri_returns_invalid_arg() {
+        let client = make_mock_client_handle();
+        let session = unsafe { make_mock_session_handle(client) };
+        let uri = CString::new(vec![b'/', 0xff, 0xfe]).unwrap();
+        let evidence = CString::new("{}").unwrap();
+        let mut out: *mut RbcResource = ptr::null_mut();
+
+        let code = rbc_session_get_resource_by_evidence(session, uri.as_ptr(), evidence.as_ptr(), &mut out);
+
+        assert_eq!(code, RbcErrorCode::InvalidArg);
+        assert!(out.is_null());
+        rbc_session_free(session);
+        rbc_client_free(client);
+    }
+
+    #[test]
+    fn get_resource_by_evidence_non_json_payload_returns_invalid_arg() {
+        let client = make_mock_client_handle();
+        let session = unsafe { make_mock_session_handle(client) };
+        let uri = CString::new("vault/default/secret/key").unwrap();
+        // Valid JSON, but not an `RbcEvidencesPayload`.
+        let evidence = CString::new(r#"{"measurements":"not-an-array"}"#).unwrap();
+        let mut out: *mut RbcResource = ptr::null_mut();
+
+        let code = rbc_session_get_resource_by_evidence(session, uri.as_ptr(), evidence.as_ptr(), &mut out);
+
+        assert_eq!(code, RbcErrorCode::InvalidArg);
+        assert!(out.is_null());
+        let message = last_error_message().expect("invalid evidence must be reported");
+        assert!(message.contains("invalid evidence"), "unexpected message: {message}");
+        rbc_session_free(session);
+        rbc_client_free(client);
+    }
+
+    // A response URI carrying a NUL cannot be exposed through the borrowed
+    // `const char *` accessor, so the handle must not be created at all.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn get_resource_by_token_rejects_response_uri_with_nul() {
+        let uri = "vault/default/secret/nul-uri";
+        let body = json!({
+            "uri": "vault/default/secret/nul\u{0}uri",
+            "content": base64::engine::general_purpose::STANDARD.encode(b"payload"),
+            "content_type": "text/plain",
+            "export_mode": "jwe",
+        });
+        let server = mount_get_resource(uri, "attest-token", ResponseTemplate::new(200).set_body_json(body)).await;
+        let base_url = server.uri();
+
+        let code = tokio::task::spawn_blocking(move || {
+            let client = make_no_provider_client_for_url(&base_url);
+            let mut session: *mut RbcSession = ptr::null_mut();
+            assert_eq!(rbc_session_new(client, ptr::null(), &mut session), RbcErrorCode::Ok);
+
+            let uri_c = CString::new(uri).unwrap();
+            let token_c = CString::new("attest-token").unwrap();
+            let mut resource: *mut RbcResource = ptr::null_mut();
+            let code = rbc_session_get_resource_by_token(session, uri_c.as_ptr(), token_c.as_ptr(), &mut resource);
+            assert!(resource.is_null(), "no handle may be created for an unrepresentable URI");
+
+            rbc_session_free(session);
+            rbc_client_free(client);
+            code
+        })
+        .await
+        .expect("blocking task should join");
+
+        assert_eq!(code, RbcErrorCode::Internal);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn get_resource_by_evidence_rejects_response_uri_with_nul() {
+        let uri = "vault/default/secret/nul-uri-evidence";
+        let body = json!({
+            "uri": "vault/default/secret/nul\u{0}uri",
+            "content": base64::engine::general_purpose::STANDARD.encode(b"payload"),
+            "export_mode": "jwe",
+        });
+        let server = mount_post_retrieve(uri, ResponseTemplate::new(200).set_body_json(body)).await;
+        let base_url = server.uri();
+
+        let code = tokio::task::spawn_blocking(move || {
+            let client = make_no_provider_client_for_url(&base_url);
+            let mut session: *mut RbcSession = ptr::null_mut();
+            assert_eq!(rbc_session_new(client, ptr::null(), &mut session), RbcErrorCode::Ok);
+
+            let uri_c = CString::new(uri).unwrap();
+            let evidence_c = CString::new("{}").unwrap();
+            let mut resource: *mut RbcResource = ptr::null_mut();
+            let code =
+                rbc_session_get_resource_by_evidence(session, uri_c.as_ptr(), evidence_c.as_ptr(), &mut resource);
+            assert!(resource.is_null(), "no handle may be created for an unrepresentable URI");
+
+            rbc_session_free(session);
+            rbc_client_free(client);
+            code
+        })
+        .await
+        .expect("blocking task should join");
+
+        assert_eq!(code, RbcErrorCode::Internal);
+    }
+
+    // ── rbc_session_get_resource_by_token against a mock RBS ──────────────
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn get_resource_by_token_returns_content_and_accessors() {
+        let uri = "vault/default/secret/my-key";
+        let plaintext = b"plain-secret";
+        let response = resource_response(uri, plaintext, Some("text/plain"));
+        let server = mount_get_resource(uri, "attest-token", response).await;
+        let base_url = server.uri();
+
+        let observed = tokio::task::spawn_blocking(move || {
+            let client = make_no_provider_client_for_url(&base_url);
+            let mut session: *mut RbcSession = ptr::null_mut();
+            assert_eq!(rbc_session_new(client, ptr::null(), &mut session), RbcErrorCode::Ok);
+
+            let uri_c = CString::new(uri).unwrap();
+            let token_c = CString::new("attest-token").unwrap();
+            let mut resource: *mut RbcResource = ptr::null_mut();
+            clear_last_error();
+            let code = rbc_session_get_resource_by_token(session, uri_c.as_ptr(), token_c.as_ptr(), &mut resource);
+            assert_eq!(code, RbcErrorCode::Ok, "resource retrieval must succeed");
+
+            let uri_out = unsafe { borrow_optional_string(rbc_resource_get_uri(resource)) }.expect("uri accessor");
+            let content_type_out =
+                unsafe { borrow_optional_string(rbc_resource_get_content_type(resource)) }.expect("content type");
+            let mut len: usize = 0;
+            let data = rbc_resource_get_content(resource, &mut len);
+            assert!(!data.is_null());
+            let content = unsafe { std::slice::from_raw_parts(data, len) }.to_vec();
+
+            ffi_resource_free(&mut resource);
+            assert!(resource.is_null(), "release must clear the caller's handle");
+            rbc_session_free(session);
+            rbc_client_free(client);
+            (uri_out, content_type_out, content)
+        })
+        .await
+        .expect("blocking task should join");
+
+        assert_eq!(observed.0, uri);
+        assert_eq!(observed.1, "text/plain");
+        assert_eq!(observed.2, plaintext.to_vec());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn get_resource_by_token_without_content_type_leaves_accessor_null() {
+        let uri = "vault/default/secret/no-type";
+        let server = mount_get_resource(uri, "attest-token", resource_response(uri, b"payload", None)).await;
+        let base_url = server.uri();
+
+        let content_type_is_null = tokio::task::spawn_blocking(move || {
+            let client = make_no_provider_client_for_url(&base_url);
+            let mut session: *mut RbcSession = ptr::null_mut();
+            assert_eq!(rbc_session_new(client, ptr::null(), &mut session), RbcErrorCode::Ok);
+
+            let uri_c = CString::new(uri).unwrap();
+            let token_c = CString::new("attest-token").unwrap();
+            let mut resource: *mut RbcResource = ptr::null_mut();
+            let code = rbc_session_get_resource_by_token(session, uri_c.as_ptr(), token_c.as_ptr(), &mut resource);
+            assert_eq!(code, RbcErrorCode::Ok);
+            let is_null = rbc_resource_get_content_type(resource).is_null();
+
+            ffi_resource_free(&mut resource);
+            rbc_session_free(session);
+            rbc_client_free(client);
+            is_null
+        })
+        .await
+        .expect("blocking task should join");
+
+        assert!(content_type_is_null, "absent content type must surface as NULL");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn get_resource_by_token_maps_not_found() {
+        let uri = "vault/default/secret/missing";
+        let server = mount_get_resource(
+            uri,
+            "attest-token",
+            ResponseTemplate::new(404).set_body_string("resource not found or access denied"),
+        )
+        .await;
+        let base_url = server.uri();
+
+        let (code, message) = tokio::task::spawn_blocking(move || {
+            let client = make_no_provider_client_for_url(&base_url);
+            let mut session: *mut RbcSession = ptr::null_mut();
+            assert_eq!(rbc_session_new(client, ptr::null(), &mut session), RbcErrorCode::Ok);
+
+            let uri_c = CString::new(uri).unwrap();
+            let token_c = CString::new("attest-token").unwrap();
+            let mut resource: *mut RbcResource = ptr::null_mut();
+            clear_last_error();
+            let code = rbc_session_get_resource_by_token(session, uri_c.as_ptr(), token_c.as_ptr(), &mut resource);
+            assert!(resource.is_null(), "no handle may be returned on failure");
+            let message = last_error_message().expect("failure reason must be recorded");
+
+            rbc_session_free(session);
+            rbc_client_free(client);
+            (code, message)
+        })
+        .await
+        .expect("blocking task should join");
+
+        assert_eq!(code, RbcErrorCode::ResourceNotFound);
+        assert!(message.contains("resource not found"), "unexpected message: {message}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn get_resource_by_token_maps_forbidden() {
+        let uri = "vault/default/secret/denied";
+        let server =
+            mount_get_resource(uri, "attest-token", ResponseTemplate::new(403).set_body_string("policy denied")).await;
+        let base_url = server.uri();
+
+        let code = tokio::task::spawn_blocking(move || {
+            let client = make_no_provider_client_for_url(&base_url);
+            let mut session: *mut RbcSession = ptr::null_mut();
+            assert_eq!(rbc_session_new(client, ptr::null(), &mut session), RbcErrorCode::Ok);
+
+            let uri_c = CString::new(uri).unwrap();
+            let token_c = CString::new("attest-token").unwrap();
+            let mut resource: *mut RbcResource = ptr::null_mut();
+            let code = rbc_session_get_resource_by_token(session, uri_c.as_ptr(), token_c.as_ptr(), &mut resource);
+
+            rbc_session_free(session);
+            rbc_client_free(client);
+            code
+        })
+        .await
+        .expect("blocking task should join");
+
+        assert_eq!(code, RbcErrorCode::Auth);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn get_resource_by_token_maps_server_error() {
+        let uri = "vault/default/secret/server-error";
+        let server =
+            mount_get_resource(uri, "attest-token", ResponseTemplate::new(500).set_body_string("internal error")).await;
+        let base_url = server.uri();
+
+        let code = tokio::task::spawn_blocking(move || {
+            let client = make_no_provider_client_for_url(&base_url);
+            let mut session: *mut RbcSession = ptr::null_mut();
+            assert_eq!(rbc_session_new(client, ptr::null(), &mut session), RbcErrorCode::Ok);
+
+            let uri_c = CString::new(uri).unwrap();
+            let token_c = CString::new("attest-token").unwrap();
+            let mut resource: *mut RbcResource = ptr::null_mut();
+            let code = rbc_session_get_resource_by_token(session, uri_c.as_ptr(), token_c.as_ptr(), &mut resource);
+
+            rbc_session_free(session);
+            rbc_client_free(client);
+            code
+        })
+        .await
+        .expect("blocking task should join");
+
+        assert_eq!(code, RbcErrorCode::Server);
+    }
+
+    // ── rbc_session_get_resource_by_evidence against a mock RBS ───────────
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn get_resource_by_evidence_returns_content() {
+        let uri = "vault/default/secret/by-evidence";
+        let plaintext = b"evidence-secret";
+        let response = resource_response(uri, plaintext, Some("application/octet-stream"));
+        let server = mount_post_retrieve(uri, response).await;
+        let base_url = server.uri();
+
+        let observed = tokio::task::spawn_blocking(move || {
+            let client = make_no_provider_client_for_url(&base_url);
+            let mut session: *mut RbcSession = ptr::null_mut();
+            assert_eq!(rbc_session_new(client, ptr::null(), &mut session), RbcErrorCode::Ok);
+
+            let uri_c = CString::new(uri).unwrap();
+            // `measurements` defaults to an empty list, so `{}` is a valid payload.
+            let evidence_c = CString::new("{}").unwrap();
+            let mut resource: *mut RbcResource = ptr::null_mut();
+            clear_last_error();
+            let code =
+                rbc_session_get_resource_by_evidence(session, uri_c.as_ptr(), evidence_c.as_ptr(), &mut resource);
+            assert_eq!(code, RbcErrorCode::Ok, "evidence retrieval must succeed");
+
+            let uri_out = unsafe { borrow_optional_string(rbc_resource_get_uri(resource)) }.expect("uri accessor");
+            let content_type_out =
+                unsafe { borrow_optional_string(rbc_resource_get_content_type(resource)) }.expect("content type");
+            let mut len: usize = 0;
+            let data = rbc_resource_get_content(resource, &mut len);
+            let content = unsafe { std::slice::from_raw_parts(data, len) }.to_vec();
+
+            ffi_resource_free(&mut resource);
+            rbc_session_free(session);
+            rbc_client_free(client);
+            (uri_out, content_type_out, content)
+        })
+        .await
+        .expect("blocking task should join");
+
+        assert_eq!(observed.0, uri);
+        assert_eq!(observed.1, "application/octet-stream");
+        assert_eq!(observed.2, plaintext.to_vec());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn get_resource_by_evidence_maps_not_found() {
+        let uri = "vault/default/secret/unknown";
+        let server = mount_post_retrieve(uri, ResponseTemplate::new(404).set_body_string("resource not found")).await;
+        let base_url = server.uri();
+
+        let code = tokio::task::spawn_blocking(move || {
+            let client = make_no_provider_client_for_url(&base_url);
+            let mut session: *mut RbcSession = ptr::null_mut();
+            assert_eq!(rbc_session_new(client, ptr::null(), &mut session), RbcErrorCode::Ok);
+
+            let uri_c = CString::new(uri).unwrap();
+            let evidence_c = CString::new("{}").unwrap();
+            let mut resource: *mut RbcResource = ptr::null_mut();
+            let code =
+                rbc_session_get_resource_by_evidence(session, uri_c.as_ptr(), evidence_c.as_ptr(), &mut resource);
+
+            rbc_session_free(session);
+            rbc_client_free(client);
+            code
+        })
+        .await
+        .expect("blocking task should join");
+
+        assert_eq!(code, RbcErrorCode::ResourceNotFound);
+    }
+
+    // ── rbc_session_decrypt_content error branches ─────────────────────────
+
+    #[test]
+    fn decrypt_content_null_jwe_returns_invalid_arg() {
+        let client = make_mock_client_handle();
+        let session = unsafe { make_mock_session_handle(client) };
+        let mut buffer: *mut RbcBuffer = ptr::null_mut();
+
+        let code = rbc_session_decrypt_content(session, ptr::null(), ptr::null(), ptr::null(), 0, &mut buffer);
+
+        assert_eq!(code, RbcErrorCode::InvalidArg);
+        assert!(buffer.is_null());
+        rbc_session_free(session);
+        rbc_client_free(client);
+    }
+
+    #[test]
+    fn decrypt_content_non_utf8_arguments_return_invalid_arg() {
+        let client = make_mock_client_handle();
+        let session = unsafe { make_mock_session_handle(client) };
+        let bad_jwe = CString::new(vec![0xff, 0xfe]).unwrap();
+        let bad_pem = CString::new(vec![0xff, 0xfe]).unwrap();
+        let good_jwe = CString::new("a.b.c.d.e").unwrap();
+        let mut buffer: *mut RbcBuffer = ptr::null_mut();
+
+        let code = rbc_session_decrypt_content(session, bad_jwe.as_ptr(), ptr::null(), ptr::null(), 0, &mut buffer);
+        assert_eq!(code, RbcErrorCode::InvalidArg);
+        assert!(buffer.is_null());
+
+        let code =
+            rbc_session_decrypt_content(session, good_jwe.as_ptr(), bad_pem.as_ptr(), ptr::null(), 0, &mut buffer);
+        assert_eq!(code, RbcErrorCode::InvalidArg);
+        assert!(buffer.is_null());
+
+        rbc_session_free(session);
+        rbc_client_free(client);
+    }
+
+    #[test]
+    fn decrypt_content_invalid_pem_returns_error() {
+        let client = make_mock_client_handle();
+        let session = unsafe { make_mock_session_handle(client) };
+        let jwe = CString::new("a.b.c.d.e").unwrap();
+        let pem = CString::new("not-a-pem").unwrap();
+        let mut buffer: *mut RbcBuffer = ptr::null_mut();
+
+        clear_last_error();
+        let code = rbc_session_decrypt_content(session, jwe.as_ptr(), pem.as_ptr(), ptr::null(), 0, &mut buffer);
+
+        assert_ne!(code, RbcErrorCode::Ok);
+        assert!(buffer.is_null());
+        assert!(last_error_message().is_some(), "decrypt failure must be recorded");
+        rbc_session_free(session);
+        rbc_client_free(client);
+    }
+
+    #[test]
+    fn decrypt_content_accepts_passphrase_at_the_max_length() {
+        let client = make_mock_client_handle();
+        let session = unsafe { make_mock_session_handle(client) };
+        let jwe = CString::new("not-a-jwe").unwrap();
+        let passphrase = vec![b'p'; PASSPHRASE_MAX_LEN];
+        let mut buffer: *mut RbcBuffer = ptr::null_mut();
+
+        // Exactly at the limit the length check passes and decryption fails later.
+        let code = rbc_session_decrypt_content(
+            session,
+            jwe.as_ptr(),
+            ptr::null(),
+            passphrase.as_ptr(),
+            passphrase.len(),
+            &mut buffer,
+        );
+
+        assert_ne!(code, RbcErrorCode::InvalidArg, "a passphrase at the limit must not be rejected");
+        assert!(buffer.is_null());
         rbc_session_free(session);
         rbc_client_free(client);
     }
