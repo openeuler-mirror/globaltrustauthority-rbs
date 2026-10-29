@@ -9,7 +9,7 @@
 - [0. Environment self-check](#0-environment-self-check)
 - [1. Start a cluster](#1-start-a-cluster)
 - [2. Build and load the image](#2-build-and-load-the-image)
-- [3. Generate certificates and keys][networkpolicy.yaml](../../deployment/k8s/optional/networkpolicy.yaml)(#3-generate-certificates-and-keys)
+- [3. Generate certificates and keys](#3-generate-certificates-and-keys)
 - [4. Deploy](#4-deploy)
 - [5. Verify](#5-verify)
 - [6. Connect a GTA](#6-connect-a-gta)
@@ -79,13 +79,22 @@ kind create cluster --name rbs
 ### 1.3 Record the node IP
 
 ```bash
-NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+# minikube
+NODE_IP=$(minikube ip)
+echo "NODE_IP=$NODE_IP"
+```
+
+```bash
+# kind
+NODE_IP=$(docker inspect rbs-control-plane --format '{{.NetworkSettings.Networks.kind.IPAddress}}')
 echo "NODE_IP=$NODE_IP"
 ```
 
 ```text
 NODE_IP=192.168.49.2
 ```
+
+> Both forms read the node IP locally without contacting the API server, so they keep working even when exported proxy variables make kubectl fail with `Unable to connect to the server: Gateway Time-out` (see the proxy note in chapter 2). On minikube, add `-p <profile>` when multiple profiles exist.
 
 ## 2. Build and load the image
 
@@ -115,9 +124,13 @@ Success ends with `naming to docker.io/globaltrustauthority-rbs/rbs:latest done`
 > If the alternate mirror fails too, try other prefixes (`dockerproxy.net`, `docker.1ms.run`), or change `registry-mirrors` in `/etc/docker/daemon.json` and run `sudo systemctl restart docker`.
 
 
-> Build containers **do not inherit the shell's proxy variables**: on hosts that need `export http_proxy` (etc.) to reach the internet, the build fails with `Couldn't resolve host name` (dnf/apt/cargo downloads). Inject the proxy (set `https_proxy` too if missing — usually the same value):
+> Build containers **do not inherit the shell's proxy variables**: on hosts that need `export http_proxy` (etc.) to reach the internet, the build fails with `Couldn't resolve host name` (dnf/apt/cargo downloads). Inject the proxy (set `https_proxy` too if missing — usually the same value). **Always pair the proxy with the cluster-address exclusion** — a proxy without `no_proxy` also breaks every later kubectl/curl/rbs-cli call to the cluster:
 > ```bash
 > export https_proxy=$http_proxy    # set if missing (usually the same value)
+> # Mandatory companion of the proxy: without it, kubectl/curl/rbs-cli requests to
+> # cluster addresses are hijacked and fail with 504 Gateway Time-out
+> export no_proxy="localhost,127.0.0.1,$(minikube ip)"    # kind: use the rbs-control-plane container IP
+> export NO_PROXY="$no_proxy"
 > docker build -f deployment/docker/dockerfile -t globaltrustauthority-rbs/rbs:latest \
 >   --build-arg http_proxy=$http_proxy --build-arg https_proxy=$https_proxy .
 > ```
@@ -130,6 +143,8 @@ Success ends with `naming to docker.io/globaltrustauthority-rbs/rbs:latest done`
 >   --build-arg http_proxy=$http_proxy --build-arg https_proxy=$https_proxy \
 >   --build-arg CA_BUNDLE="$(cat host-ca-bundle.pem)" .
 > ```
+
+> **Symptom — kubectl reports `Unable to connect to the server: Gateway Time-out`**: kubectl honors the exported proxy variables like any HTTP client, and the proxy cannot reach cluster-internal addresses; the error text is the proxy's 504 answer (a dead API server reports `connection refused`/`i/o timeout` instead). The fix is the mandatory `no_proxy`/`NO_PROXY` pair from the block above — when in doubt, check `echo $no_proxy`.
 
 **Verify the image exists**:
 
@@ -169,7 +184,7 @@ One `globaltrustauthority-rbs/rbs` line means success.
 
 ```bash
 mkdir -p rbs-k8s-deploy && cd rbs-k8s-deploy
-NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+NODE_IP=$(minikube ip)   # kind: NODE_IP=$(docker inspect rbs-control-plane --format '{{.NetworkSettings.Networks.kind.IPAddress}}')
 echo "NODE_IP=$NODE_IP"
 
 # 1) TLS server certificate (SAN must contain the node IP — business verification uses it)
@@ -206,11 +221,14 @@ X509v3 Subject Alternative Name:
 ## 4. Deploy
 
 > Chapter output: RBS running in namespace `rbs`. **Order matters**: namespace → Secrets/ConfigMap → remaining manifests (the Deployment references them).
-> When re-running this chapter after a failure, clean up first or `create` reports `already exists`:
+> Prerequisite when the shell exports proxy variables: export the `no_proxy`/`NO_PROXY` pair from chapter 2 first — otherwise every command below fails with `Unable to connect to the server: Gateway Time-out`.
+> When re-running this chapter — after a failure, or to redeploy over a running instance — clean up first: otherwise `create` reports `already exists`, and `apply` on an unchanged manifest leaves the old pod running (same AGE, old image/config):
 > ```bash
+> kubectl delete deployment rbs -n rbs --ignore-not-found
 > kubectl delete secret rbs-tls rbs-config -n rbs --ignore-not-found
 > kubectl delete configmap rbs-keys -n rbs --ignore-not-found
 > ```
+> Do **not** delete the `rbs-data` PVC — it holds the SQLite database, and chapter 5 verifies data surviving redeploys. With the Deployment deleted, step 5's `apply` re-creates it and the new pod mounts the fresh Secrets/ConfigMap and the newly loaded image. Alternatively, keep the Deployment and finish with the rollout restart shown in step 6.
 
 **1) Create the namespace** (first):
 
@@ -315,14 +333,17 @@ kubectl apply -f deployment/k8s/deployment.yaml
 
 kubectl apply -f deployment/k8s/service.yaml
 # expected: service/rbs created
-```bash
-kubectl apply -f deployment/k8s/
-# expected: persistentvolumeclaim/rbs-data created
-#           deployment.apps/rbs created
-#           service/rbs created
 ```
 
+> All at once: `kubectl apply -f deployment/k8s/` also works (the namespace from step 1 is re-applied and reported unchanged; `optional/` is skipped — kubectl does not recurse into subdirectories by default). Files are processed in alphabetical order, so the Deployment is created before the PVC binds and the pod stays `Pending` a few seconds longer; the explicit sequence above avoids that transient state.
+
 **6) Wait for the pod** (first start runs the SQL migration and admin bootstrap, within ~30s):
+
+> Re-running over an existing deployment: if `apply` reported `deployment.apps/rbs unchanged`, the old pod keeps running (same AGE) — deleting/recreating the Secrets does not restart it either, because the running process read that content at startup. Restart it so the new pod picks up the fresh Secrets/config and the newly loaded image:
+> ```bash
+> kubectl rollout restart deployment/rbs -n rbs
+> kubectl rollout status deployment/rbs -n rbs --timeout=120s
+> ```
 
 ```bash
 kubectl get pods -n rbs -w
@@ -355,7 +376,7 @@ kill $PF
 **2) Business API** (from outside the cluster via NodePort 30666, TLS verified with the chapter-3 certificate):
 
 ```bash
-NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+NODE_IP=$(minikube ip)   # kind: NODE_IP=$(docker inspect rbs-control-plane --format '{{.NetworkSettings.Networks.kind.IPAddress}}')
 curl -s --cacert rbs-k8s-deploy/tls.crt "https://${NODE_IP}:30666/rbs/version"
 ```
 
@@ -479,7 +500,7 @@ kubectl rollout restart deployment/rbs -n rbs
 
 ```bash
 kubectl rollout status deployment/rbs -n rbs --timeout=120s
-NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+NODE_IP=$(minikube ip)   # kind: NODE_IP=$(docker inspect rbs-control-plane --format '{{.NetworkSettings.Networks.kind.IPAddress}}')
 curl -s --cacert rbs-k8s-deploy/tls.crt "https://${NODE_IP}:30666/rbs/v0/challenge?attester_type=tpm"
 ```
 
@@ -570,6 +591,7 @@ kubectl get events -n rbs --sort-by=.lastTimestamp # 4. scheduling and volume ev
 
 | Symptom | Cause | Fix |
 |---|---|---|
+| `kubectl` fails with `Unable to connect to the server: Gateway Time-out` | shell proxy variables hijack API-server requests | export the `no_proxy`/`NO_PROXY` pair with the node IP (chapter 2 proxy block) |
 | Pod `Pending` | PVC unbound (no default StorageClass) | `kubectl get storageclass`; add `storageClassName:` in `pvc.yaml` and re-apply |
 | Pod `ImagePullBackOff` | image not loaded into the cluster | re-run the chapter-2 load command (incl. the ctr fallback) |
 | Pod `CrashLoopBackOff`, log mentions a config field | missing/invalid config value | fix `rbs-k8s-deploy/rbs.yaml` → update rbs-config via delete+create as in 4.3 → `kubectl rollout restart deployment/rbs -n rbs` |
@@ -654,18 +676,18 @@ See the GTA client guide: [attestation_agent user guide](https://atomgit.com/ope
 **5) Base variables** (shared across the three chapters):
 
 ```bash
-NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+NODE_IP=$(minikube ip)   # kind: NODE_IP=$(docker inspect rbs-control-plane --format '{{.NetworkSettings.Networks.kind.IPAddress}}')
 export RBS_URL="https://${NODE_IP}:30666"
 ```
 
-**6) Proxy exclusion** (mandatory when `http_proxy`/`https_proxy` is set, otherwise rbs-cli requests are hijacked by the proxy and fail with 504):
+**6) Proxy exclusion** (mandatory when `http_proxy`/`https_proxy` is set, otherwise kubectl/rbs-cli requests are hijacked by the proxy and fail with 504; same exclusion as the chapter 2 proxy note):
 
 ```bash
 export no_proxy="${NODE_IP},localhost,127.0.0.1"
 export NO_PROXY="${NODE_IP},localhost,127.0.0.1"
 ```
 
-> **Why**: rbs-cli connecting to RBS (an internal node IP) does not need the proxy, but HTTP clients inherit shell proxy variables by default — the proxy doesn't know the internal address and returns 504 Gateway Timeout. `no_proxy` tells the client to connect directly to these addresses.
+> **Why**: clients connecting to RBS (an internal node IP) do not need the proxy, but HTTP clients (kubectl, curl, rbs-cli) inherit shell proxy variables by default — the proxy doesn't know the internal address and returns 504 Gateway Timeout. `no_proxy` tells the client to connect directly to these addresses.
 
 ### 9.1 Start OpenBao and pre-create a secret
 
@@ -725,7 +747,7 @@ kubectl logs -n rbs deploy/rbs | grep -i vault | tail -2
 Run on the **host**:
 
 ```bash
-NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+NODE_IP=$(minikube ip)   # kind: NODE_IP=$(docker inspect rbs-control-plane --format '{{.NetworkSettings.Networks.kind.IPAddress}}')
 export RBS_URL="https://${NODE_IP}:30666"
 export BEARER_TOKEN="$(rbs-cli token gen --private-key-file rbs-k8s-deploy/admin_key.pem)"
 
@@ -836,7 +858,7 @@ kubectl logs -n rbs deploy/rbs | grep -iE "hsm|slot" | tail -3
 ### 10.4 Create a resource policy and write key material
 
 ```bash
-NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+NODE_IP=$(minikube ip)   # kind: NODE_IP=$(docker inspect rbs-control-plane --format '{{.NetworkSettings.Networks.kind.IPAddress}}')
 export RBS_URL="https://${NODE_IP}:30666"
 export BEARER_TOKEN="$(rbs-cli token gen --private-key-file rbs-k8s-deploy/admin_key.pem)"
 
@@ -969,7 +991,7 @@ kubectl logs -n rbs deploy/rbs | grep -i "CA backend" | tail -2
 ### 11.4 Create a resource policy and register the CA resource
 
 ```bash
-NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+NODE_IP=$(minikube ip)   # kind: NODE_IP=$(docker inspect rbs-control-plane --format '{{.NetworkSettings.Networks.kind.IPAddress}}')
 export RBS_URL="https://${NODE_IP}:30666"
 export BEARER_TOKEN="$(rbs-cli token gen --private-key-file rbs-k8s-deploy/admin_key.pem)"
 
