@@ -428,19 +428,39 @@ mod tests {
         server.verify().await;
     }
 
+    /// Reserve an ephemeral loopback port and release it, so connections to it
+    /// are refused — the non-timeout transport error UT-VB-04 needs.
+    ///
+    /// Binds on 127.0.0.2 instead of 127.0.0.1: this suite's `MockServer`s all
+    /// listen on 127.0.0.1 and the tests run in parallel, so a mock server
+    /// starting between the release and the client's connect can rebind the
+    /// exact port just released. The request then gets a real HTTP response
+    /// instead of a connection refusal (no retry, no backoff sleep), which
+    /// flaked this test on busy CI agents. Nothing else in this suite binds
+    /// 127.0.0.2, and the whole 127/8 range is loopback on Linux. The probe
+    /// after releasing double-checks the port still refuses connections;
+    /// otherwise it moves on to the next candidate port.
+    async fn released_refusing_addr() -> std::net::SocketAddr {
+        for _ in 0..5 {
+            let listener = std::net::TcpListener::bind("127.0.0.2:0").expect("bind failed");
+            let addr = listener.local_addr().expect("local_addr failed");
+            drop(listener);
+            if tokio::net::TcpStream::connect(addr).await.is_err() {
+                return addr;
+            }
+        }
+        panic!("no released 127.0.0.2 port refused connections after 5 attempts");
+    }
+
     /// UT-VB-04: non-timeout transport error (connection refused) IS retried when
     /// max_retries>0, with the 5s backoff sleep between attempts. This matches the
     /// doc comment "retry on transport errors" and the manual test point
     /// RUST_GTA_RBS_TP_REL_Retry_001 (network error: temporary/recoverable).
     #[tokio::test]
     async fn ut_vb_04_non_timeout_network_error_retried() {
-        use std::net::TcpListener;
-
-        // Reserve an ephemeral port then release it so connections are refused
-        // (a non-timeout transport error that should still be retried).
-        let listener = TcpListener::bind("127.0.0.1:0").expect("bind failed");
-        let addr = listener.local_addr().expect("local_addr failed");
-        drop(listener);
+        // Released port -> connection refused (a non-timeout transport error
+        // that should still be retried).
+        let addr = released_refusing_addr().await;
 
         // max_retries=1 => 2 attempts with one 5s backoff sleep between them.
         let backend = VaultBackend::new(&cfg(&format!("http://{}", addr), 1)).expect("init");
