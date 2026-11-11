@@ -1,8 +1,10 @@
 # RBS Kubernetes deployment — the broker itself.
 # Single replica + Recreate: SQLite is a single-writer database on an RWO volume, so the
 # old pod must terminate before a new one starts (no rolling overlap, no storage races).
-# Secrets are NOT defined here: rbs-tls and rbs-config are created via kubectl commands
-# AFTER the namespace exists (see docs/build/k8s.md) — the manifests stay plaintext-free.
+# Secrets are NOT defined here: rbs-tls (HTTPS deployments only — plain-HTTP deployments
+# skip it; the optional flag on the tls volume below tolerates its absence) and rbs-config
+# are created via kubectl commands AFTER the namespace exists (see docs/build/k8s.md) —
+# the manifests stay plaintext-free.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -95,6 +97,10 @@ spec:
         - name: tls
           secret:
             secretName: rbs-tls
+            # Plain-HTTP deployments (rest.https.enabled=false in the config — see
+            # docs/build/k8s.md section 4.3) create no rbs-tls Secret; optional keeps the
+            # pod startable without it (the empty mount is never read in HTTP mode).
+            optional: true
         - name: config
           secret:
             secretName: rbs-config

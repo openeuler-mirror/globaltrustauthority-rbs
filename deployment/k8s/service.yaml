@@ -1,5 +1,7 @@
 # RBS Kubernetes deployment — business entry point.
-# NodePort 30666 -> container 6666 (HTTPS). The health port (6667) is intentionally NOT
+# NodePort 30666 -> container 6666. The business port speaks HTTPS by default and plain
+# HTTP when rest.https.enabled=false in the config (see docs/build/k8s.md section 4.3).
+# The health port (6667) is intentionally NOT
 # exposed here: kubelet probes talk to the pod IP directly. For network-level exposure
 # control see networkpolicy.yaml (optional).
 apiVersion: v1
