@@ -40,4 +40,5 @@ jsonwebtoken = { workspace = true, features = ["rust_crypto"] }
 libc = "0.2"
 
 [dev-dependencies]
+clap-markdown = "=0.1.5"
 wiremock.workspace = true

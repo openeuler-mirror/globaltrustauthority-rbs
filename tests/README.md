@@ -138,7 +138,8 @@ Runs from repo root in order when enabled:
 | Stage | When | Notes |
 |-------|------|-------|
 | Cargo test | `ENABLE_CARGO_TESTS=1` (default) | Full workspace, or `-p` packages for selected `--suite` |
-| OpenAPI drift | Full run, or `--suite rbs` (not `rbs-e2e`) | Compares `docs/proto/rbs_rest_api.yaml` to build output |
+| OpenAPI drift | Full run, or `--suite rbs` (not `rbs-e2e`) | Captures YAML/Markdown/HTML before Cargo tests, regenerates all three, and rejects drift; requires Node.js >= 22.12.0 and npm |
+| Client docs drift | Full run, or `--suite rbc` / `--suite tools`, with Cargo enabled | `./scripts/generate-cli-docs.sh --check` checks both clap references and the RBC SDK reference without modifying them; requires Python 3.10+ |
 | pytest e2e | `ENABLE_E2E_TESTS=1` (default) | See suite tokens and empty policy below |
 
 ### `test_all.sh` suite tokens
@@ -216,6 +217,21 @@ E2E_SUITES=rbs,tools E2E_PATTERN=version ./tests/run_e2e.sh
 python3 -m pytest -c tests/pytest.ini tests/e2e -m rbs -v
 python3 -m pytest -c tests/pytest.ini tests/e2e -m "rbs or tools" -k version
 ```
+
+## Client documentation
+
+Run `./scripts/generate-cli-docs.sh` after changing client commands or SDK docs.
+The generator uses `clap-markdown` as a development dependency and requires no
+running RBS, GTA, or OpenBao. It produces `docs/api/rbc/cli.md`,
+`docs/api/rbs-cli/cli.md`, and `docs/api/rbc/sdk.md`.
+`./scripts/generate-cli-docs.sh --check` renders to a temporary directory and
+fails for missing or outdated documents, including uncommitted edits, without
+rewriting them. The check runs after Cargo tests in the full gate and client suites.
+It is skipped with `--no-cargo` and e2e-only suite selections.
+
+CLI references describe clap metadata; runtime environment fallback behavior and
+examples stay in the usage guides. The SDK script is a lightweight source parser
+for `sdk.rs`, not a full Rust parser or a C FFI reference generator.
 
 ## Adding e2e tests
 

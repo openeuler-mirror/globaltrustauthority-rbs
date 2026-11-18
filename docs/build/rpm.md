@@ -306,7 +306,7 @@ source "$HOME/.cargo/env"
 rustc --version && cargo --version
 ```
 
-The same package names apply on other dnf-based distros (RHEL 9, Fedora). Building RPMs does **not** need Node.js or npm; those are only for `./scripts/build.sh docs`, documented in [`build_and_install.md`](build_and_install.md).
+The same package names apply on other dnf-based distros (RHEL 9, Fedora). Building RPMs does **not** need Node.js or npm; those are needed for `./scripts/build.sh docs` and the OpenAPI merge gate, documented in [`build_and_install.md`](build_and_install.md).
 
 ### 2. Quick build
 

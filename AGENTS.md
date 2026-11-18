@@ -11,7 +11,7 @@ Architecture: [`docs/design/architecture.md`](docs/design/architecture.md).
 - **Language**: Rust 2021 edition
 - **Web Framework**: actix-web 4.x
 - **Database**: sea-orm (SQLite, PostgreSQL, MySQL support)
-- **API Documentation**: OpenAPI 3.0 / Swagger, utoipa
+- **API Documentation**: OpenAPI 3.1 / Swagger, utoipa
 - **Logging**: `log` facade + custom logger in `rbs/core/src/infra/logging/` (optional rotation/gzip via `flate2`)
 - **TLS**: OpenSSL
 - **Serialization**: serde, serde_json, serde_yaml
@@ -111,7 +111,7 @@ Two layers:
 | Rust unit / integration | `cargo test` | Per-crate `tests/` (`rbs/core/tests/`, `rbs/rest/tests/`, …) |
 | Black-box e2e | **pytest** + `httpx` | `tests/e2e/<suite>/` (`rbs`, `rbc`, `tools` markers) |
 
-**Merge gate** (required before merge): `./tests/test_all.sh` — Cargo workspace tests, OpenAPI YAML drift check, then pytest e2e.
+**Merge gate** (required before merge): `./tests/test_all.sh` — Cargo workspace tests, OpenAPI YAML/Markdown/HTML drift check, then pytest e2e.
 
 ```bash
 # E2e deps (once per environment)

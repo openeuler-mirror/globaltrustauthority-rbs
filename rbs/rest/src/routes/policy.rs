@@ -59,6 +59,7 @@ fn validate_path_id(policy_id: &str) -> Result<(), HttpResponse> {
     security(("bearerAuth" = [])),
     params(PolicyListQuery),
     responses(
+        (status = 400, description = "Invalid request parameters or body", body = ErrorBody),
         (status = 200, description = "Policy list", body = PolicyListResponse),
         (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody),
@@ -147,6 +148,7 @@ pub async fn create_policy(
         ("policy_id" = String, Path, description = "Policy ID"),
     ),
     responses(
+        (status = 400, description = "Invalid policy ID", body = ErrorBody),
         (status = 200, description = "Policy detail", body = PolicyResponse),
         (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody),
@@ -228,6 +230,7 @@ pub async fn update_policy(
         ("policy_id" = String, Path, description = "Policy ID"),
     ),
     responses(
+        (status = 400, description = "Invalid policy ID", body = ErrorBody),
         (status = 204, description = "Policy deleted"),
         (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody),

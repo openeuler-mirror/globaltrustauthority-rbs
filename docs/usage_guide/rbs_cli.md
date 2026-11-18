@@ -1,5 +1,10 @@
 # rbs-cli Usage Guide
 
+The [generated CLI reference](../api/rbs-cli/cli.md) lists commands and options
+from the real clap definitions. Run `./scripts/generate-cli-docs.sh` to update it,
+or add `--check` to detect stale documents without modifying files. This guide
+covers runtime configuration, environment fallbacks, and workflow examples.
+
 ## Overview
 
 `rbs-cli` is the command-line interface for the current RBS workspace. In the current build it exposes these top-level command groups:

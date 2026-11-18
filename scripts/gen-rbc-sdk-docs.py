@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate Markdown API reference from Rust source files.
+Generate the RBC SDK Markdown reference from documented Rust structs and enums.
 
 Usage:
     python3 scripts/gen-rbc-sdk-docs.py [inputs ...] [--output PATH]
@@ -11,8 +11,7 @@ Arguments:
 
 Examples:
     python3 scripts/gen-rbc-sdk-docs.py
-    python3 scripts/gen-rbc-sdk-docs.py rbc/src/sdk.rs rbc/src/ffi/mod.rs --output docs/api/rbc/full.md
-    python3 scripts/gen-rbc-sdk-docs.py rbc/src/ --output docs/api/rbc/full.md
+    python3 scripts/gen-rbc-sdk-docs.py --check
 
 How it works:
     The script scans Rust source files line by line and extracts:
@@ -35,6 +34,8 @@ import argparse
 import re
 import sys
 from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -60,6 +61,8 @@ def collect_rs_files(inputs):
     result = []
     for raw in inputs:
         p = Path(raw)
+        if not p.exists():
+            sys.exit(f"error: input does not exist: {p}")
         if p.is_dir():
             candidates = sorted(p.rglob("*.rs"))
         else:
@@ -94,7 +97,7 @@ def skip_cfg_test(lines, i):
 
 
 def get_method_sig(lines, i):
-    """Collect a complete `pub fn` signature. Returns (sig_str, next_i)."""
+    """Collect a complete `pub fn` signature. Returns (sig_str, next_i, remaining_body_depth)."""
     parts = []
     paren_depth = 0
     j = i
@@ -109,12 +112,12 @@ def get_method_sig(lines, i):
         j += 1
         if paren_depth <= 0 and ("{" in line or line.strip().endswith(";")):
             break
-    return clean_sig(parts), j
+    body_depth = sum(line.count("{") - line.count("}") for line in parts)
+    return clean_sig(parts), j, body_depth
 
 
-def skip_fn_body(lines, i):
+def skip_fn_body(lines, i, depth):
     """Skip a function body `{ … }`. i should point to the first line after the `{`."""
-    depth = 1
     j = i
     while j < len(lines) and depth > 0:
         for ch in lines[j]:
@@ -218,18 +221,18 @@ def get_impl_methods(lines, i):
             j += 1
             continue
 
-        if depth == 1 and re.match(r"\s+pub fn ", line) and not re.match(r"\s+pub\(", line):
+        if depth == 1 and re.match(r"\s+pub (?:async |const |unsafe )*fn ", line) and not re.match(r"\s+pub\(", line):
             saved_doc = join_doc(doc)
             doc = []
-            sig, j = get_method_sig(lines, j)
-            name_m = re.search(r"pub fn (\w+)", sig)
+            sig, j, body_depth = get_method_sig(lines, j)
+            name_m = re.search(r"\bfn (\w+)", sig)
             methods.append({
                 "name": name_m.group(1) if name_m else "?",
                 "sig": sig,
                 "docs": saved_doc,
             })
             # skip method body
-            j = skip_fn_body(lines, j)
+            j = skip_fn_body(lines, j, body_depth)
             continue
 
         # update depth for non-method lines
@@ -327,7 +330,7 @@ def merge_parsed(files):
     """Parse each file and merge results, first-seen wins on name conflicts."""
     merged = {}
     for path in files:
-        source = path.read_text()
+        source = path.read_text(encoding="utf-8")
         types = parse(source)
         for name, info in types.items():
             if name in merged:
@@ -412,30 +415,39 @@ def render(types, sources):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Generate Markdown API reference from Rust source files."
+        description="Generate the RBC SDK Markdown reference from documented Rust structs and enums."
     )
     parser.add_argument(
         "inputs",
         nargs="*",
-        default=["rbc/src/sdk.rs"],
+        default=None,
         metavar="INPUT",
         help=".rs files or directories to parse (default: rbc/src/sdk.rs)",
     )
     parser.add_argument(
         "--output",
-        default="docs/api/rbc/sdk.md",
+        default=str(REPO_ROOT / "docs/api/rbc/sdk.md"),
         metavar="PATH",
         help="output markdown path (default: docs/api/rbc/sdk.md)",
     )
+    parser.add_argument("--check", action="store_true", help="fail on missing or stale output without writing it")
     args = parser.parse_args()
 
-    files = collect_rs_files(args.inputs)
+    files = collect_rs_files(args.inputs or [REPO_ROOT / "rbc/src/sdk.rs"])
     types = merge_parsed(files)
-    md = render(types, files)
+    if not types:
+        sys.exit("error: no supported public SDK types found; this generator does not document standalone FFI functions")
+    sources = [p.resolve().relative_to(REPO_ROOT) if p.resolve().is_relative_to(REPO_ROOT) else p for p in files]
+    md = render(types, sources)
 
     out = Path(args.output)
+    if args.check:
+        if not out.is_file() or out.read_text(encoding="utf-8") != md:
+            sys.exit(f"error: {out} differs from generated output (or is missing)")
+        print(f"in sync: {out}")
+        return
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(md)
+    out.write_text(md, encoding="utf-8")
     print(f"written: {out}  ({md.count(chr(10))} lines)")
 
 

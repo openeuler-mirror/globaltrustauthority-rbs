@@ -16,7 +16,7 @@ use rbs_api_types::{
     API_VERSION, AttestRequest, AttestResponse, AuthChallengeResponse, BuildMetadata,
     ChallengeRequest, CreatePolicyRequest, CreateResourceRequest, ErrorBody,
     PolicyListResponse, PolicyResponse, RbsVersion, ResourceContentResponse,
-    ResourceInfoResponse, ResourceListResponse, ResourceResponse, UpdatePolicyRequest,
+    ResourceListResponse, ResourceResponse, UpdatePolicyRequest,
     UpdateResourceRequest,
     UserCreateRequest, UserListResponse, UserResponse, UserUpdateRequest,
     AttestationDeleteType, AttestationPolicy,
@@ -27,12 +27,12 @@ use rbs_api_types::{
     RefValueListResponse, RefValueMutationResponse, RefValueUpdateRequest,
 };
 use rbs_api_types::attestation_mgmt::AttestationPolicyListResponse;
-use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
+use utoipa::openapi::security::{ApiKey, ApiKeyValue, HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::{Modify, OpenApi};
 
-struct SecurityAddon;
+struct ContractAddon;
 
-impl Modify for SecurityAddon {
+impl Modify for ContractAddon {
     fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
         if let Some(components) = openapi.components.as_mut() {
             components.add_security_scheme(
@@ -42,25 +42,40 @@ impl Modify for SecurityAddon {
                         .scheme(HttpAuthScheme::Bearer)
                         .bearer_format("JWT")
                         .description(Some(
-                            "JWT Bearer token. Send as `Authorization: Bearer <token>`. Obtain via \
-                             Admin API or attestation.",
+                            "JWT Bearer token. Send as `Authorization: Bearer <token>`. Sign with the JWT key configured for the user.",
                         ))
                         .build(),
                 ),
             );
             components.add_security_scheme(
                 "attestAuth",
-                SecurityScheme::Http(
-                    HttpBuilder::new()
-                        .scheme(HttpAuthScheme::Bearer)
-                        .bearer_format("Attest")
-                        .description(Some(
-                            "Attest token. Send as `Authorization: Attest <token>`. Obtain via \
-                             `POST /rbs/v0/attest`.",
-                        ))
-                        .build(),
-                ),
+                SecurityScheme::ApiKey(ApiKey::Header(ApiKeyValue::with_description(
+                    "Authorization",
+                    "Enter the complete header value: `Attest <token>`. Obtain the token via \
+                     `POST /rbs/v0/attest`.",
+                ))),
             );
+        }
+        // These guards apply to every route, including public endpoints.
+        for item in openapi.paths.paths.values_mut() {
+            for operation in [
+                &mut item.get, &mut item.post, &mut item.put, &mut item.delete,
+                &mut item.patch, &mut item.head, &mut item.options, &mut item.trace,
+            ].into_iter().flatten() {
+                for (status, description) in [
+                    ("414", "Request path and query string exceed the URI length limit"),
+                    ("429", "Rate limit exceeded when per-IP rate limiting is enabled; retry later"),
+                ] {
+                    operation.responses.responses.entry(status.to_string()).or_insert_with(|| {
+                        utoipa::openapi::ResponseBuilder::new()
+                            .description(description)
+                            .content("application/json", utoipa::openapi::Content::new(
+                                Some(utoipa::openapi::Ref::from_schema_name("ErrorBody")),
+                            ))
+                            .build().into()
+                    });
+                }
+            }
         }
     }
 }
@@ -84,7 +99,7 @@ impl Modify for SecurityAddon {
         (name = "Resource", description = "Resource CRUD — `GET/POST/PUT/DELETE /rbs/v0/{provider}/{repo}/{type}/{name}`. Supports AttestToken and BearerToken."),
         (name = "Attestation", description = "Attestation challenge/token issuance (`GET /rbs/v0/challenge`, `POST /rbs/v0/attest`, no auth) and attestation management CRUD for ref_value/cert/policy (`/rbs/v0/attestation/{as_provider}/{type}`, Bearer + admin only)."),
     ),
-    modifiers(&SecurityAddon),
+    modifiers(&ContractAddon),
     paths(
         crate::routes::version::version,
         crate::routes::admin::list_users,
@@ -152,7 +167,7 @@ impl Modify for SecurityAddon {
         UserCreateRequest, UserUpdateRequest, UserResponse, UserListResponse,
         CreatePolicyRequest, UpdatePolicyRequest, PolicyResponse, PolicyListResponse,
         CreateResourceRequest, UpdateResourceRequest, ResourceResponse,
-        ResourceContentResponse, ResourceInfoResponse, ResourceListResponse,
+        ResourceContentResponse, ResourceListResponse,
         AttestRequest, AttestResponse, AuthChallengeResponse, ChallengeRequest,
         // Attestation management schemas
         RefValue, RefValueListResponse,
