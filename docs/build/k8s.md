@@ -1,33 +1,30 @@
 # Deploying RBS on Kubernetes
 
-> Follow the chapters in order; if the actual output doesn't match the expectation, stop and troubleshoot per Chapter 8 before continuing.
-> After Chapters 1–5 you have: RBS running in the cluster, the `/livez` and `/readyz` probes returning 200, and the business API reachable from outside via `https://<NODE_IP>:30666`. The business port speaks HTTPS by default; a plain-HTTP variant (no certificates at all; closed demos / trusted intranets only) is selected via Option 2 in 4.3 (Chapter 6 only edits the GTA-related keys incrementally; that choice is untouched — the RBS→GTA protocol has its own independent two-way choice in Chapter 6). Wherever the two modes differ, this guide gives one `# HTTPS` block and one `# HTTP` block — run yours, skip the other.
-> Chapter 6 connects a real GTA (Chapters 1–5 run completely without one: deployment, probes and business verification do not depend on GTA). Chapter 7 is entirely optional.
+> Follow the chapters in order; if the actual output doesn't match the expectation, stop, locate and fix the issue per the hints in each step before continuing. See the [RBS Architecture](../design/architecture.md) for the overall architecture.
+> The business-port protocol is **either-or**, chosen via 4.3: HTTPS `https://<NODE_IP>:30666` (default) or plaintext HTTP `http://<NODE_IP>:30666` (no certificates; closed demos / trusted intranets only). Wherever the guide shows a `# HTTPS` block and a `# HTTP` block, run yours and skip the other.
 
 **Table of contents**
 
 - [0. Environment self-check](#0-environment-self-check)
-- [1. Start the cluster](#1-start-the-cluster)
+- [1. Confirm the cluster is ready](#1-confirm-the-cluster-is-ready)
 - [2. Build and import images](#2-build-and-import-images)
 - [3. Generate certificates and keys](#3-generate-certificates-and-keys)
 - [4. Deploy](#4-deploy)
 - [5. Verify](#5-verify)
 - [6. Connect a GTA](#6-connect-a-gta)
-- [7. Optional paths](#7-optional-paths-not-required-for-the-mainline)
-- [8. Troubleshooting](#8-troubleshooting)
-- [9. Integrate the Vault resource backend (OpenBao)](#9-integrate-the-vault-resource-backend-openbao)
-- [10. Integrate the HSM resource backend (SoftHSM2)](#10-integrate-the-hsm-resource-backend-softhsm2)
-- [11. Integrate the CA resource backend (XiPKI)](#11-integrate-the-ca-resource-backend-xipki)
+- [7. Integrate the Vault resource backend (OpenBao)](#7-integrate-the-vault-resource-backend-openbao)
+- [8. Integrate the HSM resource backend (SoftHSM2)](#8-integrate-the-hsm-resource-backend-softhsm2)
+- [9. Integrate the CA resource backend (XiPKI)](#9-integrate-the-ca-resource-backend-xipki)
 
-**Requirements**
+**Environment requirements**
 
 | Item | Requirement |
 |---|---|
 | Machine | ≥ 4 CPUs / 8 GB RAM / 20 GB free disk |
 | Operating system | Linux (verified on openEuler; other distros' equivalents apply) |
-| Run as | A non-root user with sudo; as root, minikube start needs `--force` |
+| Run as | Any user; some commands need sudo |
 | Tools | git, Docker, kubectl v1.30+, openssl, curl |
-| Cluster tooling | minikube v1.33+ (mainline) or kind (equivalent commands in each chapter) |
+| K8s cluster | An existing working cluster (nodes Ready, kubectl pointing at it); creating the cluster is out of scope |
 | GTA service | only needed in Chapter 6 (base URL, credentials user_id, token-signing public key; Option 1 additionally needs the CA and client certificates) |
 
 **Deployment topology**:
@@ -41,7 +38,7 @@ flowchart LR
     K[kubelet probes] -. "/livez /readyz" .-> C
 ```
 
-Chapters 1–5 are the mainline: SQLite works out of the box (database and tables are created automatically on first start). Chapter 6 connects the GTA; chapters 9–11 integrate one resource backend each on top of Chapter 6; chapter 7 is entirely optional.
+Chapters 1–5 are the mainline: SQLite works out of the box (database and tables are created automatically on first start). Chapter 6 connects the GTA; chapters 7–9 integrate one resource backend each on top of Chapter 6.
 
 ## 0. Environment self-check
 
@@ -51,197 +48,200 @@ for c in git kubectl docker openssl curl; do
   command -v "$c" >/dev/null 2>&1 && echo "[OK]      $c" || echo "[MISSING] $c"
 done
 
-# 2) Cluster tool (minikube or kind — either one is fine)
-if command -v minikube >/dev/null 2>&1; then echo "[OK]      minikube"
-elif command -v kind >/dev/null 2>&1; then echo "[OK]      kind"
-else echo "[MISSING] minikube or kind"; fi
+# 2) Cluster connectivity and storage class
+kubectl get nodes          # nodes listed = kubectl points at the cluster; STATUS must be Ready (issues: Chapter 1)
+kubectl get storageclass   # a storage class marked (default) is required — Chapter 4's PVC depends on it; if missing, use a branch in Chapter 4 step 5 (mark default / static PV)
 
 # 3) Memory (see the requirements table at the top)
 free -h | awk '/^Mem:/{print "Memory: "$2}'
 ```
 
-All `[OK]` means pass. Missing kubectl/minikube: run the install commands in 1.1 first; missing git/openssl/curl: install via the system package manager (`apt install` / `dnf install`).
-
-## 1. Start the cluster
-
-> Output of this chapter: a running cluster with the node **Ready** (check and fix per 1.3) + `NODE_IP` (Chapters 3, 5 and 6 depend on it — write it down). 1.1 and 1.2 are **either-or**.
-
-### 1.1 minikube (mainline)
-
-**Install** (skip if already installed; auto-detects architecture x86_64→amd64, aarch64→arm64):
+Item 1 all `[OK]` and item 2 matching the line-end comments means pass; for any `[MISSING]`, install via the block below and rerun this section.
 
 ```bash
-ARCH=$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
-curl -LO "https://storage.googleapis.com/minikube/releases/latest/minikube-linux-$ARCH"
-sudo install minikube-linux-$ARCH /usr/local/bin/minikube && rm -f minikube-linux-$ARCH
-curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/$ARCH/kubectl"
-sudo install -m 0755 kubectl /usr/local/bin/kubectl && rm -f kubectl
-minikube version && kubectl version --client    # two version lines = success; "Exec format error" = wrong architecture, rerun this block
+# git / openssl / curl missing
+sudo dnf install -y git openssl curl
 ```
 
-**Start and get the node IP**:
+> For missing kubectl / docker see their official docs (kubectl must match the cluster's version, and kubeconfig must point at the cluster afterwards).
+
+## 1. Confirm the cluster is ready
+
+> Output of this chapter: nodes **Ready** + `NODE_IP` (Chapters 3, 5 and 6 depend on it — write it down).
 
 ```bash
-minikube start $([ "$(id -u)" -eq 0 ] && echo --force)    # --force is appended automatically for root users
-NODE_IP=$(minikube ip) && echo "NODE_IP=$NODE_IP"         # example: 192.168.49.2
+kubectl get nodes -o wide    # 1) STATUS must be Ready; the INTERNAL-IP column is NODE_IP — write it down
+kubectl get storageclass     # 2) a (default) storage class is required (Chapter 4's PVC depends on it; if missing, use a branch in Chapter 4 step 5)
 ```
 
-The line `🏄  Done! kubectl is now configured to use "minikube" cluster` means success.
-
-> **Note**: base-image pull timeout (`GUEST_PROVISION` with `gcr.io ... Timeout` in the log): the Docker daemon does not inherit shell proxy variables — configure the daemon proxy (`/etc/systemd/system/docker.service.d/http-proxy.conf`) and `systemctl restart docker`; with no usable proxy, fall back to `minikube start --force --image-mirror-country=cn`.
-
-**Proxy environments: add no_proxy** (mandatory on machines with `http_proxy`/`https_proxy` set, otherwise kubectl fails with `Gateway Time-out` and local curl requests get hijacked by the proxy):
+**When a node is NotReady** (the kubelet is unreachable, Pods pile up in `Pending`/`Terminating` — fix it first):
 
 ```bash
-export no_proxy="${no_proxy:+$no_proxy,}localhost,127.0.0.1,$(minikube ip)"    # node IP = API server address; appended to no_proxy, existing value untouched
+systemctl status kubelet    # run on the NotReady node (ssh into it); fix kubelet per the output
+kubectl wait --for=condition=Ready node --all --timeout=300s    # after the fix, back on this machine; prints "condition met" on success
+```
+
+**When kubectl fails with `Gateway Time-out` / curls to cluster addresses return an HTML proxy page** (only happens in terminals with `http_proxy`/`https_proxy` set — kubectl listing nodes normally = skip this block; service-level proxies like containerd's do not pass through the shell and do not affect kubectl): copy the whole block — addresses are derived automatically; the exports live only in the current terminal, rerun the block in new terminals:
+
+```bash
+# 1) API server address from the local kubeconfig (a purely local read — works even while kubectl cannot connect)
+API_SERVER=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}' | sed -E 's#^https?://##; s#:[0-9]+$##')
+
+# 2) Append it to no_proxy together with localhost (existing value untouched)
+export no_proxy="${no_proxy:+$no_proxy,}localhost,127.0.0.1,${API_SERVER}"
 export NO_PROXY="$no_proxy"
-kubectl get nodes    # nodes listed = working; exports are per-terminal — rerun this block in a new one
-```
 
-### 1.2 kind (alternative)
-
-```bash
-# Install (skip if already installed)
-ARCH=$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
-curl -Lo ./kind "https://kind.sigs.k8s.io/dl/v0.24.0/kind-linux-$ARCH"
-sudo install ./kind /usr/local/bin/kind && rm -f ./kind
-
-# Create the cluster
-kind create cluster --name rbs
-export no_proxy="${no_proxy:+$no_proxy,}localhost,127.0.0.1"    # proxy environments: mandatory (the kind API server sits on 127.0.0.1)
+# 3) Check it took effect (nodes listed = working), then append the node IP to no_proxy too (for the NodePort curls in 5.3/6.3 and chapters 7–9)
+kubectl get nodes -o wide
+NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+export no_proxy="${no_proxy:+$no_proxy,}${NODE_IP}"
 export NO_PROXY="$no_proxy"
-NODE_IP=$(kubectl get nodes -o wide | awk '/^rbs-control-plane/{print $6}') && echo "NODE_IP=$NODE_IP"
 ```
-
-> **Note**: if that IP is unreachable from your machine (kind container network): 5.2 is unaffected (port-forward); for 5.3 use the 8.4 port-forward fallback; cross-machine access additionally needs the 7.1 setup.
-
-### 1.3 Confirm the node is Ready (mandatory)
-
-```bash
-kubectl get nodes    # the STATUS column must be Ready
-```
-
-> Fix NotReady before continuing: the kubelet is already unreachable, and every symptom that follows (Pods stuck en masse in `Pending`/`Terminating`, `kubectl exec` reporting container not found) traces back to it. Typical trigger: the cluster has not fully recovered after a host/VM restart.
-
-**NotReady fix** (run the line for your chapter-1 choice, then the final wait):
-
-```bash
-# minikube: restart the cluster (PVC data is kept; --force is appended automatically for root)
-minikube stop && minikube start $([ "$(id -u)" -eq 0 ] && echo --force)
-
-# kind: restart the node container (<container> from docker ps; mainline: rbs-control-plane)
-docker restart <container>
-
-# wait for STATUS back to Ready (prints "condition met" on success, 5-minute cap)
-kubectl wait --for=condition=Ready node --all --timeout=300s
-```
-
-**Still NotReady after stop/start** (the node's Ready-line Message in `kubectl describe node` contains `cni plugin not initialized` = the CNI pod is stuck, usually `ImagePullBackOff` — in-cluster image pulls do not use the host network stack: neither proxy nor DNS match the host):
-
-```bash
-IMAGE=$(kubectl get daemonset kindnet -n kube-system -o jsonpath='{.spec.template.spec.containers[0].image}')
-docker pull $IMAGE && minikube image load $IMAGE    # pull on the host and load into the cluster; if the pull fails, retag via the docker.m.daocloud.io mirror first
-kubectl delete -n kube-system --force --grace-period=0 \
-  $(kubectl get pods -n kube-system -o name | grep kindnet)    # delete the pod to force immediate recreation
-kubectl wait --for=condition=Ready node --all --timeout=300s
-```
-
-> Fallback (the host cannot pull either): list the cached old image with `minikube ssh -- sudo ctr -n k8s.io images ls -q | grep kindnetd`, retag it with `minikube ssh -- sudo ctr -n k8s.io images tag <old-image> $IMAGE`, then repeat the pod-delete and wait steps. Once back to Ready, force-delete leftover pods stuck in `Unknown` or `Terminating` from the NotReady window — controllers recreate them automatically.
 
 ## 2. Build and import images
 
-> Output of this chapter: the image `globaltrustauthority-rbs/rbs:latest` available inside the cluster (exactly the name the manifests reference). Run the whole chapter from the repository root (clone first if you haven't).
+> Output of this chapter: the image `globaltrustauthority-rbs/rbs:latest` available inside the cluster (exactly the name the manifests reference). Run the whole chapter from the repository root.
+
+```bash
+git clone https://gitcode.com/openeuler/globaltrustauthority-rbs.git    # skip if already cloned
+cd globaltrustauthority-rbs
+```
 
 ### 2.1 Build
 
 ```bash
 docker build -f deployment/docker/dockerfile -t globaltrustauthority-rbs/rbs:latest .
+docker images | grep globaltrustauthority-rbs    # one image line = success
 ```
 
-Success ends with `naming to docker.io/globaltrustauthority-rbs/rbs:latest done`. The first build compiles all dependencies — tens of minutes is normal (the required clang is installed inside the Dockerfile; two base images are downloaded first: `rust:1.88` compile stage, `openeuler/openeuler:24.03-lts` runtime).
+> The first build compiles all dependencies and takes tens of minutes — normal (the required clang is installed inside the Dockerfile; two base images are pulled first: `rust:1.88` compile stage, `openeuler/openeuler:24.03-lts` runtime).
 
-> **Note**: `failed size validation` / `failed to resolve source metadata` (registry-mirror cache corruption; retry 1–2 times, then bypass — no daemon changes, no restart needed): pull the two base images via an alternate mirror and build again — once they are local, the build no longer contacts the mirror:
-> ```bash
-> docker pull docker.m.daocloud.io/openeuler/openeuler:24.03-lts && docker tag docker.m.daocloud.io/openeuler/openeuler:24.03-lts openeuler/openeuler:24.03-lts
-> docker pull docker.m.daocloud.io/library/rust:1.88 && docker tag docker.m.daocloud.io/library/rust:1.88 rust:1.88
-> docker build -f deployment/docker/dockerfile -t globaltrustauthority-rbs/rbs:latest .
-> ```
-> Still failing: try other mirror prefixes (`dockerproxy.net`, `docker.1ms.run`), or fix `registry-mirrors` in `/etc/docker/daemon.json` and `systemctl restart docker`.
-
-> **Proxy environments**: build containers do not inherit the shell's proxy variables — on `Couldn't resolve host name` inject the proxy, on `SSL peer certificate ... self-signed certificate in certificate chain` (a TLS-intercepting proxy) also inject its CA chain; one build covers both (export the 1.1 no_proxy pair first, otherwise every later kubectl/curl/rbs-cli call to the cluster fails with 504):
-> ```bash
-> export https_proxy=$http_proxy    # set if missing (usually the same value)
-> openssl s_client -proxy ${http_proxy#http://} -connect mirrors.openeuler.org:443 -showcerts </dev/null 2>/dev/null \
->   | awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/{print}' > host-ca-bundle.pem    # re-runnable
-> grep -c "BEGIN CERTIFICATE" host-ca-bundle.pem    # expect >= 1; 0 (no proxy / handshake failed) is fine — an empty bundle is a no-op in the Dockerfile
-> docker build -f deployment/docker/dockerfile -t globaltrustauthority-rbs/rbs:latest \
->   --build-arg http_proxy=$http_proxy --build-arg https_proxy=$https_proxy \
->   --build-arg CA_BUNDLE="$(cat host-ca-bundle.pem)" .
-> ```
-
-**Verify the image exists**:
+**Base-image pull failing with `failed size validation` / `failed to resolve source metadata`** (registry-mirror cache corruption; retry 1–2 times, then bypass — no daemon changes, no restart needed): pull the two base images via an alternate mirror and build again — once they are local, the build no longer contacts the mirror:
 
 ```bash
-docker images | grep globaltrustauthority-rbs
+docker pull docker.m.daocloud.io/openeuler/openeuler:24.03-lts && docker tag docker.m.daocloud.io/openeuler/openeuler:24.03-lts openeuler/openeuler:24.03-lts
+docker pull docker.m.daocloud.io/library/rust:1.88 && docker tag docker.m.daocloud.io/library/rust:1.88 rust:1.88
+docker build -f deployment/docker/dockerfile -t globaltrustauthority-rbs/rbs:latest .
 ```
 
-```text
-globaltrustauthority-rbs/rbs   latest   xxxxxxxxxx   x minutes ago   xxxMB
+> Still failing: try other mirror prefixes (`dockerproxy.net`, `docker.1ms.run`), or fix `registry-mirrors` in `/etc/docker/daemon.json` and `systemctl restart docker`.
+
+**Building behind a proxy** (build containers do not inherit the shell's proxy variables; on `Couldn't resolve host name` inject the proxy, on `SSL peer certificate ... self-signed certificate in certificate chain` also inject the proxy's CA chain — one build covers both; export the Chapter-1 no_proxy pair first, otherwise every later kubectl/curl/rbs-cli call to the cluster fails with 504):
+
+```bash
+export https_proxy=$http_proxy    # set if missing (usually the same value)
+# 1) Extract the proxy CA chain (expect >= 1; 0 means the proxy is not working for this target — troubleshoot the proxy first, or retry against another HTTPS host)
+openssl s_client -proxy ${http_proxy#http://} -connect mirrors.aliyun.com:443 -showcerts </dev/null 2>/dev/null \
+  | awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/{print}' > host-ca-bundle.pem    # re-runnable
+grep -c "BEGIN CERTIFICATE" host-ca-bundle.pem
+docker build -f deployment/docker/dockerfile -t globaltrustauthority-rbs/rbs:latest \
+  --build-arg http_proxy=$http_proxy --build-arg https_proxy=$https_proxy \
+  --build-arg CA_BUNDLE="$(cat host-ca-bundle.pem)" .
 ```
+
+> The CA bundle lives only in the build stage and never enters the final image. A `spurious network error` during the build is cargo auto-retrying on a slow network — be patient and do not interrupt.
+
+**407 in the runtime stage** (the build reaches the openEuler `dnf install` step and fails with `Status code: 407` / `CONNECT tunnel failed, response 407`; the proxy gateway admits hosts per domain — it allowed the builder's Debian mirrors but demands authentication for the openEuler repo domains): point dnf at a mirror the gateway admits (Aliyun carries openEuler 24.03 LTS) and rebuild; restore the Dockerfile afterwards (idempotent):
+
+```bash
+# 1) Insert a repo-rewrite RUN before the runtime dnf (drops the metalink line so dnf uses baseurl, and redirects repo.openeuler.org to the Aliyun mirror — gpgkey covered too)
+sed -i '/^FROM openeuler\/openeuler:24.03-lts/a RUN sed -i -e "/^metalink=/d" -e "s|repo.openeuler.org/openEuler-24.03-LTS|mirrors.aliyun.com/openeuler/openEuler-24.03-LTS|g" /etc/yum.repos.d/openEuler.repo' deployment/docker/dockerfile
+
+# 2) Rebuild — every builder-stage layer is cached, so the build resumes at the runtime stage
+docker build -f deployment/docker/dockerfile -t globaltrustauthority-rbs/rbs:latest \
+  --build-arg http_proxy=$http_proxy --build-arg https_proxy=$https_proxy \
+  --build-arg CA_BUNDLE="$(cat host-ca-bundle.pem)" .
+
+# 3) Restore the Dockerfile after the build succeeds
+git checkout -- deployment/docker/dockerfile
+```
+
+> The injected RUN does become a layer of the final image, leaving its yum repo pointing at the substitute mirror — harmless in proxy-restricted environments (the substitute is the reachable one). Use any other gateway-admitted mirror site by replacing the domain in the sed.
 
 ### 2.2 Import
 
-The cluster does not read host images by default; import under the **same name**:
+The cluster cannot read images from the build machine's Docker — each node's containerd and the build machine's Docker are separate stores. Pack the image under the **same name**, deliver it to the node, and store it into the node's containerd:
 
 ```bash
-# minikube
-minikube image load globaltrustauthority-rbs/rbs:latest
-minikube image ls --format table | grep rbs    # one line = success
-
-# kind
-kind load docker-image globaltrustauthority-rbs/rbs:latest --name rbs
-docker exec rbs-control-plane ctr --namespace k8s.io images ls | grep rbs
+kubectl get nodes -o wide    # note the INTERNAL-IP column and fill NODE_IP below; multi-node clusters need the import on every node (a node missing the image reports ErrImagePull — rerun this block with its IP)
+NODE_USER=root               # ← the user you log into the node with (root or any sudo-capable user)
+NODE_IP=192.168.49.2         # ← the value you looked up (same IP as Chapter 3; for cloud nodes not directly reachable, the address you actually log in with)
+echo "${NODE_USER}@${NODE_IP}"    # echo check — refill if wrong
+docker save -o rbs.tar globaltrustauthority-rbs/rbs:latest
+scp -o StrictHostKeyChecking=accept-new rbs.tar ${NODE_USER}@${NODE_IP}:/tmp/    # first connection auto-accepts the node fingerprint; password logins prompt for the ssh/sudo password
+ssh -t ${NODE_USER}@${NODE_IP} "sudo ctr --namespace k8s.io images import /tmp/rbs.tar && sudo crictl images | grep globaltrustauthority-rbs && sudo rm -f /tmp/rbs.tar"
+# the last command printing one globaltrustauthority-rbs/rbs line = success; if the import didn't land, re-check that the image name matches the 2.1 build output exactly
 ```
 
-> **Note**: on `was not found` / `failed to detect containerd snapshotter`, fall back to the ctr import (`<container>`: `minikube` for minikube, `rbs-control-plane` for kind):
-> ```bash
-> docker save globaltrustauthority-rbs/rbs:latest | docker exec -i <container> ctr --namespace k8s.io images import -
-> ```
+Check the import result on the node with `crictl images`: the `docker.io/library/` prefix there is just the fully-qualified form of a bare name; the manifest image name is unchanged.
+
+**The build machine is the node itself (single-machine deployment)**: import directly without touching disk:
+
+```bash
+docker save globaltrustauthority-rbs/rbs:latest | sudo ctr --namespace k8s.io images import -
+```
+
+**Legacy clusters** (CONTAINER-RUNTIME column shows `docker://`): replace the ctr import above with `docker load`:
+
+```bash
+sudo docker load -i /tmp/rbs.tar
+```
+
+This guide covers delivering the image to the current cluster only; to share images across clusters/environments, use an image registry (company Harbor, cloud ACR, ...) on your own.
 
 ## 3. Generate certificates and keys
 
-> Output of this chapter: the `rbs-k8s-deploy/` directory (5 files for HTTPS, 4 for plain HTTP — the TLS pair is HTTPS-only). Chapter 4 references these files directly. Run from the repository root.
+> Output of this chapter: the `rbs-k8s-deploy/` directory; its files go into the Chapter 4 Secrets. Run from the repository root. Execute per protocol:
+> - **HTTPS** (4.3 Option 1): run 3.1 + 3.2 — 6 files in total;
+> - **HTTP** (4.3 Option 2): run 3.2 only — 4 files in total; **skip 3.1 entirely** (no TLS pair, and 4.2 is skipped).
+
+```bash
+kubectl get nodes -o wide    # the INTERNAL-IP column is the node IP
+NODE_IP=192.168.49.2    # ← replace with the value you looked up
+echo "NODE_IP=$NODE_IP"  # empty echo means the line above was not run or not edited
+```
+
+> `NODE_IP` lives only in the current terminal — re-set it in new terminals, otherwise the issued certificate lacks the node IP in its SAN (5.3 fails). For multi-node or load-balanced access, fill in the address clients actually reach (a node IP, a VIP or the LB address) and make sure that address is in the certificate SAN.
+
+### 3.1 TLS server certificate (HTTPS only; skip this section for HTTP)
 
 ```bash
 mkdir -p rbs-k8s-deploy && cd rbs-k8s-deploy
-NODE_IP=$(minikube ip)   # kind: NODE_IP=$(kubectl get nodes -o wide | awk '/^rbs-control-plane/{print $6}')
-echo "NODE_IP=$NODE_IP"    # empty echo = not set — re-run Chapter 1 first (a SAN without the node IP breaks 5.3)
-
-# 1) TLS server certificate — HTTPS only, plain-HTTP deployments skip this step
-#    (the SAN must contain the node IP — 5.3 verifies with it)
+# the SAN must contain the node IP — 5.3 verifies with it
 openssl req -x509 -newkey rsa:2048 -keyout tls.key -out tls.crt -days 365 -nodes \
   -subj "/CN=rbs.local" \
   -addext "subjectAltName=DNS:rbs.local,DNS:localhost,IP:${NODE_IP},IP:127.0.0.1" \
   -addext "basicConstraints=critical,CA:FALSE" \
   -addext "keyUsage=critical,digitalSignature,keyEncipherment" \
   -addext "extendedKeyUsage=serverAuth"
+cd ..    # back to the repository root (3.2 runs from there)
+```
 
-# 2) Administrator key pair (bootstraps the Administrator, signs admin JWTs)
+### 3.2 Key pairs (required for both protocols)
+
+```bash
+mkdir -p rbs-k8s-deploy && cd rbs-k8s-deploy    # creates the directory when 3.1 was skipped (idempotent, harmless)
+
+# 1) Administrator key pair (bootstraps the Administrator, signs admin JWTs)
 openssl genrsa -out admin_key.pem 2048
 openssl rsa -in admin_key.pem -pubout -out admin_pub.pem
 
-# 3) GTA token-signing public key (placeholder; replaced in Chapter 6)
+# 2) GTA token-signing public key (placeholder; replaced in Chapter 6)
 openssl genrsa -out attest_key.pem 2048
 openssl rsa -in attest_key.pem -pubout -out attest_pub.pem
 
-cd ..
+cd ..    # back to the repository root
 ```
 
-**Verify**:
+### 3.3 Verify
 
 ```bash
-ls rbs-k8s-deploy/{tls.key,tls.crt,admin_key.pem,admin_pub.pem,attest_key.pem,attest_pub.pem}    # plain HTTP: drop tls.key,tls.crt
+# 1) HTTPS only: the certificate SAN contains the node IP (expect: IP Address:192.168.49.2)
 openssl x509 -in rbs-k8s-deploy/tls.crt -noout -text | grep -A1 "Subject Alternative Name"
+
+# 2) All files needed by the Chapter 4 Secrets exist (listed without "No such file" = pass)
+ls rbs-k8s-deploy/{tls.key,tls.crt,admin_key.pem,admin_pub.pem,attest_key.pem,attest_pub.pem}    # HTTPS: 6 files
+ls rbs-k8s-deploy/{admin_key.pem,admin_pub.pem,attest_key.pem,attest_pub.pem}                    # HTTP: 4 files
 ```
 
 ```text
@@ -251,19 +251,30 @@ X509v3 Subject Alternative Name:
 
 ## 4. Deploy
 
-> Output of this chapter: RBS running in the `rbs` namespace. **The order cannot change**: namespace → Secrets/ConfigMap → PVC → Deployment/Service. When re-running this chapter or redeploying (new images/new certificates), run step 0 first, then steps 1–5; skip step 0 on a first deployment.
+> Output of this chapter: RBS running in the `rbs` namespace. **The order cannot change**: namespace → Secrets/ConfigMap → PVC → Deployment/Service. On a redeploy (new images/certificates), run step 0 first, then steps 1–7; skip step 0 on a first deployment.
 
-**0) Clean up old resources** (delete only the Deployment, Secrets and ConfigMap — **the `rbs-data` PVC must be kept: the SQLite database lives on it, and 5.4 verifies the data survives redeploys**):
+**0) Clean up old resources** (skippable on a first deployment — `--ignore-not-found` silently skips resources that do not exist):
+
+> **Deleting the entire namespace wipes all SQLite data — unrecoverable** (the mainline is demo-grade: SQLite out of the box, the admin key bootstrapped on first start; a clean reinstall restores factory state).
+
+**Full reinstall (default): delete the namespace**, then run steps 1–7 again (every "expected" output of steps 1–7 is `created` — the Deployment, the Secrets, the ConfigMap and the `rbs-data` PVC are all wiped, and the default storage class reclaims with Delete, so the on-node data directory goes too):
+
+```bash
+kubectl delete namespace rbs --ignore-not-found=true
+kubectl get ns rbs 2>/dev/null && echo "still deleting, re-check shortly" || echo "[OK] cleanup complete"    # expected: [OK] cleanup complete
+```
+
+**To keep the SQLite data: do NOT delete the namespace** — delete only the workloads and the Secrets/ConfigMap, then re-run steps 2–4 and step 7 (skip the namespace apply in step 1 and the PVC apply in step 5 — the old PVC is kept):
 
 ```bash
 kubectl delete deployment rbs -n rbs --ignore-not-found=true
 kubectl delete secret rbs-tls rbs-config -n rbs --ignore-not-found=true
 kubectl delete configmap rbs-keys -n rbs --ignore-not-found=true
-kubectl get deployment,secret,configmap -n rbs    # the names above must be gone
 ```
 
-> Why cleanup: `kubectl apply` only recreates Pods when the manifest content actually changes — a running Pod never switches to a same-tag new image on its own, and deleting/recreating the Secrets does not restart it either.
-> Rotated `admin_key.pem` since the first deployment? Also delete the PVC (`kubectl delete pvc rbs-data -n rbs`): the admin's public key is stored in the SQLite database and bootstrap only seeds an empty user table — old data kept with a new key makes every admin API call fail with 401.
+> `unchanged` outputs and the old PVC AGE on that path are expected, not errors.
+
+**Why cleanup is required**: `kubectl apply` only recreates Pods when the manifest content actually changes — a running Pod never switches to a same-tag new image on its own; `kubectl create secret` fails with `AlreadyExists` if the name is taken.
 
 **1) Create the namespace** (first):
 
@@ -339,6 +350,7 @@ storage:
   url: "sqlite:///var/lib/rbs/rbs.db?mode=rwc"
   sql_file_path: "/usr/share/rbs/sqlite_rbs.sql"
 EOF
+grep -n "base_url\|user_id" rbs-k8s-deploy/rbs.yaml    # expected: both lines carry values; `""` = the two vars above were unset in this shell — re-run the block
 
 ```
 
@@ -363,8 +375,6 @@ kubectl create secret generic rbs-config -n rbs --from-file=rbs.yaml=rbs-k8s-dep
 kubectl get secret rbs-config -n rbs    # expected: rbs-config   Opaque   1   xs
 ```
 
-> Switching later: change `enabled` (HTTPS → HTTP re-run the whole Option-2 block — the sed is idempotent; HTTP → HTTPS set it back to `true` or re-run the heredoc above) → delete and recreate the rbs-config Secret → `kubectl rollout restart deployment/rbs -n rbs`.
-
 **4) Create the public-key ConfigMap** (public keys are non-secret; created straight from files):
 
 ```bash
@@ -374,20 +384,77 @@ kubectl create configmap rbs-keys -n rbs \
 kubectl get configmap rbs-keys -n rbs    # expected: rbs-keys   2   xs
 ```
 
-**5) Apply the remaining manifests** (order matters: PVC → Deployment → Service):
+**5) Create the PVC** (the mainline is the first block only; once the PVC is Bound this step is done and every later block is skipped — go below only if it stays Pending):
 
 ```bash
-kubectl apply -f deployment/k8s/pvc.yaml         # expected: persistentvolumeclaim/rbs-data created
+kubectl get storageclass    # is there a storage class? is it marked (default)?
+kubectl apply -f deployment/k8s/pvc.yaml    # expected: persistentvolumeclaim/rbs-data created
+kubectl get pvc -n rbs    # expected: rbs-data Bound; with WaitForFirstConsumer classes it legitimately shows Pending until the Deployment's Pod schedules — a name in the STORAGECLASS column means someone is supplying (an empty column means no one is)
+```
+
+**When a PVC is stuck Pending**:
+
+```bash
+kubectl describe pvc rbs-data -n rbs    # an event like `no persistent volumes available ... and no storage class is set` means nothing supplies it — use the matching branch below
+```
+
+**A storage class is listed, just without the (default) marker → mark it default** (future PVCs get disks automatically):
+
+```bash
+kubectl patch storageclass <storage-class-name> --type merge -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'    # ← replace <storage-class-name> with the NAME column value you looked up above
+kubectl delete pvc rbs-data -n rbs    # delete it only while it is still Pending — **never delete a Bound PVC: the data volume lives on it**
+kubectl apply -f deployment/k8s/pvc.yaml
+kubectl get pvc -n rbs    # still Pending is normal: most storage classes use WaitForFirstConsumer and bind when the Deployment's Pod schedules
+```
+
+**No storage class at all (No resources found) → static PV** (zero dependencies, works offline, fine on single-node): hand-create the PV matching pvc.yaml one-to-one, then continue with step 6:
+
+```yaml
+# save as rbs-pv.yaml, then kubectl apply -f rbs-pv.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: rbs-data-pv
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: /data/rbs/rbs-data
+    type: DirectoryOrCreate
+```
+
+> Extra PVs stay Available — harmless, delete them. Multi-node: pin each PV with `nodeAffinity`, or install a default storage class (with internet: local-path-provisioner — github.com/rancher/local-path-provisioner); PVCs already bound to static PVs are unaffected by a later default storage class.
+
+**6) Prepare the data directory** (static-PV branch only — the dynamic mainline skips this step). The directory must exist and be owned by uid 999 (the container user), else the pod crash-loops on `(code: 14) unable to open database file`. Run on the node:
+
+```bash
+sudo mkdir -p /data/rbs/rbs-data
+sudo chown -R 999:999 /data/rbs/rbs-data
+```
+
+**7) Apply the Deployment and Service** (the mainline is the first block only; the blocks below cover an alternative invocation, redeployment and error handling — run them only when the matching situation appears):
+
+```bash
 kubectl apply -f deployment/k8s/deployment.yaml  # expected: deployment.apps/rbs created
 kubectl apply -f deployment/k8s/service.yaml     # expected: service/rbs created
 ```
 
-> All at once works too: `kubectl apply -f deployment/k8s/` (`optional/` is skipped — kubectl does not recurse into subdirectories by default).
-> Re-running over an existing deployment: if `apply` reported `deployment.apps/rbs unchanged`, the old pod keeps running (same AGE) and ignores the recreated Secrets and the newly loaded image — restart it and continue with 5.1:
-> ```bash
-> kubectl rollout restart deployment/rbs -n rbs
-> kubectl rollout status deployment/rbs -n rbs --timeout=120s
-> ```
+**`apply` failing with `provided port is already allocated`** = another Service already holds 30666 (NodePorts are cluster-wide unique) — move RBS to another port:
+
+```bash
+kubectl get svc -A | grep 30666    # any output = the port is taken (no need to care who holds it)
+```
+
+```bash
+kubectl get svc -A | grep 31666 || echo "31666 free"    # confirm the new port is free (valid NodePort range 30000-32767; any free value works)
+sed -i 's/30666/31666/g' deployment/k8s/service.yaml
+kubectl apply -f deployment/k8s/service.yaml
+kubectl get svc -n rbs    # expected: rbs ... 6666:31666/TCP
+```
+
+> After a port change: **certificates need no reissue** (the SAN holds the IP only, not the port); substitute the new port wherever the guide says `:30666` — the 5.3 verification curl, the 6.3 challenge check, the 7.0 base variables (RBS_URL, chapters 7–9), the node firewall. The 5.2 port-forward check does not involve the NodePort.
 
 ## 5. Verify
 
@@ -404,7 +471,23 @@ NAME                   READY   STATUS    RESTARTS   AGE
 rbs-xxxxxxxxx-xxxxx    1/1     Running   0          40s
 ```
 
-> First start runs the SQL migration and the admin bootstrap (~30s). Confirm the transport the server actually started (both modes):
+> First start runs the SQL migration and the admin bootstrap (~30s). Long-unready: `kubectl describe pod <Pod> -n rbs` for the events; RBS logs to stdout — `kubectl logs -n rbs deploy/rbs` (`-f` to follow, `--previous` for the last crash).
+
+**CrashLoopBackOff with the log mentioning a config field**: match the log line —
+
+- `rest.https.cert_file not readable` = 4.3 Option 2 without its sed
+- `health.listen_addr must differ` = health and rest share an address
+- `execute sql: No such file` = broken `storage.sql_file_path` (keep the template value `/usr/share/rbs/sqlite_rbs.sql`)
+
+Fix `rbs-k8s-deploy/rbs.yaml` (for HTTPS also confirm the `rbs-tls` Secret from 4.2 exists), then delete+recreate rbs-config and restart:
+
+```bash
+kubectl delete secret rbs-config -n rbs
+kubectl create secret generic rbs-config -n rbs --from-file=rbs.yaml=rbs-k8s-deploy/rbs.yaml
+kubectl rollout restart deployment/rbs -n rbs
+```
+
+Confirm the transport the server actually started (both modes):
 
 ```bash
 kubectl logs -n rbs deploy/rbs | grep listening
@@ -414,7 +497,7 @@ kubectl logs -n rbs deploy/rbs | grep listening
 
 ### 5.2 Probe endpoints
 
-The health port 6667 is not exposed; verify via port-forward. Run the block as a whole (`PF=$!` depends on the background job on the previous line); an `address already in use` error means a stale port-forward — `pkill -f "kubectl port-forward"` and rerun, or change the local port (e.g. `26667:6667`):
+The health port 6667 is not exposed; verify via port-forward. Run the block as a whole (`PF=$!` depends on the background job on the previous line):
 
 ```bash
 kubectl port-forward -n rbs deploy/rbs 16667:6667 &
@@ -424,10 +507,14 @@ curl -s http://localhost:16667/readyz; echo    # expect {"status":"ok"} (include
 kill $PF
 ```
 
+**An `address already in use` error** means a stale port-forward — `pkill -f "kubectl port-forward"` and rerun, or change the local port (e.g. `26667:6667`).
+
+> Troubleshooting hint: a pod event reading `Readiness probe failed: HTTP probe failed with statuscode: 503` carries **only the status code** (kubelet drops HTTP probe response bodies); the actual reason is in the application log: `kubectl logs -n rbs deploy/rbs | grep "readiness probe failed"` (RBS logs the failure reason with details as a WARN).
+
 ### 5.3 Business API (from outside the cluster via NodePort 30666)
 
 ```bash
-NODE_IP=$(minikube ip)   # kind: NODE_IP=$(kubectl get nodes -o wide | awk '/^rbs-control-plane/{print $6}')
+NODE_IP=192.168.49.2   # ← replace with the node IP (INTERNAL-IP column of kubectl get nodes -o wide)
 
 # HTTPS — TLS verified with the Chapter-3 certificate
 curl -s --cacert rbs-k8s-deploy/tls.crt "https://${NODE_IP}:30666/rbs/version"
@@ -440,7 +527,13 @@ curl -s "http://${NODE_IP}:30666/rbs/version"
 {"service_name":"globaltrustauthority-rbs","api_version":"0",...}
 ```
 
-> NodePort curl times out: cross-machine routing / Docker Desktop bridge limits — see 8.4.
+From a machine other than the node, real-cluster node IPs are routable on their own — just have 30666/TCP open in the node firewall.
+
+**Call failing from outside the cluster** = check in order: does the access address match the certificate SAN (verified in Chapter 3 — a changed node IP means re-issuing the certificate and recreating the Secrets); is 30666/TCP open in the node firewall; is the request hijacked by a proxy (retry the manual curl with `--noproxy '*'`).
+
+**TLS errors** = the client scheme does not match the server mode: `wrong version number` = HTTPS client against a plain-HTTP server, `Recv failure: Connection reset by peer` = HTTP client against an HTTPS server — align both sides and confirm the active mode with `kubectl logs -n rbs deploy/rbs | grep listening`.
+
+> **Note**: on cloud clusters (no fixed node IP reachable directly) the NodePort approach does not apply — switch the Service to LoadBalancer or Ingress on your own, point the clients at the load-balancer address, and include that address in the certificate SAN.
 
 ### 5.4 Data persistence (optional check; the admin is not re-created and data survives a pod restart)
 
@@ -449,7 +542,7 @@ kubectl delete pod -n rbs -l app=rbs
 sleep 20
 kubectl get pods -n rbs    # expected: new pod READY 1/1
 kubectl logs -n rbs deploy/rbs | grep -i bootstrap
-# expected: only "Admin bootstrap check completed" (a first start on an empty volume adds the two "creating" lines before it)
+# expected: only "Admin bootstrap check completed" (a first start on an empty volume adds two more bootstrap lines before it: "no users found, creating ..." and "bootstrapped successfully")
 ```
 
 ## 6. Connect a GTA
@@ -465,7 +558,13 @@ kubectl create configmap rbs-keys -n rbs \
   --from-file=attest_pub.pem=rbs-k8s-deploy/attest_pub.pem
 ```
 
-**2) Connect to the GTA (pick one of the two RBS→GTA transport options).** The protocol RBS uses to call the GTA follows your GTA-side deployment (the HTTPS/HTTP choice in chapter 4 of the GTA deployment guide) — pick the matching one here. Note this choice is about the **RBS→GTA direction** and is **independent** of the RBS business-port protocol you picked in 4.3 (all four combinations are valid). Both options are **incremental sed** on the config: only the GTA-related keys change; your 4.3 choice and any later-chapter edits are preserved. Option 1 needs the GTA's CA and a client certificate; the certificate files must be **mounted inside the RBS container** — host paths (e.g. `/home/xxx/...`) are invisible inside the container and panic at startup.
+**2) Connect to the GTA (pick one of the two RBS→GTA transport options).** The protocol RBS uses to call the GTA follows your GTA-side deployment (the HTTPS/HTTP choice in chapter 4 of the GTA deployment guide) — pick the matching one here.
+
+Note: this choice is about the **RBS→GTA direction** and is **independent** of the RBS business-port protocol you picked in 4.3 (all four combinations are valid).
+
+Both options are **incremental sed** on the config: only the GTA-related keys change; your 4.3 choice and any later-chapter edits are preserved.
+
+Option 1 needs the GTA's CA and a client certificate; the certificate files must be **mounted inside the RBS container** (host paths are invisible inside the container).
 
 **Option 1: HTTPS + mTLS (default, recommended)** — the GTA is deployed with HTTPS. RBS trusts the GTA's CA (`ca_file`) and presents a client certificate (`client_cert_path`/`client_key_path`). Copy the whole block:
 
@@ -544,14 +643,12 @@ kubectl rollout restart deployment/rbs -n rbs
 kubectl rollout status deployment/rbs -n rbs --timeout=120s
 ```
 
-> Switching later: **Option 1 → Option 2** — re-run the whole Option-2 block (pure sed, idempotent; the leftover gta-certs mount is harmless). **Option 2 → Option 1** — re-run the whole Option-1 block (2.2 fails with Duplicate value when already mounted — ignore it; everything else runs as-is).
-
 > **Common mistake** (Option 1): writing host paths (e.g. `/home/xxx/...`) for `ca_file` etc. — the container **cannot see the host filesystem**, and startup panics with `Failed to read CA certificate file: NotFound`. Certificate paths must point to the **container-internal mount point** `/etc/rbs/gta-certs/`.
 
 **3) Verify the challenge** (public endpoint, no auth):
 
 ```bash
-NODE_IP=$(minikube ip)   # kind: NODE_IP=$(kubectl get nodes -o wide | awk '/^rbs-control-plane/{print $6}')
+NODE_IP=192.168.49.2   # ← replace with the node IP (INTERNAL-IP column of kubectl get nodes -o wide)
 
 # HTTPS
 curl -s --cacert rbs-k8s-deploy/tls.crt "https://${NODE_IP}:30666/rbs/v0/challenge?attester_type=tpm"
@@ -560,151 +657,21 @@ curl -s --cacert rbs-k8s-deploy/tls.crt "https://${NODE_IP}:30666/rbs/v0/challen
 curl -s "http://${NODE_IP}:30666/rbs/v0/challenge?attester_type=tpm"
 ```
 
-A JSON containing `nonce` means success (HTTP 200). Errors: see 8.5.
+A JSON containing `nonce` means success (HTTP 200). If not, check `kubectl logs -n rbs deploy/rbs` and the client symptoms:
 
-## 7. Optional paths (not required for the mainline)
+**`connection error: Connection reset by peer (os error 104)` repeated `retries` times, client gets 503 `{"error":"service temporarily unavailable"}`** = the `base_url` scheme does not match the GTA server mode (e.g. `http://` configured against an HTTPS GTA); correct the scheme in the config.
 
-### 7.1 Cross-machine NodePort access (agents / external clients)
+**Connection timeout/refused** = `GTA_BASE_URL` unreachable from inside the cluster (verify in the pod: `kubectl exec -n rbs deploy/rbs -- curl -sk --max-time 5 ${GTA_BASE_URL}`).
 
-> By default NodePorts are reachable only from the k8s host. External machines (e.g. the attestation_agent host) need one route and one forwarding rule — same setup as the GTA deployment guide 6.3 (if you already did it for GTA port 30443, only add the 30666 rules below).
+**Certificate errors (`certificate verify failed` / `self-signed certificate`)** = mount the GTA certificates per **Option 1** and retry; if certificates are truly unavailable, set `tls_verify` to `false` (less secure, only works without mTLS).
 
-**Step 1: on the external machine, add a route** (subnet = first three octets of the node IP with the last one replaced by `0` plus `/24`; example node `192.168.49.2` → `192.168.49.0/24`):
+> **Note**: the GTA does not validate `attester_type` at challenge time — an unsupported value still returns a nonce.
 
-```bash
-sudo ip route add 192.168.49.0/24 via <K8S_HOST_IP>
-```
-
-`<K8S_HOST_IP>` = from the host's `hostname -I`, the address the external machine can `ping` (skip `172.17.*` and cluster-subnet addresses).
-
-**Step 2: on the host, allow forwarding** (only when `iptables -S FORWARD | head -3` reads `Chain FORWARD (policy DROP)`; skip with `policy ACCEPT`):
-
-```bash
-sudo iptables -A FORWARD -d 192.168.49.2 -p tcp --dport 30666 -j ACCEPT
-sudo iptables -A FORWARD -s 192.168.49.2 -p tcp --sport 30666 -j ACCEPT
-```
-
-**Step 3: verify from the external machine** (expect `HTTP 200`; always add `--noproxy '*'` on machines with a proxy):
-
-```bash
-# HTTPS
-curl -sS --noproxy '*' -w "\nHTTP %{http_code}\n" --max-time 5 \
-  --cacert rbs-k8s-deploy/tls.crt "https://192.168.49.2:30666/rbs/version"
-
-# HTTP
-curl -sS --noproxy '*' -w "\nHTTP %{http_code}\n" --max-time 5 \
-  "http://192.168.49.2:30666/rbs/version"
-```
-
-> `ip route` and `iptables` are lost on reboot — re-run them (or persist via systemd units / boot scripts). For a long-term mapping prefer rinetd (a systemd service that starts on boot):
-> ```bash
-> dnf install -y rinetd    # skip if already installed
-> echo "0.0.0.0 30666 192.168.49.2 30666" >> /etc/rinetd.conf    # the external port may differ; keep the target port 30666
-> systemctl enable --now rinetd    # start now and enable at boot; restart after editing the config
-> ```
-
-### 7.2 Network hardening (NetworkPolicy)
-
-> NOT enabled by default (chapter 4 applies only namespace/Secrets/ConfigMap/PVC/Deployment/Service — this file is not included). You MUST update the CIDR before applying, otherwise all external machines are blocked.
-
-```bash
-# 1) Find your cluster's node network
-kubectl get nodes -o wide | awk '{print $6}' | tail -1
-# example output: 192.168.58.2 -> network 192.168.58.0/24
-
-# 2) Edit the CIDR (change to your node network + external client networks)
-#    file: deployment/k8s/optional/networkpolicy.yaml
-#    change cidr: 192.168.49.0/24 -> cidr: 192.168.58.0/24
-#    add an extra ipBlock rule for external access if needed
-vim deployment/k8s/optional/networkpolicy.yaml
-
-# 3) Apply and verify
-kubectl apply -f deployment/k8s/optional/networkpolicy.yaml
-kubectl get networkpolicy -n rbs
-```
-
-> Delete: `kubectl delete networkpolicy rbs-ingress -n rbs`. Silently ignored when the CNI does not support NetworkPolicy (kindnet; calico does).
-
-### 7.3 Other
-
-```bash
-# LoadBalancer exposure (replace NodePort)
-sed -i 's/type: NodePort/type: LoadBalancer/; /nodePort:/d' deployment/k8s/service.yaml
-kubectl apply -f deployment/k8s/service.yaml
-
-# Private registry
-docker tag globaltrustauthority-rbs/rbs:latest <your-registry>/rbs:latest
-docker push <your-registry>/rbs:latest
-sed -i 's|image: globaltrustauthority-rbs/rbs:latest|image: <your-registry>/rbs:latest|' deployment/k8s/deployment.yaml
-kubectl apply -f deployment/k8s/deployment.yaml
-```
-
-## 8. Troubleshooting
-
-The universal first step is always events and logs:
-
-```bash
-kubectl describe pod <Pod> -n rbs    # events: probe failures / unbound volumes / image pulls
-kubectl logs <Pod> -n rbs            # RBS logs to stdout: -f to follow, --previous for the last crash
-```
-
-> Every kubectl command fails with `Couldn't get current server API group list` / `Gateway Time-out`: the API server request is hijacked by the proxy — set no_proxy per 1.1 (kind: 1.2) first, then come back.
-> Pods stuck en masse in `Pending`/`Terminating`, or `kubectl exec` reporting container not found: usually the node is NotReady (kubelet unreachable) — confirm with `kubectl get nodes`, fix per 1.3, then continue.
-> `curl` on a local address returns an HTML proxy page instead of the expected JSON: the curl request was hijacked by the proxy — add `localhost,127.0.0.1` to no_proxy (see 1.1, kind: 1.2).
-
-**Symptom table**:
-
-| Symptom | Cause | Fix |
-|---|---|---|
-| Every kubectl call fails with `Gateway Time-out` | shell proxy variables hijack API-server requests | export the no_proxy pair per 1.1 |
-| Pods stuck en masse in `Pending`/`Terminating` | node NotReady (kubelet unreachable) | fix per 1.3 |
-| Pod `Pending` | PVC unbound (no default StorageClass) | `kubectl get storageclass`; add `storageClassName:` in `pvc.yaml` and re-apply |
-| Pod `ImagePullBackOff` | image not loaded into the cluster | re-run 2.2 (incl. the ctr fallback) |
-| Pod `CrashLoopBackOff`, log mentions a config field | missing/invalid config value | fix `rbs-k8s-deploy/rbs.yaml` (for HTTPS also confirm the `rbs-tls` Secret from 4.2 exists) → update rbs-config via delete+create as in 4.3 → `kubectl rollout restart deployment/rbs -n rbs` |
-| Pod `CrashLoopBackOff`, log mentions `rest.https.cert_file not readable` | took 4.3 Option 2 (skipped 4.2) but did not run the Option-2 sed — the config still has `enabled: true` | run the 4.3 Option-2 sed → delete+recreate the rbs-config Secret → `kubectl rollout restart deployment/rbs -n rbs` (or switch to Option 1: create the `rbs-tls` Secret and redo the config the same way) |
-| Pod `CrashLoopBackOff`, log mentions `health.listen_addr must differ` | health and rest share an address | make them differ, update rbs-config |
-| Pod `CrashLoopBackOff`, log mentions `execute sql: No such file` | `storage.sql_file_path` points nowhere | keep the template value `/usr/share/rbs/sqlite_rbs.sql` (in-image path) |
-| Pod `Running` but `READY 0/1` | readiness probe failing (SQLite unavailable or slow) | `kubectl logs -n rbs deploy/rbs` for "readiness probe"; check the PVC |
-| curl/rbs-cli TLS errors (`wrong version number` = HTTPS client vs HTTP server; `Recv failure: Connection reset by peer` = HTTP client vs HTTPS server) | client scheme ≠ server mode (`rest.https.enabled`) | align both sides: `http://` + no cert flag against a plain-HTTP server, `https://` + `--cacert` against HTTPS; confirm the active mode with `kubectl logs -n rbs deploy/rbs \| grep listening` |
-| NodePort `curl` times out | cross-machine routing / Docker Desktop bridge limits | see 8.4 |
-
-### 8.4 NodePort unreachable (five checks)
-
-`https://${NODE_IP}:30666` failing/timing out — check in order:
-
-```bash
-NODE_IP=$(minikube ip)    # 1) Address: does the node IP match the access address? (may change after
-                          #    a cluster restart; kind: kubectl get nodes -o wide)
-ip route                  # 2) Cross-machine route: when accessing from another machine, complete 7.1 first
-curl -v https://${NODE_IP}:30666/rbs/version --max-time 3            # 3) Proxy: output containing "Uses proxy env variable ..." = hijacked (fix per 1.1 / 7.1)
-curl -vk --noproxy '*' https://${NODE_IP}:30666/rbs/version --max-time 3    # 4) Firewall: a direct connection must at least show the TCP connection and the TLS handshake start
-openssl x509 -in rbs-k8s-deploy/tls.crt -noout -text | grep -A1 "Subject Alternative Name"    # 5) Certificate SAN: must contain the node IP
-```
-
-Fixes: address mismatch → re-acquire `NODE_IP` and re-run (a changed node IP additionally needs the Chapter-3 certificate re-issued, the Secrets recreated and a rollout restart); missing SAN → re-issue per Chapter 3; route/proxy → per 7.1 / 1.1. Plain-HTTP deployments: use `http://` URLs in each check (drop `-k` and the certificate options); check 5 does not apply.
-
-When the node IP stays unreachable (Docker Desktop), fall back to port-forward:
-
-```bash
-kubectl port-forward -n rbs deploy/rbs 16666:6666 &
-curl -s --cacert rbs-k8s-deploy/tls.crt https://localhost:16666/rbs/version    # HTTP: drop --cacert, use http://
-kill %1
-```
-
-### 8.5 challenge errors
-
-Symptoms in `kubectl logs -n rbs deploy/rbs` and on the client:
-
-- `connection error: Connection reset by peer (os error 104)` repeated `retries` times, client gets 503 `{"error":"service temporarily unavailable"}` → the `GTA_BASE_URL` scheme does not match the GTA server mode (e.g. `http://` configured against an HTTPS GTA); correct the scheme in the config.
-- Connection timeout/refused → `GTA_BASE_URL` unreachable from inside the cluster (verify in the pod: `kubectl exec -n rbs deploy/rbs -- curl -sk --max-time 5 ${GTA_BASE_URL}`).
-- Certificate errors (`certificate verify failed` / `self-signed certificate`) → follow **Chapter 6 Option 1** to mount GTA certificates and retry; if certificates are truly unavailable, set `tls_verify` to `false` (less secure, only works without mTLS).
-
-Note: the GTA does not validate `attester_type` at challenge time — an unsupported value still returns a nonce.
-
-## 9. Integrate the Vault resource backend (OpenBao)
+## 7. Integrate the Vault resource backend (OpenBao)
 
 > Output of this chapter: RBS reads secrets/certs from OpenBao and returns JWE-encrypted content. Prerequisites: Chapter 6 (GTA) done; a reachable OpenBao service (outside the cluster).
 
-### 9.0 Prerequisites (common to chapters 9/10/11)
+### 7.0 Prerequisites (common to chapters 7/8/9)
 
 Prepare once — all three resource-backend chapters use them:
 
@@ -748,26 +715,26 @@ openssl rsa -in attester_private.pem -pubout -out attester_public.pem
 
 ```bash
 # HTTPS
-NODE_IP=$(minikube ip)   # kind: NODE_IP=$(kubectl get nodes -o wide | awk '/^rbs-control-plane/{print $6}')
+NODE_IP=192.168.49.2   # ← replace with the node IP (INTERNAL-IP column of kubectl get nodes -o wide)
 export RBS_URL="https://${NODE_IP}:30666"
 ```
 
 ```bash
 # HTTP
-NODE_IP=$(minikube ip)   # kind: NODE_IP=$(kubectl get nodes -o wide | awk '/^rbs-control-plane/{print $6}')
+NODE_IP=192.168.49.2   # ← replace with the node IP (INTERNAL-IP column of kubectl get nodes -o wide)
 export RBS_URL="http://${NODE_IP}:30666"
 ```
 
-Every rbs-cli command in chapters 9–11 is likewise given twice: the `# HTTPS` form carries `--cert rbs-k8s-deploy/tls.crt`, the `# HTTP` form omits it.
+Every rbs-cli command in chapters 7–9 is likewise given twice: the `# HTTPS` form carries `--cert rbs-k8s-deploy/tls.crt`, the `# HTTP` form omits it.
 
-**6) Proxy exclusion** (mandatory when `http_proxy`/`https_proxy` is exported — same pair as 1.1, otherwise kubectl/rbs-cli requests to the node IP are hijacked and fail with 504):
+**6) Proxy exclusion** (mandatory when `http_proxy`/`https_proxy` is exported — same treatment as Chapter 1, otherwise kubectl/rbs-cli requests to the node IP are hijacked and fail with 504):
 
 ```bash
 export no_proxy="${NODE_IP},localhost,127.0.0.1"
 export NO_PROXY="$no_proxy"
 ```
 
-### 9.1 Start OpenBao and pre-create a secret
+### 7.1 Start OpenBao and pre-create a secret
 
 ```bash
 # On the OpenBao host (dev mode for functional verification; use a persistent deployment in production)
@@ -784,14 +751,13 @@ curl -s -X POST -H "X-Vault-Token: root" -H "Content-Type: application/json" \
   http://127.0.0.1:8200/v1/secret/data/default/secret/mykey
 ```
 
-### 9.2 Update the RBS config
+### 7.2 Update the RBS config
 
-Insert a `resource:` section before `storage:` in `rbs-k8s-deploy/rbs.yaml` (other sections unchanged), then update the Secret and restart:
+Chapters 7/8/9 each add one backend into the same top-level `resource:` section. Every chapter therefore uses a guarded two-step edit: step 1 inserts this chapter's backend entry before `storage:` (skipped if it already exists); step 2 adds the `resource:` / `backends:` headers if they are missing. The chapters can be done in any order, and re-running is safe.
 
 ```bash
-sed -i '/^storage:/i\
-resource:\
-  backends:\
+# Add the vault backend entry (skipped if already present)
+grep -q '^    vault:' rbs-k8s-deploy/rbs.yaml || sed -i '/^storage:/i\
     vault:\
       type: vault\
       url: "http://<OPENBAO_IP>:8200"\
@@ -801,16 +767,24 @@ resource:\
       verify_ssl: false\
       allowed_resource_types: ["secret", "cert"]' rbs-k8s-deploy/rbs.yaml
 
+# Add the resource: headers for the entry above (skipped if another chapter already added them)
+grep -q '^resource:' rbs-k8s-deploy/rbs.yaml || sed -i 's/^    vault:/resource:\
+  backends:\
+    vault:/' rbs-k8s-deploy/rbs.yaml
+
+# Update the Secret and restart
 kubectl delete secret rbs-config -n rbs
 kubectl create secret generic rbs-config -n rbs --from-file=rbs.yaml=rbs-k8s-deploy/rbs.yaml
 kubectl rollout restart deployment/rbs -n rbs
 kubectl rollout status deployment/rbs -n rbs --timeout=120s
 ```
 
-> `<OPENBAO_IP>` = the IP of the machine running OpenBao (run `hostname -I | awk '{print $1}'` **on that machine**). It must be reachable from the RBS pod — same principle as the GTA address in chapter 6. Verify before applying:
-> ```bash
-> kubectl exec -n rbs deploy/rbs -- curl -s --max-time 5 http://<OPENBAO_IP>:8200/v1/sys/health
-> ```
+`<OPENBAO_IP>` = the IP of the machine running OpenBao (run `hostname -I | awk '{print $1}'` **on that machine**). It must be reachable from the RBS pod — same principle as the GTA address in chapter 6. Verify before applying:
+
+```bash
+kubectl exec -n rbs deploy/rbs -- curl -s --max-time 5 http://<OPENBAO_IP>:8200/v1/sys/health
+```
+
 > In production, replace `token: "root"` with a dedicated token and set `verify_ssl: true` with a CA.
 
 Verify registration:
@@ -820,13 +794,13 @@ kubectl logs -n rbs deploy/rbs | grep -i vault | tail -2
 # expected: Registered resource backend 'vault' (type=vault, url=http://<OPENBAO_IP>:8200)
 ```
 
-### 9.3 Create a resource policy and register the resource
+### 7.3 Create a resource policy and register the resource
 
 Run on the **host**:
 
 ```bash
 # HTTPS — create a resource policy and register the resource
-NODE_IP=$(minikube ip)   # kind: NODE_IP=$(kubectl get nodes -o wide | awk '/^rbs-control-plane/{print $6}')
+NODE_IP=192.168.49.2   # ← replace with the node IP (INTERNAL-IP column of kubectl get nodes -o wide)
 export RBS_URL="https://${NODE_IP}:30666"
 export BEARER_TOKEN="$(rbs-cli token gen --private-key-file rbs-k8s-deploy/admin_key.pem)"
 
@@ -853,7 +827,7 @@ rbs-cli -b "$RBS_URL" --cert rbs-k8s-deploy/tls.crt -t "$BEARER_TOKEN" \
 
 ```bash
 # HTTP — create a resource policy and register the resource
-NODE_IP=$(minikube ip)   # kind: NODE_IP=$(kubectl get nodes -o wide | awk '/^rbs-control-plane/{print $6}')
+NODE_IP=192.168.49.2   # ← replace with the node IP (INTERNAL-IP column of kubectl get nodes -o wide)
 export RBS_URL="http://${NODE_IP}:30666"
 export BEARER_TOKEN="$(rbs-cli token gen --private-key-file rbs-k8s-deploy/admin_key.pem)"
 
@@ -878,7 +852,7 @@ rbs-cli -b "$RBS_URL" -t "$BEARER_TOKEN" \
   res get-res-info --uri vault/default/secret/mykey
 ```
 
-### 9.4 Get the resource content (attest token + JWE decryption)
+### 7.4 Get the resource content (attest token + JWE decryption)
 
 ```bash
 # HTTPS — get the resource content
@@ -908,61 +882,96 @@ rbs-cli -b "$RBS_URL" \
   --private-key-file attester_private.pem
 ```
 
-Expected output: `{"myvalue":"hello-vault","num":42}` (the secret pre-created in 9.1).
+Expected output: `{"myvalue":"hello-vault","num":42}` (the secret pre-created in 7.1).
 
-> **Note (mTLS-enforcing GTA)**: `client get-token --attester-pubkey` runs the attestation flow in-process via the `attestation_client` SDK, which currently does **not** send the agent client certificate — against an mTLS-enforcing GTA (the GTA guide default) the challenge step fails with `tlsv13 alert certificate required`. In that case obtain the token from the running `attestation_agent` daemon instead — its GTA client does present the configured `server.tls.cert_path`/`key_path`:
-> ```bash
-> curl -s --unix-socket /var/run/attestation_agent.sock \
->   -X POST http://localhost/global-trust-authority/agent/v1/tokens \
->   -H "Content-Type: application/json" \
->   -d '{"attester_info":[{"attester_type":"tpm_boot"}],"challenge":true,
->        "attester_data":{"runtime_data":{"tee-pubkey":{"kty":"RSA","alg":"RSA-OAEP-256","n":"...","e":"AQAB"}}}}'
-> ```
-> (`attester_info` lists the attesters enabled in the agent config; `tee-pubkey` is `attester_public.pem` as a JWK — `n` = the key modulus, base64url.) The response `{"token":"..."}` feeds step 2 unchanged.
+**Challenge failing with `tlsv13 alert certificate required` (mTLS-enforcing GTA, the GTA guide default)**: `client get-token --attester-pubkey` runs the attestation flow in-process via the `attestation_client` SDK, which currently does **not** send the agent client certificate. Obtain the token from the running `attestation_agent` daemon instead — its GTA client does present the configured `server.tls.cert_path`/`key_path`:
+
+```bash
+curl -s --unix-socket /var/run/attestation_agent.sock \
+  -X POST http://localhost/global-trust-authority/agent/v1/tokens \
+  -H "Content-Type: application/json" \
+  -d '{"attester_info":[{"attester_type":"tpm_boot"}],"challenge":true,
+       "attester_data":{"runtime_data":{"tee-pubkey":{"kty":"RSA","alg":"RSA-OAEP-256","n":"...","e":"AQAB"}}}}'
+```
+
+(`attester_info` lists the attesters enabled in the agent config; `tee-pubkey` is `attester_public.pem` as a JWK — `n` = the key modulus, base64url.) The response `{"token":"..."}` feeds step 2 unchanged.
 
 > **Vault backend behavior**: read-only — `res create` only registers a reference; the secret itself must be pre-created in OpenBao. Update/delete only touch the RBS DB record, never the OpenBao content.
 
-## 10. Integrate the HSM resource backend (SoftHSM2)
+## 8. Integrate the HSM resource backend (SoftHSM2)
 
-> Output of this chapter: RBS reads/writes key material in an HSM via PKCS#11. Prerequisites: Chapter 6 (GTA) done; SoftHSM2 installed on the host.
-> Opposite to Vault, HSM is **write-mostly**: create/update/delete all operate the HSM. GET accepts attest tokens only (Bearer GETs always return 404).
+> Output of this chapter: RBS reads/writes key material in an HSM via PKCS#11. Prerequisites: Chapter 6 (GTA) done; SoftHSM2 installed on the node that will run the RBS Pod (see the note in 8.2).
 
-### 10.1 Install SoftHSM2 and initialize a token
+Opposite to Vault, HSM is **write-mostly**: create/update/delete all operate the HSM. GET accepts attest tokens only (Bearer GETs always return 404).
+
+### 8.1 Install SoftHSM2 and initialize a token
 
 ```bash
-# On the host
+# On the node that will run the RBS Pod
 sudo dnf install -y softhsm
 sudo softhsm2-util --init-token --free --label "rbs_slot" --pin 1234 --so-pin 5678
 softhsm2-util --show-slots | grep -i label    # expected: Token label: rbs_slot
 ls /usr/lib64/pkcs11/libsofthsm2.so           # confirm the module file exists
 ```
 
-### 10.2 Mount the HSM module and token into the pod
+### 8.2 Mount the HSM module and token into the pod
 
-HSM is a local device — mount the host's module file and token data into the RBS pod:
+HSM is a local device — mount the module file, token data, and a SoftHSM2 config file into the RBS pod:
 
 ```bash
 # 1) Create the HSM PIN Secret
 kubectl create secret generic rbs-hsm-pin -n rbs --from-literal=pin=1234
 
-# 2) Mount module + tokens and inject the PIN env var
+# 2) Create a SoftHSM2 config file and turn it into a ConfigMap.
+#    /etc/softhsm2.conf does not exist inside the RBS image; without it SoftHSM
+#    fails with 'C_Initialize failed ... CKR_GENERAL_ERROR'.
+cat > rbs-k8s-deploy/softhsm2.conf <<'EOF'
+directories.tokendir = /var/lib/softhsm/tokens/
+objectstore.backend = file
+log.level = ERROR
+slots.removable = false
+slots.mechanisms = ALL
+library.reset_on_fork = false
+EOF
+kubectl create configmap rbs-softhsm-conf -n rbs --from-file=softhsm2.conf=rbs-k8s-deploy/softhsm2.conf
+
+# 3) Mount module + tokens + config and inject the PIN env var.
+#    The module volume IS the .so file itself, so mount it directly at the target
+#    path without subPath (subPath looks for a path INSIDE the volume, and there
+#    are no paths inside a file — the pod would hang in
+#    CreateContainerConfigError: failed to prepare subPath). The ConfigMap volume
+#    below is a directory, so subPath works fine there.
 kubectl patch deployment rbs -n rbs --type='json' -p='[
   {"op":"add","path":"/spec/template/spec/volumes/-","value":{"name":"hsm-module","hostPath":{"path":"/usr/lib64/pkcs11/libsofthsm2.so","type":"File"}}},
   {"op":"add","path":"/spec/template/spec/volumes/-","value":{"name":"hsm-tokens","hostPath":{"path":"/var/lib/softhsm/tokens","type":"Directory"}}},
-  {"op":"add","path":"/spec/template/spec/containers/0/volumeMounts/-","value":{"name":"hsm-module","mountPath":"/usr/lib/pkcs11/libsofthsm2.so","subPath":"libsofthsm2.so","readOnly":true}},
+  {"op":"add","path":"/spec/template/spec/volumes/-","value":{"name":"softhsm-conf","configMap":{"name":"rbs-softhsm-conf"}}},
+  {"op":"add","path":"/spec/template/spec/containers/0/volumeMounts/-","value":{"name":"hsm-module","mountPath":"/usr/lib/pkcs11/libsofthsm2.so","readOnly":true}},
   {"op":"add","path":"/spec/template/spec/containers/0/volumeMounts/-","value":{"name":"hsm-tokens","mountPath":"/var/lib/softhsm/tokens"}},
+  {"op":"add","path":"/spec/template/spec/containers/0/volumeMounts/-","value":{"name":"softhsm-conf","mountPath":"/etc/softhsm2.conf","subPath":"softhsm2.conf","readOnly":true}},
   {"op":"add","path":"/spec/template/spec/containers/0/env","value":[{"name":"RBS_HSM_PIN","valueFrom":{"secretKeyRef":{"name":"rbs-hsm-pin","key":"pin"}}}]}
 ]'
 ```
 
-> For production, use a network HSM (no hostPath mounts needed; just set `module_path` to the network HSM's PKCS#11 library).
+**hostPath volumes read the node's filesystem, not your workstation's** — the two hostPath paths above must exist on the node that runs the RBS Pod: run 8.1 on whichever node that is.
 
-### 10.3 Update the RBS config
+**Multi-node clusters**: either repeat 8.1 on every node or pin the Pod to a prepared node (e.g. with a `nodeSelector`).
+
+Finally, make the token directory writable by the RBS user — the container runs as uid 999 and `fsGroup` does not apply to hostPath volumes:
 
 ```bash
-sed -i '/^storage:/i\
-resource:\
-  backends:\
+# On the node
+sudo chown -R 999:999 /var/lib/softhsm/tokens
+```
+
+> For production, use a network HSM (no hostPath mounts needed; just set `module_path` to the network HSM's PKCS#11 library).
+
+### 8.3 Update the RBS config
+
+Same guarded two-step edit as 7.2 — append the `hsm` entry and add the `resource:` headers if they are missing:
+
+```bash
+# Add the hsm backend entry (skipped if already present)
+grep -q '^    hsm:' rbs-k8s-deploy/rbs.yaml || sed -i '/^storage:/i\
     hsm:\
       type: hsm\
       module_path: "/usr/lib/pkcs11/libsofthsm2.so"\
@@ -972,6 +981,12 @@ resource:\
         pin_env: "RBS_HSM_PIN"\
       allowed_resource_types: ["key", "secret"]' rbs-k8s-deploy/rbs.yaml
 
+# Add the resource: headers for the entry above (skipped if another chapter already added them)
+grep -q '^resource:' rbs-k8s-deploy/rbs.yaml || sed -i 's/^    hsm:/resource:\
+  backends:\
+    hsm:/' rbs-k8s-deploy/rbs.yaml
+
+# Update the Secret and restart
 kubectl delete secret rbs-config -n rbs
 kubectl create secret generic rbs-config -n rbs --from-file=rbs.yaml=rbs-k8s-deploy/rbs.yaml
 kubectl rollout restart deployment/rbs -n rbs
@@ -986,11 +1001,11 @@ kubectl logs -n rbs deploy/rbs | grep -iE "hsm|slot" | tail -3
 #           Registered resource backend 'hsm' (type=hsm)
 ```
 
-### 10.4 Create a resource policy and write key material
+### 8.4 Create a resource policy and write key material
 
 ```bash
 # HTTPS — create a resource policy and write key material
-NODE_IP=$(minikube ip)   # kind: NODE_IP=$(kubectl get nodes -o wide | awk '/^rbs-control-plane/{print $6}')
+NODE_IP=192.168.49.2   # ← replace with the node IP (INTERNAL-IP column of kubectl get nodes -o wide)
 export RBS_URL="https://${NODE_IP}:30666"
 export BEARER_TOKEN="$(rbs-cli token gen --private-key-file rbs-k8s-deploy/admin_key.pem)"
 
@@ -1016,7 +1031,7 @@ rbs-cli -b "$RBS_URL" --cert rbs-k8s-deploy/tls.crt -t "$BEARER_TOKEN" \
 
 ```bash
 # HTTP — create a resource policy and write key material
-NODE_IP=$(minikube ip)   # kind: NODE_IP=$(kubectl get nodes -o wide | awk '/^rbs-control-plane/{print $6}')
+NODE_IP=192.168.49.2   # ← replace with the node IP (INTERNAL-IP column of kubectl get nodes -o wide)
 export RBS_URL="http://${NODE_IP}:30666"
 export BEARER_TOKEN="$(rbs-cli token gen --private-key-file rbs-k8s-deploy/admin_key.pem)"
 
@@ -1040,7 +1055,7 @@ rbs-cli -b "$RBS_URL" -t "$BEARER_TOKEN" \
   --content-type binary --content @keymat.b64
 ```
 
-### 10.5 Get HSM resource content (attest token only)
+### 8.5 Get HSM resource content (attest token only)
 
 ```bash
 # HTTPS — get HSM resource content
@@ -1066,16 +1081,17 @@ rbs-cli -b "$RBS_URL" \
   --private-key-file attester_private.pem
 ```
 
-The output is the Base64 encoding of the key material; `base64 -d` matches what was written in 10.4.
+The output is the Base64 encoding of the key material; `base64 -d` matches what was written in 8.4.
 
 > **HSM backend behavior**: write-mostly — create actually writes to the HSM (must carry `--content`, otherwise later GETs fail with 404); update with `--content` overwrites the HSM object; delete actually removes the PKCS#11 object (irreversible).
 
-## 11. Integrate the CA resource backend (XiPKI)
+## 9. Integrate the CA resource backend (XiPKI)
 
 > Output of this chapter: RBS issues certificates live from a CA via CMPv2. Prerequisites: Chapter 6 (GTA) done; a reachable XiPKI service (outside the cluster).
-> The CA backend is a **certificate-issuance proxy**: create/update/delete are metadata-only; GET takes the CSR from the attest token and issues a certificate live from the CA.
 
-### 11.1 Deploy XiPKI
+The CA backend is a **certificate-issuance proxy**: create/update/delete are metadata-only; GET takes the CSR from the attest token and issues a certificate live from the CA.
+
+### 9.1 Deploy XiPKI
 
 On the XiPKI host (abbreviated steps; full deployment see [XiPKI docs](https://github.com/xipki/xipki)):
 
@@ -1097,7 +1113,7 @@ cd xipki-setup-6.7.0 && ./prepare.sh && ./demo.sh
 ss -ltn | grep -E ':8444|:8082|:8083'
 ```
 
-### 11.2 Prepare the CMP client certificate and trust anchors
+### 9.2 Prepare the CMP client certificate and trust anchors
 
 ```bash
 # CMP client certificate/key (RBS signs CMP requests with it)
@@ -1112,7 +1128,7 @@ rm -f /tmp/cmp-client.key.tmp /tmp/cmp-client.p12
 cp /root/demo_xipki/gateway-tomcat/xipki/keycerts/gateway-server-cert.pem rbs-k8s-deploy/ca-anchors.pem
 ```
 
-### 11.3 Mount certificates and update the RBS config
+### 9.3 Mount certificates and update the RBS config
 
 ```bash
 # 1) Create the CA certificate Secret
@@ -1127,10 +1143,8 @@ kubectl patch deployment rbs -n rbs --type='json' -p='[
   {"op":"add","path":"/spec/template/spec/containers/0/volumeMounts/-","value":{"name":"ca-certs","mountPath":"/etc/rbs/ca-certs","readOnly":true}}
 ]'
 
-# 3) Add the resource section
-sed -i '/^storage:/i\
-resource:\
-  backends:\
+# 3) Add the ca backend entry (skipped if already present) — same guarded two-step edit as 7.2
+grep -q '^    ca:' rbs-k8s-deploy/rbs.yaml || sed -i '/^storage:/i\
     ca:\
       type: ca\
       url: "http://<XIPKI_IP>:8082/gw/cmp/myca1"\
@@ -1142,7 +1156,12 @@ resource:\
       cert_profile: "smime"\
       allowed_resource_types: ["cert"]' rbs-k8s-deploy/rbs.yaml
 
-# 4) Update the Secret and restart
+# 4) Add the resource: headers for the entry above (skipped if another chapter already added them)
+grep -q '^resource:' rbs-k8s-deploy/rbs.yaml || sed -i 's/^    ca:/resource:\
+  backends:\
+    ca:/' rbs-k8s-deploy/rbs.yaml
+
+# 5) Update the Secret and restart
 kubectl delete secret rbs-config -n rbs
 kubectl create secret generic rbs-config -n rbs --from-file=rbs.yaml=rbs-k8s-deploy/rbs.yaml
 kubectl rollout restart deployment/rbs -n rbs
@@ -1154,16 +1173,19 @@ kubectl rollout status deployment/rbs -n rbs --timeout=120s
 Verify registration:
 
 ```bash
-kubectl logs -n rbs deploy/rbs | grep -i "CA backend" | tail -2
-# expected: CA backend initialized: url='http://<XIPKI_IP>:8082/gw/cmp/myca1', anchors=1
-#           Registered resource backend 'ca' (type=ca)
+kubectl logs -n rbs deploy/rbs | grep -iE "CA backend|Registered resource backend 'ca'" | tail -3
+# expected: WARN - CA backend: https.verify=false (non-production)
+#           INFO - CA backend initialized: url='http://<XIPKI_IP>:8082/gw/cmp/myca1', anchors=1
+#           INFO - Registered resource backend 'ca' (type=ca)
 ```
 
-### 11.4 Create a resource policy and register the CA resource
+> The WARN line is expected with this guide's `verify: false` setting, not an error; it disappears once you switch to `verify: true`.
+
+### 9.4 Create a resource policy and register the CA resource
 
 ```bash
 # HTTPS — create a resource policy and register the CA resource
-NODE_IP=$(minikube ip)   # kind: NODE_IP=$(kubectl get nodes -o wide | awk '/^rbs-control-plane/{print $6}')
+NODE_IP=192.168.49.2   # ← replace with the node IP (INTERNAL-IP column of kubectl get nodes -o wide)
 export RBS_URL="https://${NODE_IP}:30666"
 export BEARER_TOKEN="$(rbs-cli token gen --private-key-file rbs-k8s-deploy/admin_key.pem)"
 
@@ -1185,7 +1207,8 @@ rbs-cli -b "$RBS_URL" --cert rbs-k8s-deploy/tls.crt -t "$BEARER_TOKEN" \
 
 ```bash
 # HTTP — create a resource policy and register the CA resource
-NODE_IP=$(minikube ip)   # kind: NODE_IP=$(kubectl get nodes -o wide | awk '/^rbs-control-plane/{print $6}')
+
+NODE_IP=192.168.49.2   # ← replace with the node IP (INTERNAL-IP column of kubectl get nodes -o wide)
 export RBS_URL="http://${NODE_IP}:30666"
 export BEARER_TOKEN="$(rbs-cli token gen --private-key-file rbs-k8s-deploy/admin_key.pem)"
 
@@ -1205,7 +1228,7 @@ rbs-cli -b "$RBS_URL" -t "$BEARER_TOKEN" \
   res create --uri ca/default/cert/mycert --policy-id "$POLICY_ID" --content-type binary
 ```
 
-### 11.5 Get a certificate (attest token + CSR)
+### 9.5 Get a certificate (attest token + CSR)
 
 ```bash
 # Both modes — 1) generate a CSR (subject must match cert_profile)
